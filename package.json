@@ -1,0 +1,128 @@
+{
+  "name": "waarp",
+  "productName": "Waarp",
+  "version": "0.4.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "description": "Windows per-app and per-site traffic router with stable Auto paths and multi-protocol tunnels",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "esbuild test/core.check.ts --bundle --platform=node --outfile=out/test/core.check.js --log-level=warning && node out/test/core.check.js && esbuild test/vless.check.ts --bundle --platform=node --outfile=out/test/vless.check.js --log-level=warning && node out/test/vless.check.js && esbuild test/fallback.check.ts --bundle --platform=node --outfile=out/test/fallback.check.js --log-level=warning && node out/test/fallback.check.js && esbuild test/groups.check.ts --bundle --platform=node --outfile=out/test/groups.check.js --log-level=warning && node out/test/groups.check.js && esbuild test/links.check.ts --bundle --platform=node --outfile=out/test/links.check.js --log-level=warning && node out/test/links.check.js && esbuild test/discovery.check.ts --bundle --platform=node --outfile=out/test/discovery.check.js --log-level=warning && node out/test/discovery.check.js && esbuild test/openvpn.check.ts --bundle --platform=node --outfile=out/test/openvpn.check.js --log-level=warning && node out/test/openvpn.check.js && esbuild test/vpngate.check.ts --bundle --platform=node --outfile=out/test/vpngate.check.js --log-level=warning && node out/test/vpngate.check.js && esbuild test/effective.check.ts --bundle --platform=node --outfile=out/test/effective.check.js --log-level=warning && node out/test/effective.check.js && esbuild test/evidence.check.ts --bundle --platform=node --outfile=out/test/evidence.check.js --log-level=warning && node out/test/evidence.check.js && esbuild test/netmemory.check.ts --bundle --platform=node --outfile=out/test/netmemory.check.js --log-level=warning && node out/test/netmemory.check.js && esbuild test/hardening.check.ts --bundle --platform=node --outfile=out/test/hardening.check.js --log-level=warning --external:electron && node out/test/hardening.check.js && esbuild test/bridge.check.ts --bundle --platform=node --outfile=out/test/bridge.check.js --log-level=warning && node out/test/bridge.check.js && esbuild test/tun.check.ts --bundle --platform=node --outfile=out/test/tun.check.js --log-level=warning --external:electron && node out/test/tun.check.js && esbuild test/stop.check.ts --bundle --platform=node --outfile=out/test/stop.check.js --log-level=warning --external:electron && node out/test/stop.check.js && esbuild test/resume.check.ts --bundle --platform=node --outfile=out/test/resume.check.js --log-level=warning && node out/test/resume.check.js && esbuild test/autopool.check.ts --bundle --platform=node --outfile=out/test/autopool.check.js --log-level=warning --external:electron && node out/test/autopool.check.js && esbuild test/matrix.check.ts --bundle --platform=node --outfile=out/test/matrix.check.js --log-level=warning --alias:electron=./test/stubs/electron.ts && node out/test/matrix.check.js && esbuild test/apply.check.ts --bundle --platform=node --outfile=out/test/apply.check.js --log-level=warning --external:electron && node out/test/apply.check.js",
+    "dist": "npm run engine:verify && npm run build && electron-builder --win --publish never",
+    "pack": "npm run engine:verify && npm run build && electron-builder --win dir",
+    "check": "node scripts/check-raw-ui.mjs && node scripts/check-icons.mjs && node scripts/check-strings.mjs",
+    "test:live": "esbuild test/live.stress.ts --bundle --platform=node --outfile=out/test/live.js --log-level=warning && node out/test/live.js",
+    "engine:fetch": "node scripts/engine.mjs fetch",
+    "engine:verify": "node scripts/engine.mjs verify"
+  },
+  "dependencies": {
+    "@fontsource-variable/instrument-sans": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource/inter": "^5.3.0",
+    "jsqr": "^1.4.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "simple-icons": "^16.33.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^44.4.5",
+    "electron-builder": "26.15.3",
+    "electron-vite": "^5.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.3.6"
+  },
+  "build": {
+    "appId": "local.waarp",
+    "productName": "Waarp",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "engine",
+        "to": "engine",
+        "filter": [
+          "sing-box.exe",
+          "libcronet.dll",
+          "integrity.json",
+          "LICENSE",
+          "SOURCE.md",
+          "CRONET-NOTICES.txt"
+        ]
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "LICENSE",
+        "to": "LICENSE.txt"
+      },
+      {
+        "from": "NOTICE",
+        "to": "NOTICE.txt"
+      },
+      {
+        "from": "node_modules/react/LICENSE",
+        "to": "licenses/react/LICENSE"
+      },
+      {
+        "from": "node_modules/react-dom/LICENSE",
+        "to": "licenses/react-dom/LICENSE"
+      },
+      {
+        "from": "node_modules/scheduler/LICENSE",
+        "to": "licenses/scheduler/LICENSE"
+      },
+      {
+        "from": "node_modules/jsqr/LICENSE",
+        "to": "licenses/jsqr/LICENSE"
+      },
+      {
+        "from": "node_modules/simple-icons/LICENSE.md",
+        "to": "licenses/simple-icons/LICENSE.md"
+      },
+      {
+        "from": "node_modules/@fontsource/inter/LICENSE",
+        "to": "licenses/@fontsource/inter/LICENSE"
+      },
+      {
+        "from": "node_modules/@fontsource-variable/instrument-sans/LICENSE",
+        "to": "licenses/@fontsource-variable/instrument-sans/LICENSE"
+      },
+      {
+        "from": "node_modules/@fontsource-variable/jetbrains-mono/LICENSE",
+        "to": "licenses/@fontsource-variable/jetbrains-mono/LICENSE"
+      }
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "build/icon.png",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "Waarp"
+    },
+    "portable": {
+      "artifactName": "Waarp-${version}-portable.exe"
+    }
+  }
+}

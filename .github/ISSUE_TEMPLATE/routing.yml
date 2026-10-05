@@ -1,0 +1,72 @@
+name: Routing / network problem
+description: Traffic goes the wrong way, leaks, or does not connect
+labels: ["routing", "network"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not post VPN configs, keys or subscription URLs.** Describe the problem in words and remove any private addresses from logs.
+  - type: input
+    id: version
+    attributes:
+      label: Waarp version
+    validations:
+      required: true
+  - type: dropdown
+    id: route-type
+    attributes:
+      label: Route type
+      options:
+        - App
+        - Site
+        - Whole computer
+        - Auto
+        - Group
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected path
+      description: Where should this traffic go?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true
+  - type: dropdown
+    id: restart
+    attributes:
+      label: Does the problem survive a restart?
+      options:
+        - "Yes"
+        - "No"
+        - "Not tried"
+    validations:
+      required: true
+  - type: dropdown
+    id: other-vpn
+    attributes:
+      label: Is other VPN / TUN software active?
+      options:
+        - "No"
+        - "Yes"
+        - "Not sure"
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics or logs
+      description: Optional, if available.
+  - type: checkboxes
+    id: sanitized
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed secrets (keys, subscription URLs, tokens, VPN configs) and private endpoints from this report.
+          required: true

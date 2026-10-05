@@ -1,0 +1,70 @@
+name: Bug report
+description: Something in Waarp does not work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please remove keys, subscription URLs, tokens and private server addresses from anything you post.
+  - type: input
+    id: version
+    attributes:
+      label: Waarp version
+      placeholder: e.g. 1.2.3
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: e.g. Windows 11 23H2
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Short description
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: other-vpn
+    attributes:
+      label: Was another VPN or network tool active?
+      description: Optional, but useful for routing problems.
+      options:
+        - "No"
+        - "Yes"
+        - "Not sure"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Optional. Sanitized only.
+  - type: checkboxes
+    id: sanitized
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed secrets (keys, subscription URLs, tokens) and private endpoints from this report.
+          required: true

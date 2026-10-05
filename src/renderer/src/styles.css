@@ -1,0 +1,150 @@
+:root {
+  --bg: #141312; --side: #100f0e; --field: #181716; --win: #1d1c1a; --raise: #242321; --hi: #2c2a28;
+  --line: #33312e; --line-2: #46433f;
+  --t: #e6e3de; --t2: #c6c1bb; --m: #9a958f; --d: #a09a94; --t4: #8e8983;
+  --a-sub: #2d1d17; --a-line: #5a3323; --a-press: #c2633f; --a: #d97757; --a-hover: #e58b6c; --a-text: #f0a98d;
+  --ok: #9bb06e; --warn: #e3b040; --err: #d6646f; --test: #5aa2ec;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s6: 24px; --s8: 32px;
+  --r-sm: 4px; --r: 6px; --r-md: 8px; --r-lg: 12px; --r-full: 999px;
+  --h: 28px; --h-lg: 32px;
+  --dur-1: 70ms; --dur-2: 120ms; --dur-3: 160ms; --dur-4: 280ms;
+  --ease: cubic-bezier(.2, 0, 0, 1);
+  --ease-enter: cubic-bezier(.05, .7, .1, 1);
+  --sans: 'Inter', system-ui, 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono Variable', 'JetBrains Mono', Consolas, monospace;
+  --wordmark: 'Instrument Sans Variable', 'Inter', sans-serif;
+  --focus: 0 0 0 1px color-mix(in oklab, var(--a) 75%, var(--line)), 0 0 6px 0 color-mix(in oklab, var(--a) 22%, transparent);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; }
+body { background: var(--bg); color: var(--t); font: 13px/20px var(--sans); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; overflow: hidden; user-select: none; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+button:disabled { cursor: default; }
+input, textarea { font: inherit; color: inherit; background: none; border: 0; outline: 0; }
+input, textarea, pre, .selectable { user-select: text; }
+:focus-visible { outline: 0; box-shadow: var(--focus); border-radius: var(--r); }
+.mono { font-family: var(--mono); font-size: 12px; }
+.m { color: var(--m); }
+.grow { flex: 1; }
+.ic { flex-shrink: 0; display: block; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--m); }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; } }
+
+
+
+
+
+/* Waarp master control: phase ring + state core */
+.ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 3; }
+.ring .track { stroke: var(--line); }
+.ring .arc { stroke: var(--a); stroke-linecap: round; stroke-dasharray: 0 100; opacity: 0; transition: stroke-dasharray var(--dur-4) var(--ease), stroke var(--dur-4); }
+.ph-starting .ring .arc, .ph-stopping .ring .arc { opacity: 1; stroke-dasharray: 22 78; animation: spin 1.1s linear infinite; transform-origin: 100px 100px; }
+.ph-on .ring .arc { opacity: 1; stroke-dasharray: 100 0; }
+.ph-error .ring .arc { stroke: var(--err); stroke-dasharray: 100 0; opacity: .7; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* RC2 A: the control holds a plain state core, no window/sash identity. Phase reads from the ring + core fill */
+.core { position: relative; width: 84px; height: 84px; display: grid; place-items: center; }
+.core .dot { width: 46px; height: 46px; border-radius: 50%; border: 3px solid var(--line-2); background: #0d0c0b; transition: border-color var(--dur-4), background var(--dur-4), box-shadow var(--dur-4), transform var(--dur-4) var(--ease); }
+.ph-starting .core .dot, .ph-stopping .core .dot { border-color: color-mix(in oklab, var(--a) 55%, var(--line-2)); animation: corebeat 1.1s ease-in-out infinite; }
+.ph-on .core .dot { border-color: var(--a); background: radial-gradient(circle at 40% 35%, color-mix(in oklab, var(--a) 70%, #fff 0%), color-mix(in oklab, var(--a) 35%, #0d0c0b) 75%); box-shadow: 0 0 22px color-mix(in oklab, var(--a) 40%, transparent); }
+.ph-error .core .dot { border-color: color-mix(in oklab, var(--err) 70%, var(--line-2)); }
+@keyframes corebeat { 50% { transform: scale(.9); } }
+
+
+
+.menu { position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px); background: var(--raise); border: 1px solid var(--line-2); border-radius: var(--r-md); padding: 4px; box-shadow: 0 12px 32px rgba(0,0,0,.45); animation: pop var(--dur-2) var(--ease-enter); }
+@keyframes pop { from { opacity: 0; transform: translateY(-4px); } }
+.mi { width: 100%; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; text-align: left; padding: 6px 8px; border-radius: var(--r); }
+.mi:hover { background: var(--hi); }
+.mi small { color: var(--m); font-size: 11px; }
+.mi.on { color: var(--a-text); }
+
+
+
+.seg { display: inline-flex; padding: 2px; gap: 2px; background: var(--field); border: 1px solid var(--line); border-radius: var(--r-md); }
+.seg button { height: 24px; padding: 0 12px; border-radius: var(--r); color: var(--m); display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; transition: background var(--dur-1), color var(--dur-1); }
+.seg button:hover { color: var(--t); }
+.seg button.on { background: var(--hi); color: var(--t); box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 1px 2px rgba(0,0,0,.3); }
+.cnt { font-size: 11px; color: var(--d); font-weight: 500; }
+.on > .cnt, .tab.on .cnt { color: var(--t2); }
+
+.tg { position: relative; width: 32px; height: 20px; border-radius: var(--r-full); background: var(--hi); border: 1px solid var(--line-2); flex-shrink: 0; transition: background var(--dur-2), border-color var(--dur-2); }
+.tg i { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--m); transition: transform var(--dur-3) var(--ease), background var(--dur-2); }
+.tg.on { background: var(--a); border-color: var(--a); }
+.tg.on i { transform: translateX(12px); background: #fff; }
+
+.btn { height: var(--h-lg); padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; border-radius: var(--r); background: var(--raise); border: 1px solid var(--line); color: var(--t2); white-space: nowrap; transition: background var(--dur-1), border-color var(--dur-1), color var(--dur-1), transform var(--dur-1); }
+.btn:hover:not(:disabled) { background: var(--hi); color: var(--t); border-color: var(--line-2); }
+.btn:active:not(:disabled) { transform: scale(.97); }
+.btn:disabled { opacity: .68; }
+.btn.primary { background: var(--a); border-color: var(--a); color: #1a0f0a; font-weight: 600; }
+.btn.primary:hover:not(:disabled) { background: var(--a-hover); border-color: var(--a-hover); color: #1a0f0a; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--m); padding: 0 8px; }
+.btn.ghost:hover:not(:disabled) { background: var(--hi); border-color: transparent; }
+.btn.ghost.danger:hover:not(:disabled) { color: var(--err); }
+.btn.sm { height: 24px; font-size: 12px; padding: 0 12px; }
+.spin { display: block; animation: spin .9s linear infinite; }
+
+@keyframes fade { from { opacity: 0; transform: translateY(3px); } }
+.search { display: flex; align-items: center; gap: 8px; height: var(--h-lg); padding: 0 12px; min-width: 240px; background: var(--field); border: 1px solid var(--line); border-radius: var(--r); color: var(--m); transition: border-color var(--dur-1), box-shadow var(--dur-1); }
+.search:focus-within { border-color: color-mix(in oklab, var(--a) 60%, var(--line)); box-shadow: var(--focus); }
+.search.bad { border-color: var(--err); }
+.search input { flex: 1; min-width: 0; color: var(--t); }
+.search input::placeholder, textarea::placeholder { color: var(--t4); }
+
+@keyframes shimmer { to { background-position: -200% 0; } }
+.mono-ic { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; font-family: var(--wordmark); font-weight: 700; font-size: 15px; border: 1px solid; }
+
+.ferr { color: var(--err); font-size: 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 4px 0 12px; border-radius: var(--r-full); background: var(--raise); border: 1px solid var(--line); color: var(--t2); animation: pop var(--dur-2) var(--ease-enter); }
+.chip button { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; color: var(--m); }
+.chip button:hover { background: var(--hi); color: var(--err); }
+
+.emptyst { display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--m); padding: 48px 16px; text-align: center; }
+.emptyst.big { height: 100%; justify-content: center; max-width: 360px; margin: 0 auto; line-height: 19px; }
+
+.ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.inp { flex: 1; height: 32px; padding: 0 8px; background: var(--field); border: 1px solid var(--a-line); border-radius: var(--r); }
+.row { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.importer { display: flex; flex-direction: column; gap: var(--s2); max-width: 760px; }
+.importer textarea { min-height: 150px; resize: vertical; padding: 8px 12px; background: var(--field); border: 1px solid var(--line); border-radius: var(--r-md); color: var(--t2); line-height: 18px; }
+.importer textarea:focus { border-color: color-mix(in oklab, var(--a) 60%, var(--line)); box-shadow: var(--focus); }
+.how { list-style: none; display: flex; flex-direction: column; gap: 8px; max-width: 760px; color: var(--t2); font-size: 12.5px; line-height: 18px; }
+.how li { position: relative; padding-left: 16px; }
+.how li::before { content: ''; position: absolute; left: 2px; top: 8px; width: 5px; height: 5px; border-radius: 1px; background: var(--line-2); }
+.log { max-height: 320px; overflow: auto; padding: 8px 12px; background: #0b0a0a; border: 1px solid var(--line); border-radius: var(--r-md); font: 11px/16px var(--mono); color: var(--t2); white-space: pre-wrap; word-break: break-all; }
+
+.steps { list-style: none; counter-reset: s; display: flex; flex-direction: column; gap: 12px; }
+.steps li { counter-increment: s; position: relative; padding-left: 36px; color: var(--m); line-height: 19px; }
+.steps li b { color: var(--t); font-weight: 600; }
+.steps li::before { content: counter(s); position: absolute; left: 0; top: -2px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 600; color: var(--a-text); background: var(--a-sub); box-shadow: inset 0 0 0 1px var(--a-line); }
+
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 100; display: flex; align-items: center; gap: 8px; max-width: 560px; padding: 8px 16px; border-radius: var(--r-md); background: var(--raise); border: 1px solid var(--line-2); box-shadow: 0 12px 32px rgba(0,0,0,.45); animation: pop var(--dur-3) var(--ease-enter); }
+.toast .ic { color: var(--warn); }
+
+/* easter eggs */
+.egg { position: absolute; pointer-events: none; z-index: 5; }
+.pigeon { right: -8px; top: 0; animation: fly 3.1s cubic-bezier(.4, .1, .6, 1) forwards; }
+.pigeon .wing { transform-origin: 18px 12px; animation: flap .22s ease-in-out infinite alternate; }
+@keyframes fly { 0% { transform: translate(-14px, 10px) scale(.4); opacity: 0; } 12% { opacity: 1; } 55% { transform: translate(70px, -60px) scale(1) rotate(-8deg); } 100% { transform: translate(190px, -150px) scale(.8) rotate(-14deg); opacity: 0; } }
+@keyframes flap { to { transform: scaleY(-.6); } }
+.drift { right: 0; top: 2px; width: 40px; height: 30px; }
+.drift i { position: absolute; width: 7px; height: 4px; border-radius: 4px 0; background: #a8b565; opacity: 0; animation: drift 2.6s var(--ease) forwards; }
+.drift i:nth-child(3n) { background: #c9a86a; }
+.drift i:nth-child(3n+1) { background: var(--a); }
+.drift.snow { right: auto; left: 40px; }
+.drift.snow i { width: 4px; height: 4px; border-radius: 50%; background: #e6e3de; }
+.drift.snow i { animation-name: snowin; animation-duration: 3s; }
+@keyframes drift { 0% { opacity: 0; transform: translate(0, 0) rotate(0); } 15% { opacity: 1; } 100% { opacity: 0; transform: translate(calc(var(--dx) + 80px), var(--dy)) rotate(var(--r)); } }
+@keyframes snowin { 0% { opacity: 0; transform: translate(40px, -20px); } 20% { opacity: .9; } 100% { opacity: 0; transform: translate(calc(var(--dx) * -1 - 30px), 70px); } }
+.winter .core .dot { background-image: radial-gradient(circle at 30% 80%, rgba(230,240,255,.14), transparent 50%); }
+.cat { position: absolute; right: 14px; bottom: 4px; }
+.cat .tail { transform-origin: 24px 27px; animation: tail 6s ease-in-out infinite; }
+@keyframes tail { 0%, 86%, 100% { transform: rotate(0); } 90% { transform: rotate(-18deg); } 95% { transform: rotate(10deg); } }
