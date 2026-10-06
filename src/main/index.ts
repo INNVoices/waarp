@@ -1,3 +1,4 @@
+import { prepareStart } from './connect'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, net, Notification, powerMonitor, screen, Tray } from 'electron'
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
@@ -22,7 +23,7 @@ import { isAdmin, POWERSHELL } from './ps'
 import { Store } from './store'
 import { dropServer } from './store-core'
 import { startBridge } from './bridge'
-import { createApply, selectVia, type ApplyResult } from './apply'
+import { createApply, onRoutingPatch, selectVia, type ApplyResult } from './apply'
 import { defaultRoutes, tunPreflight, tunSnapshot } from './tun'
 import { bounded } from './stop'
 import { createResume, underlayReady } from './resume'
@@ -44,6 +45,7 @@ if (!app.requestSingleInstanceLock()) app.exit(0)
 app.setAppUserModelId('local.waarp')
 
 let win: BrowserWindow | undefined
+let showPending = false
 let checker: Checker | undefined
 let catalog: Catalog | undefined
 let discovery: Discovery | undefined
@@ -96,8 +98,18 @@ async function chooseConfig(): Promise<{ text: string; name: string } | { error:
 }
 
 function snapshot(): Snapshot {
-  return { admin, profiles: store.views(), settings: store.settings, status: withRoutes(engine.status), notices }
+  return { admin, profiles: store.views(), settings: store.settings, status: statusView(engine.status), notices }
 }
+
+/** HOTFIX-RUNTIME-01 E: the master switch's intent, owned here. Only the master (and a hard block / quit) changes it;
+ *  card toggles only decide whether the core is needed right now. */
+let masterOpen = false
+function setMaster(open: boolean) {
+  if (masterOpen === open) return
+  masterOpen = open
+  send('status', statusView(engine.status)); updateTray()
+}
+const statusView = (s: Status) => ({ ...withRoutes(s), open: masterOpen })
 
 function send(ch: string, data: unknown) {
   if (win && !win.isDestroyed()) win.webContents.send(ch, data)
@@ -122,6 +134,7 @@ function createWindow() {
   win.on('close', e => {
     if (!quitting && store.settings.tray) { e.preventDefault(); win?.hide() }
   })
+  win.on('closed', () => { win = undefined })
   // Renderer content has no reason to open arbitrary external origins. Add a narrow, reviewed
   // allowlist together with a concrete product link if that capability is introduced later.
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -131,18 +144,20 @@ function createWindow() {
 }
 
 function show() {
-  if (!win) createWindow()
+  if (!store) { showPending = true; return }
+  if (!win || win.isDestroyed()) createWindow()
   else { if (win.isMinimized()) win.restore(); win.show(); win.focus() }
 }
 
 function updateTray() {
   if (!tray) return
   const on = engine.status.phase === 'on'
+  const idle = masterOpen && engine.status.phase === 'off'
   const used = usedProfiles(store.settings, store.profiles)
   tray.setImage(trayImage(on))
-  tray.setToolTip(on ? (used.length ? `Waarp: открыт · ${used.map(x => x.name).join(', ')}` : 'Waarp: открыт · отсутствующие маршруты заблокированы') : 'Waarp: закрыт')
+  tray.setToolTip(on ? (used.length ? `Waarp: открыт · ${used.map(x => x.name).join(', ')}` : 'Waarp: открыт · отсутствующие маршруты заблокированы') : idle ? 'Waarp: открыт · сейчас ни одна карточка не идёт через сервер' : 'Waarp: закрыт')
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: on ? 'Отключить Waarp' : 'Подключить Waarp', enabled: (store.profiles.length > 0 || demandsTunnel(store.settings)) && admin, click: () => void toggle() },
+    { label: on || idle ? 'Отключить Waarp' : 'Подключить Waarp', enabled: (store.profiles.length > 0 || demandsTunnel(store.settings)) && admin, click: () => void toggle() },
     { label: 'Показать окно', click: show },
     { type: 'separator' },
     { label: 'Выход', click: () => { quitting = true; app.quit() } }
@@ -176,16 +191,17 @@ async function refreshNotices() {
 async function connect() {
   if (!demandsTunnel(store.settings)) return { ok: false, error: store.profiles.length ? 'Ни одна карточка не идёт через сервер. Выбери сервер хотя бы для одной' : 'Сначала добавь конфиг' }
   if (engine.status.phase === 'on' || engine.status.phase === 'starting') return { ok: true }
-  if (checker && !(await checker.stop())) return { ok: false, error: 'Проверочный движок не остановился; основной туннель не будет запущен' }
-  const n = await refreshNotices()
-  const block = n.find(x => x.level === 'block')
-  if (block) return { ok: false, error: block.title }
+  const ready = await prepareStart({ stopChecker: () => (checker ? checker.stop() : Promise.resolve(true)), notices: refreshNotices })
+  if (!ready.ok) return ready
   await engine.start(store.profiles, store.settings)
-  return (engine.status as Status).phase === 'on' ? { ok: true } : { ok: false, error: engine.status.error }
+  const up = (engine.status as Status).phase === 'on'
+  if (up) setMaster(true)
+  return up ? { ok: true } : { ok: false, error: engine.status.error }
 }
 
 async function toggle() {
-  if (engine.status.phase === 'on' || engine.status.phase === 'starting') return (await engine.stop()) ? { ok: true } : { ok: false, error: engine.status.error }
+  if (engine.status.phase === 'on' || engine.status.phase === 'starting') { setMaster(false); return (await engine.stop()) ? { ok: true } : { ok: false, error: engine.status.error } }
+  if (masterOpen) { setMaster(false); return { ok: true } }
   return connect()
 }
 
@@ -198,6 +214,7 @@ async function watch() {
     const n = await refreshNotices()
     const block = n.find(x => x.level === 'block')
     if (!block || engine.status.phase !== 'on') return
+    setMaster(false)
     await engine.stop()
     const msg = `Waarp закрылся: ${block.title.toLowerCase()}`
     send('toast', msg)
@@ -401,11 +418,12 @@ function ipc() {
       send('toast', 'Не удалось сохранить настройки'); return snapshot()
     }
     if (routing) {
+      if (engine.status.phase === 'on' && demandsTunnel(store.settings) && (await engine.applyLive(store.profiles, store.settings))) { updateTray(); return snapshot() }
       const currentNotices = await refreshNotices()
-      if (engine.status.phase === 'on' || engine.status.phase === 'starting') {
-        if (currentNotices.some(n => n.level === 'block') || !demandsTunnel(store.settings)) await engine.stop()
-        else await engine.start(store.profiles, store.settings)
-      }
+      const action = onRoutingPatch(engine.status.phase, currentNotices.some(n => n.level === 'block'))
+      if (action === 'stop') await engine.stop()
+      else if (action === 'start') await engine.start(store.profiles, store.settings)
+      else if (masterOpen && demandsTunnel(store.settings) && !currentNotices.some(n => n.level === 'block')) await engine.start(store.profiles, store.settings)
     }
     updateTray()
     if (!routing) send('snapshot', snapshot())
@@ -769,7 +787,7 @@ app.whenReady().then(async () => {
   // Showing the shell must not wait for PowerShell, orphan recovery, or network-related cleanup.
   // Those checks finish immediately after first paint and update the same snapshot.
   const adminReady = isAdmin()
-  engine.on('status', s => { send('status', withRoutes(s)); updateTray(); watchPings(s) })
+  engine.on('status', s => { send('status', statusView(s)); updateTray(); watchPings(s) })
   engine.on('fallback', (e: { main: string; fb: string; toFb: boolean; routes: string[] }) => {
     const name = (id: string) => store.profiles.find(p => p.id === id)?.name ?? '?'
     const what = e.routes.slice(0, 2).map(x => `«${x}»`).join(', ') + (e.routes.length > 2 ? ` и ещё ${e.routes.length - 2}` : '')
@@ -812,7 +830,10 @@ app.whenReady().then(async () => {
       failed: () => { bridgeError = true; void refreshNotices() }
     })
   } catch { bridgeError = true }
-  if (!process.argv.includes('--hidden')) createWindow()
+  if (!process.argv.includes('--hidden') || showPending) {
+    showPending = false
+    createWindow()
+  }
   tray = new Tray(trayImage(false))
   tray.on('click', show)
   updateTray()
@@ -906,9 +927,11 @@ const applyRouting = createApply({
   set: s => { store.settings = s },
   save: () => store.save(),
   phase: () => engine.status.phase,
+  open: () => masterOpen,
   blocked: async () => (await refreshNotices(), notices.some(n => n.level === 'block')),
   demandsTunnel,
   start: s => engine.start(store.profiles, s),
+  live: s => engine.applyLive(store.profiles, s),
   stop: () => engine.stop(),
   changed: () => send('snapshot', snapshot())
 })
