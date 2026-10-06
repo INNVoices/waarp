@@ -144,6 +144,8 @@ export type Phase = 'off' | 'starting' | 'on' | 'stopping' | 'error'
 
 export interface Status {
   phase: Phase
+  /** HOTFIX-RUNTIME-01 E: the master switch's own intent (main-owned). open + phase off = open, but no card needs a tunnel now */
+  open?: boolean
   since?: number
   error?: string
   pings: Record<string, number | undefined>
