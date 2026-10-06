@@ -160,7 +160,7 @@ function updateTray() {
   tray.setImage(trayImage(view.active))
   tray.setToolTip(view.tooltip)
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: view.action === 'disconnect' ? 'Отключить Waarp' : 'Подключить Waarp', enabled: (store.profiles.length > 0 || demandsTunnel(store.settings)) && admin, click: () => void intentWrites.run(() => toggle()) },
+    { label: view.action === 'disconnect' ? 'Отключить Waarp' : 'Подключить Waarp', enabled: (store.profiles.length > 0 || demandsTunnel(store.settings)) && admin, click: () => void toggle() },
     { label: 'Показать окно', click: show },
     { type: 'separator' },
     { label: 'Выход', click: () => { quitting = true; app.quit() } }
@@ -304,7 +304,7 @@ function secureIntentHandle(channel: string, handler: IpcHandler): void {
 
 function ipc() {
   secureHandle('snapshot', () => snapshot())
-  secureIntentHandle('toggle', () => toggle())
+  secureHandle('toggle', () => toggle())
   secureHandle('apps:scan', () => scanApps(items => send('apps', items)))
   secureHandle('apps:pick', async () => {
     const r = await dialog.showOpenDialog(win!, { title: 'Выбери программу', filters: [{ name: 'Программы', extensions: ['exe'] }], properties: ['openFile'] })
@@ -426,6 +426,9 @@ function ipc() {
       send('toast', 'Не удалось сохранить настройки'); return snapshot()
     }
     if (routing) {
+      // Owner OFF wins immediately even if this settings write entered the FIFO earlier/later.
+      // Save the new intent, but leave engine shutdown to the master toggle and apply it on the next open.
+      if (!masterOpen) { updateTray(); send('snapshot', snapshot()); return snapshot() }
       if (engine.status.phase === 'on' && demandsTunnel(store.settings) && (await engine.applyLive(store.profiles, store.settings))) { updateTray(); return snapshot() }
       const currentNotices = await refreshNotices()
       const action = onRoutingPatch(engine.status.phase, currentNotices.some(n => n.level === 'block'))
@@ -652,12 +655,12 @@ function ipc() {
     try { store.save() }
     catch {
       store.profiles[index] = old
-      if (wasOn) void connect()
+      if (wasOn && masterOpen) void connect()
       return { ok: false, error: 'Не удалось сохранить конфиг; прежний туннель восстановлен' }
     }
     await refreshNotices()
     updateTray()
-    if (wasOn) {
+    if (wasOn && masterOpen) {
       const result = await connect()
       if (!result.ok) {
         await engine.stop()
@@ -707,7 +710,7 @@ function ipc() {
     }
     await refreshNotices()
     updateTray()
-    if (wasOn && demandsTunnel(store.settings)) {
+    if (wasOn && masterOpen && demandsTunnel(store.settings)) {
       const result = await connect()
       if (!result.ok) return { ok: true, warning: 'Профиль удалён, но оставшиеся маршруты не запустились: ' + (result.error ?? 'проверь подключение') }
     }

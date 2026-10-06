@@ -30,6 +30,9 @@ export function createApply(d: ApplyDeps): (next: Settings) => Promise<ApplyResu
     try { d.save() } catch { d.set(previous); return { saved: false, applied: false, running: isRunning(d.phase()), code: 'save' } }
     const running = isRunning(d.phase())
     try {
+      // The owner's global close is higher priority than a route write. Save intent, but never live-switch/restart
+      // a core that the master is closing; the next explicit open uses the saved settings.
+      if (d.open && !d.open()) return { saved: true, applied: false, running }
       // B2: a pick the running core already serves is a selector switch; the periodic watch still guards the session
       if (d.phase() === 'on' && d.live && d.demandsTunnel(next) && (await d.live(next))) return { saved: true, applied: true, running }
       if (await d.blocked()) { if (running) await d.stop(); return { saved: true, applied: false, running, code: 'block' } }

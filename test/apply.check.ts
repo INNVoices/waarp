@@ -15,12 +15,13 @@ const base: Settings = { ...DEFAULTS, rest: 'p1', routes: [
   { id: 'custom:x.org', kind: 'custom', name: 'x.org', value: 'x.org', via: 'p1', fallback: 'p2', on: false }
 ] } as Settings
 
-function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?: string } = {}) {
+function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?: string; open?: boolean } = {}) {
   let cur = base, phase = o.phase ?? 'off', starts = 0, stops = 0, saves = 0, changed = 0
   const d: ApplyDeps = {
     get: () => cur, set: s => { cur = s },
     save: () => { saves++; if (o.saveFails) throw new Error('disk') },
     phase: () => phase,
+    open: o.open === undefined ? undefined : () => !!o.open,
     blocked: async () => !!o.block,
     demandsTunnel: s => s.rest !== 'direct' || s.routes.some(r => r.on && r.via !== 'direct'),
     start: async () => { starts++; phase = o.startTo ?? 'on' },
@@ -51,6 +52,14 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
   // C: snapshot pushed for every saved write
   { const r = rig({ phase: 'on', startTo: 'error' }); await r.apply(sel); eq(r.counts().changed, 1, 'snapshot sent once') }
 
+  // owner OFF wins over an in-flight/queued route apply: save intent, but never resurrect/switch the core
+  {
+    const r = rig({ phase: 'on', open: false })
+    const a = await r.apply(sel)
+    eq(a, { saved: true, applied: false, running: true }, 'master closed during route apply: intent saved, runtime untouched')
+    eq([r.counts().starts, r.counts().stops], [0, 0], 'master closed: route apply does not restart or stop behind owner action')
+  }
+
   // card toggles never carry the master open/closed intent; only a hard block may stop a running core
   eq(onRoutingPatch('off', false), 'none', 'routing patch while closed: no-op')
   eq(onRoutingPatch('off', true), 'none', 'routing patch while closed, even if blocked: no-op')
@@ -79,13 +88,14 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
   }
 
   const main = readFileSync('src/main/index.ts', 'utf8')
-  ok(main.includes("secureIntentHandle('toggle'") && main.includes("secureIntentHandle('settings'") && main.includes("secureIntentHandle('route:select'")
+  ok(main.includes("secureHandle('toggle'") && main.includes("secureIntentHandle('settings'") && main.includes("secureIntentHandle('route:select'")
     && main.includes("secureIntentHandle('companion:choose'") && main.includes("secureIntentHandle('profile:remove'")
     && main.includes('ensure: (target, intent) => intentWrites.run')
-    && main.includes("click: () => void intentWrites.run(() => toggle())"), 'master + routing intent entry points share the FIFO gate')
+    && main.includes("click: () => void toggle()"), 'routing mutations share FIFO while master toggle stays immediate')
   ok(main.includes("isOn: () => masterOpen &&") && main.includes("restart: () => intentWrites.run(async () =>")
     && main.includes("if (!masterOpen) return true") && main.includes("fail: why => intentWrites.run(async () =>")
-    && main.includes("setMaster(false)"), 'resume cannot resurrect a deliberately closed master and terminal resume failure closes its intent')
+    && main.includes("setMaster(false)") && main.includes("if (!masterOpen) { updateTray(); send('snapshot', snapshot()); return snapshot() }")
+    && main.includes("if (wasOn && masterOpen)"), 'owner close wins over resume/settings/profile reconnect and terminal resume failure closes its intent')
 
   // H: bridge request ids
   for (const v of [undefined, null, 0, 1, -5, 2.5, Number.MAX_SAFE_INTEGER, '', 'abc', 'x'.repeat(128)]) ok(okId(v), 'id ok: ' + String(v).slice(0, 20))
