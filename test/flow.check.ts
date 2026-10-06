@@ -135,6 +135,12 @@ t('route-list path changes use the same route:select command and serialize pendi
   && partsSrc.includes('disabled?: boolean')
   && partsSrc.includes('disabled={disabled}'))
 
+const masterPartsSrc = readFileSync('src/renderer/src/parts.tsx', 'utf8')
+t('an already-open master can always be closed even when nothing remains to open',
+  appSrc.includes('const masterUnavailable = !master.pressed && !snap.profiles.length && !demandsTunnel')
+  && appSrc.includes('disabled={masterUnavailable || busy}')
+  && masterPartsSrc.includes("disabled={disabled && status.open !== true && status.phase === 'off'}"))
+
 const connectionsSrc = readFileSync('src/renderer/src/pages/connections.tsx', 'utf8')
 const kitSrc = readFileSync('src/renderer/src/ui/kit.tsx', 'utf8')
 t('Home routing controls serialize changes and card path uses route:select',

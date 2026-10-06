@@ -24,7 +24,7 @@ export function Orb({ status, disabled, why, onClick }: { status: Status; disabl
     : ''
   return (
     <div className={`orb-wrap ph-${view.phaseClass}${isWinter() ? ' winter' : ''}`}>
-      <Plain className="orb" disabled={disabled && status.phase === 'off'} onClick={onClick} aria-label={title}>
+      <Plain className="orb" disabled={disabled && status.open !== true && status.phase === 'off'} onClick={onClick} aria-label={title}>
         <svg viewBox="0 0 200 200" className="ring">{/* icon-ok: orb progress ring */}
           <circle cx="100" cy="100" r="92" className="track" />
           <circle cx="100" cy="100" r="92" className="arc" pathLength="100" />
