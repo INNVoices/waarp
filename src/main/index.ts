@@ -160,7 +160,7 @@ function updateTray() {
   tray.setImage(trayImage(view.active))
   tray.setToolTip(view.tooltip)
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: view.action === 'disconnect' ? 'Отключить Waarp' : 'Подключить Waarp', enabled: (store.profiles.length > 0 || demandsTunnel(store.settings)) && admin, click: () => void toggle() },
+    { label: view.action === 'disconnect' ? 'Отключить Waarp' : 'Подключить Waarp', enabled: masterOpen || ((store.profiles.length > 0 || demandsTunnel(store.settings)) && admin), click: () => void toggle() },
     { label: 'Показать окно', click: show },
     { type: 'separator' },
     { label: 'Выход', click: () => { quitting = true; app.quit() } }

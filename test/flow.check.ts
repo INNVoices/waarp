@@ -139,7 +139,8 @@ const masterPartsSrc = readFileSync('src/renderer/src/parts.tsx', 'utf8')
 t('an already-open master can always be closed even when nothing remains to open',
   appSrc.includes('const masterUnavailable = !master.pressed && !snap.profiles.length && !demandsTunnel')
   && appSrc.includes('disabled={masterUnavailable || busy}')
-  && masterPartsSrc.includes("disabled={disabled && status.open !== true && status.phase === 'off'}"))
+  && masterPartsSrc.includes("disabled={disabled && status.open !== true && status.phase === 'off'}")
+  && readFileSync('src/main/index.ts', 'utf8').includes("enabled: masterOpen || ((store.profiles.length > 0 || demandsTunnel(store.settings)) && admin)"))
 
 const connectionsSrc = readFileSync('src/renderer/src/pages/connections.tsx', 'utf8')
 const kitSrc = readFileSync('src/renderer/src/ui/kit.tsx', 'utf8')
