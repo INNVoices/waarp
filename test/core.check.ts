@@ -160,7 +160,7 @@ ok(rr.some((x: any) => x.ip_cidr?.includes('5.6.7.8/32') && x.outbound === 'dire
 ok(rr.findIndex((x: any) => x.process_path_regex) < rr.findIndex((x: any) => x.domain_suffix?.includes('rutracker.org')), 'explicit apps before destination rules')
 ok(rr.findIndex((x: any) => x.ip_is_private) < rr.findIndex((x: any) => x.outbound === T), 'private first')
 ok(rr.some((x: any) => x.process_path?.[0] === 'C:\F\f.exe' && x.outbound === 'direct'), 'self direct')
-ok(!rr.some((x: any) => x.domain_suffix?.includes('ru')), 'ruDirect skipped when rest is direct')
+ok(rr.findIndex((x: any) => x.domain_suffix?.includes('ru') && x.outbound === 'direct') >= 0 && rr.findIndex((x: any) => x.domain_suffix?.includes('ru')) < rr.findIndex((x: any) => x.process_path_regex), 'HOTFIX C: ruDirect is a global bypass, also with rest direct, ahead of app routes')
 ok(c.dns.rules.some((x: any) => x.domain_suffix?.includes('telegram.org') && x.server === 'dns-' + q2.id), 'preset dns via server 2')
 eq(c.dns.final, 'local', 'dns local')
 eq(c.dns.servers.find((x: any) => x.tag === 'dns-' + p.id), { type: 'udp', server: '1.1.1.1', server_port: 53, tag: 'dns-' + p.id, detour: T }, 'imported WireGuard DNS is UDP through its tunnel')

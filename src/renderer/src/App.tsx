@@ -7,14 +7,12 @@ import { logoClick } from './eggs'
 import { Connections } from './pages/connections'
 import { RoutePage } from './pages/route'
 import { Library } from './pages/library'
-import type { Source } from './pages/library'
+import { addEntry, back, goTo, initialNav, openRoute, showCatalog, showList, type Nav, type Page } from './lib/flow'
 import { Servers } from './pages/servers'
 import { AddTunnel, importNote } from './pages/addtunnel'
 import { Analyzer } from './pages/analyzer'
 import { SettingsPage } from './pages/settings'
 import { CompanionPick, type Pick } from './pages/companionpick'
-
-type Page = 'home' | 'lib' | 'servers' | 'an' | 'settings' | 'route'
 
 // W1 IA (GPT 440a5c3): five permanent destinations. Adding a connection is an action inside
 // Подключения; live flows are evidence inside Главная / Диагностика, never their own screen.
@@ -26,15 +24,14 @@ export function App() {
   const [conns, setConns] = useState<Conn[]>([])
   const [apps, setApps] = useState<AppInfo[]>()
   const [scanning, setScanning] = useState(false)
-  const [page, setPage] = useState<Page>('home')
-  const [routeId, setRouteId] = useState<string>()
+  const [nav, setNav] = useState<Nav>(initialNav)
+  const { page, routeId } = nav
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string>()
   const [adding, setAdding] = useState(false)
   const [autoFind, setAutoFind] = useState(false)
   const [initialClip, setInitialClip] = useState(false)
   const [clipHint, setClipHint] = useState<{ kind: string; host?: string }>()
-  const [librarySource, setLibrarySource] = useState<Source>('mine')
   const [pick, setPick] = useState<Pick>()
   const lastClip = useRef('')
   const hist = useRef<Record<string, (number | undefined)[]>>({})
@@ -70,7 +67,7 @@ export function App() {
     const d = api.onToast((x: string) => setToast(x))
     // a companion app asked Waarp (bridge routes.open) to show its route, or to pick a path for its target
     const e = api.onNav((x: { route?: string; pick?: { id?: unknown; name?: unknown } }) => {
-      if (typeof x?.route === 'string') { setRouteId(x.route); setPage('route') }
+      if (typeof x?.route === 'string') { const id = x.route; setNav(n => openRoute(n, id)) }
       else if (x?.pick && typeof x.pick.id === 'string' && typeof x.pick.name === 'string') setPick({ id: x.pick.id, name: x.pick.name })
     })
     return () => { a(); b(); c(); d(); e() }
@@ -110,8 +107,8 @@ export function App() {
     try { setSnap(await api.settings(p)) }
     catch { setToast(s('set.save.error')) }
   }
-  const go = (p: Page) => { setPage(p); setRouteId(undefined) }
-  const open = (id: string) => { setRouteId(id); setPage('route') }
+  const go = (p: Page) => setNav(n => goTo(n, p))
+  const open = (id: string) => setNav(n => openRoute(n, id))
   const addApp = (a: AppInfo) => setApps(l => [a, ...(l ?? []).filter(x => x.id !== a.id)])
   const toggle = async () => {
     if (busy) return
@@ -128,9 +125,11 @@ export function App() {
     } finally { setBusy(false) }
   }
   const on = status.phase === 'on'
+  // Master intent can stay open while no card currently needs a tunnel.
+  const idle = status.open === true && status.phase === 'off'
   const hasRouting = snap.profiles.length > 0 || snap.settings.routes.length > 0 || snap.settings.rest !== 'direct'
   const demandsTunnel = snap.settings.rest !== 'direct' || snap.settings.routes.some(r => r.on && r.via !== 'direct')
-  const railOn = page === 'route' ? 'home' : page
+  const railOn = page === 'route' ? nav.from : page
 
   return (
     <div className="shell">
@@ -146,10 +145,10 @@ export function App() {
       </aside>
 
       <header className="top">
-        <Plain className="master" onClick={() => void toggle()} disabled={!snap.profiles.length && !demandsTunnel}
-          aria-label={s('top.master')} aria-pressed={on || status.phase === 'starting'}>
-          <span className={'tg' + (on || status.phase === 'starting' ? ' on' : '')} aria-hidden><i /></span>
-          <b>{s(on ? 'top.on' : status.phase === 'starting' ? 'top.starting' : 'top.off')}</b>
+        <Plain className="master" onClick={() => void toggle()} disabled={(!snap.profiles.length && !demandsTunnel) || busy}
+          aria-label={s('top.master')} aria-pressed={on || idle || status.phase === 'starting'}>
+          <span className={'tg' + (on || idle || status.phase === 'starting' ? ' on' : '')} aria-hidden><i /></span>
+          <b>{s(on ? 'top.on' : idle ? 'top.idle' : status.phase === 'starting' ? 'top.starting' : status.phase === 'stopping' ? 'top.stopping' : 'top.off')}</b>
           {on && status.since && <span className="mono m">{fmtDur(Date.now() - status.since)}</span>}
         </Plain>
         {on && <div className="top-speed mono"><Icon n="down" s={14} />{fmtSpeed(status.down)}<Icon n="up" s={14} />{fmtSpeed(status.up)}</div>}
@@ -164,15 +163,15 @@ export function App() {
       <main className="main">
         <Notices list={snap.notices} admin={snap.admin} />
         {page === 'home' && !hasRouting && <Welcome onAdd={() => setAdding(true)} />}
-        {page === 'home' && hasRouting && <Connections snap={snap} status={status} conns={conns} apps={apps ?? []} patch={patch} toggle={toggle} open={open} add={() => go('lib')} />}
-          {page === 'route' && routeId && <RoutePage snap={snap} status={status} conns={conns} apps={apps ?? []} id={routeId} patch={patch} toast={setToast} back={() => go('home')} />}
-          {page === 'lib' && <Library snap={snap} status={status} conns={conns} apps={apps} loading={scanning} rescan={rescan} addApp={addApp} patch={patch} open={open} manage={() => go('servers')} toast={setToast} initialSource={librarySource} />}
+        {page === 'home' && hasRouting && <Connections snap={snap} status={status} conns={conns} apps={apps ?? []} patch={patch} toggle={toggle} open={open} add={() => setNav(addEntry)} />}
+          {page === 'route' && routeId && <RoutePage snap={snap} status={status} conns={conns} apps={apps ?? []} id={routeId} patch={patch} toast={setToast} back={() => setNav(back)} />}
+          {page === 'lib' && <Library snap={snap} status={status} conns={conns} apps={apps} loading={scanning} rescan={rescan} addApp={addApp} patch={patch} open={open} mode={nav.libMode} setMode={m => setNav(m === 'catalog' ? showCatalog : showList)} />}
           {page === 'servers' && <Servers snap={snap} status={status} patch={patch} toast={setToast} />}
           {page === 'an' && <Analyzer snap={snap} status={status} hist={hist.current} patch={patch} />}
           {page === 'settings' && <SettingsPage snap={snap} patch={patch} toast={setToast} />}
       </main>
-      {adding && <AddTunnel autoFind={autoFind} initialClip={initialClip} onAutoFindDone={() => localStorage.setItem('waarp-first-scan', 'done')} onClose={() => { setAdding(false); setAutoFind(false); setInitialClip(false) }} onAdded={r => { setToast(importNote(r)); if (!r.clientPublicKey) { setAdding(false); setAutoFind(false); setInitialClip(false); setLibrarySource('mine'); go('lib') } }}
-        onPublic={() => { setAdding(false); setAutoFind(false); setInitialClip(false); setLibrarySource('public'); go('lib') }} />}
+      {adding && <AddTunnel autoFind={autoFind} initialClip={initialClip} onAutoFindDone={() => localStorage.setItem('waarp-first-scan', 'done')} onClose={() => { setAdding(false); setAutoFind(false); setInitialClip(false) }} onAdded={r => { setToast(importNote(r)); if (!r.clientPublicKey) { setAdding(false); setAutoFind(false); setInitialClip(false); setNav(n => snap.settings.routes.length ? goTo(n, 'lib') : addEntry(n)) } }}
+        onPublic={() => { setAdding(false); setAutoFind(false); setInitialClip(false); go('servers'); setTimeout(() => document.getElementById('public-catalog')?.scrollIntoView({ behavior: 'smooth' }), 150) }} />}
       {clipHint && !adding && <div className="clip-hint" role="status"><span>{s('clip.found', { v: clipHint.host ?? s('add.clip.' + clipHint.kind) })}</span><Btn kind="primary" onClick={() => { setClipHint(undefined); setInitialClip(true); setAdding(true) }}>{s('imp.add')}</Btn><Plain aria-label={s('nav.close')} onClick={() => setClipHint(undefined)}><Icon n="x" s={14} /></Plain></div>}
       {pick && <CompanionPick snap={snap} pick={pick} toast={setToast} done={id => { setPick(undefined); if (id) open(id) }} manage={() => go('servers')} />}
       {toast && <div className="toast" role="status"><Icon n={/не удал|ошиб|не вышл|нельзя|не найд|занят|не подход/i.test(toast) ? 'warn' : 'check'} />{toast}</div>}

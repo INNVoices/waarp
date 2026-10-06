@@ -182,7 +182,7 @@
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 12px; }
 .tile { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 8px; min-height: 108px; padding: 12px; border-radius: var(--r-md); background: var(--raise); border: 1px solid var(--line); text-align: center; transition: background var(--dur-1), border-color var(--dur-1); }
 .tile:hover { background: var(--hi); border-color: var(--line-2); }
-.tile.on { border-color: var(--a); box-shadow: 0 0 0 1px var(--a-line); }
+.tile:focus-visible { border-color: var(--a); box-shadow: 0 0 0 1px var(--a-line); }
 .tile.skel { height: 108px; background: linear-gradient(90deg, var(--win), var(--raise), var(--win)); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; border-color: transparent; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 .t-ic { position: relative; width: 40px; height: 40px; display: grid; place-items: center; flex-shrink: 0; border-radius: var(--r-md); background: var(--field); overflow: hidden; }

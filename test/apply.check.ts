@@ -1,5 +1,5 @@
 // RC2 B/C/H: route select keeps the whole-computer intent; every routing write reports saved vs applied; bridge ids bounded.
-import { createApply, selectVia, type ApplyDeps } from '../src/main/apply'
+import { createApply, onRoutingPatch, selectVia, type ApplyDeps } from '../src/main/apply'
 import { okId } from '../src/main/bridge'
 import { DEFAULTS } from '../src/main/store-core'
 import type { Settings } from '../src/shared/types'
@@ -49,6 +49,14 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
   { const r = rig({ phase: 'on', saveFails: true }); const a = await r.apply(sel); eq(a, { saved: false, applied: false, running: true, code: 'save' }, 'save failure: not saved'); eq(r.get(), base, 'save failure restores previous'); eq([r.counts().starts, r.counts().stops], [0, 0], 'save failure: runtime untouched') }
   // C: snapshot pushed for every saved write
   { const r = rig({ phase: 'on', startTo: 'error' }); await r.apply(sel); eq(r.counts().changed, 1, 'snapshot sent once') }
+
+  // card toggles never carry the master open/closed intent; only a hard block may stop a running core
+  eq(onRoutingPatch('off', false), 'none', 'routing patch while closed: no-op')
+  eq(onRoutingPatch('off', true), 'none', 'routing patch while closed, even if blocked: no-op')
+  eq(onRoutingPatch('on', false), 'start', 'last card turned off while running: engine remains under master intent')
+  eq(onRoutingPatch('starting', false), 'start', 'routing patch mid-start: reapply, not a master stop')
+  eq(onRoutingPatch('on', true), 'stop', 'hard block while running: fail-closed stop preserved')
+  eq(onRoutingPatch('starting', true), 'stop', 'hard block mid-start: fail-closed stop preserved')
 
   // H: bridge request ids
   for (const v of [undefined, null, 0, 1, -5, 2.5, Number.MAX_SAFE_INTEGER, '', 'abc', 'x'.repeat(128)]) ok(okId(v), 'id ok: ' + String(v).slice(0, 20))

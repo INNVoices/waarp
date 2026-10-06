@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import type { Conn, Profile, Settings, Status, TunnelHealth } from '../shared/types'
-import { activeRoutes, buildConfig, fallbackGroups, redact, runtimeAutoLive, tagOf, usedProfiles, withoutAuto } from './awg'
+import { activeRoutes, buildConfig, fallbackGroups, liveSwitches, loadedOf, loadedSets, redact, runtimeAutoLive, tagOf, usedProfiles, withoutAuto, type Loaded } from './awg'
 import { AUTO_ID, autoMembers, autoSample, firstAlive, grpTag, liveGroups, stickyFastest, withAuto, type LiveGroup } from '../shared/groups'
 import { FbTracker } from './fallback'
 import { Health } from './health'
@@ -43,6 +43,10 @@ export class Engine extends EventEmitter {
   private journal: RuntimeJournal
   private recoveryOk = false
   private transition: Promise<void> = Promise.resolve()
+  /** HOTFIX-RUNTIME-01: the running core's config, what it loaded and its Auto pool; set on a ready start, cleared on halt */
+  private run?: { cfg: ReturnType<typeof buildConfig>; loaded: Loaded; autoLive: string[] }
+  /** count of live route applies in this process (tests, log) */
+  liveApplies = 0
   /** R1.4: read-only Windows check before a TUN start (set by main); absent in offline tests */
   preflight?: () => Promise<Preflight>
   /** pause between preflight re-checks right after our own stop (Windows may still be removing the adapter) */
@@ -84,18 +88,29 @@ export class Engine extends EventEmitter {
     return this.serialize(() => this.startNow(profiles, s))
   }
 
+  /** HOTFIX-RUNTIME-01: a routing change the running core can already serve, as selector switches (no stop, no spawn, no
+   *  Windows scan). false = not applicable now; the caller then takes its normal path (scan + one restart). `start` itself
+   *  always restarts, so resume / explicit restarts keep their meaning. */
+  applyLive(profiles: Profile[], s: Settings): Promise<boolean> {
+    return this.serialize(async () => (this.child && this.status.phase === 'on' && this.run ? this.liveApply(profiles, s) : false))
+  }
+
   private async startNow(profiles: Profile[], s: Settings) {
     if (!this.recoveryOk) { this.set({ phase: 'error', error: 'Восстановление прошлого процесса не завершено' }); return }
     if (this.child && !(await this.stopNow())) return
     if (!existsSync(this.exe)) { this.set({ phase: 'error', error: 'Не найден движок engine\\sing-box.exe' }); return }
     this.stopping = false
     this.tail = []
-    if (this.preflight) {
+    // HOTFIX-RUNTIME-01 B: the local port pick does not depend on the Windows check, so both run together;
+    // the preflight itself is still a fresh read just before spawn, with the same stale-adapter re-checks
+    const fresh = async (): Promise<Preflight> => {
+      if (!this.preflight) return { ok: true }
       let pf = await this.preflight()
       for (let i = 0; i < 2 && !pf.ok && pf.kind === 'tun_stale'; i++) { await new Promise(r => setTimeout(r, this.preflightGap)); pf = await this.preflight() }
-      if (!pf.ok) { this.set({ phase: 'error', engine: 'down', since: undefined, error: pf.text, recovery: pf.kind }); return }
+      return pf
     }
-    const port = await pickPort()
+    const [pf, port] = await Promise.all([fresh(), pickPort()])
+    if (!pf.ok) { this.set({ phase: 'error', engine: 'down', since: undefined, error: pf.text, recovery: pf.kind }); return }
     if (!port) { this.set({ phase: 'error', error: 'Нет свободного локального порта для управления движком. Туннель не запущен', recovery: undefined }); return }
     this.api = { port, secret: randomBytes(16).toString('hex') }
     this.secrets = profiles.flatMap(p => (p.kind === 'vless' ? vlessSecrets(p) : p.kind === 'out' ? outSecrets(p) : p.kind === 'openvpn' ? openVpnSecrets(p) : []))
@@ -103,7 +118,7 @@ export class Engine extends EventEmitter {
     // R5: the core gets a bounded Auto live pool; the plan/UI keep the full logical Auto membership
     const autoLive = runtimeAutoLive(s, profiles, this.lastAutoPick)
     const live = { autoLive }
-    try { cfg = buildConfig(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive }) }
+    try { cfg = buildConfig(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive, selectors: true }) }
     catch { this.set({ phase: 'error', error: 'Не удалось подготовить конфиг движка' }); return }
     this.ids = usedProfiles(s, profiles, live).map(p => p.id)
     this.groups = liveGroups(withAuto(s, profiles, autoLive), new Set(profiles.filter(p => !p.revoked).map(p => p.id)))
@@ -176,6 +191,7 @@ export class Engine extends EventEmitter {
       }
       return
     }
+    this.run = { cfg, loaded: loadedOf(loadedSets(profiles, s, live)), autoLive }
     this.timer = setInterval(() => void this.poll(), 1000)
     // Controller readiness is the start boundary. Health probes continue independently and must
     // not keep the whole UI in Starting for several seconds.
@@ -210,7 +226,27 @@ export class Engine extends EventEmitter {
     if (this.child === child) this.pingTimer = setInterval(() => void round(false), 15000)
   }
 
+  /** HOTFIX-RUNTIME-01: switch route selectors in the running core when the new settings need nothing it has not loaded.
+   *  false = not live-applicable (or a switch failed): the caller does the one controlled restart. Keeps Auto pool, groups,
+   *  fallback pairs and loaded paths exactly as running; DNS of each route follows its own selector. */
+  private async liveApply(profiles: Profile[], s: Settings): Promise<boolean> {
+    const run = this.run!
+    let next: ReturnType<typeof buildConfig>
+    try { next = buildConfig(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive: run.autoLive, selectors: true, keep: run.loaded }) }
+    catch { return false }
+    const switches = liveSwitches(run.cfg, next)
+    if (!switches) return false
+    for (const x of switches) if (!(await this.select(x.tag, x.to))) { this.push(`live route apply failed at ${x.tag}; restarting the core once`); return false }
+    this.run = { ...run, cfg: next }
+    this.fbRoutes = new Map(run.loaded.fbs.map(g => [g.tag, activeRoutes(s).filter(r => r.via === g.main && r.fallback === g.fb).map(r => ({ id: r.id, name: r.name }))]))
+    this.liveApplies++
+    this.push(`live route apply: ${switches.length} selector switch(es), core and TUN kept`)
+    this.set({ error: undefined })
+    return true
+  }
+
   private halt() {
+    this.run = undefined
     clearInterval(this.timer); clearInterval(this.pingTimer)
     this.timer = this.pingTimer = undefined
     this.last = undefined
@@ -244,7 +280,12 @@ export class Engine extends EventEmitter {
     this.halt()
     const zero = { pings: {}, fallback: {}, down: 0, up: 0 }
     const r = await this.residue()
-    if (r) { this.set({ phase: 'error', engine: 'down', since: undefined, error: r.text, recovery: r.kind, ...zero }); return true }
+    if (r) {
+      this.set({ phase: 'error', engine: 'down', since: undefined, error: r.text, recovery: r.kind, ...zero })
+      // The process is gone, but the network state is not clean. Callers such as net:reset
+      // must not report success while a stale adapter/route is still present.
+      return false
+    }
     this.set({ phase: 'off', engine: 'down', since: undefined, error: undefined, recovery: undefined, ...zero })
     return true
   }
