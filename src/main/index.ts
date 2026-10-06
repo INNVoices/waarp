@@ -39,6 +39,7 @@ import { probeLayers } from './layered'
 import { activeIds, diagnosisSet, learn, type NetMemory } from '../shared/netmemory'
 import { loadMem, saveMem } from './netmem-store'
 import { networkFingerprint } from './netid'
+import { SerialGate } from './serial'
 
 // one copy only: a second launch (also from the tray-hidden state) just brings the running window up (second-instance -> show)
 if (!app.requestSingleInstanceLock()) app.exit(0)
@@ -60,6 +61,8 @@ let engineIntegrity = false
 let relaunching = false
 let bridgeServer: ReturnType<typeof startBridge> | undefined
 const qrImports = new Map<string, { text: string; expires: number }>()
+/** Settings/routing intent crosses renderer IPC and the local companion bridge. Keep those mutations FIFO across awaits. */
+const intentWrites = new SerialGate()
 
 const engineExe = app.isPackaged
   ? join(process.resourcesPath, 'engine', 'sing-box.exe')
@@ -190,12 +193,29 @@ async function refreshNotices() {
 
 async function connect() {
   if (!demandsTunnel(store.settings)) return { ok: false, error: store.profiles.length ? 'Ни одна карточка не идёт через сервер. Выбери сервер хотя бы для одной' : 'Сначала добавь конфиг' }
-  if (engine.status.phase === 'on' || engine.status.phase === 'starting') return { ok: true }
+
+  // Claim the owner's OPEN intent before native work starts. This makes a later OFF during prepare/start observable
+  // and prevents a completed async connect from resurrecting masterOpen after the owner cancelled it.
+  if (!masterOpen) setMaster(true)
+  if (engine.status.phase === 'on') return { ok: true }
+  if (engine.status.phase === 'starting') return { ok: true }
+
   const ready = await prepareStart({ stopChecker: () => (checker ? checker.stop() : Promise.resolve(true)), notices: refreshNotices })
-  if (!ready.ok) return ready
+  if (!ready.ok) {
+    if (masterOpen) setMaster(false)
+    return ready
+  }
+  if (!masterOpen) return { ok: false, error: 'Подключение отменено' }
+
   await engine.start(store.profiles, store.settings)
   const up = (engine.status as Status).phase === 'on'
-  if (up) setMaster(true)
+
+  // OFF may have arrived while Engine.start was serialized/running. Never overwrite that newer owner intent.
+  if (!masterOpen) {
+    if (up) await engine.stop()
+    return { ok: false, error: 'Подключение отменено' }
+  }
+  if (!up) setMaster(false)
   return up ? { ok: true } : { ok: false, error: engine.status.error }
 }
 
@@ -294,6 +314,11 @@ function secureHandle(channel: string, handler: IpcHandler): void {
   })
 }
 
+/** Same sender guard plus one FIFO for settings/routing writes. UI busy states are UX only; correctness lives here. */
+function secureIntentHandle(channel: string, handler: IpcHandler): void {
+  secureHandle(channel, (event, ...args) => intentWrites.run(() => handler(event, ...args)))
+}
+
 function ipc() {
   secureHandle('snapshot', () => snapshot())
   secureHandle('toggle', () => toggle())
@@ -383,7 +408,7 @@ function ipc() {
     await refreshNotices(); send('snapshot', snapshot()); return { ok: true, id: pid }
   })
   // The five fastest alive nodes become a selectable group; creating it never changes routing by surprise.
-  secureHandle('catalog:best', async () => {
+  secureIntentHandle('catalog:best', async () => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     const previousProfiles = store.profiles.slice(), previousSettings = store.settings
     const top = [...new Set((catalog?.state.alive ?? []).slice(0, 5).map(n => addPublic(n.id)).filter((x): x is string => !!x))]
@@ -395,7 +420,7 @@ function ipc() {
     await refreshNotices(); send('snapshot', snapshot())
     return { ok: true, id: gid }
   })
-  secureHandle('settings', async (_e, raw: unknown) => {
+  secureIntentHandle('settings', async (_e, raw: unknown) => {
     const blocked = writeError(); if (blocked) { send('toast', blocked); return snapshot() }
     const checked = checkedPatch(raw)
     if (!checked.ok) { send('toast', checked.error); return snapshot() }
@@ -418,6 +443,9 @@ function ipc() {
       send('toast', 'Не удалось сохранить настройки'); return snapshot()
     }
     if (routing) {
+      // Owner OFF wins immediately even if this settings write entered the FIFO earlier/later.
+      // Save the new intent, but leave engine shutdown to the master toggle and apply it on the next open.
+      if (!masterOpen) { updateTray(); send('snapshot', snapshot()); return snapshot() }
       if (engine.status.phase === 'on' && demandsTunnel(store.settings) && (await engine.applyLive(store.profiles, store.settings))) { updateTray(); return snapshot() }
       const currentNotices = await refreshNotices()
       const action = onRoutingPatch(engine.status.phase, currentNotices.some(n => n.level === 'block'))
@@ -429,7 +457,7 @@ function ipc() {
     if (!routing) send('snapshot', snapshot())
     return snapshot()
   })
-  secureHandle('route:select', async (_e, routeId: unknown, via: unknown) => {
+  secureIntentHandle('route:select', async (_e, routeId: unknown, via: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     if (typeof routeId !== 'string' || routeId.length > 400 || typeof via !== 'string' || via.length > 80 || !/^[\w:.-]+$/.test(via)) return { ok: false, error: 'Неверный маршрут' }
     const known = via === 'direct' || (via === AUTO_ID && autoMembers(store.profiles).length > 0) || store.profiles.some(p => !p.revoked && p.id === via) || store.settings.groups.some(g => g.id === via && g.members.some(id => store.profiles.some(p => !p.revoked && p.id === id)))
@@ -443,7 +471,7 @@ function ipc() {
     return { ok: r.saved, saved: r.saved, applied: r.applied, error: applyText(r) }
   })
   // the picker opened by bridge routes.open: main holds the validated target, the renderer only names a path for it
-  secureHandle('companion:choose', async (_e, id: unknown, via: unknown) => {
+  secureIntentHandle('companion:choose', async (_e, id: unknown, via: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     const t = typeof id === 'string' ? pendingPicks.get(id, Date.now()) : undefined
     if (!t) return { ok: false, error: 'Запрос приложения устарел. Повтори его из приложения' }
@@ -644,18 +672,19 @@ function ipc() {
     try { store.save() }
     catch {
       store.profiles[index] = old
-      if (wasOn) void connect()
+      if (wasOn && masterOpen) void connect()
       return { ok: false, error: 'Не удалось сохранить конфиг; прежний туннель восстановлен' }
     }
     await refreshNotices()
     updateTray()
-    if (wasOn) {
+    if (wasOn && masterOpen) {
       const result = await connect()
       if (!result.ok) {
         await engine.stop()
         store.profiles[index] = old
         try { store.save() }
         catch { return { ok: false, error: 'Новый конфиг не запустился, а прежний не удалось записать обратно. Туннель остановлен; восстанови конфиг из источника.' } }
+        if (!masterOpen) return { ok: false, error: 'Новый конфиг не запустился. Прежний конфиг восстановлен на диске; Waarp оставлен закрытым по команде пользователя.' }
         const restored = await connect()
         if (restored.ok) return { ok: false, error: 'Новый конфиг не запустился. Waarp восстановил прежний рабочий конфиг.' }
         return { ok: false, error: 'Новый конфиг не запустился. Прежний конфиг восстановлен на диске, но его запуск тоже не удался.' }
@@ -678,7 +707,7 @@ function ipc() {
     send('snapshot', snapshot())
     return { ok: true }
   })
-  secureHandle('profile:remove', async (_e, id: unknown, replace?: unknown) => {
+  secureIntentHandle('profile:remove', async (_e, id: unknown, replace?: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     if (typeof id !== 'string' || !store.profiles.some(x => x.id === id)) return { ok: false, error: 'Туннель не найден' }
     if (store.profiles.some(x => x.id === id && x.source === 'managed')) return { ok: false, error: 'Туннелем управляет команда; удалить его здесь нельзя' }
@@ -699,7 +728,7 @@ function ipc() {
     }
     await refreshNotices()
     updateTray()
-    if (wasOn && demandsTunnel(store.settings)) {
+    if (wasOn && masterOpen && demandsTunnel(store.settings)) {
       const result = await connect()
       if (!result.ok) return { ok: true, warning: 'Профиль удалён, но оставшиеся маршруты не запустились: ' + (result.error ?? 'проверь подключение') }
     }
@@ -806,14 +835,14 @@ app.whenReady().then(async () => {
       status: () => bridgeStatus(engine.status.phase, moodOf(withRoutes(engine.status).routes ?? {}), app.getVersion(), engine.status.since),
       routes: {
         list: () => ({ routes: listCompanion(store.settings, withRoutes(engine.status).routes, viewName) }),
-        ensure: async (target, intent) => {
+        ensure: (target, intent) => intentWrites.run(async () => {
           if (writeError()) return { error: 'blocked' }
           const r = ensureIntent(store.settings, store.profiles, target, intent)
           if ('error' in r) return r
           const a = r.changed ? await applyRouting(r.settings) : undefined
           if (a && !a.saved) return { error: 'not_saved' }
           return { ok: true, saved: true, applied: a ? a.applied : engine.status.phase === 'on', ...(a?.code ? { warning: a.code === 'block' ? 'blocked' : 'not_applied' } : {}), route: listCompanion(store.settings, withRoutes(engine.status).routes, viewName).find(x => x.id === parseTarget(target)?.id) }
-        },
+        }),
         // only a navigation request: never writes a route, never connects
         open: raw => {
           const t = parseTarget(raw)
@@ -846,19 +875,24 @@ app.whenReady().then(async () => {
   if (store.settings.autoConnect && admin && demandsTunnel(store.settings)) void connect()
   // R4: one restart per resume, after a usable network is back; never overlapping, never a churn loop
   const sleepWake = createResume({
-    isOn: () => engine.status.phase === 'on' || engine.status.phase === 'starting',
+    isOn: () => masterOpen && (engine.status.phase === 'on' || engine.status.phase === 'starting'),
     netReady: async () => underlayReady(net.isOnline(), await defaultRoutes()),
-    restart: async () => {
+    restart: () => intentWrites.run(async () => {
+      // The owner may have closed Waarp during the settle/network-wait window. Never resurrect it afterwards.
+      if (!masterOpen) return true
       const n = await refreshNotices()
       if (n.some(x => x.level === 'block') || !demandsTunnel(store.settings)) { await engine.stop(); return true }
       await engine.start(store.profiles, store.settings)
       return engine.status.phase === 'on'
-    },
-    fail: async why => {
+    }),
+    fail: why => intentWrites.run(async () => {
+      // A deliberate close while resume was waiting wins over the stale wake intent and needs no error toast.
+      if (!masterOpen) return
       if (engine.status.phase !== 'error') await engine.stop()
+      setMaster(false)
       const msg = why === 'no_network' ? 'После сна сеть не вернулась. Waarp закрыт, включи его, когда интернет появится' : 'После сна Waarp не смог переподключиться и закрыт'
       send('toast', msg); notify(msg)
-    },
+    }),
   })
   powerMonitor.on('suspend', () => sleepWake.suspend())
   powerMonitor.on('resume', () => sleepWake.resume())
