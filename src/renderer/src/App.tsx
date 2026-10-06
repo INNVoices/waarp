@@ -145,10 +145,10 @@ export function App() {
     : status
   const master = masterPresentation(status, masterPending)
   const engineOn = status.phase === 'on'
+  const demandsTunnel = snap.settings.rest !== 'direct' || snap.settings.routes.some(r => r.on && r.via !== 'direct')
   // "Nothing to open" may disable OPEN, but must never disable OFF for an already-open master.
   const masterUnavailable = !master.pressed && !snap.profiles.length && !demandsTunnel
   const hasRouting = snap.profiles.length > 0 || snap.settings.routes.length > 0 || snap.settings.rest !== 'direct'
-  const demandsTunnel = snap.settings.rest !== 'direct' || snap.settings.routes.some(r => r.on && r.via !== 'direct')
   const railOn = page === 'route' ? nav.from : page
 
   return (
