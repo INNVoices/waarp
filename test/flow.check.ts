@@ -117,6 +117,14 @@ t('long route-detail titles shrink instead of pushing the toggle/remove controls
   layoutSrc.includes('.ph-t { display: flex; flex-direction: column; min-width: 0; }')
   && layoutSrc.includes('.ph-t h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }'))
 
+const routePageSrc = readFileSync('src/renderer/src/pages/route.tsx', 'utf8')
+t('route path selection acknowledges the pending target immediately',
+  routePageSrc.includes("const visibleNowText = applying ? s('route.applying'")
+  && routePageSrc.includes("className={'route-now' + (applying ? ' applying'")
+  && routePageSrc.includes('aria-live="polite"')
+  && layoutSrc.includes('.vopt.applying {')
+  && layoutSrc.includes('.route-now.applying {'))
+
 const connectionsSrc = readFileSync('src/renderer/src/pages/connections.tsx', 'utf8')
 t('closed master removes the dead live-connections section but transitions/open-idle may show it',
   connectionsSrc.includes('const showFlows = status.open === true') && connectionsSrc.includes('{showFlows && <details className="flows">'))

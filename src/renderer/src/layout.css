@@ -170,6 +170,8 @@
 .vopt { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding: 12px; text-align: left; border-radius: var(--r-md); background: var(--field); border: 1px solid var(--line); transition: border-color var(--dur-2), background var(--dur-1); }
 .vopt:hover { border-color: var(--line-2); }
 .vopt.on { border-color: var(--a-line); background: color-mix(in oklab, var(--a) 6%, var(--field)); }
+.vopt.applying { border-color: var(--a); background: color-mix(in oklab, var(--a) 10%, var(--field)); cursor: progress; }
+.vopt.applying .radio { box-shadow: inset 0 0 0 3px var(--a), 0 0 0 2px color-mix(in oklab, var(--a) 16%, transparent); }
 .radio { width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line-2); transition: box-shadow var(--dur-2); }
 .vopt.on .radio { box-shadow: inset 0 0 0 4px var(--a); }
 .vo-t { display: flex; flex-direction: column; min-width: 0; }
@@ -444,6 +446,8 @@
 .mark.auto { background: conic-gradient(var(--a), color-mix(in oklab, var(--a) 40%, transparent), var(--a)); }
 .route-now { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border: 1px solid var(--line); border-radius: var(--r-lg); margin-bottom: 12px; }
 .route-now .st-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--a); flex: none; }
+.route-now.applying { border-color: var(--a-line); background: color-mix(in oklab, var(--a) 5%, transparent); }
+.route-now.applying .st-dot { box-shadow: 0 0 0 3px color-mix(in oklab, var(--a) 14%, transparent); }
 .route-now.warn .st-dot { background: var(--warn); }
 .route-now.err .st-dot { background: var(--err); }
 .pub-more { margin: 4px 0 12px; }
