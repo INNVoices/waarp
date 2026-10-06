@@ -5,17 +5,36 @@ import { s, sp } from '../lib/i18n'
 import { moodOf, REST_ID } from '../../../shared/effective'
 import { connRoute, connsOf, dropRoute, patchRoute } from '../lib/routes'
 import { kindLabel, Mark, Orb, Ping, RouteIcon, viaName, ViaPicker } from '../parts'
+import { api } from '../bridge'
 
 interface P {
   snap: Snapshot; status: Status; conns: Conn[]; apps: AppInfo[]
-  patch: (p: Partial<Settings>) => void
+  patch: (p: Partial<Settings>) => void | Promise<void>
+  toast: (text: string) => void
   toggle: () => void
   open: (id: string) => void
   add: () => void
 }
 
-export function Connections({ snap, status, conns, apps, patch, toggle, open, add }: P) {
+export function Connections({ snap, status, conns, apps, patch, toast, toggle, open, add }: P) {
   const st = snap.settings
+  const [routingBusy, setRoutingBusy] = useState(false)
+  const [busyRoute, setBusyRoute] = useState<string>()
+  const runPatch = async (p: Partial<Settings>, routeId?: string) => {
+    if (routingBusy) return
+    setRoutingBusy(true); setBusyRoute(routeId)
+    try { await patch(p) }
+    finally { setBusyRoute(undefined); setRoutingBusy(false) }
+  }
+  const selectRoute = async (route: Route, via: string) => {
+    if (routingBusy) return
+    setRoutingBusy(true); setBusyRoute(route.id)
+    try {
+      const result = await api.selectRoute(route.id, via)
+      if (!result?.ok || result.error) toast(result?.error ?? 'Не удалось применить маршрут')
+    } catch { toast('Не удалось применить маршрут') }
+    finally { setBusyRoute(undefined); setRoutingBusy(false) }
+  }
   const live = status.phase === 'on'
   // "Живые соединения" are runtime evidence. A truly closed master has no live
   // session to inspect, so do not leave a dead section in the daily-use layout.
@@ -37,9 +56,9 @@ export function Connections({ snap, status, conns, apps, patch, toggle, open, ad
           <State snap={snap} status={status} disabled={(!snap.profiles.length && !demandsTunnel) || blocked} why={why} />
           <div className="rest">
         <Tooltip tip={s('rest.tip')}><span className="lbl help">{s('home.scope')}</span></Tooltip>
-        <Seg<'cards' | 'all'> value={st.rest === 'direct' ? 'cards' : 'all'} onChange={m => patch(m === 'all' ? { rest: allPick, allVia: allPick } : { rest: 'direct', allVia: st.rest !== 'direct' ? st.rest : st.allVia })}
+        <Seg<'cards' | 'all'> disabled={routingBusy} value={st.rest === 'direct' ? 'cards' : 'all'} onChange={m => void runPatch(m === 'all' ? { rest: allPick, allVia: allPick } : { rest: 'direct', allVia: st.rest !== 'direct' ? st.rest : st.allVia })}
           items={[{ v: 'cards', label: s('home.scope.cards') }, { v: 'all', label: s('home.scope.all') }]} />
-        {st.rest !== 'direct' && <ViaPicker noDirect profiles={snap.profiles} via={st.rest} pings={status.pings} live={live} down={v => v === st.rest ? status.routes?.[REST_ID]?.reason === 'path_down' : status.health?.[v] === 'down'} onChange={v => patch({ rest: v, allVia: v })} />}
+        {st.rest !== 'direct' && <ViaPicker noDirect disabled={routingBusy} profiles={snap.profiles} via={st.rest} pings={status.pings} live={live} down={v => v === st.rest ? status.routes?.[REST_ID]?.reason === 'path_down' : status.health?.[v] === 'down'} onChange={v => void runPatch({ rest: v, allVia: v })} />}
           </div>
         </div>
       </section>
@@ -54,17 +73,18 @@ export function Connections({ snap, status, conns, apps, patch, toggle, open, ad
           const cs = live ? connsOf(r, conns) : []
           const tr = cs.reduce((a, c) => a + c.down + c.up, 0)
           return (
-            <div key={r.id} className={'rcard' + (r.on ? ' on' : '')} onClick={() => open(r.id)}>
-              <Plain className="rc-x" aria-label={s('conn.remove')} onClick={e => { e.stopPropagation(); patch({ routes: dropRoute(st, r.id) }) }}><Icon n="x" s={12} /></Plain>
+            <div key={r.id} className={'rcard' + (r.on ? ' on' : '') + (busyRoute === r.id ? ' applying' : '')} onClick={() => open(r.id)}>
+              <Plain className="rc-x" disabled={routingBusy} aria-label={s('conn.remove')} onClick={e => { e.stopPropagation(); void runPatch({ routes: dropRoute(st, r.id) }, r.id) }}><Icon n="x" s={12} /></Plain>
               <div className="rc-top">
                 <div className="rc-ic"><RouteIcon r={r} icon={icon(r)} /></div>
                 <div className="rc-t">
                   <div className="rc-n">{r.name}</div>
                   <div className="rc-k">{kindLabel(r)}{tr > 0 && <small className="m mono">{` · ${fmtBytes(tr)}`}</small>}{live && status.fallback[r.id] && <Tooltip tip={s('conn.fb.tip', { v: viaName(snap.profiles, status.fallback[r.id]) })}><span className="fb-mark"><Icon n="refresh" s={12} /></span></Tooltip>}</div>
                 </div>
-                <Tooltip tip={s(r.on ? 'conn.on.tip' : 'conn.off.tip')}><span><Toggle on={r.on} onChange={v => patch({ routes: patchRoute(st, r.id, { on: v }) })} label={r.name} /></span></Tooltip>
+                <Tooltip tip={s(r.on ? 'conn.on.tip' : 'conn.off.tip')}><span><Toggle on={r.on} disabled={routingBusy} onChange={v => void runPatch({ routes: patchRoute(st, r.id, { on: v }) }, r.id)} label={r.name} /></span></Tooltip>
               </div>
-              <ViaPicker compact profiles={snap.profiles} via={r.via} pings={status.pings} live={live} down={v => v === r.via ? status.routes?.[r.id]?.reason === 'path_down' : status.health?.[v] === 'down'} onChange={v => patch({ routes: patchRoute(st, r.id, { via: v }) })} />
+              <ViaPicker compact disabled={routingBusy} profiles={snap.profiles} via={r.via} pings={status.pings} live={live} down={v => v === r.via ? status.routes?.[r.id]?.reason === 'path_down' : status.health?.[v] === 'down'} onChange={v => void selectRoute(r, v)} />
+              {busyRoute === r.id && <span className="rc-applying" role="status">{s('route.st.applying')}</span>}
             </div>
           )
         })}

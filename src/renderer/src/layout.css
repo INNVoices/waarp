@@ -95,6 +95,8 @@
 .rcard { position: relative; display: flex; flex-direction: column; gap: 12px; padding: 16px; min-height: 112px; text-align: left; background: var(--win); border: 1px solid var(--line); border-radius: var(--r-lg); cursor: pointer; transition: background var(--dur-1), border-color var(--dur-2), transform var(--dur-1); }
 .rcard:hover { background: var(--raise); border-color: var(--line-2); }
 .rcard.on { border-color: var(--line-2); }
+.rcard.applying { border-color: var(--a-line); background: color-mix(in oklab, var(--a) 5%, var(--win)); }
+.rc-applying { font-size: 11px; color: var(--a-text); line-height: 16px; }
 .rcard:not(.on) .rc-top, .rcard:not(.on) .via { opacity: .55; }
 .rc-x { position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; display: grid; place-items: center; border-radius: var(--r); color: var(--d); opacity: 0; transition: opacity var(--dur-1), background var(--dur-1); }
 .rcard:hover .rc-x { opacity: 1; }

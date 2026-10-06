@@ -181,7 +181,7 @@ export function App() {
       <main className="main">
         <Notices list={snap.notices} admin={snap.admin} />
         {page === 'home' && !hasRouting && <Welcome onAdd={() => setAdding(true)} />}
-        {page === 'home' && hasRouting && <Connections snap={snap} status={controlStatus} conns={conns} apps={apps ?? []} patch={patch} toggle={toggle} open={open} add={() => setNav(addEntry)} />}
+        {page === 'home' && hasRouting && <Connections snap={snap} status={controlStatus} conns={conns} apps={apps ?? []} patch={patch} toast={setToast} toggle={toggle} open={open} add={() => setNav(addEntry)} />}
           {page === 'route' && routeId && <RoutePage snap={snap} status={status} conns={conns} apps={apps ?? []} id={routeId} patch={patch} toast={setToast} back={() => setNav(back)} />}
           {page === 'lib' && <Library snap={snap} status={status} conns={conns} apps={apps} loading={scanning} rescan={rescan} addApp={addApp} patch={patch} toast={setToast} open={open} mode={nav.libMode} setMode={m => setNav(m === 'catalog' ? showCatalog : showList)} />}
           {page === 'servers' && <Servers snap={snap} status={status} patch={patch} toast={setToast} />}
