@@ -17,6 +17,9 @@ interface P {
 export function Connections({ snap, status, conns, apps, patch, toggle, open, add }: P) {
   const st = snap.settings
   const live = status.phase === 'on'
+  // "Живые соединения" are runtime evidence. A truly closed master has no live
+  // session to inspect, so do not leave a dead section in the daily-use layout.
+  const showFlows = status.open === true || status.phase === 'on' || status.phase === 'starting' || status.phase === 'stopping'
   const icon = (r: Route) => apps.find(a => 'app:' + a.id === r.id)?.icon
   const block = snap.notices.find(n => n.level === 'block')
   const blocked = !!block
@@ -68,12 +71,12 @@ export function Connections({ snap, status, conns, apps, patch, toggle, open, ad
         <Plain className="rcard add" onClick={add} aria-label={s('conn.add')}><Icon n="plus" s={20} /><span>{s('conn.add')}</span></Plain>
       </div>
 
-      {/* live flows are evidence, not the screen: collapsed until asked for */}
-      <details className="flows">
+      {/* live flows are evidence, not the screen: absent when master is truly closed, collapsed otherwise */}
+      {showFlows && <details className="flows">
         <summary className="sec-head"><h2>{s('conns.title')}</h2>{live && <span className="m">{sp('conns.count', conns.length)}</span>}<Icon n="chev" s={14} /></summary>
         <Stats status={status} />
         <ConnTable snap={snap} status={status} conns={conns} apps={apps} />
-      </details>
+      </details>}
       <p className="hint">{s('safety.crash')}</p>
     </div>
   )
