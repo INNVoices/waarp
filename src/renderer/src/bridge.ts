@@ -98,6 +98,7 @@ function mock(): Api {
     onSnapshot: on('snapshot'),
     onStatus: on('status'),
     onConns: on('conns'),
+    onApps: on('apps'),
     onToast: on('toast'),
     onNav: on('nav'),
     companionChoose: async (id: string, via: string) => { settings = { ...settings, routes: [...settings.routes.filter(r => r.id !== id), { id, kind: 'custom', name: id, value: 'example.com', via, on: true, owner: 'companion' }] }; emit('snapshot', snap()); return { ok: true, id } },
