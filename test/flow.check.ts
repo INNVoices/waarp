@@ -108,6 +108,12 @@ t('closed master still says a tunnel route is waiting for opening',
   routeStateKey({ on: true, via: 'p1' } as Route, baseStatus, { desired: 'p1', state: 'idle', reason: 'waiting' }) === 'route.st.idle'
   && routeSchemeHintKey({ via: 'p1' } as Route, baseStatus) === 'route.scheme.off')
 
+const layoutSrc = readFileSync('src/renderer/src/layout.css', 'utf8')
+t('live-connections summary adapts at the declared 900px window minimum instead of clipping columns',
+  layoutSrc.includes('@media (max-width: 1050px)')
+  && layoutSrc.includes('.ct-r > :nth-child(4), .ct-r > :nth-child(7) { display: none; }')
+  && layoutSrc.includes('minmax(130px, 1.2fr) minmax(100px, .8fr) minmax(130px, 1.4fr)'))
+
 const connectionsSrc = readFileSync('src/renderer/src/pages/connections.tsx', 'utf8')
 t('closed master removes the dead live-connections section but transitions/open-idle may show it',
   connectionsSrc.includes('const showFlows = status.open === true') && connectionsSrc.includes('{showFlows && <details className="flows">'))
