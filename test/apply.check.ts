@@ -95,7 +95,10 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
   ok(main.includes("isOn: () => masterOpen &&") && main.includes("restart: () => intentWrites.run(async () =>")
     && main.includes("if (!masterOpen) return true") && main.includes("fail: why => intentWrites.run(async () =>")
     && main.includes("setMaster(false)") && main.includes("if (!masterOpen) { updateTray(); send('snapshot', snapshot()); return snapshot() }")
-    && main.includes("if (wasOn && masterOpen)"), 'owner close wins over resume/settings/profile reconnect and terminal resume failure closes its intent')
+    && main.includes("if (wasOn && masterOpen)")
+    && main.includes("if (!masterOpen) setMaster(true)")
+    && main.includes("if (!masterOpen) return { ok: false, error: 'Подключение отменено' }")
+    && !main.includes("if (up) setMaster(true)"), 'owner close wins over connect/resume/settings/profile reconnect and terminal resume failure closes its intent')
 
   // H: bridge request ids
   for (const v of [undefined, null, 0, 1, -5, 2.5, Number.MAX_SAFE_INTEGER, '', 'abc', 'x'.repeat(128)]) ok(okId(v), 'id ok: ' + String(v).slice(0, 20))

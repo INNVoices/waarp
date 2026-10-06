@@ -193,12 +193,29 @@ async function refreshNotices() {
 
 async function connect() {
   if (!demandsTunnel(store.settings)) return { ok: false, error: store.profiles.length ? 'Ни одна карточка не идёт через сервер. Выбери сервер хотя бы для одной' : 'Сначала добавь конфиг' }
-  if (engine.status.phase === 'on' || engine.status.phase === 'starting') return { ok: true }
+
+  // Claim the owner's OPEN intent before native work starts. This makes a later OFF during prepare/start observable
+  // and prevents a completed async connect from resurrecting masterOpen after the owner cancelled it.
+  if (!masterOpen) setMaster(true)
+  if (engine.status.phase === 'on') return { ok: true }
+  if (engine.status.phase === 'starting') return { ok: true }
+
   const ready = await prepareStart({ stopChecker: () => (checker ? checker.stop() : Promise.resolve(true)), notices: refreshNotices })
-  if (!ready.ok) return ready
+  if (!ready.ok) {
+    if (masterOpen) setMaster(false)
+    return ready
+  }
+  if (!masterOpen) return { ok: false, error: 'Подключение отменено' }
+
   await engine.start(store.profiles, store.settings)
   const up = (engine.status as Status).phase === 'on'
-  if (up) setMaster(true)
+
+  // OFF may have arrived while Engine.start was serialized/running. Never overwrite that newer owner intent.
+  if (!masterOpen) {
+    if (up) await engine.stop()
+    return { ok: false, error: 'Подключение отменено' }
+  }
+  if (!up) setMaster(false)
   return up ? { ok: true } : { ok: false, error: engine.status.error }
 }
 
@@ -667,6 +684,7 @@ function ipc() {
         store.profiles[index] = old
         try { store.save() }
         catch { return { ok: false, error: 'Новый конфиг не запустился, а прежний не удалось записать обратно. Туннель остановлен; восстанови конфиг из источника.' } }
+        if (!masterOpen) return { ok: false, error: 'Новый конфиг не запустился. Прежний конфиг восстановлен на диске; Waarp оставлен закрытым по команде пользователя.' }
         const restored = await connect()
         if (restored.ok) return { ok: false, error: 'Новый конфиг не запустился. Waarp восстановил прежний рабочий конфиг.' }
         return { ok: false, error: 'Новый конфиг не запустился. Прежний конфиг восстановлен на диске, но его запуск тоже не удался.' }
