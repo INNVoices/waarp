@@ -5,6 +5,7 @@ import { AUTO_ID } from '../src/shared/groups'
 import type { AppInfo, Route } from '../src/shared/types'
 import { readFileSync } from 'node:fs'
 import { masterPresentation, orbPresentation } from '../src/renderer/src/lib/master'
+import { trayPresentation } from '../src/main/tray-view'
 import type { Status } from '../src/shared/types'
 
 let failed = 0
@@ -85,6 +86,15 @@ t('explicit master close/open pending overrides internal engine presentation',
 t('Home orb calls an internal reapply switching, never global closing/opening',
   orbPresentation({ ...baseStatus, open: true, phase: 'stopping' }).titleKey === 'orb.applying'
   && orbPresentation({ ...baseStatus, open: true, phase: 'starting' }).titleKey === 'orb.applying')
+
+t('tray follows master intent and never flashes closed during structural core reapply',
+  trayPresentation({ ...baseStatus, phase: 'stopping' }, true, []).active
+  && trayPresentation({ ...baseStatus, phase: 'stopping' }, true, []).tooltip.includes('применяю маршруты')
+  && trayPresentation({ ...baseStatus, phase: 'starting' }, true, []).action === 'disconnect'
+  && !trayPresentation({ ...baseStatus, phase: 'on' }, false, ['Poland']).active)
+t('tray open-idle stays open even with core off',
+  trayPresentation({ ...baseStatus, phase: 'off' }, true, []).active
+  && trayPresentation({ ...baseStatus, phase: 'off' }, true, []).action === 'disconnect')
 
 const connectionsSrc = readFileSync('src/renderer/src/pages/connections.tsx', 'utf8')
 t('closed master removes the dead live-connections section but transitions/open-idle may show it',
