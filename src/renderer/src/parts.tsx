@@ -75,8 +75,8 @@ export function Ping({ ms, live, down }: { ms?: number; live: boolean; down?: bo
 /** second line of a tunnel in lists: protocol and host, or the policy of a group */
 export const subOf = (p?: ProfileView) => (!p ? '' : p.kind === 'group' ? `${s('srv.kind.group')} · ${s('grp.pol.' + p.policy)}` : `${p.version} · ${p.host}`)
 
-export function ViaPicker({ profiles, via, pings, live, onChange, compact, noDirect, down }: {
-  profiles: ProfileView[]; via: Via; pings: Record<string, number | undefined>; live: boolean; onChange: (v: Via) => void; compact?: boolean; noDirect?: boolean
+export function ViaPicker({ profiles, via, pings, live, onChange, compact, noDirect, disabled, down }: {
+  profiles: ProfileView[]; via: Via; pings: Record<string, number | undefined>; live: boolean; onChange: (v: Via) => void; compact?: boolean; noDirect?: boolean; disabled?: boolean
   /** paths confirmed down (from tunnel health / effective state) */
   down?: (v: Via) => boolean
 }) {
@@ -88,18 +88,19 @@ export function ViaPicker({ profiles, via, pings, live, onChange, compact, noDir
     window.addEventListener('mousedown', h)
     return () => window.removeEventListener('mousedown', h)
   }, [open])
+  useEffect(() => { if (disabled) setOpen(false) }, [disabled])
   // Auto first when the user has own connections to pick from (W2.3); public nodes never join Auto
   const opts: Via[] = [...(autoMembers(profiles).length ? [AUTO_ID] : []), ...(noDirect ? [] : ['direct']), ...profiles.map(p => p.id)]
   return (
     <div className={'via' + (compact ? ' compact' : '')} ref={ref} onClick={e => e.stopPropagation()}>
-      <Plain className="via-btn" onClick={() => setOpen(!open)} aria-expanded={open} tip={s('via.tip')}>
+      <Plain className="via-btn" disabled={disabled} onClick={() => setOpen(!open)} aria-expanded={open} tip={s('via.tip')}>
         <Mark profiles={profiles} via={via} />
         <span className="via-name">{viaName(profiles, via)}</span>
         {/* a deleted / revoked path has no evidence to show, only its blocked name */}
         {via !== 'direct' && (via === AUTO_ID || profiles.some(p => p.id === via && !p.revoked)) && <Ping ms={pings[via]} live={live} down={down?.(via)} />}
         <Icon n="chev" s={14} />
       </Plain>
-      {open && (
+      {open && !disabled && (
         <div className="menu via-menu">
           {opts.map(v => (
             <Plain key={v} className={'mi' + (v === via ? ' on' : '')} disabled={profiles.some(p => p.id === v && p.revoked)} onClick={() => { onChange(v); setOpen(false) }}>

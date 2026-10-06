@@ -119,6 +119,7 @@
 .via { position: relative; }
 .via-btn { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px 0 12px; border-radius: var(--r); background: var(--field); border: 1px solid var(--line); color: var(--t2); max-width: 100%; transition: border-color var(--dur-1), background var(--dur-1); }
 .via-btn:hover { border-color: var(--line-2); color: var(--t); }
+.via-btn:disabled { cursor: progress; opacity: .72; }
 .via.compact .via-btn { width: 100%; }
 .via-name { flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .via-btn .ic { color: var(--m); }
@@ -429,6 +430,8 @@
 .rrow { display: grid; grid-template-columns: minmax(180px, 1.2fr) 16px minmax(220px, 1fr) minmax(140px, 220px) auto; align-items: center; gap: 12px; padding: 8px 16px; border-top: 1px solid var(--line); }
 .rrow:first-child { border-top: 0; }
 .rrow.off .rr-t, .rrow.off .rr-via { opacity: .5; }
+.rrow.applying { background: color-mix(in oklab, var(--a) 5%, var(--win)); }
+.rrow.applying .rr-via { opacity: 1; }
 .rrow > .ic { transform: rotate(-90deg); color: var(--d); }
 .rr-t { display: flex; align-items: center; gap: 10px; min-width: 0; text-align: left; }
 .rr-n { display: flex; flex-direction: column; min-width: 0; }
