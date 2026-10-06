@@ -10,6 +10,7 @@ import { PublicCatalog } from './publiccat'
 import { api } from '../bridge'
 import { AUTO_ID, autoMembers } from '../../../shared/groups'
 import { safeVia } from '../../../shared/companion'
+import { routeSchemeHintKey, routeStateKey } from '../lib/route-state'
 
 interface P { snap: Snapshot; status: Status; conns: Conn[]; apps: AppInfo[]; id: string; patch: (p: Partial<Settings>) => void | Promise<void>; toast: (text: string) => void; back: () => void }
 
@@ -38,7 +39,8 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
   const e = status.routes?.[r.id]
   const nowText = !e ? '' : e.state === 'ok' ? (e.effective && e.effective !== r.via ? s('route.now.picked', { a: viaName(snap.profiles, r.via), v: viaName(snap.profiles, e.effective) }) : s('route.now.ok', { v: viaName(snap.profiles, r.via) }))
     : e.state === 'fallback' ? s('route.now.fallback', { v: viaName(snap.profiles, e.effective ?? '') })
-    : e.state === 'direct' ? s('route.now.direct') : e.state === 'off' ? s('route.st.off') : e.state === 'idle' ? s('route.st.idle') : s('route.st.' + e.reason)
+    : e.state === 'direct' ? s('route.now.direct') : s(routeStateKey(r, status, e, draft))
+  const schemeHint = routeSchemeHintKey(r, status)
   const preset = r.kind === 'preset' ? PRESETS.find(p => p.id === r.preset) : undefined
   const dest = cs[0]?.host
   const eff = (live && status.fallback[r.id]) || r.via
@@ -106,7 +108,7 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
       )}
 
       <section className="panel">
-        <div className="ph-row"><h3>{s('route.scheme')}</h3>{!live && <span className="m">{s('route.scheme.off')}</span>}</div>
+        <div className="ph-row"><h3>{s('route.scheme')}</h3>{schemeHint && <span className="m">{s(schemeHint)}</span>}</div>
         <div className={"scheme" + (eff === "direct" ? " short" : "")} style={{ '--hue': hueOf(snap.profiles, eff) ?? 'var(--line-2)' } as React.CSSProperties}>
           <div className="node you"><span className="nd-ic"><Icon n="user" s={20} /></span><b>{s('route.you')}</b><small className="m">{s('route.isp')}</small></div>
           <div className="link"><span className="lk-ms">{live && status.pings.direct ? s('meter.ms', { n: status.pings.direct }) : '—'}</span></div>

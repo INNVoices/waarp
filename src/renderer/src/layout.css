@@ -30,7 +30,8 @@
 @keyframes fade { from { opacity: 0; transform: translateY(4px); } }
 .page-head { display: flex; align-items: center; gap: 12px; min-height: 40px; }
 .page-head h1 { font-family: var(--wordmark); font-weight: 600; font-size: 24px; line-height: 32px; letter-spacing: -.01em; }
-.ph-t { display: flex; flex-direction: column; }
+.ph-t { display: flex; flex-direction: column; min-width: 0; }
+.ph-t h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ph-t .m { font-size: 12px; }
 .back { width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--r); color: var(--m); }
 .back:hover { background: var(--hi); color: var(--t); }
@@ -153,6 +154,15 @@
 .why { display: flex; align-items: center; gap: 8px; color: var(--t2); font-size: 12px; margin-bottom: 4px; }
 .why .ic { color: var(--m); }
 .ct-sub { display: grid; grid-template-columns: minmax(0, 1fr) auto 96px 96px; gap: 12px; font-size: 11px; color: var(--t2); }
+
+/* 900px is the declared app minimum. At that width the full 8-column summary is wider than the
+   centre pane; do not clip it. Protocol and ping are secondary evidence and remain available in
+   the expanded row / route diagnostics, while app, path, host and traffic stay visible. */
+@media (max-width: 1050px) {
+  .ct-r { grid-template-columns: minmax(130px, 1.2fr) minmax(100px, .8fr) minmax(130px, 1.4fr) 76px 76px 24px; gap: 10px; }
+  .ct-r > :nth-child(4), .ct-r > :nth-child(7) { display: none; }
+  .ct-sub { grid-template-columns: minmax(0, 1fr) auto 76px 76px; gap: 10px; }
+}
 .ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* route page */
