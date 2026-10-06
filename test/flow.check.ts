@@ -3,6 +3,7 @@ import { acquire, addEntry, back, draftOf, goTo, initialNav, isDraft, normAddr, 
 import { customRoute } from '../src/renderer/src/lib/routes'
 import { AUTO_ID } from '../src/shared/groups'
 import type { AppInfo, Route } from '../src/shared/types'
+import { readFileSync } from 'node:fs'
 
 let failed = 0
 const t = (name: string, ok: boolean, info = ''): void => { if (!ok) failed++; console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : `  ${info}`}`) }
@@ -54,6 +55,17 @@ t('opening another route from a route page keeps the original origin', back(open
 // no loop: Home + -> catalog; the list is one explicit step away and Back never returns to a screen the user did not come from
 const trail = [home, addEntry(home)].map(n => `${n.page}/${n.libMode}`)
 t('Home + does not pass through the route list', trail.join('>') === 'home/list>lib/catalog')
+
+// Daily-use UX regressions: the first app inventory stays non-blocking, then real Windows icons
+// arrive through an explicit event; master clicks get an immediate renderer-only pending phase.
+const appSrc = readFileSync('src/renderer/src/App.tsx', 'utf8')
+const appsSrc = readFileSync('src/main/apps.ts', 'utf8')
+const indexSrc = readFileSync('src/main/index.ts', 'utf8')
+const preloadSrc = readFileSync('src/preload/index.ts', 'utf8')
+t('master click acknowledges opening/closing immediately without mutating authoritative status',
+  appSrc.includes("setMasterPending(closing ? 'closing' : 'opening')") && appSrc.includes('const controlStatus: Status = masterPending'))
+t('Windows icons hydrate through main -> preload -> renderer without a manual rescan',
+  appsSrc.includes('onHydrated?.(list.map') && indexSrc.includes("send('apps', items)") && preloadSrc.includes("onApps: on('apps')") && appSrc.includes('api.onApps'))
 
 console.log(failed ? `\n${failed} FAILED` : '\nall flow checks passed')
 process.exit(failed ? 1 : 0)

@@ -27,6 +27,7 @@ export function App() {
   const [nav, setNav] = useState<Nav>(initialNav)
   const { page, routeId } = nav
   const [busy, setBusy] = useState(false)
+  const [masterPending, setMasterPending] = useState<'opening' | 'closing'>()
   const [toast, setToast] = useState<string>()
   const [adding, setAdding] = useState(false)
   const [autoFind, setAutoFind] = useState(false)
@@ -64,13 +65,14 @@ export function App() {
       }
     })
     const c = api.onConns((x: Conn[]) => setConns(x))
+    const appsHydrated = api.onApps((x: AppInfo[]) => setApps(x))
     const d = api.onToast((x: string) => setToast(x))
     // a companion app asked Waarp (bridge routes.open) to show its route, or to pick a path for its target
     const e = api.onNav((x: { route?: string; pick?: { id?: unknown; name?: unknown } }) => {
       if (typeof x?.route === 'string') { const id = x.route; setNav(n => openRoute(n, id)) }
       else if (x?.pick && typeof x.pick.id === 'string' && typeof x.pick.name === 'string') setPick({ id: x.pick.id, name: x.pick.name })
     })
-    return () => { a(); b(); c(); d(); e() }
+    return () => { a(); b(); c(); appsHydrated(); d(); e() }
   }, [])
 
   // The elapsed-time label needs a clock only while the tunnel is on. Keeping this timer alive
@@ -112,6 +114,8 @@ export function App() {
   const addApp = (a: AppInfo) => setApps(l => [a, ...(l ?? []).filter(x => x.id !== a.id)])
   const toggle = async () => {
     if (busy) return
+    const closing = status.open === true || status.phase === 'on' || status.phase === 'starting'
+    setMasterPending(closing ? 'closing' : 'opening')
     setBusy(true)
     try {
       const r = await api.toggle()
@@ -122,8 +126,16 @@ export function App() {
       setSnap(fresh)
       setStatus(fresh.status)
       if (!r.ok && r.error) setToast(r.error)
-    } finally { setBusy(false) }
+    } finally {
+      setMasterPending(undefined)
+      setBusy(false)
+    }
   }
+  // Renderer-only pending phase: acknowledge the click immediately without pretending the
+  // main process has already changed its authoritative engine state.
+  const controlStatus: Status = masterPending
+    ? { ...status, phase: masterPending === 'opening' ? 'starting' : 'stopping' }
+    : status
   const on = status.phase === 'on'
   // Master intent can stay open while no card currently needs a tunnel.
   const idle = status.open === true && status.phase === 'off'
@@ -146,9 +158,9 @@ export function App() {
 
       <header className="top">
         <Plain className="master" onClick={() => void toggle()} disabled={(!snap.profiles.length && !demandsTunnel) || busy}
-          aria-label={s('top.master')} aria-pressed={on || idle || status.phase === 'starting'}>
-          <span className={'tg' + (on || idle || status.phase === 'starting' ? ' on' : '')} aria-hidden><i /></span>
-          <b>{s(on ? 'top.on' : idle ? 'top.idle' : status.phase === 'starting' ? 'top.starting' : status.phase === 'stopping' ? 'top.stopping' : 'top.off')}</b>
+          aria-label={s('top.master')} aria-pressed={masterPending === 'opening' || (!masterPending && (on || idle || status.phase === 'starting'))}>
+          <span className={'tg' + (masterPending === 'opening' || (!masterPending && (on || idle || status.phase === 'starting')) ? ' on' : '')} aria-hidden><i /></span>
+          <b>{s(masterPending === 'opening' ? 'top.starting' : masterPending === 'closing' ? 'top.stopping' : on ? 'top.on' : idle ? 'top.idle' : status.phase === 'starting' ? 'top.starting' : status.phase === 'stopping' ? 'top.stopping' : 'top.off')}</b>
           {on && status.since && <span className="mono m">{fmtDur(Date.now() - status.since)}</span>}
         </Plain>
         {on && <div className="top-speed mono"><Icon n="down" s={14} />{fmtSpeed(status.down)}<Icon n="up" s={14} />{fmtSpeed(status.up)}</div>}
@@ -163,7 +175,7 @@ export function App() {
       <main className="main">
         <Notices list={snap.notices} admin={snap.admin} />
         {page === 'home' && !hasRouting && <Welcome onAdd={() => setAdding(true)} />}
-        {page === 'home' && hasRouting && <Connections snap={snap} status={status} conns={conns} apps={apps ?? []} patch={patch} toggle={toggle} open={open} add={() => setNav(addEntry)} />}
+        {page === 'home' && hasRouting && <Connections snap={snap} status={controlStatus} conns={conns} apps={apps ?? []} patch={patch} toggle={toggle} open={open} add={() => setNav(addEntry)} />}
           {page === 'route' && routeId && <RoutePage snap={snap} status={status} conns={conns} apps={apps ?? []} id={routeId} patch={patch} toast={setToast} back={() => setNav(back)} />}
           {page === 'lib' && <Library snap={snap} status={status} conns={conns} apps={apps} loading={scanning} rescan={rescan} addApp={addApp} patch={patch} open={open} mode={nav.libMode} setMode={m => setNav(m === 'catalog' ? showCatalog : showList)} />}
           {page === 'servers' && <Servers snap={snap} status={status} patch={patch} toast={setToast} />}

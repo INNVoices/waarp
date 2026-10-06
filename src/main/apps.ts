@@ -41,14 +41,14 @@ async function icon(exe: string): Promise<string | undefined> {
 
 export const idOf = (exe: string) => exe.toLowerCase()
 
-export async function scanApps(): Promise<AppInfo[]> {
+export async function scanApps(onHydrated?: (apps: AppInfo[]) => void): Promise<AppInfo[]> {
   if (appCache && Date.now() - appCacheAt < 60_000) return appCache.map(a => ({ ...a }))
   if (scanInFlight) return scanInFlight
-  scanInFlight = scanAppsFresh()
+  scanInFlight = scanAppsFresh(onHydrated)
   try { return await scanInFlight } finally { scanInFlight = undefined }
 }
 
-async function scanAppsFresh(): Promise<AppInfo[]> {
+async function scanAppsFresh(onHydrated?: (apps: AppInfo[]) => void): Promise<AppInfo[]> {
   const raw = await ps<Raw>(SCAN, 45000)
   const map = new Map<string, AppInfo>()
   for (const x of arr(raw.i)) {
@@ -82,6 +82,9 @@ async function scanAppsFresh(): Promise<AppInfo[]> {
   void (async () => {
     for (let i = 0; i < list.length; i += 6) {
       await Promise.all(list.slice(i, i + 6).map(async a => { a.icon = await icon(a.exe) }))
+      // The first inventory is intentionally fast. Push each completed icon batch so the
+      // renderer hydrates real Windows icons without a manual Refresh/rescan.
+      onHydrated?.(list.map(a => ({ ...a })))
     }
   })()
   return list.map(a => ({ ...a }))

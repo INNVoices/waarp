@@ -297,7 +297,7 @@ function secureHandle(channel: string, handler: IpcHandler): void {
 function ipc() {
   secureHandle('snapshot', () => snapshot())
   secureHandle('toggle', () => toggle())
-  secureHandle('apps:scan', () => scanApps())
+  secureHandle('apps:scan', () => scanApps(items => send('apps', items)))
   secureHandle('apps:pick', async () => {
     const r = await dialog.showOpenDialog(win!, { title: 'Выбери программу', filters: [{ name: 'Программы', extensions: ['exe'] }], properties: ['openFile'] })
     if (r.canceled || !r.filePaths[0]) return null

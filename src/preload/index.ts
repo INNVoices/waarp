@@ -35,6 +35,7 @@ const api = {
   onSnapshot: on('snapshot'),
   onStatus: on('status'),
   onConns: on('conns'),
+  onApps: on('apps'),
   onToast: on('toast'),
   /** main asks the window to show a route / the companion path picker (bridge routes.open) */
   onNav: on('nav'),
