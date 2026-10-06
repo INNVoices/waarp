@@ -4,6 +4,7 @@ import { PRESETS } from '../../../shared/presets'
 import { Btn, fmtBytes, Icon, Plain, Toggle } from '../ui/kit'
 import { s } from '../lib/i18n'
 import { connsOf, dropRoute, hueOf, patchRoute } from '../lib/routes'
+import { isDraft } from '../lib/flow'
 import { kindLabel, Mark, Ping, RouteIcon, subOf, viaName, AutoHint } from '../parts'
 import { PublicCatalog } from './publiccat'
 import { api } from '../bridge'
@@ -17,6 +18,7 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
   const r = st.routes.find(x => x.id === id)
   if (!r) return <div className="page"><Btn kind="ghost" onClick={back}><Icon n="back" />{s('nav.back')}</Btn></div>
   const live = status.phase === 'on'
+  const draft = isDraft(r) // new target: off, no path chosen yet
   const set = (p: Partial<Route>) => patch({ routes: patchRoute(st, r.id, p) })
   const [applying, setApplying] = useState<Via>()
   const select = async (via: Via) => {
@@ -49,11 +51,12 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
         <div className="rc-ic big"><RouteIcon r={r} icon={icon} size={40} /></div>
         <div className="ph-t"><h1>{r.name}</h1><span className="m">{kindLabel(r)}</span></div>
         <div className="grow" />
-        <Toggle on={r.on} onChange={v => set({ on: v })} label={r.name} />
+        <Toggle on={r.on} disabled={draft} onChange={v => set({ on: v })} label={r.name} />
         <Btn kind="danger" onClick={() => { patch({ routes: dropRoute(st, r.id) }); back() }}><Icon n="trash" />{s('conn.remove')}</Btn>
       </div>
 
-      {nowText && <div className={'route-now' + (e?.state === 'fallback' || e?.state === 'retrying' ? ' warn' : e?.state === 'blocked' ? ' err' : '')} role="status">
+      {draft && <div className="route-now warn" role="status"><span className="st-dot" aria-hidden /><span className="grow">{s('route.draft')}</span></div>}
+      {!draft && nowText && <div className={'route-now' + (e?.state === 'fallback' || e?.state === 'retrying' ? ' warn' : e?.state === 'blocked' ? ' err' : '')} role="status">
         <span className="st-dot" aria-hidden /><span className="grow">{nowText}</span>
         {(e?.state === 'retrying' || e?.state === 'fallback') && <span className="m">{s('route.now.why')}</span>}
       </div>}
@@ -61,7 +64,7 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
         <h3>{s('route.server')}</h3>
         <div className="vgrid">
           {opts.map(v => {
-            const on = r.via === v
+            const on = !draft && r.via === v
             const p = snap.profiles.find(x => x.id === v)
             return (
               <Plain key={v} disabled={!!applying} aria-busy={applying === v} className={'vopt' + (on ? ' on' : '') + (applying === v ? ' applying' : '')} onClick={() => void select(v)}>
@@ -81,7 +84,7 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
         <PublicCatalog compact toast={toast} used={pid => snap.profiles.some(p => p.id === pid)} onAdded={pid => void select(pid)} />
       </details>}
 
-      {r.via !== 'direct' && snap.profiles.find(p => p.id === r.via)?.kind !== 'group' && fbOpts.length > 0 && (
+      {!draft && r.via !== 'direct' && snap.profiles.find(p => p.id === r.via)?.kind !== 'group' && fbOpts.length > 0 && (
         <section className="panel">
           <h3>{s('route.fb')}</h3>
           <p className="hint">{s('route.fb.hint')}</p>
@@ -126,7 +129,10 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
           <div className="path mono selectable">{r.exe}</div>
         </>}
         {preset && <div className="chips">{[...preset.domains, ...(preset.cidrs ?? [])].map(d => <span key={d} className="chip mono">{d}</span>)}</div>}
-        {r.kind === 'custom' && <div className="path mono selectable">{r.value}</div>}
+        {r.kind === 'custom' && <>
+          <div className="path mono selectable">{r.value}</div>
+          <p className="hint">{s('custom.dest.note')}</p>
+        </>}
       </section>
     </div>
   )
