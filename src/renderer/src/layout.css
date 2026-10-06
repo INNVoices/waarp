@@ -30,7 +30,8 @@
 @keyframes fade { from { opacity: 0; transform: translateY(4px); } }
 .page-head { display: flex; align-items: center; gap: 12px; min-height: 40px; }
 .page-head h1 { font-family: var(--wordmark); font-weight: 600; font-size: 24px; line-height: 32px; letter-spacing: -.01em; }
-.ph-t { display: flex; flex-direction: column; }
+.ph-t { display: flex; flex-direction: column; min-width: 0; }
+.ph-t h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ph-t .m { font-size: 12px; }
 .back { width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--r); color: var(--m); }
 .back:hover { background: var(--hi); color: var(--t); }

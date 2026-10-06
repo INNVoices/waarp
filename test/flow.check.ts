@@ -113,6 +113,9 @@ t('live-connections summary adapts at the declared 900px window minimum instead 
   layoutSrc.includes('@media (max-width: 1050px)')
   && layoutSrc.includes('.ct-r > :nth-child(4), .ct-r > :nth-child(7) { display: none; }')
   && layoutSrc.includes('minmax(130px, 1.2fr) minmax(100px, .8fr) minmax(130px, 1.4fr)'))
+t('long route-detail titles shrink instead of pushing the toggle/remove controls off-screen',
+  layoutSrc.includes('.ph-t { display: flex; flex-direction: column; min-width: 0; }')
+  && layoutSrc.includes('.ph-t h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }'))
 
 const connectionsSrc = readFileSync('src/renderer/src/pages/connections.tsx', 'utf8')
 t('closed master removes the dead live-connections section but transitions/open-idle may show it',
