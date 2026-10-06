@@ -39,6 +39,7 @@ import { probeLayers } from './layered'
 import { activeIds, diagnosisSet, learn, type NetMemory } from '../shared/netmemory'
 import { loadMem, saveMem } from './netmem-store'
 import { networkFingerprint } from './netid'
+import { SerialGate } from './serial'
 
 // one copy only: a second launch (also from the tray-hidden state) just brings the running window up (second-instance -> show)
 if (!app.requestSingleInstanceLock()) app.exit(0)
@@ -60,6 +61,8 @@ let engineIntegrity = false
 let relaunching = false
 let bridgeServer: ReturnType<typeof startBridge> | undefined
 const qrImports = new Map<string, { text: string; expires: number }>()
+/** Settings/routing intent crosses renderer IPC and the local companion bridge. Keep those mutations FIFO across awaits. */
+const intentWrites = new SerialGate()
 
 const engineExe = app.isPackaged
   ? join(process.resourcesPath, 'engine', 'sing-box.exe')
@@ -294,6 +297,11 @@ function secureHandle(channel: string, handler: IpcHandler): void {
   })
 }
 
+/** Same sender guard plus one FIFO for settings/routing writes. UI busy states are UX only; correctness lives here. */
+function secureIntentHandle(channel: string, handler: IpcHandler): void {
+  secureHandle(channel, (event, ...args) => intentWrites.run(() => handler(event, ...args)))
+}
+
 function ipc() {
   secureHandle('snapshot', () => snapshot())
   secureHandle('toggle', () => toggle())
@@ -383,7 +391,7 @@ function ipc() {
     await refreshNotices(); send('snapshot', snapshot()); return { ok: true, id: pid }
   })
   // The five fastest alive nodes become a selectable group; creating it never changes routing by surprise.
-  secureHandle('catalog:best', async () => {
+  secureIntentHandle('catalog:best', async () => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     const previousProfiles = store.profiles.slice(), previousSettings = store.settings
     const top = [...new Set((catalog?.state.alive ?? []).slice(0, 5).map(n => addPublic(n.id)).filter((x): x is string => !!x))]
@@ -395,7 +403,7 @@ function ipc() {
     await refreshNotices(); send('snapshot', snapshot())
     return { ok: true, id: gid }
   })
-  secureHandle('settings', async (_e, raw: unknown) => {
+  secureIntentHandle('settings', async (_e, raw: unknown) => {
     const blocked = writeError(); if (blocked) { send('toast', blocked); return snapshot() }
     const checked = checkedPatch(raw)
     if (!checked.ok) { send('toast', checked.error); return snapshot() }
@@ -429,7 +437,7 @@ function ipc() {
     if (!routing) send('snapshot', snapshot())
     return snapshot()
   })
-  secureHandle('route:select', async (_e, routeId: unknown, via: unknown) => {
+  secureIntentHandle('route:select', async (_e, routeId: unknown, via: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     if (typeof routeId !== 'string' || routeId.length > 400 || typeof via !== 'string' || via.length > 80 || !/^[\w:.-]+$/.test(via)) return { ok: false, error: 'Неверный маршрут' }
     const known = via === 'direct' || (via === AUTO_ID && autoMembers(store.profiles).length > 0) || store.profiles.some(p => !p.revoked && p.id === via) || store.settings.groups.some(g => g.id === via && g.members.some(id => store.profiles.some(p => !p.revoked && p.id === id)))
@@ -443,7 +451,7 @@ function ipc() {
     return { ok: r.saved, saved: r.saved, applied: r.applied, error: applyText(r) }
   })
   // the picker opened by bridge routes.open: main holds the validated target, the renderer only names a path for it
-  secureHandle('companion:choose', async (_e, id: unknown, via: unknown) => {
+  secureIntentHandle('companion:choose', async (_e, id: unknown, via: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     const t = typeof id === 'string' ? pendingPicks.get(id, Date.now()) : undefined
     if (!t) return { ok: false, error: 'Запрос приложения устарел. Повтори его из приложения' }
@@ -678,7 +686,7 @@ function ipc() {
     send('snapshot', snapshot())
     return { ok: true }
   })
-  secureHandle('profile:remove', async (_e, id: unknown, replace?: unknown) => {
+  secureIntentHandle('profile:remove', async (_e, id: unknown, replace?: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     if (typeof id !== 'string' || !store.profiles.some(x => x.id === id)) return { ok: false, error: 'Туннель не найден' }
     if (store.profiles.some(x => x.id === id && x.source === 'managed')) return { ok: false, error: 'Туннелем управляет команда; удалить его здесь нельзя' }
@@ -806,14 +814,14 @@ app.whenReady().then(async () => {
       status: () => bridgeStatus(engine.status.phase, moodOf(withRoutes(engine.status).routes ?? {}), app.getVersion(), engine.status.since),
       routes: {
         list: () => ({ routes: listCompanion(store.settings, withRoutes(engine.status).routes, viewName) }),
-        ensure: async (target, intent) => {
+        ensure: (target, intent) => intentWrites.run(async () => {
           if (writeError()) return { error: 'blocked' }
           const r = ensureIntent(store.settings, store.profiles, target, intent)
           if ('error' in r) return r
           const a = r.changed ? await applyRouting(r.settings) : undefined
           if (a && !a.saved) return { error: 'not_saved' }
           return { ok: true, saved: true, applied: a ? a.applied : engine.status.phase === 'on', ...(a?.code ? { warning: a.code === 'block' ? 'blocked' : 'not_applied' } : {}), route: listCompanion(store.settings, withRoutes(engine.status).routes, viewName).find(x => x.id === parseTarget(target)?.id) }
-        },
+        }),
         // only a navigation request: never writes a route, never connects
         open: raw => {
           const t = parseTarget(raw)

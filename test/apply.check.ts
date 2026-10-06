@@ -4,6 +4,7 @@ import { okId } from '../src/main/bridge'
 import { DEFAULTS } from '../src/main/store-core'
 import type { Settings } from '../src/shared/types'
 import { readFileSync } from 'node:fs'
+import { SerialGate } from '../src/main/serial'
 
 let fails = 0, n = 0
 const ok = (c: unknown, msg: string) => { n++; if (!c) { fails++; console.error('FAIL', msg) } }
@@ -57,6 +58,30 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
   eq(onRoutingPatch('starting', false), 'start', 'routing patch mid-start: reapply, not a master stop')
   eq(onRoutingPatch('on', true), 'stop', 'hard block while running: fail-closed stop preserved')
   eq(onRoutingPatch('starting', true), 'stop', 'hard block mid-start: fail-closed stop preserved')
+
+  // Routing intent may arrive from renderer and the companion bridge at the same time.
+  // The main-process gate, not only UI disabled states, is the correctness boundary.
+  {
+    const gate = new SerialGate()
+    const order: string[] = []
+    let release!: () => void
+    const hold = new Promise<void>(r => { release = r })
+    const first = gate.run(async () => { order.push('first:start'); await hold; order.push('first:end'); return 1 })
+    const second = gate.run(async () => { order.push('second:start'); order.push('second:end'); return 2 })
+    await Promise.resolve()
+    eq(order, ['first:start'], 'serial gate does not overlap intent writes')
+    release()
+    eq(await Promise.all([first, second]), [1, 2], 'serial gate preserves results')
+    eq(order, ['first:start', 'first:end', 'second:start', 'second:end'], 'serial gate is FIFO')
+    await gate.run(async () => { throw new Error('expected') }).catch(() => undefined)
+    const afterFailure = await gate.run(async () => 3)
+    eq(afterFailure, 3, 'failed intent write does not poison the queue')
+  }
+
+  const main = readFileSync('src/main/index.ts', 'utf8')
+  ok(main.includes("secureIntentHandle('settings'") && main.includes("secureIntentHandle('route:select'")
+    && main.includes("secureIntentHandle('companion:choose'") && main.includes("secureIntentHandle('profile:remove'")
+    && main.includes('ensure: (target, intent) => intentWrites.run'), 'all main routing intent entry points share the FIFO gate')
 
   // H: bridge request ids
   for (const v of [undefined, null, 0, 1, -5, 2.5, Number.MAX_SAFE_INTEGER, '', 'abc', 'x'.repeat(128)]) ok(okId(v), 'id ok: ' + String(v).slice(0, 20))
