@@ -65,7 +65,10 @@ const preloadSrc = readFileSync('src/preload/index.ts', 'utf8')
 t('master click acknowledges opening/closing immediately without mutating authoritative status',
   appSrc.includes("setMasterPending(closing ? 'closing' : 'opening')") && appSrc.includes('const controlStatus: Status = masterPending'))
 t('Windows icons hydrate through main -> preload -> renderer without a manual rescan',
-  appsSrc.includes('onHydrated?.(list.map') && indexSrc.includes("send('apps', items)") && preloadSrc.includes("onApps: on('apps')") && appSrc.includes('api.onApps'))
+  appsSrc.includes('onHydrated?.(list.map') && indexSrc.includes("send('apps', items)") && preloadSrc.includes("onApps: on('apps')") && appSrc.includes('api.onApps') && appSrc.includes('current.filter(a => !scanned.has(a.id))'))
+const connectionsSrc = readFileSync('src/renderer/src/pages/connections.tsx', 'utf8')
+t('closed master removes the dead live-connections section but transitions/open-idle may show it',
+  connectionsSrc.includes('const showFlows = status.open === true') && connectionsSrc.includes('{showFlows && <details className="flows">'))
 
 console.log(failed ? `\n${failed} FAILED` : '\nall flow checks passed')
 process.exit(failed ? 1 : 0)

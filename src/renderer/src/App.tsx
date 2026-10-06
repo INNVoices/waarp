@@ -65,7 +65,13 @@ export function App() {
       }
     })
     const c = api.onConns((x: Conn[]) => setConns(x))
-    const appsHydrated = api.onApps((x: AppInfo[]) => setApps(x))
+    const appsHydrated = api.onApps((x: AppInfo[]) => setApps(current => {
+      if (!current) return x
+      // Icon hydration belongs to the background scan. Preserve a manually picked exe that
+      // the user may have added while Windows shell icons were still resolving.
+      const scanned = new Set(x.map(a => a.id))
+      return [...current.filter(a => !scanned.has(a.id)), ...x]
+    }))
     const d = api.onToast((x: string) => setToast(x))
     // a companion app asked Waarp (bridge routes.open) to show its route, or to pick a path for its target
     const e = api.onNav((x: { route?: string; pick?: { id?: unknown; name?: unknown } }) => {
