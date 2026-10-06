@@ -40,6 +40,7 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
   const nowText = !e ? '' : e.state === 'ok' ? (e.effective && e.effective !== r.via ? s('route.now.picked', { a: viaName(snap.profiles, r.via), v: viaName(snap.profiles, e.effective) }) : s('route.now.ok', { v: viaName(snap.profiles, r.via) }))
     : e.state === 'fallback' ? s('route.now.fallback', { v: viaName(snap.profiles, e.effective ?? '') })
     : e.state === 'direct' ? s('route.now.direct') : s(routeStateKey(r, status, e, draft))
+  const visibleNowText = applying ? s('route.applying', { v: viaName(snap.profiles, applying) }) : nowText
   const schemeHint = routeSchemeHintKey(r, status)
   const preset = r.kind === 'preset' ? PRESETS.find(p => p.id === r.preset) : undefined
   const dest = cs[0]?.host
@@ -58,9 +59,9 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
       </div>
 
       {draft && <div className="route-now warn" role="status"><span className="st-dot" aria-hidden /><span className="grow">{s('route.draft')}</span></div>}
-      {!draft && nowText && <div className={'route-now' + (e?.state === 'fallback' || e?.state === 'retrying' ? ' warn' : e?.state === 'blocked' ? ' err' : '')} role="status">
-        <span className="st-dot" aria-hidden /><span className="grow">{nowText}</span>
-        {(e?.state === 'retrying' || e?.state === 'fallback') && <span className="m">{s('route.now.why')}</span>}
+      {!draft && visibleNowText && <div className={'route-now' + (applying ? ' applying' : e?.state === 'fallback' || e?.state === 'retrying' ? ' warn' : e?.state === 'blocked' ? ' err' : '')} role="status" aria-live="polite">
+        <span className="st-dot" aria-hidden /><span className="grow">{visibleNowText}</span>
+        {!applying && (e?.state === 'retrying' || e?.state === 'fallback') && <span className="m">{s('route.now.why')}</span>}
       </div>}
       <section className="panel">
         <h3>{s('route.server')}</h3>
