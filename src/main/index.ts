@@ -30,6 +30,7 @@ import { createResume, underlayReady } from './resume'
 import { scanScreenQr } from './qr'
 import { verifyEngine } from './integrity'
 import { subscriptionCredentialKey, subscriptionEntryKey } from './subscription'
+import { trayPresentation } from './tray-view'
 import { effectiveRoutes, moodOf } from '../shared/effective'
 import { bridgeStatus, companionEditsOk, companionRoutesSafe, createPending, ensureIntent, listCompanion, parseTarget, routeFor, routeOf, safeVia, sameTarget } from '../shared/companion'
 import { AUTO_BUDGET, AUTO_ID, autoMembers, checkSample } from '../shared/groups'
@@ -151,13 +152,12 @@ function show() {
 
 function updateTray() {
   if (!tray) return
-  const on = engine.status.phase === 'on'
-  const idle = masterOpen && engine.status.phase === 'off'
   const used = usedProfiles(store.settings, store.profiles)
-  tray.setImage(trayImage(on))
-  tray.setToolTip(on ? (used.length ? `Waarp: открыт · ${used.map(x => x.name).join(', ')}` : 'Waarp: открыт · отсутствующие маршруты заблокированы') : idle ? 'Waarp: открыт · сейчас ни одна карточка не идёт через сервер' : 'Waarp: закрыт')
+  const view = trayPresentation(engine.status, masterOpen, used.map(x => x.name))
+  tray.setImage(trayImage(view.active))
+  tray.setToolTip(view.tooltip)
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: on || idle ? 'Отключить Waarp' : 'Подключить Waarp', enabled: (store.profiles.length > 0 || demandsTunnel(store.settings)) && admin, click: () => void toggle() },
+    { label: view.action === 'disconnect' ? 'Отключить Waarp' : 'Подключить Waarp', enabled: (store.profiles.length > 0 || demandsTunnel(store.settings)) && admin, click: () => void toggle() },
     { label: 'Показать окно', click: show },
     { type: 'separator' },
     { label: 'Выход', click: () => { quitting = true; app.quit() } }
