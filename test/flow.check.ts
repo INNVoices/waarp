@@ -136,6 +136,14 @@ t('route-list path changes use the same route:select command and serialize pendi
   && partsSrc.includes('disabled={disabled}'))
 
 const connectionsSrc = readFileSync('src/renderer/src/pages/connections.tsx', 'utf8')
+const kitSrc = readFileSync('src/renderer/src/ui/kit.tsx', 'utf8')
+t('Home routing controls serialize changes and card path uses route:select',
+  connectionsSrc.includes('const [routingBusy, setRoutingBusy]')
+  && connectionsSrc.includes('await api.selectRoute(route.id, via)')
+  && connectionsSrc.includes('disabled={routingBusy}')
+  && connectionsSrc.includes('busyRoute === r.id')
+  && kitSrc.includes('disabled?: boolean')
+  && kitSrc.includes('<button key={it.v} disabled={disabled}'))
 t('closed master removes the dead live-connections section but transitions/open-idle may show it',
   connectionsSrc.includes('const showFlows = status.open === true') && connectionsSrc.includes('{showFlows && <details className="flows">'))
 

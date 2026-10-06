@@ -62,11 +62,11 @@ export function Toggle({ on, onChange, label, disabled }: { on: boolean; onChang
   )
 }
 
-export function Seg<T extends string>({ value, items, onChange }: { value: T; items: { v: T; label: string; n?: number }[]; onChange: (v: T) => void }) {
+export function Seg<T extends string>({ value, items, onChange, disabled }: { value: T; items: { v: T; label: string; n?: number }[]; onChange: (v: T) => void; disabled?: boolean }) {
   return (
     <div className="seg" role="group">
       {items.map(it => (
-        <button key={it.v} aria-pressed={value === it.v} className={value === it.v ? 'on' : ''} onClick={() => onChange(it.v)}>
+        <button key={it.v} disabled={disabled} aria-pressed={value === it.v} className={value === it.v ? 'on' : ''} onClick={() => onChange(it.v)}>
           {it.label}{it.n !== undefined && <span className="cnt">{it.n}</span>}
         </button>
       ))}
