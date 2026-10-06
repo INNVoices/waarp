@@ -83,6 +83,9 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
     && main.includes("secureIntentHandle('companion:choose'") && main.includes("secureIntentHandle('profile:remove'")
     && main.includes('ensure: (target, intent) => intentWrites.run')
     && main.includes("click: () => void intentWrites.run(() => toggle())"), 'master + routing intent entry points share the FIFO gate')
+  ok(main.includes("isOn: () => masterOpen &&") && main.includes("restart: () => intentWrites.run(async () =>")
+    && main.includes("if (!masterOpen) return true") && main.includes("fail: why => intentWrites.run(async () =>")
+    && main.includes("setMaster(false)"), 'resume cannot resurrect a deliberately closed master and terminal resume failure closes its intent')
 
   // H: bridge request ids
   for (const v of [undefined, null, 0, 1, -5, 2.5, Number.MAX_SAFE_INTEGER, '', 'abc', 'x'.repeat(128)]) ok(okId(v), 'id ok: ' + String(v).slice(0, 20))

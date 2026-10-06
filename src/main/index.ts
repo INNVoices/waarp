@@ -854,19 +854,24 @@ app.whenReady().then(async () => {
   if (store.settings.autoConnect && admin && demandsTunnel(store.settings)) void connect()
   // R4: one restart per resume, after a usable network is back; never overlapping, never a churn loop
   const sleepWake = createResume({
-    isOn: () => engine.status.phase === 'on' || engine.status.phase === 'starting',
+    isOn: () => masterOpen && (engine.status.phase === 'on' || engine.status.phase === 'starting'),
     netReady: async () => underlayReady(net.isOnline(), await defaultRoutes()),
-    restart: async () => {
+    restart: () => intentWrites.run(async () => {
+      // The owner may have closed Waarp during the settle/network-wait window. Never resurrect it afterwards.
+      if (!masterOpen) return true
       const n = await refreshNotices()
       if (n.some(x => x.level === 'block') || !demandsTunnel(store.settings)) { await engine.stop(); return true }
       await engine.start(store.profiles, store.settings)
       return engine.status.phase === 'on'
-    },
-    fail: async why => {
+    }),
+    fail: why => intentWrites.run(async () => {
+      // A deliberate close while resume was waiting wins over the stale wake intent and needs no error toast.
+      if (!masterOpen) return
       if (engine.status.phase !== 'error') await engine.stop()
+      setMaster(false)
       const msg = why === 'no_network' ? 'После сна сеть не вернулась. Waarp закрыт, включи его, когда интернет появится' : 'После сна Waarp не смог переподключиться и закрыт'
       send('toast', msg); notify(msg)
-    },
+    }),
   })
   powerMonitor.on('suspend', () => sleepWake.suspend())
   powerMonitor.on('resume', () => sleepWake.resume())
