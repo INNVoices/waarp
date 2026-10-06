@@ -125,6 +125,16 @@ t('route path selection acknowledges the pending target immediately',
   && layoutSrc.includes('.vopt.applying {')
   && layoutSrc.includes('.route-now.applying {'))
 
+const librarySrc = readFileSync('src/renderer/src/pages/library.tsx', 'utf8')
+const partsSrc = readFileSync('src/renderer/src/parts.tsx', 'utf8')
+t('route-list path changes use the same route:select command and serialize pending apply',
+  librarySrc.includes('const [applying, setApplying]')
+  && librarySrc.includes('await api.selectRoute(route.id, via)')
+  && librarySrc.includes('disabled={!!applying}')
+  && librarySrc.includes("s('route.applying'")
+  && partsSrc.includes('disabled?: boolean')
+  && partsSrc.includes('disabled={disabled}'))
+
 const connectionsSrc = readFileSync('src/renderer/src/pages/connections.tsx', 'utf8')
 t('closed master removes the dead live-connections section but transitions/open-idle may show it',
   connectionsSrc.includes('const showFlows = status.open === true') && connectionsSrc.includes('{showFlows && <details className="flows">'))

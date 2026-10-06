@@ -2,7 +2,7 @@
 // (running apps first, then installed apps, services, one address); the list is the summary "target -> where it goes".
 // Choosing a target never picks a path: a new target becomes a neutral draft and opens its own route page.
 import { useMemo, useState } from 'react'
-import type { AppInfo, Conn, Route, Settings, Snapshot, Status } from '../../../shared/types'
+import type { AppInfo, Conn, Route, Settings, Snapshot, Status, Via } from '../../../shared/types'
 import { PRESETS } from '../../../shared/presets'
 import { Btn, Field, fmtBytes, Icon, Plain, Seg, Toggle, Tooltip } from '../ui/kit'
 import { Modal } from '../ui/modal'
@@ -19,7 +19,7 @@ type Filter = 'all' | 'run' | 'apps' | 'services' | 'custom'
 interface P {
   snap: Snapshot; status: Status; conns: Conn[]; apps?: AppInfo[]; loading: boolean
   rescan: () => void; addApp: (a: AppInfo) => void
-  patch: (p: Partial<Settings>) => void | Promise<void>; open: (id: string) => void; mode: LibMode; setMode: (m: LibMode) => void
+  patch: (p: Partial<Settings>) => void | Promise<void>; toast: (text: string) => void; open: (id: string) => void; mode: LibMode; setMode: (m: LibMode) => void
 }
 
 const hueOfName = (n: string) => HUES[[...n].reduce((a, c) => a + c.charCodeAt(0), 0) % HUES.length]
@@ -45,7 +45,7 @@ function Tile({ name, tip, route, profiles, running, children, onClick }: {
   )
 }
 
-export function Library({ snap, status, conns, apps, loading, rescan, addApp, patch, open, mode, setMode }: P) {
+export function Library({ snap, status, conns, apps, loading, rescan, addApp, patch, toast, open, mode, setMode }: P) {
   const [q, setQ] = useState('')
   const [f, setF] = useState<Filter>('all')
   const [askAddr, setAskAddr] = useState(false)
@@ -95,7 +95,7 @@ export function Library({ snap, status, conns, apps, loading, rescan, addApp, pa
     )
   }
 
-  if (mode === 'list') return <RouteList snap={snap} status={status} conns={conns} apps={apps ?? []} patch={patch} open={open} add={() => setMode('catalog')} />
+  if (mode === 'list') return <RouteList snap={snap} status={status} conns={conns} apps={apps ?? []} patch={patch} toast={toast} open={open} add={() => setMode('catalog')} />
 
   return (
     <div className="page lib">
@@ -150,9 +150,22 @@ export function Library({ snap, status, conns, apps, loading, rescan, addApp, pa
 }
 
 /** the human model: target -> effective path -> state; bytes are tertiary */
-function RouteList({ snap, status, conns, apps, patch, open, add }: { snap: Snapshot; status: Status; conns: Conn[]; apps: AppInfo[]; patch: P['patch']; open: (id: string) => void; add: () => void }) {
+function RouteList({ snap, status, conns, apps, patch, toast, open, add }: { snap: Snapshot; status: Status; conns: Conn[]; apps: AppInfo[]; patch: P['patch']; toast: P['toast']; open: (id: string) => void; add: () => void }) {
   const st = snap.settings, live = status.phase === 'on'
+  const [applying, setApplying] = useState<{ id: string; via: Via }>()
   const icon = (r: Route) => apps.find(a => 'app:' + a.id === r.id)?.icon
+  const selectVia = async (route: Route, via: Via) => {
+    if (applying) return
+    setApplying({ id: route.id, via })
+    try {
+      const result = await api.selectRoute(route.id, via)
+      if (!result?.ok || result.error) toast(result?.error ?? 'Не удалось применить маршрут')
+    } catch {
+      toast('Не удалось применить маршрут')
+    } finally {
+      setApplying(undefined)
+    }
+  }
   return (
     <div className="page lib">
       <div className="page-head">
@@ -168,23 +181,25 @@ function RouteList({ snap, status, conns, apps, patch, open, add }: { snap: Snap
           const fb = e?.state === 'fallback' ? e.effective : undefined
           const cs = live ? connsOf(r, conns) : []
           const tr = cs.reduce((a, c) => a + c.down + c.up, 0)
+          const pending = applying?.id === r.id
           return (
-            <div key={r.id} className={'rrow' + (r.on ? '' : ' off')}>
+            <div key={r.id} className={'rrow' + (r.on ? '' : ' off') + (pending ? ' applying' : '')}>
               <Plain className="rr-t" onClick={() => open(r.id)} aria-label={r.name}>
                 <RouteIcon r={r} icon={icon(r)} size={28} />
                 <span className="rr-n"><b className="ell">{r.name}</b><small>{kindLabel(r)}</small></span>
               </Plain>
               <Icon n="chev" s={14} />
-              <div className="rr-via"><ViaPicker compact profiles={snap.profiles} via={r.via} pings={status.pings} live={live} down={v => v === r.via ? e?.reason === 'path_down' : status.health?.[v] === 'down'} onChange={v => void patch({ routes: patchRoute(st, r.id, { via: v }) })} /></div>
+              <div className="rr-via"><ViaPicker compact disabled={!!applying} profiles={snap.profiles} via={r.via} pings={status.pings} live={live} down={v => v === r.via ? e?.reason === 'path_down' : status.health?.[v] === 'down'} onChange={v => void selectVia(r, v)} /></div>
               <span className="rr-st">
-                {!r.on ? <span className="m">{s(routeStateKey(r, status, e, isDraft(r)))}</span>
+                {pending ? <span className="m">{s('route.applying', { v: viaName(snap.profiles, applying.via) })}</span>
+                  : !r.on ? <span className="m">{s(routeStateKey(r, status, e, isDraft(r)))}</span>
                   : fb ? <Tooltip tip={s('conn.fb.tip', { v: viaName(snap.profiles, fb) })}><span className="warn-t"><Icon n="refresh" s={12} />{s('route.st.fb')}</span></Tooltip>
                   : e?.state === 'retrying' ? <span className="warn-t">{s(routeStateKey(r, status, e))}</span>
                   : e?.state === 'blocked' ? <span className="err-t">{s(routeStateKey(r, status, e))}</span>
                   : <span className={routeStateKey(r, status, e) === 'route.st.ok' ? '' : 'm'}>{s(routeStateKey(r, status, e))}</span>}
                 {tr > 0 && <small className="m mono">{fmtBytes(tr)}</small>}
               </span>
-              <Toggle on={r.on} onChange={v => void patch({ routes: patchRoute(st, r.id, { on: v }) })} label={r.name} />
+              <Toggle on={r.on} disabled={!!applying} onChange={v => void patch({ routes: patchRoute(st, r.id, { on: v }) })} label={r.name} />
             </div>
           )
         })}

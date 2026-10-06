@@ -183,7 +183,7 @@ export function App() {
         {page === 'home' && !hasRouting && <Welcome onAdd={() => setAdding(true)} />}
         {page === 'home' && hasRouting && <Connections snap={snap} status={controlStatus} conns={conns} apps={apps ?? []} patch={patch} toggle={toggle} open={open} add={() => setNav(addEntry)} />}
           {page === 'route' && routeId && <RoutePage snap={snap} status={status} conns={conns} apps={apps ?? []} id={routeId} patch={patch} toast={setToast} back={() => setNav(back)} />}
-          {page === 'lib' && <Library snap={snap} status={status} conns={conns} apps={apps} loading={scanning} rescan={rescan} addApp={addApp} patch={patch} open={open} mode={nav.libMode} setMode={m => setNav(m === 'catalog' ? showCatalog : showList)} />}
+          {page === 'lib' && <Library snap={snap} status={status} conns={conns} apps={apps} loading={scanning} rescan={rescan} addApp={addApp} patch={patch} toast={setToast} open={open} mode={nav.libMode} setMode={m => setNav(m === 'catalog' ? showCatalog : showList)} />}
           {page === 'servers' && <Servers snap={snap} status={status} patch={patch} toast={setToast} />}
           {page === 'an' && <Analyzer snap={snap} status={status} hist={hist.current} patch={patch} />}
           {page === 'settings' && <SettingsPage snap={snap} patch={patch} toast={setToast} />}
