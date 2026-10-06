@@ -5,7 +5,7 @@ import type { AppPick, AwgParams, AwgProfile, Profile, Route, Settings, Via } fr
 import { PRESETS } from '../shared/presets'
 import { ConfError } from './conf-error'
 import { vlessOutbound } from './vless'
-import { AUTO_ID, autoLivePool, grpTag, liveGroups, withAuto } from '../shared/groups'
+import { AUTO_ID, autoLivePool, grpTag, liveGroups, withAuto, type LiveGroup } from '../shared/groups'
 import { compilePlan, planProfileIds } from '../shared/plan'
 import { validateCustom } from '../shared/route-validation'
 import { serviceGuardRule, TUN, TUN_ADDRESSES } from './tun'
@@ -189,7 +189,20 @@ export function splitCustom(items: string[]) {
 const PRIVATE = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', '127.0.0.0/8', '224.0.0.0/4', '255.255.255.255/32', 'fc00::/7', 'fe80::/10']
 const RU_DIRECT = ['ru', 'xn--p1ai', 'su', 'yandex.net', 'yastatic.net', 'vk.com', 'userapi.com', 'mail.ru', 'gosuslugi.ru', 'sberbank.ru', 'tinkoff.ru', 'tbank.ru', 'ozon.ru', 'wildberries.ru', 'avito.ru']
 
-export interface BuildOpts { api: { port: number; secret: string }; selfExe?: string; /** R5 runtime Auto live pool */ autoLive?: readonly string[] }
+export interface BuildOpts {
+  api: { port: number; secret: string }; selfExe?: string; /** R5 runtime Auto live pool */ autoLive?: readonly string[]
+  /** HOTFIX-RUNTIME-01: every route (and the rest) goes through its own selector, so a later pick is a live selector switch */
+  selectors?: boolean
+  /** HOTFIX-RUNTIME-01: what the running core already has loaded; kept so a live-apply candidate never drops a loaded path */
+  keep?: Loaded
+}
+
+/** HOTFIX-RUNTIME-01: what one core run has loaded: profiles (ids, in profile order), live groups, fallback pairs */
+export interface Loaded { profiles: string[]; groups: LiveGroup[]; fbs: FbGroup[] }
+/** the per-route selector of a route card; the rest has its own */
+export const routeSel = (id: string) => 'rt-' + id
+export const REST_SEL = 'rest-sel'
+export const isRouteSel = (tag: unknown) => typeof tag === 'string' && (tag.startsWith('rt-') || tag === REST_SEL)
 
 export const tagOf = (id: string) => 'p-' + id
 
@@ -219,6 +232,37 @@ function validFb(r: Route, known: Set<string>): Via | undefined {
   const f = r.fallback
   if (!f || f === 'direct' || r.via === 'direct' || f === r.via) return undefined
   return known.has(r.via) && known.has(f) ? f : undefined
+}
+
+/** prefer the `keep` order (the running core), then the newly needed ones; a still-needed entry uses its new definition */
+function mergeKept<T>(fresh: T[], kept: T[] | undefined, key: (x: T) => string): T[] {
+  if (!kept) return fresh
+  const f = new Map(fresh.map(x => [key(x), x]))
+  return [...kept.map(x => f.get(key(x)) ?? x), ...fresh.filter(x => !kept.some(k => key(k) === key(x)))]
+}
+
+/** the loaded sets of a build (profiles, live groups, fallback pairs); one source for buildConfig and the engine */
+export function loadedSets(profiles: Profile[], given: Settings, o: Pick<BuildOpts, 'autoLive' | 'keep'> = {}): { used: Profile[]; lg: LiveGroup[]; fbs: FbGroup[] } {
+  const live = { autoLive: o.autoLive }
+  const s = withAuto(given, profiles, o.autoLive)
+  const base = new Set(usedProfiles(given, profiles, live).map(p => p.id))
+  const kept = new Set(o.keep?.profiles ?? [])
+  const used = profiles.filter(p => !p.revoked && (base.has(p.id) || kept.has(p.id)))
+  const have = new Set(used.map(p => p.id))
+  const lg = mergeKept(liveGroups(s, new Set(profiles.filter(p => !p.revoked).map(p => p.id))), o.keep?.groups.filter(g => g.members.every(m => have.has(m))), g => g.id)
+  const fbs = mergeKept(fallbackGroups(profiles, given, live), o.keep?.fbs.filter(g => have.has(g.main) && have.has(g.fb)), g => g.tag)
+  return { used, lg, fbs }
+}
+export const loadedOf = (sets: ReturnType<typeof loadedSets>): Loaded => ({ profiles: sets.used.map(p => p.id), groups: sets.lg, fbs: sets.fbs })
+
+type Cfg = ReturnType<typeof buildConfig>
+type Obj = Record<string, unknown>
+/** HOTFIX-RUNTIME-01: the selector switches that turn `prev` into `next`, or undefined when anything else differs (restart) */
+export function liveSwitches(prev: Cfg, next: Cfg): { tag: string; to: string }[] | undefined {
+  const strip = (c: Cfg) => JSON.stringify({ ...c, outbounds: c.outbounds.map((x: Obj) => (isRouteSel(x.tag) ? { ...x, default: undefined } : x)) })
+  if (strip(prev) !== strip(next)) return undefined
+  const was = new Map(prev.outbounds.filter((x: Obj) => isRouteSel(x.tag)).map((x: Obj) => [x.tag, x.default]))
+  return next.outbounds.filter((x: Obj) => isRouteSel(x.tag) && was.get(x.tag) !== x.default).map((x: Obj) => ({ tag: String(x.tag), to: String(x.default) }))
 }
 
 export function fallbackGroups(profiles: Profile[], s: Settings, opts: { autoLive?: readonly string[] } = {}): FbGroup[] {
@@ -276,22 +320,51 @@ export function blockRules(rules: Record<string, unknown>[]) {
 }
 
 export function buildConfig(profiles: Profile[], given: Settings, o: BuildOpts) {
-  const live = { autoLive: o.autoLive }
   const s = withAuto(given, profiles, o.autoLive)
-  const used = usedProfiles(given, profiles, live)
+  const { used, lg, fbs } = loadedSets(profiles, given, o)
   const known = new Set(used.map(p => p.id))
-  const lg = liveGroups(s, new Set(profiles.filter(p => !p.revoked).map(p => p.id)))
   // R5: a fallback pointing at Auto resolves through the same bounded pool
   const knownG = new Set(lg.map(g => g.id))
   // C03: a target that is not direct and not a known tunnel/group is BLOCKED, never silently direct
   const out = (v: Via) => (v === 'direct' ? 'direct' : knownG.has(v) ? grpTag(v) : known.has(v) ? tagOf(v) : BLOCK)
   const dnsOf = (v: Via) => (v === 'direct' ? 'local' : knownG.has(v) || known.has(v) ? 'dns-' + v : BLOCK)
-  const fbs = fallbackGroups(profiles, given, live)
   const outR = (r: Route) => { const f = validFb(r, known); return f ? selTag(r.via, f) : out(r.via) }
   const dnsR = (r: Route) => { const f = validFb(r, known); return f ? 'dns-' + selTag(r.via, f) : dnsOf(r.via) }
   const rest = out(s.rest)
   const DIRECT = 'direct'
   const act = activeRoutes(s)
+  // HOTFIX-RUNTIME-01 selector layer: one selector per route over everything this core has loaded; BLOCK stays a reject rule
+  const loadedTags = [DIRECT, ...used.map(p => tagOf(p.id)), ...lg.map(g => grpTag(g.id)), ...fbs.map(g => g.tag)]
+  const sels: Record<string, unknown>[] = []
+  const routeDns: { tag: string; from: string; detour: string }[] = []
+  const via = (sel: string, target: string) => {
+    if (!o.selectors || target === BLOCK) return target
+    sels.push({ type: 'selector', tag: sel, outbounds: loadedTags, default: target, interrupt_exist_connections: true })
+    return sel
+  }
+  const viaDns = (sel: string, dns: string) => {
+    if (!o.selectors || dns === BLOCK || dns === 'local') return dns
+    routeDns.push({ tag: 'dns-' + sel, from: dns, detour: sel })
+    return 'dns-' + sel
+  }
+  // HOTFIX-RUNTIME-01 G: IPv6 capability per path, from the imported profile only (never invented). AWG = has an IPv6
+  // interface address; OpenVPN = unknown until the server pushes it -> treated as IPv4-only; proxies (VLESS/out) carry IPv6
+  // to their server. A group is capable only if every loaded member is (the live pick may move). IPv6 to a path that cannot
+  // carry it is rejected (fail closed), never sent Direct; hostname traffic keeps the IPv4-first DNS.
+  const v6p = (p: Profile) => (p.kind === 'awg' ? p.address.some(a => a.includes(':')) : p.kind !== 'openvpn')
+  const v6id = (id: string) => { const p = used.find(x => x.id === id); return !!p && v6p(p) }
+  const v6 = (tag: string): boolean => {
+    if (tag === DIRECT) return true
+    const g = lg.find(x => grpTag(x.id) === tag)
+    if (g) return g.members.every(v6id)
+    const f = fbs.find(x => x.tag === tag)
+    if (f) return v6id(f.main) && v6id(f.fb)
+    return tag.startsWith('p-') ? v6id(tag.slice(2)) : true
+  }
+  const noV6 = (m: Record<string, unknown>, target: string) => (target !== BLOCK && !v6(target) ? [{ ...m, ip_version: 6, action: 'reject' }] : [])
+  // with selectors every route keeps its own rule (its own switch); without, routes sharing a target share a rule
+  const byTarget = (list: Route[]) => (o.selectors ? new Map(list.map(r => [routeSel(r.id), [r]])) : group(list, outR))
+  const targetOf = (key: string, list: Route[]) => (o.selectors ? via(key, outR(list[0])) : key)
 
   const rules: Record<string, unknown>[] = [
     { action: 'sniff' },
@@ -302,36 +375,43 @@ export function buildConfig(profiles: Profile[], given: Settings, o: BuildOpts) 
   if (s.lanDirect) rules.push({ ip_is_private: true, outbound: DIRECT })
   if (o.selfExe) rules.push({ process_path: [o.selfExe], outbound: DIRECT })
   const dnsRules: Record<string, unknown>[] = []
+  // HOTFIX-RUNTIME-01 C: "Russian sites direct" is a global bypass: it wins over app and card routes, and its DNS stays local first
+  if (s.ruDirect) {
+    rules.push({ domain_suffix: RU_DIRECT, outbound: DIRECT })
+    dnsRules.push({ domain_suffix: RU_DIRECT, server: 'local' })
+  }
 
   // Explicit application intent wins before broader destination/service rules.
-  for (const [tag, list] of group(act.filter(r => r.kind === 'app' && r.exe), outR)) {
+  for (const [key, list] of byTarget(act.filter(r => r.kind === 'app' && r.exe))) {
+    const tag = targetOf(key, list)
     const { exact, regex } = appRules(list.map(r => ({ exe: r.exe!, matchDir: r.wholeDir === true ? r.matchDir : undefined })))
     const m: Record<string, unknown> = {}
     if (exact.length) m.process_path = exact
     if (regex.length) m.process_path_regex = regex
-    rules.push({ ...m, outbound: tag })
+    rules.push(...noV6(m, o.selectors ? outR(list[0]) : key), { ...m, outbound: tag })
   }
   for (const kind of ['custom', 'preset'] as const) {
-    for (const [tag, list] of group(act.filter(r => r.kind === kind), outR)) {
+    for (const [key, list] of byTarget(act.filter(r => r.kind === kind))) {
+      const tag = targetOf(key, list)
       const t = list.map(routeTargets)
       const domains = [...new Set(t.flatMap(x => x.domains))]
       const cidrs = [...new Set(t.flatMap(x => x.cidrs))]
-      if (domains.length) rules.push({ domain_suffix: domains, outbound: tag })
-      if (cidrs.length) rules.push({ ip_cidr: cidrs, outbound: tag })
-      const dns = dnsR(list[0])
+      const raw = o.selectors ? outR(list[0]) : key
+      if (domains.length) rules.push(...noV6({ domain_suffix: domains }, raw), { domain_suffix: domains, outbound: tag })
+      if (cidrs.length) rules.push(...noV6({ ip_cidr: cidrs }, raw), { ip_cidr: cidrs, outbound: tag })
+      const dns = o.selectors ? viaDns(key, dnsR(list[0])) : dnsR(list[0])
       if (domains.length && dns === BLOCK) dnsRules.push({ domain_suffix: domains, action: 'reject' })
       else if (domains.length && dns !== 'local') dnsRules.push({ domain_suffix: domains, server: dns })
     }
   }
-  if (s.ruDirect && rest !== DIRECT) {
-    rules.push({ domain_suffix: RU_DIRECT, outbound: DIRECT })
-    dnsRules.push({ domain_suffix: RU_DIRECT, server: 'local' })
-  }
   if (rest === BLOCK) dnsRules.push({ action: 'reject' })
+  // G: everything else over an IPv4-only rest path: IPv6 is rejected, not leaked Direct
+  rules.push(...noV6({}, rest))
 
   // Card-only mode has no single tunnel that can honestly own global DNS.
   // Keep DNS local until the UI offers an explicit DNS route instead of choosing used[0].
-  const dnsFinal = rest !== DIRECT && rest !== BLOCK ? dnsOf(s.rest) : 'local'
+  const dnsFinal = rest !== DIRECT && rest !== BLOCK ? viaDns(REST_SEL, dnsOf(s.rest)) : 'local'
+  const final = rest === BLOCK ? 'direct' : via(REST_SEL, rest)
 
   const dnsServers: Record<string, unknown>[] = [{ type: 'local', tag: 'local' }]
   // WireGuard Interface DNS entries are ordinary DNS servers, not implicit DoH endpoints.
@@ -343,6 +423,8 @@ export function buildConfig(profiles: Profile[], given: Settings, o: BuildOpts) 
   for (const p of used) dnsServers.push({ ...resolver(p), tag: 'dns-' + p.id, detour: tagOf(p.id) })
   for (const g of lg) dnsServers.push({ ...resolver(used.find(p => p.id === g.members[0])!), tag: 'dns-' + g.id, detour: grpTag(g.id) })
   for (const g of fbs) dnsServers.push({ ...resolver(used.find(p => p.id === g.main)!), tag: 'dns-' + g.tag, detour: g.tag })
+  // a route's DNS follows the route's own selector: the same resolver as its target, detour = the route switch
+  for (const d of routeDns) dnsServers.push({ ...dnsServers.find(x => x.tag === d.from)!, tag: d.tag, detour: d.detour })
 
   return {
     log: { level: 'info', timestamp: true },
@@ -367,9 +449,10 @@ export function buildConfig(profiles: Profile[], given: Settings, o: BuildOpts) 
       // every group is a selector driven by Waarp's own probe rounds (engine.groupStep): no urltest ping-chasing (W2.2).
       // 'fastest' keeps established sessions on an improvement switch; 'first' only switches away from a dead member.
       ...lg.map(g => ({ type: 'selector', tag: grpTag(g.id), outbounds: g.members.map(tagOf), default: tagOf(g.members[0]), interrupt_exist_connections: g.policy === 'first' })),
-      ...fbs.map(g => ({ type: 'selector', tag: g.tag, outbounds: [tagOf(g.main), tagOf(g.fb)], default: tagOf(g.main), interrupt_exist_connections: true }))
+      ...fbs.map(g => ({ type: 'selector', tag: g.tag, outbounds: [tagOf(g.main), tagOf(g.fb)], default: tagOf(g.main), interrupt_exist_connections: true })),
+      ...sels
     ],
-    route: { rules: blockRules(rest === BLOCK ? [...rules, { network: ['tcp', 'udp'], outbound: BLOCK }] : rules), final: rest === BLOCK ? 'direct' : rest, auto_detect_interface: true, find_process: true, default_domain_resolver: 'local' },
+    route: { rules: blockRules(rest === BLOCK ? [...rules, { network: ['tcp', 'udp'], outbound: BLOCK }] : rules), final, auto_detect_interface: true, find_process: true, default_domain_resolver: 'local' },
     experimental: { clash_api: { external_controller: `127.0.0.1:${o.api.port}`, secret: o.api.secret } }
   }
 }
