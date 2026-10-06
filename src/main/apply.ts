@@ -11,10 +11,14 @@ export interface ApplyDeps {
   set: (s: Settings) => void
   save: () => void
   phase: () => string
+  /** HOTFIX-RUNTIME-01 E: the master switch's intent; card edits never change it */
+  open?: () => boolean
   /** refreshes notices; true when a hard block is active */
   blocked: () => Promise<boolean>
   demandsTunnel: (s: Settings) => boolean
   start: (s: Settings) => Promise<void>
+  /** HOTFIX-RUNTIME-01 B2: switch the running core live; true = applied, no scan or restart needed */
+  live?: (s: Settings) => Promise<boolean>
   stop: () => Promise<unknown>
   changed: () => void
 }
@@ -26,8 +30,15 @@ export function createApply(d: ApplyDeps): (next: Settings) => Promise<ApplyResu
     try { d.save() } catch { d.set(previous); return { saved: false, applied: false, running: isRunning(d.phase()), code: 'save' } }
     const running = isRunning(d.phase())
     try {
+      // B2: a pick the running core already serves is a selector switch; the periodic watch still guards the session
+      if (d.phase() === 'on' && d.live && d.demandsTunnel(next) && (await d.live(next))) return { saved: true, applied: true, running }
       if (await d.blocked()) { if (running) await d.stop(); return { saved: true, applied: false, running, code: 'block' } }
-      if (!running) return { saved: true, applied: false, running }
+      if (!running) {
+        // E: master open but the core was idle (no card needed it): a card that needs a tunnel starts it, no second master click
+        if (d.open?.() && d.demandsTunnel(next)) { await d.start(next); return d.phase() === 'on' ? { saved: true, applied: true, running } : { saved: true, applied: false, running, code: 'start' } }
+        return { saved: true, applied: false, running }
+      }
+      // E: no card needs a tunnel any more: the core stops, the master stays open (the caller keeps its intent)
       if (!d.demandsTunnel(next)) { await d.stop(); return { saved: true, applied: d.phase() === 'off', running, ...(d.phase() === 'off' ? {} : { code: 'start' as const }) } }
       await d.start(next)
       return d.phase() === 'on' ? { saved: true, applied: true, running } : { saved: true, applied: false, running, code: 'start' }
@@ -36,6 +47,14 @@ export function createApply(d: ApplyDeps): (next: Settings) => Promise<ApplyResu
 }
 
 const isRunning = (phase: string) => phase === 'on' || phase === 'starting'
+
+/** A routes/rest/groups/ruDirect settings patch does not carry the master open/closed intent.
+ * A hard block still forces a stop, but merely turning the last tunnel-demanding card off must
+ * not close Waarp: the orb owns that intent. */
+export function onRoutingPatch(phase: string, blocked: boolean): 'stop' | 'start' | 'none' {
+  if (!isRunning(phase)) return 'none'
+  return blocked ? 'stop' : 'start'
+}
 
 /** RC2 B: the card at `at` gets `via`; everything else, `rest` included, stays as it was */
 export function selectVia(s: Settings, at: number, via: string): Settings {
