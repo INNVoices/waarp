@@ -79,9 +79,10 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
   }
 
   const main = readFileSync('src/main/index.ts', 'utf8')
-  ok(main.includes("secureIntentHandle('settings'") && main.includes("secureIntentHandle('route:select'")
+  ok(main.includes("secureIntentHandle('toggle'") && main.includes("secureIntentHandle('settings'") && main.includes("secureIntentHandle('route:select'")
     && main.includes("secureIntentHandle('companion:choose'") && main.includes("secureIntentHandle('profile:remove'")
-    && main.includes('ensure: (target, intent) => intentWrites.run'), 'all main routing intent entry points share the FIFO gate')
+    && main.includes('ensure: (target, intent) => intentWrites.run')
+    && main.includes("click: () => void intentWrites.run(() => toggle())"), 'master + routing intent entry points share the FIFO gate')
 
   // H: bridge request ids
   for (const v of [undefined, null, 0, 1, -5, 2.5, Number.MAX_SAFE_INTEGER, '', 'abc', 'x'.repeat(128)]) ok(okId(v), 'id ok: ' + String(v).slice(0, 20))
