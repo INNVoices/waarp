@@ -4,6 +4,8 @@ import { customRoute } from '../src/renderer/src/lib/routes'
 import { AUTO_ID } from '../src/shared/groups'
 import type { AppInfo, Route } from '../src/shared/types'
 import { readFileSync } from 'node:fs'
+import { masterPresentation, orbPresentation } from '../src/renderer/src/lib/master'
+import type { Status } from '../src/shared/types'
 
 let failed = 0
 const t = (name: string, ok: boolean, info = ''): void => { if (!ok) failed++; console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : `  ${info}`}`) }
@@ -66,6 +68,24 @@ t('master click acknowledges opening/closing immediately without mutating author
   appSrc.includes("setMasterPending(closing ? 'closing' : 'opening')") && appSrc.includes('const controlStatus: Status = masterPending'))
 t('Windows icons hydrate through main -> preload -> renderer without a manual rescan',
   appsSrc.includes('onHydrated?.(list.map') && indexSrc.includes("send('apps', items)") && preloadSrc.includes("onApps: on('apps')") && appSrc.includes('api.onApps') && appSrc.includes('current.filter(a => !scanned.has(a.id))'))
+const baseStatus = { phase: 'off', open: false, pings: {}, fallback: {}, down: 0, up: 0, downTotal: 0, upTotal: 0 } as unknown as Status
+t('master presentation follows global intent during internal core restart',
+  masterPresentation({ ...baseStatus, open: true, phase: 'stopping' }).pressed
+  && masterPresentation({ ...baseStatus, open: true, phase: 'stopping' }).topKey === 'top.applying'
+  && masterPresentation({ ...baseStatus, open: true, phase: 'starting' }).topKey === 'top.applying')
+t('open-idle stays globally ON instead of looking closed',
+  masterPresentation({ ...baseStatus, open: true, phase: 'off' }).pressed
+  && masterPresentation({ ...baseStatus, open: true, phase: 'off' }).topKey === 'top.idle'
+  && orbPresentation({ ...baseStatus, open: true, phase: 'off' }).phaseClass === 'on')
+t('explicit master close/open pending overrides internal engine presentation',
+  !masterPresentation({ ...baseStatus, open: true, phase: 'stopping' }, 'closing').pressed
+  && masterPresentation(baseStatus, 'closing').topKey === 'top.stopping'
+  && masterPresentation(baseStatus, 'opening').pressed
+  && masterPresentation(baseStatus, 'opening').topKey === 'top.starting')
+t('Home orb calls an internal reapply switching, never global closing/opening',
+  orbPresentation({ ...baseStatus, open: true, phase: 'stopping' }).titleKey === 'orb.applying'
+  && orbPresentation({ ...baseStatus, open: true, phase: 'starting' }).titleKey === 'orb.applying')
+
 const connectionsSrc = readFileSync('src/renderer/src/pages/connections.tsx', 'utf8')
 t('closed master removes the dead live-connections section but transitions/open-idle may show it',
   connectionsSrc.includes('const showFlows = status.open === true') && connectionsSrc.includes('{showFlows && <details className="flows">'))

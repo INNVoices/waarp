@@ -7,26 +7,23 @@ import { s } from './lib/i18n'
 import { AUTO_ID, AUTO_LIVE_MAX, autoMembers } from '../../shared/groups'
 import { hueOf } from './lib/routes'
 import { Cat, Eggs, isNight, isWinter, useEggs } from './eggs'
-
-const PHASE: Record<Status['phase'], [string, string]> = {
-  off: ['orb.off', 'orb.off.sub'],
-  starting: ['orb.starting', 'orb.starting.sub'],
-  on: ['orb.on', ''],
-  stopping: ['orb.stopping', ''],
-  error: ['orb.error', 'orb.error.sub']
-}
+import { orbPresentation } from './lib/master'
 
 export function Orb({ status, disabled, why, onClick }: { status: Status; disabled: boolean; why?: string; onClick: () => void }) {
-  const [tId, subId] = PHASE[status.phase]
+  const view = orbPresentation(status)
   // closed and can't open: say why right under the button, never "press to open"
-  const locked = disabled && status.phase === 'off' && !!why
-  const title = locked ? s('orb.locked') : s(tId)
-  const on = status.phase === 'on'
-  const since = on && status.since ? fmtDur(Date.now() - status.since) : ''
-  const { egg, k } = useEggs(on)
-  const sub = locked ? why : on ? (status.error ?? since) : status.phase === 'error' ? status.error : subId ? s(subId) : ''
+  const locked = disabled && status.open !== true && status.phase === 'off' && !!why
+  const title = locked ? s('orb.locked') : s(view.titleKey)
+  const live = status.phase === 'on'
+  const since = live && status.since ? fmtDur(Date.now() - status.since) : ''
+  const { egg, k } = useEggs(live)
+  const sub = locked ? why
+    : status.phase === 'error' ? status.error ?? (view.subKey ? s(view.subKey) : '')
+    : view.subKey ? s(view.subKey)
+    : live ? status.error ?? since
+    : ''
   return (
-    <div className={`orb-wrap ph-${status.phase}${isWinter() ? ' winter' : ''}`}>
+    <div className={`orb-wrap ph-${view.phaseClass}${isWinter() ? ' winter' : ''}`}>
       <Plain className="orb" disabled={disabled && status.phase === 'off'} onClick={onClick} aria-label={title}>
         <svg viewBox="0 0 200 200" className="ring">{/* icon-ok: orb progress ring */}
           <circle cx="100" cy="100" r="92" className="track" />
