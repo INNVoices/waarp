@@ -82,7 +82,7 @@ export function Connections({ snap, status, conns, apps, patch, toggle, open, ad
   )
 }
 
-type Mood = 'on' | 'recovering' | 'attention' | 'off' | 'busy' | 'error'
+type Mood = 'on' | 'idle' | 'recovering' | 'attention' | 'off' | 'busy' | 'error'
 /** beside the orb: is it working, where does traffic go, is anything degraded */
 function State({ snap, status, disabled, why }: { snap: Snapshot; status: Status; disabled: boolean; why?: string }) {
   const st = snap.settings
@@ -93,10 +93,18 @@ function State({ snap, status, disabled, why }: { snap: Snapshot; status: Status
   const engineOut = eff.some(e => e.reason === 'engine_down')
   const m = moodOf(status.routes ?? {}), stuck = eff.filter(e => e.state === 'blocked').length
   const mood: Mood = status.phase === 'on' ? (m === 'ok' ? 'on' : m)
-    : status.phase === 'starting' || status.phase === 'stopping' ? 'busy' : status.phase === 'error' ? 'error' : 'off'
+    : status.open === true && status.phase === 'off' ? 'idle'
+    : status.phase === 'starting' || status.phase === 'stopping' ? 'busy'
+    : status.phase === 'error' ? 'error' : 'off'
   const exit = st.rest === 'direct' ? s('home.exit.cards', { n: st.routes.filter(r => r.on && r.via !== 'direct').length }) : s('home.exit.all', { v: viaName(snap.profiles, st.rest) })
   const rec = fb ? s('home.sub.recovering', { n: fb }) : engineOut ? s('home.sub.engine') : s('home.sub.pathdown', { n: bad })
-  const sub = mood === 'recovering' ? rec : mood === 'attention' ? s('home.sub.attention', { n: stuck }) : mood === 'error' ? status.error ?? s('orb.error.sub') : mood === 'off' && disabled && why ? why : exit
+  const sub = mood === 'idle' ? s('home.sub.idle')
+    : mood === 'busy' && status.open === true ? s('home.sub.engine')
+    : mood === 'recovering' ? rec
+    : mood === 'attention' ? s('home.sub.attention', { n: stuck })
+    : mood === 'error' ? status.error ?? s('orb.error.sub')
+    : mood === 'off' && disabled && why ? why
+    : exit
   return (
     <section className={'state m-' + mood} aria-live="polite">
       <span className="st-dot" aria-hidden />

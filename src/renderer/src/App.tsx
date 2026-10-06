@@ -13,6 +13,7 @@ import { AddTunnel, importNote } from './pages/addtunnel'
 import { Analyzer } from './pages/analyzer'
 import { SettingsPage } from './pages/settings'
 import { CompanionPick, type Pick } from './pages/companionpick'
+import { masterPresentation } from './lib/master'
 
 // W1 IA (GPT 440a5c3): five permanent destinations. Adding a connection is an action inside
 // Подключения; live flows are evidence inside Главная / Диагностика, never their own screen.
@@ -140,11 +141,10 @@ export function App() {
   // Renderer-only pending phase: acknowledge the click immediately without pretending the
   // main process has already changed its authoritative engine state.
   const controlStatus: Status = masterPending
-    ? { ...status, phase: masterPending === 'opening' ? 'starting' : 'stopping' }
+    ? { ...status, open: false, phase: masterPending === 'opening' ? 'starting' : 'stopping' }
     : status
-  const on = status.phase === 'on'
-  // Master intent can stay open while no card currently needs a tunnel.
-  const idle = status.open === true && status.phase === 'off'
+  const master = masterPresentation(status, masterPending)
+  const engineOn = status.phase === 'on'
   const hasRouting = snap.profiles.length > 0 || snap.settings.routes.length > 0 || snap.settings.rest !== 'direct'
   const demandsTunnel = snap.settings.rest !== 'direct' || snap.settings.routes.some(r => r.on && r.via !== 'direct')
   const railOn = page === 'route' ? nav.from : page
@@ -152,7 +152,7 @@ export function App() {
   return (
     <div className="shell">
       <aside className="rail">
-        <div className="rail-logo" onClick={logoClick}><Logo s={20} open={on} /></div>
+        <div className="rail-logo" onClick={logoClick}><Logo s={20} open={master.pressed} /></div>
         {RAIL.map(([k, ic]) => (
           <Plain key={k} className={'rb' + (railOn === k ? ' on' : '')} onClick={() => go(k)} aria-label={s('nav.' + k)} tip={s('nav.' + k)} tipSide="right">
             <Icon n={ic} s={20} />
@@ -164,12 +164,12 @@ export function App() {
 
       <header className="top">
         <Plain className="master" onClick={() => void toggle()} disabled={(!snap.profiles.length && !demandsTunnel) || busy}
-          aria-label={s('top.master')} aria-pressed={masterPending === 'opening' || (!masterPending && (on || idle || status.phase === 'starting'))}>
-          <span className={'tg' + (masterPending === 'opening' || (!masterPending && (on || idle || status.phase === 'starting')) ? ' on' : '')} aria-hidden><i /></span>
-          <b>{s(masterPending === 'opening' ? 'top.starting' : masterPending === 'closing' ? 'top.stopping' : on ? 'top.on' : idle ? 'top.idle' : status.phase === 'starting' ? 'top.starting' : status.phase === 'stopping' ? 'top.stopping' : 'top.off')}</b>
-          {on && status.since && <span className="mono m">{fmtDur(Date.now() - status.since)}</span>}
+          aria-label={s('top.master')} aria-pressed={master.pressed}>
+          <span className={'tg' + (master.pressed ? ' on' : '')} aria-hidden><i /></span>
+          <b>{s(master.topKey)}</b>
+          {engineOn && status.since && <span className="mono m">{fmtDur(Date.now() - status.since)}</span>}
         </Plain>
-        {on && <div className="top-speed mono"><Icon n="down" s={14} />{fmtSpeed(status.down)}<Icon n="up" s={14} />{fmtSpeed(status.up)}</div>}
+        {engineOn && <div className="top-speed mono"><Icon n="down" s={14} />{fmtSpeed(status.down)}<Icon n="up" s={14} />{fmtSpeed(status.up)}</div>}
         <div className="grow drag" />
         <div className="wbtn">
           <Plain aria-label={s('win.min')} onClick={() => api.win('min')}><Icon n="min" s={14} /></Plain>
