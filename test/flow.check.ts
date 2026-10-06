@@ -6,6 +6,7 @@ import type { AppInfo, Route } from '../src/shared/types'
 import { readFileSync } from 'node:fs'
 import { masterPresentation, orbPresentation } from '../src/renderer/src/lib/master'
 import { trayPresentation } from '../src/main/tray-view'
+import { routeSchemeHintKey, routeStateKey } from '../src/renderer/src/lib/route-state'
 import type { Status } from '../src/shared/types'
 
 let failed = 0
@@ -95,6 +96,17 @@ t('tray follows master intent and never flashes closed during structural core re
 t('tray open-idle stays open even with core off',
   trayPresentation({ ...baseStatus, phase: 'off' }, true, []).active
   && trayPresentation({ ...baseStatus, phase: 'off' }, true, []).action === 'disconnect')
+
+t('route presentation keeps Direct active even while the core is off',
+  routeStateKey({ on: true, via: 'direct' } as Route, { ...baseStatus, open: true, phase: 'off' }) === 'route.st.direct'
+  && routeSchemeHintKey({ via: 'direct' } as Route, { ...baseStatus, open: false, phase: 'off' }) === undefined)
+t('enabled tunnel route says applying during internal restart, never waiting for master',
+  routeStateKey({ on: true, via: 'p1' } as Route, { ...baseStatus, open: true, phase: 'stopping' }, { desired: 'p1', state: 'idle', reason: 'waiting' }) === 'route.st.applying'
+  && routeStateKey({ on: true, via: 'p1' } as Route, { ...baseStatus, open: true, phase: 'off' }, { desired: 'p1', state: 'idle', reason: 'waiting' }) === 'route.st.applying'
+  && routeSchemeHintKey({ via: 'p1' } as Route, { ...baseStatus, open: true, phase: 'starting' }) === 'route.scheme.applying')
+t('closed master still says a tunnel route is waiting for opening',
+  routeStateKey({ on: true, via: 'p1' } as Route, baseStatus, { desired: 'p1', state: 'idle', reason: 'waiting' }) === 'route.st.idle'
+  && routeSchemeHintKey({ via: 'p1' } as Route, baseStatus) === 'route.scheme.off')
 
 const connectionsSrc = readFileSync('src/renderer/src/pages/connections.tsx', 'utf8')
 t('closed master removes the dead live-connections section but transitions/open-idle may show it',

@@ -176,13 +176,11 @@ function RouteList({ snap, status, conns, apps, patch, open, add }: { snap: Snap
               <Icon n="chev" s={14} />
               <div className="rr-via"><ViaPicker compact profiles={snap.profiles} via={r.via} pings={status.pings} live={live} down={v => v === r.via ? e?.reason === 'path_down' : status.health?.[v] === 'down'} onChange={v => void patch({ routes: patchRoute(st, r.id, { via: v }) })} /></div>
               <span className="rr-st">
-                {!r.on ? <span className="m">{s(isDraft(r) ? 'route.st.draft' : 'route.st.off')}</span>
+                {!r.on ? <span className="m">{s(routeStateKey(r, status, e, isDraft(r)))}</span>
                   : fb ? <Tooltip tip={s('conn.fb.tip', { v: viaName(snap.profiles, fb) })}><span className="warn-t"><Icon n="refresh" s={12} />{s('route.st.fb')}</span></Tooltip>
-                  : !live ? <span className="m">{s('route.st.idle')}</span>
-                  : r.via === 'direct' ? <span className="m">{s('route.st.direct')}</span>
-                  : e?.state === 'retrying' ? <span className="warn-t">{s('route.st.' + e.reason)}</span>
-                  : e?.state === 'blocked' ? <span className="err-t">{s('route.st.' + e.reason)}</span>
-                  : <span>{s('route.st.ok')}</span>}
+                  : e?.state === 'retrying' ? <span className="warn-t">{s(routeStateKey(r, status, e))}</span>
+                  : e?.state === 'blocked' ? <span className="err-t">{s(routeStateKey(r, status, e))}</span>
+                  : <span className={routeStateKey(r, status, e) === 'route.st.ok' ? '' : 'm'}>{s(routeStateKey(r, status, e))}</span>}
                 {tr > 0 && <small className="m mono">{fmtBytes(tr)}</small>}
               </span>
               <Toggle on={r.on} onChange={v => void patch({ routes: patchRoute(st, r.id, { on: v }) })} label={r.name} />
