@@ -33,7 +33,7 @@ internal object LibboxRuntime {
             appVersion = BuildConfig.VERSION_NAME
             appMarketingVersion = BuildConfig.VERSION_NAME
         })
-        check(Libbox.version() == "1.14.4-lx.35") { "Версия VPN-ядра не совпадает с проверенной сборкой" }
+        check(Libbox.version() == BuildConfig.ENGINE_VERSION) { "Версия VPN-ядра не совпадает с проверенной сборкой" }
         ready = true
     }
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "engineAarSha256": "e5cfd79364316150acd5c9ddbb5d6d8c749f1ce4a590f9a3eaa408f949b8fd7b",
+  "engineAarSha256": "562afef9bcdbb37bc6069cdc247f821324d5be3471242f6eee136ff3883f2fb7",
   "goVersion": "go1.26.10",
   "expectedModules": 112,
   "modules": [

@@ -12,11 +12,22 @@ android/ and scripts/android-* contain the Android sources and build scripts.
 docs/ANDROID.md describes the Android build and corresponding engine source.
 
 Embedded native VPN engine:
-Leadaxe/sing-box-lx 1.14.4-lx.35
-Source commit: f1bac271853eaf13398ce1030c948aebc3aed2e1
+Leadaxe/sing-box-lx with Waarp DNS lifecycle corrections
+Downstream version: 1.14.4-lx.35-waarp.1
+Upstream source commit: f1bac271853eaf13398ce1030c948aebc3aed2e1
 https://github.com/Leadaxe/sing-box-lx/tree/f1bac271853eaf13398ce1030c948aebc3aed2e1
-https://github.com/Leadaxe/sing-box-lx/releases/tag/v1.14.4-lx.35
-AAR SHA-256: e5cfd79364316150acd5c9ddbb5d6d8c749f1ce4a590f9a3eaa408f949b8fd7b
+AAR SHA-256: 562afef9bcdbb37bc6069cdc247f821324d5be3471242f6eee136ff3883f2fb7
+Corresponding downstream source and reproducible build inputs are in:
+https://github.com/INNVoices/waarp
+android/native-source.json
+android/native-patches/dns-transient-reset.patch
+android/native-patches/dns_recovery_waarp_test.go
+scripts/android-core-build.py
+The downstream patch changes DNS connection-reset recovery, pending-query
+ownership and cancellation; it is distributed under GPL-3.0-or-later.
+docs/ANDROID-NATIVE-DNS-RECOVERY.md records the evidence, changes and build
+contract. The source lock includes the exact upstream/gitlink revisions and
+patch, regression-source and toolchain identities.
 The exact upstream license notice is preserved in Libbox-LICENSE.txt.
 The upstream module declarations are preserved in Libbox-go.mod.txt.
 Libbox-buildinfo.txt contains the actual Go version and dependency inventory

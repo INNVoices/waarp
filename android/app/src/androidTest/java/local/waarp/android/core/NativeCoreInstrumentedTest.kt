@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.nekohasekai.libbox.Libbox
 import kotlinx.coroutines.runBlocking
+import local.waarp.android.BuildConfig
 import local.waarp.android.data.AppData
 import local.waarp.android.data.AppSettings
 import local.waarp.android.data.ProfileImporter
@@ -35,7 +36,7 @@ class NativeCoreInstrumentedTest {
     @Before fun initializeNativeCore() { LibboxRuntime.initialize(context) }
 
     @Test fun actualAarVersionAndGoSecurityFixMatchThePin() {
-        assertEquals("1.14.4-lx.35", Libbox.version())
+        assertEquals(BuildConfig.ENGINE_VERSION, Libbox.version())
         assertEquals("go1.26.10", Libbox.goVersion().substringBefore(',').trim())
     }
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.core
 
+import local.waarp.android.BuildConfig
+
 /** ON confirms a running local VPN. Internet reachability is a separate measurement. */
 enum class RuntimePhase { OFF, STARTING, ON, STOPPING, ERROR }
 
@@ -14,7 +16,7 @@ data class RuntimeStatus(
     val downloadBps: Long = 0,
     val memoryBytes: Long = 0,
     val connectionCount: Int = 0,
-    val coreVersion: String = "1.14.4-lx.35",
+    val coreVersion: String = BuildConfig.ENGINE_VERSION,
     val alwaysOn: Boolean = false,
     val lockdown: Boolean = false,
     val telemetryAvailable: Boolean = false,

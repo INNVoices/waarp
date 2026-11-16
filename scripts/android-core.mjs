@@ -1,7 +1,8 @@
 #!/usr/bin/env node
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -32,32 +33,22 @@ export async function fetchCore() {
     if (error.code !== 'ENOENT') throw error; // Never replace an unexpected binary silently.
   }
   const pin = await readEnginePin();
-  await mkdir(dirname(coreAarPath), { recursive: true });
-  const temporaryPath = `${coreAarPath}.${process.pid}.download`;
-  let handle;
-  try {
-    console.log(`Downloading pinned Android core ${pin.version} (${pin.bytes} bytes).`);
-    const response = await fetch(pin.url, { signal: AbortSignal.timeout(300_000) });
-    if (!response.ok || !response.body) throw new Error(`Engine download failed: HTTP ${response.status}.`);
-    handle = await open(temporaryPath, 'wx', 0o600);
-    let received = 0;
-    const hash = createHash('sha256');
-    for await (const chunk of response.body) {
-      received += chunk.length;
-      if (received > pin.bytes) throw new Error('Engine download exceeds its pinned size.');
-      hash.update(chunk);
-      await handle.writeFile(chunk);
-    }
-    await handle.close();
-    handle = undefined;
-    if (received !== pin.bytes || hash.digest('hex') !== pin.sha256) throw new Error('Engine download failed integrity verification.');
-    await rename(temporaryPath, coreAarPath);
-    console.log(`Android core ${pin.version}: SHA-256 verified.`);
-    return pin;
-  } finally {
-    await handle?.close();
-    await rm(temporaryPath, { force: true });
-  }
+  if (!pin.sourceBuild) throw new Error('Engine pin must identify the locked native source build.');
+  console.log(`Building pinned Android core ${pin.version} from source.`);
+  await new Promise((resolveBuild, rejectBuild) => {
+    const child = spawn('python3', [
+      resolve(repositoryRoot, 'scripts/android-core-build.py'),
+      '--output', resolve(repositoryRoot, 'out/android-core'),
+    ], { cwd: repositoryRoot, stdio: 'inherit' });
+    child.once('error', rejectBuild);
+    child.once('close', (code, signal) => {
+      if (code === 0) resolveBuild();
+      else rejectBuild(new Error(`Native core source build failed (${signal ? `signal ${signal}` : `exit ${code}`}).`));
+    });
+  });
+  const verified = await verifyCore();
+  console.log(`Android core ${verified.version}: source build SHA-256 and size verified.`);
+  return verified;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

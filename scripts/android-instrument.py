@@ -18,7 +18,33 @@ import sys
 import time
 
 
-def parse_instrumentation(output, exit_code, timed_out):
+def compact_failure_header(stack):
+    """Console diagnostics only; never emit a configuration or a native dump."""
+    header = (stack or "").partition("\n")[0].strip()
+    header = re.split(r";\s*(?:DNS|flows|host|native)\s*=", header,
+                      maxsplit=1, flags=re.I)[0]
+    parts = re.split(r"[\[{]|-----BEGIN\b", header, maxsplit=1)
+    header = parts[0] + (" [structured details omitted]" if len(parts) > 1 else "")
+    header = re.sub(r"(?i)\b[a-z][a-z0-9+.-]*://\S+", "[URI omitted]", header)
+    header = re.sub(
+        r"""(?ix)\b(?:private[-_ ]?key|preshared[-_ ]?key|password|passwd|
+        token|secret|authorization)\s*[:=]\s*
+        (?:"[^"]*"|'[^']*'|[^;\s]+)""",
+        "[credential omitted]", header)
+    header = re.sub(r"(?i)\bBearer\s+\S+", "[credential omitted]", header)
+    header = re.sub(
+        r"""(?ix)\b(?:endpoint|server)\s*[:=]\s*
+        (?:"[^"]*"|'[^']*'|[^;\s]+)""", "[endpoint omitted]", header)
+    header = re.sub(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b",
+                    "[network address omitted]", header)
+    header = re.sub(r"(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/_-]{43}=(?![A-Za-z0-9+/=_-])",
+                    "[key omitted]", header)
+    header = re.sub(r"(?i)\b[0-9a-f]{64}\b", "[key omitted]", header)
+    header = header or "No compact assertion header; see instrumentation.txt."
+    return header[:768] + (" [truncated]" if len(header) > 768 else "")
+
+
+def parse_instrumentation(output, exit_code, timed_out, *, failure_diagnostics=None):
     """Read AndroidJUnitRunner's protocol, shared by debug and external release gates."""
     bundle, cases = {}, []
     expected_tests = 0
@@ -35,6 +61,11 @@ def parse_instrumentation(output, exit_code, timed_out):
             if code <= 0 and bundle.get("class") and bundle.get("test"):
                 status = "passed" if code == 0 else "skipped" if code in (-3, -4) else "failed"
                 cases.append({"class": bundle["class"], "name": bundle["test"], "status": status, "statusCode": code})
+                if status == "failed" and failure_diagnostics is not None:
+                    failure_diagnostics.append({
+                        "class": bundle["class"][:200], "name": bundle["test"][:200],
+                        "statusCode": code, "header": compact_failure_header(bundle.get("stack", "")),
+                    })
             bundle, active_field = {}, None
         elif active_field == "stack":
             bundle[active_field] += "\n" + line
@@ -80,6 +111,26 @@ def capture_preflight(prefix, output):
               "scope": "Observational framework broadcast-queue idle and memory snapshots; global background work is not app readiness. No dialogs dismissed, crash records cleared, or tests skipped."}
     (output / "preflight.json").write_text(json.dumps(report, indent=2) + "\n")
     return report
+
+
+def capture_test_failure_logs(prefix, output):
+    """Preserve early matching failures still retained by logd, once per suite."""
+    arguments = [
+        "logcat", "-d", "-v", "threadtime",
+        "-b", "main", "-b", "system", "-b", "crash", "-m", "1024",
+        "TestRunner:E", "AndroidRuntime:E", "ActivityManager:W", "libc:F", "DEBUG:F", "*:S",
+    ]
+    try:
+        result = subprocess.run(prefix + arguments, capture_output=True, timeout=20)
+        content = result.stdout + result.stderr
+    except (OSError, subprocess.TimeoutExpired) as error:
+        content = f"Failure-log collection failed: {type(error).__name__}\n".encode()
+    limit = 512 * 1024
+    if len(content) > 2 * limit:
+        content = (content[:limit] +
+                   b"\n[Middle omitted: first and last 512 KiB retained.]\n" +
+                   content[-limit:])
+    (output / "logcat-test-failures.txt").write_bytes(content)
 
 
 def capture_logs(prefix, output, failed):
@@ -152,8 +203,13 @@ def main():
         timed_out = True
     elapsed = time.monotonic() - started
     (options.output / "instrumentation.txt").write_text(output)
-    parsed = parse_instrumentation(output, exit_code, timed_out)
+    failure_headers = []
+    parsed = parse_instrumentation(output, exit_code, timed_out,
+                                   failure_diagnostics=failure_headers)
+    (options.output / "failure-headers.json").write_text(json.dumps(failure_headers, indent=2) + "\n")
     success = parsed["passedGate"]
+    if not success:
+        capture_test_failure_logs(prefix, options.output)
     report = {"schemaVersion": 1, "checkedAtUtc": datetime.now(timezone.utc).isoformat(), "device": device, "preflight": preflight, "wallSeconds": elapsed, **parsed}
     native = capture_logs(prefix, options.output, failed=not success)
     report["nativeCrashEvidence"] = native
@@ -206,6 +262,8 @@ def main():
     (options.output / "result.json").write_text(json.dumps(report, indent=2) + "\n")
     print(f"Android API {device['sdk']}, pages={page_size}: {parsed['tests']} tests, {parsed['passed']} passed, {parsed['failed']} failed, {parsed['skipped']} skipped; {elapsed:.1f}s.")
     if not success:
+        for failure in failure_headers:
+            print(json.dumps({"instrumentationFailure": failure}), file=sys.stderr, flush=True)
         print(output[-12000:], file=sys.stderr)
     return 0 if success else 1
 

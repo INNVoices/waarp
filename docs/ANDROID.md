@@ -7,7 +7,7 @@ Android is implemented in this repository under `android/`. Build products go to
 - Android 10 / API 29 minimum; compile/target API 36.
 - Native Kotlin 2.2.21, Compose and Material 3. Four Russian-language destinations: **Главная**, **Маршруты**, **Туннели**, **Диагностика**; settings are separate. Bottom navigation on phones, navigation rail on wider displays.
 - Real Android `VpnService`, system consent, foreground notification, revoke handling, underlying-network monitoring and protected native sockets.
-- In-process **sing-box-lx 1.14.4-lx.35** Android AAR, Go 1.26.10. Source commit, download, size, AAR SHA-256 and native library hashes are pinned in `android/app/src/main/res/raw/engine_integrity.json`.
+- In-process **sing-box-lx 1.14.4-lx.35-waarp.1** Android AAR, Go 1.26.10. This downstream build adds bounded DNS recovery and terminal-close ownership fixes. `android/native-source.json` locks the upstream source, patch, regression tests and toolchain; `android/app/src/main/res/raw/engine_integrity.json` locks the actual AAR, Java archive and each ABI's native bytes. See [native recovery evidence and contract](ANDROID-NATIVE-DNS-RECOVERY.md).
 - Release package `local.waarp.android`; debug package `local.waarp.android.debug`. Separate APKs for `arm64-v8a`, `armeabi-v7a` and `x86_64`; most current phones need arm64. The install helper queries the actual device ABI.
 - The Android AAR excludes Clash REST. Mobile uses the real native `CommandServer` / `CommandClient` APIs for status, selectors, URL tests, connections, DNS observations and logs.
 
@@ -65,20 +65,21 @@ Config/key material is not passed to service-start Intents, screen DTOs, Bundle 
 
 ## Build and install
 
-Requirements: JDK 17, Android SDK command-line tools, `platforms;android-36`, `build-tools;35.0.0`, `platform-tools`, Node.js and Python 3. Set `JAVA_HOME`/`ANDROID_HOME` and accept the SDK license. The committed Gradle 8.13 wrapper verifies its distribution checksum.
+Requirements: Linux x86_64 for the source-built native core, Go **1.26.10**, Temurin **17.0.21+9**, Android SDK command-line tools, `platforms;android-36`, `ndk;28.2.13676358`, `build-tools;35.0.0`, `platform-tools`, Git, Node.js and Python 3. Set `JAVA_HOME`/`ANDROID_HOME` and accept the SDK license. The source lock also pins gomobile and the actual SDK bootclasspath hash. The committed Gradle 8.13 wrapper verifies its distribution checksum.
 
 ```sh
 npm run android:build
 python3 scripts/android-install.py --variant debug --launch
 ```
 
-The build fetches/verifies the AAR, runs JVM tests and debug/release lint, builds debug/release/instrumentation APKs plus the separate release acceptance APK, verifies actual APK contents and publishes a complete `out/android/` set atomically. Earlier artifacts are retained under `out/android-history/`, so older versions or signature modes cannot silently mix with the new release.
+The build verifies an existing matching AAR or builds the locked core from source, runs JVM tests and debug/release lint, builds debug/release/instrumentation APKs plus the separate release acceptance APK, verifies actual APK contents and publishes a complete `out/android/` set atomically. Earlier artifacts are retained under `out/android-history/`, so older versions or signature modes cannot silently mix with the new release.
 
 CI preserves Gradle's downloaded dependencies on the default branch and on pull requests from this same repository. Fork pull requests and non-default-branch dispatches retain read-only caching. The pinned [setup-gradle action](https://github.com/gradle/actions/blob/48b5f213c81028ace310571dc5ec0fbbca0b2947/docs/setup-gradle.md) scopes a PR's saved cache to that PR; a first cold build still needs repository access. This avoids repeating full dependency downloads on every update, following [Maven Central's HTTP 429 guidance](https://central.sonatype.org/faq/429-error/). Dependency versions, repositories and all build/runtime gates remain unchanged; rate-limit failures are retained as failures and are not retried automatically.
 
 ```sh
 npm run android:core:fetch
 npm run android:core:verify
+# Inspect out/android-core/ for source-build and native regression proofs.
 cd android
 ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:lintRelease
 ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest
@@ -127,6 +128,8 @@ UI projection runs on a background dispatcher with unchanged-section caches. The
 Subscription/catalog downloads and HTTP diagnostics use pinned [OkHttp 5.3.2](https://github.com/lysine-dev/okhttp), Android's cancellable DNS resolver and explicit physical-network sockets. This pin retains the validated API36/AGP8 toolchain; OkHttp5.5.x requires compileSdk37. Cancellation remains effective before connection creation, and a total deadline bounds redirect chains and slow response trickles. Bounded reads apply to decompressed response bytes. Existing TLS hostname/certificate checks remain enabled. Actual localhost socket regression tests exercise stalled headers, trickle cancellation and independence of simultaneous calls.
 
 ## Optimized release approval
+
+Before APK compilation, a fresh source build applies the hashed native patch to the exact upstream and gitlink revisions. The native transport package must pass its race-enabled regressions, including every required downstream test. The resulting canonical AAR and all three native libraries must match the independently frozen candidate bytes. Native test, source and binary provenance are retained with build reports. An unexpected existing AAR, missing test, changed source input or binary mismatch fails this gate; bootstrap output is not release approval.
 
 The debug instrumentation suite remains a regression gate. A separate `com.android.test` module under [`android/acceptance`](../android/acceptance/README.md) exercises the actual R8-minified, nondebuggable release via UI Automator from a different UID. It does not load production classes, change keep rules or add runtime test hooks. This follows Android's [guidance to test release optimizations](https://developer.android.com/topic/performance/app-optimization/test-the-optimization).
 

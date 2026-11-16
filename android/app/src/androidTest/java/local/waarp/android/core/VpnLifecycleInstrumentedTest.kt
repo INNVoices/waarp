@@ -314,7 +314,11 @@ class VpnLifecycleInstrumentedTest {
         checkNotNull(activity).onActivity { it.startActivityForResult(request, 702) }
     }
 
-    private data class ConsentButton(val windowId: Int, val bounds: Rect)
+    private data class ConsentButton(
+        val windowId: Int,
+        val rawBounds: Rect,
+        val visibleBounds: Rect,
+    )
 
     private suspend fun grantAndroidConsent(request: Intent, stage: String) {
         val component = checkNotNull(request.component) { "Android VPN consent must identify its system component" }
@@ -344,10 +348,13 @@ class VpnLifecycleInstrumentedTest {
             }
             val target = checkNotNull(ready) { "Android VPN consent did not expose one focused, ready positive button" }
             check(focusedConsentButton(component.packageName) == target) { "Android VPN consent target changed before the click" }
-            assertTrue("Android VPN consent click was not injected", device.click(target.bounds.centerX(), target.bounds.centerY()))
-            // Exactly one click; the actual authorization must still arrive within
-            // the original deadline. Never bypass it or retry a failed interaction.
-            withTimeout(10_000) { while (controller.prepare() != null) delay(50) }
+            check(deadline - SystemClock.elapsedRealtime() > 0L) { "Android VPN consent deadline expired before the click" }
+            assertTrue("Android VPN consent click was not injected",
+                device.click(target.visibleBounds.centerX(), target.visibleBounds.centerY()))
+            // Exactly one click; authorization shares the original readiness deadline.
+            val remaining = deadline - SystemClock.elapsedRealtime()
+            check(remaining > 0L) { "Android VPN consent deadline expired before authorization completed" }
+            withTimeout(remaining) { while (controller.prepare() != null) delay(50) }
         } catch (failure: Throwable) {
             captureConsentFailure(device, component, stage, failure)
             throw failure
@@ -369,9 +376,15 @@ class VpnLifecycleInstrumentedTest {
                             it.className?.toString() == "android.widget.Button" &&
                             it.isVisibleToUser && it.isEnabled && it.isClickable
                     } ?: return null
-                    val bounds = Rect().also(button::getBoundsInScreen)
+                    val rawBounds = Rect().also(button::getBoundsInScreen)
                     val windowBounds = Rect().also(window::getBoundsInScreen)
-                    return if (!bounds.isEmpty && windowBounds.contains(bounds)) ConsentButton(window.id, bounds) else null
+                    val visibleBounds = Rect(rawBounds)
+                    val device = UiDevice.getInstance(instrumentation)
+                    // AndroidX clicks the visible intersection. Floating-window
+                    // surface insets can clip a node's reported raw bounds.
+                    if (rawBounds.isEmpty || !visibleBounds.intersect(windowBounds) ||
+                        !visibleBounds.intersect(0, 0, device.displayWidth, device.displayHeight)) return null
+                    return ConsentButton(window.id, rawBounds, visibleBounds)
                 } finally { buttons.forEach { it.recycle() } }
             } finally { root.recycle() }
         } finally { windows.forEach { it.recycle() } }
@@ -382,6 +395,9 @@ class VpnLifecycleInstrumentedTest {
         // screens are present here; never serialize an Intent or VPN configuration.
         val directory = File(context.getExternalFilesDir(null), "ui-screenshots").apply { mkdirs() }
         val prefix = "failure-vpn-consent-$stage"
+        runCatching {
+            File(directory, "$prefix-predicates.json").writeText(consentPredicateDiagnostics(device, component))
+        }.exceptionOrNull()?.let(failure::addSuppressed)
         runCatching {
             check(device.takeScreenshot(File(directory, "$prefix.png"))) { "Consent screenshot capture failed" }
         }.exceptionOrNull()?.let(failure::addSuppressed)
@@ -405,6 +421,79 @@ class VpnLifecycleInstrumentedTest {
             }
             File(directory, "$prefix-windows.txt").writeText("expectedComponent=${component.flattenToShortString()}\n$windows\n")
         }.exceptionOrNull()?.let(failure::addSuppressed)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun consentPredicateDiagnostics(device: UiDevice, component: ComponentName): String {
+        val packageName = component.packageName
+        val screenBounds = Rect(0, 0, device.displayWidth, device.displayHeight)
+        val automation = instrumentation.uiAutomation
+        val windows = automation.windows
+        try {
+            val report = JSONObject()
+                .put("expectedComponent", component.flattenToShortString())
+                .put("elapsedRealtime", SystemClock.elapsedRealtime())
+                .put("screenBounds", screenBounds.toShortString())
+                .put("serviceFlags", automation.serviceInfo?.flags ?: -1)
+                .put("windowCount", windows.size)
+                .put("focusedWindowCount", windows.count { it.isFocused })
+                .put("windowsTruncated", windows.size > 8)
+            val records = org.json.JSONArray()
+            windows.sortedByDescending { it.isFocused }.take(8).forEach { window ->
+                val windowBounds = Rect().also(window::getBoundsInScreen)
+                val record = JSONObject()
+                    .put("id", window.id).put("type", window.type).put("layer", window.layer)
+                    .put("focused", window.isFocused).put("active", window.isActive)
+                    .put("windowBounds", windowBounds.toShortString())
+                val root = window.root
+                record.put("rootPresent", root != null)
+                if (root != null) {
+                    try {
+                        val rootPackage = root.packageName?.toString().orEmpty()
+                        record.put("rootPackage", rootPackage.take(128))
+                            .put("rootPackageMatches", rootPackage == packageName)
+                        if (window.isFocused) {
+                            val buttons = root.findAccessibilityNodeInfosByViewId("android:id/button1")
+                            try {
+                                val eligibleCount = buttons.count {
+                                    it.windowId == window.id && it.packageName?.toString() == packageName &&
+                                        it.className?.toString() == "android.widget.Button" &&
+                                        it.isVisibleToUser && it.isEnabled && it.isClickable
+                                }
+                                val nodes = org.json.JSONArray()
+                                buttons.take(4).forEach { button ->
+                                    val rawBounds = Rect().also(button::getBoundsInScreen)
+                                    val visibleBounds = Rect(rawBounds)
+                                    val intersectsWindow = visibleBounds.intersect(windowBounds)
+                                    val intersectsScreen = intersectsWindow && visibleBounds.intersect(screenBounds)
+                                    nodes.put(JSONObject()
+                                        .put("windowId", button.windowId).put("windowMatches", button.windowId == window.id)
+                                        .put("resourceId", button.viewIdResourceName.orEmpty().take(128))
+                                        .put("package", button.packageName?.toString().orEmpty().take(128))
+                                        .put("packageMatches", button.packageName?.toString() == packageName)
+                                        .put("class", button.className?.toString().orEmpty().take(128))
+                                        .put("classMatches", button.className?.toString() == "android.widget.Button")
+                                        .put("visible", button.isVisibleToUser).put("enabled", button.isEnabled)
+                                        .put("clickable", button.isClickable)
+                                        .put("rawBounds", rawBounds.toShortString()).put("rawBoundsEmpty", rawBounds.isEmpty)
+                                        .put("rawContainedByWindow", windowBounds.contains(rawBounds))
+                                        .put("intersectsWindow", intersectsWindow).put("intersectsScreen", intersectsScreen)
+                                        .put("visibleBounds", if (intersectsScreen) visibleBounds.toShortString() else JSONObject.NULL))
+                                }
+                                record.put("positiveNodeCount", buttons.size).put("eligibleNodeCount", eligibleCount)
+                                    .put("nodesTruncated", buttons.size > 4).put("nodes", nodes)
+                            } finally { buttons.forEach { it.recycle() } }
+                        }
+                    } finally { root.recycle() }
+                }
+                records.put(record)
+            }
+            return report.put("windows", records).toString().also {
+                check(it.toByteArray(Charsets.UTF_8).size <= 64 * 1024) {
+                    "Consent predicate diagnostics exceed the evidence bound"
+                }
+            }
+        } finally { windows.forEach { it.recycle() } }
     }
 
     private fun fixtureLogs(vararg markers: String): List<String> = controller.logs.value.map { it.message }.filter { line ->

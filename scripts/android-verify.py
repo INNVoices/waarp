@@ -100,6 +100,14 @@ def has_signing_block(path: Path, archive: zipfile.ZipFile) -> bool:
 
 def verify(path: Path, expected: str) -> dict:
     pin = json.loads((ROOT / "android/app/src/main/res/raw/engine_integrity.json").read_text())
+    source_build = pin.get("sourceBuild")
+    if source_build:
+        require(source_build.get("manifest") == "android/native-source.json", "Unexpected native source manifest.")
+        source_lock = json.loads((ROOT / source_build["manifest"]).read_text())
+        source_hash = hashlib.sha256(json.dumps(source_lock, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        require(source_hash == source_build.get("inputsSha256"), "Native source lock differs from the audited engine pin.")
+        require(source_lock["version"] == pin["version"] and source_lock["source"]["commit"] == pin["sourceCommit"],
+                "Native source identity differs from the engine pin.")
     require(path.is_file(), f"APK does not exist: {path}")
     require(path.stat().st_size > 0, "APK is empty.")
     native = []
@@ -189,6 +197,7 @@ def verify(path: Path, expected: str) -> dict:
         "minSdk": 29, "targetSdk": 36, "abi": abi, "signed": signed, "signerCertificateSha256": certificate,
         "signatureSchemes": signature_schemes,
         "engineVersion": pin["version"], "engineSourceCommit": pin["sourceCommit"],
+        "engineAarSha256": pin["sha256"], "engineSourceBuild": source_build,
         "zipalign16k": True, "nativeLibraries": native,
         "scope": "Static APK packaging and signature checks; runtime VPN tests are reported separately.",
     }
