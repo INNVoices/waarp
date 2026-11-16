@@ -54,9 +54,33 @@ final class ReleaseUi {
     }
 
     void navigate(String label) {
-        UiObject2 target = ready(label, true, true, 15000);
-        target.click();
-        SystemClock.sleep(100);
+        // A selected Compose navigation item exposes selected=true but no
+        // accessibility click action. Re-entering the current tab is complete
+        // only when that actual selection is observed, not merely its label.
+        long deadline = SystemClock.elapsedRealtime() + 15000, unchangedSince = 0;
+        Rect previous = null;
+        UiObject2 target = null;
+        while (SystemClock.elapsedRealtime() < deadline) {
+            allowNotificationPrompt();
+            UiObject2 node = navigationItem(label);
+            if (node != null && node.isEnabled()) {
+                Rect bounds = node.getVisibleBounds();
+                if (bounds.equals(previous)) {
+                    if (SystemClock.elapsedRealtime() - unchangedSince >= 250) { target = node; break; }
+                } else { previous = bounds; unchangedSince = SystemClock.elapsedRealtime(); }
+            } else { previous = null; unchangedSince = 0; }
+            SystemClock.sleep(80);
+        }
+        TrafficProbe.require(target != null, "navigation_not_ready:" + label);
+        if (target.isSelected()) return;
+        target.click(); // at most one navigation action
+        deadline = SystemClock.elapsedRealtime() + 15000;
+        while (SystemClock.elapsedRealtime() < deadline) {
+            UiObject2 node = navigationItem(label);
+            if (node != null && node.isEnabled() && node.isSelected()) return;
+            SystemClock.sleep(80);
+        }
+        throw new AssertionError("navigation_not_selected:" + label);
     }
 
     void importProfile(String name, String configuration) {
@@ -186,27 +210,54 @@ final class ReleaseUi {
         UiObject2 field = null;
         long deadline = SystemClock.elapsedRealtime() + 10000;
         while (SystemClock.elapsedRealtime() < deadline && field == null) {
-            UiObject2 labelNode = find(label, false, false);
-            if (labelNode != null) {
-                Rect labelBounds = labelNode.getVisibleBounds();
-                WindowSnapshot active = activeWindow();
-                for (UiObject2 candidate : device.findObjects(By.pkg(TARGET).clazz("android.widget.EditText"))) {
-                    if (!active.contains(candidate)) continue;
-                    Rect bounds = candidate.getVisibleBounds();
-                    if (bounds.height() > 0 && bounds.left <= labelBounds.centerX() && bounds.right >= labelBounds.centerX() &&
-                            bounds.top - 60 <= labelBounds.centerY() && bounds.bottom >= labelBounds.centerY()) {
-                        field = candidate; break;
-                    }
-                }
-            }
+            field = editableField(label);
+            if (field != null && !field.isEnabled()) field = null;
             if (field == null) SystemClock.sleep(100);
         }
         TrafficProbe.require(field != null && field.isEnabled(), "editable_field_missing:" + label);
-        field.click(); field.setText(value);
+        field.click(); field.setText(value); // exactly one edit
+        closeIme();
         // The secret field is intentionally masked. The later cryptographic
         // round trip verifies its exact configuration without exposing it here.
-        if (!label.contains("Конфигурация")) TrafficProbe.require(value.equals(field.getText()), "field_edit_not_applied:" + label);
-        closeIme();
+        if (!label.contains("Конфигурация")) {
+            // ACTION_SET_TEXT returns before Compose publishes its updated
+            // accessibility tree. Re-resolve the field; never repeat the edit.
+            deadline = SystemClock.elapsedRealtime() + 10000;
+            while (SystemClock.elapsedRealtime() < deadline) {
+                UiObject2 updated = editableField(label);
+                if (updated != null && value.equals(updated.getText())) return;
+                SystemClock.sleep(80);
+            }
+            throw new AssertionError("field_edit_not_applied:" + label);
+        }
+    }
+
+    private UiObject2 editableField(String label) {
+        try {
+            UiObject2 labelNode = find(label, false, false);
+            if (labelNode == null) return null;
+            Rect labelBounds = labelNode.getVisibleBounds();
+            WindowSnapshot active = activeWindow();
+            for (UiObject2 candidate : device.findObjects(By.pkg(TARGET).clazz("android.widget.EditText"))) {
+                if (!active.contains(candidate)) continue;
+                Rect bounds = candidate.getVisibleBounds();
+                if (bounds.height() > 0 && bounds.left <= labelBounds.centerX() && bounds.right >= labelBounds.centerX() &&
+                        bounds.top - 60 <= labelBounds.centerY() && bounds.bottom >= labelBounds.centerY()) return candidate;
+            }
+            return null;
+        } catch (StaleObjectException ignored) { return null; }
+    }
+
+    private UiObject2 navigationItem(String label) {
+        try {
+            UiObject2 candidate = find(label, false, true);
+            for (int depth = 0; candidate != null && depth < 8; depth++, candidate = candidate.getParent()) {
+                Rect bounds = candidate.getVisibleBounds();
+                if ((candidate.isSelected() || candidate.isClickable()) && bounds.height() > 0 &&
+                        bounds.height() < device.getDisplayHeight() * 0.8) return candidate;
+            }
+            return null;
+        } catch (StaleObjectException ignored) { return null; }
     }
 
     void closeIme() {

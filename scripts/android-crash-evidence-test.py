@@ -3,6 +3,7 @@
 import importlib.util
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -28,7 +29,10 @@ class FixtureAdb:
             self.archives.append(path)
 
     def __call__(self, args, **kwargs):
-        offset = args.index("exec-out") + 1
+        offset = args.index("shell") + 1
+        if args[offset:offset + 2] != ["-T", "-n"]:
+            raise AssertionError("Use shell v2 without a PTY or stdin; never disable remote status.")
+        offset += 2
         if args[offset] == "run-as":
             offset += 2
         command = args[offset:]
@@ -52,6 +56,38 @@ class FixtureAdb:
             self.reads.append(path)
             return subprocess.CompletedProcess(args, 0, self.files[path][:int(command[2])])
         raise AssertionError("Unexpected remote operation: " + str(command))
+
+
+# An actual subprocess boundary model of ADB's two transports, derived from
+# AOSP client/commandline.cpp: exec-out always returns 0 after copying exec:;
+# shell v2 returns the remote status. No Android device/runtime is simulated.
+STATUS_TRANSPORT_SCRIPT = r'''
+import sys
+mode, *args = sys.argv[1:]
+legacy = args[0] == "exec-out"
+if legacy:
+    args = args[1:]
+elif args[:3] == ["shell", "-T", "-n"]:
+    args = args[3:]
+else:
+    print("Wrong transport options", file=sys.stderr)
+    raise SystemExit(64)
+if args[0] == "run-as":
+    args = args[2:]
+operation = args[0]
+current = args[-1].endswith("/CrashReport-waarp-android.log")
+status = 0
+if operation == "stat" and current:
+    print("0")
+elif operation == "head" and current:
+    pass
+else:
+    status = 1
+    reason = "Permission denied" if mode == "denied" and operation == "find" else "No such file or directory"
+    path = args[1] if operation == "find" else args[-1]
+    print(operation + ": '" + path + "': " + reason, file=sys.stderr)
+raise SystemExit(0 if legacy else status)
+'''
 
 
 class NativeCrashCollectorTest(unittest.TestCase):
@@ -139,6 +175,39 @@ class NativeCrashCollectorTest(unittest.TestCase):
         self.assertNotIn(secret_hex, text)
         self.assertNotIn(secret_base64, text)
         self.assertIn("panic:", text)
+
+    def test_subprocess_transport_preserves_optional_missing_status(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            script = output / "adb-status-transport.py"
+            script.write_text(STATUS_TRANSPORT_SCRIPT)
+            prefix = [sys.executable, str(script), "missing"]
+            missing = "/data/user/0/local.waarp.android/no_backup/libbox/work/CrashReport-waarp-android.log.old"
+            # This is the exact behavior that made the former collector fail:
+            # a remote stat error looks like successful nonnumeric stdout.
+            legacy = subprocess.run(prefix + ["exec-out", "stat", "-c", "%s", missing],
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+            self.assertEqual(legacy.returncode, 0)
+            self.assertIn(b"No such file or directory", legacy.stdout)
+            shell = subprocess.run(prefix + ["shell", "-T", "-n", "stat", "-c", "%s", missing],
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+            self.assertEqual(shell.returncode, 1)
+            for package, run_as in (("local.waarp.android", False), ("local.waarp.android.debug", True)):
+                with self.subTest(package=package):
+                    result = crashes.collect_native_crashes(prefix, output, package, run_as=run_as)
+                    self.assertTrue(result["passed"], result["errors"])
+                    self.assertTrue(result["archiveEnumerationAvailable"])
+
+    def test_subprocess_permission_denied_still_rejects_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            script = output / "adb-status-transport.py"
+            script.write_text(STATUS_TRANSPORT_SCRIPT)
+            result = crashes.collect_native_crashes([sys.executable, str(script), "denied"], output,
+                                                    "local.waarp.android")
+            self.assertFalse(result["passed"])
+            self.assertFalse(result["available"])
+            self.assertIn("native_evidence_command_failed", result["errors"])
 
 
 if __name__ == "__main__":

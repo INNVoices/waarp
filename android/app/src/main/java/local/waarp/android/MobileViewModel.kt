@@ -39,6 +39,10 @@ sealed interface MobileEvent {
 }
 
 class MobileViewModel(application: Application, private val savedState: SavedStateHandle) : AndroidViewModel(application), MobileActions {
+    private companion object {
+        const val IMPORT_REPLACE_ID = "import-replace-id"
+        const val IMPORT_PICKER_OPEN = "import-picker-open"
+    }
     private val app = application as WaarpApplication
     val repository = app.repository
     private val controller = repository.controller
@@ -65,15 +69,22 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
     // SAF can outlive our process. Restore its nonsecret purpose before the result callback;
     // otherwise a selected replacement file would silently become a new imported profile.
     private var pendingReplaceId: String?
-        get() = savedState["import-replace-id"]
-        set(value) { savedState["import-replace-id"] = value }
+        get() = savedState[IMPORT_REPLACE_ID]
+        set(value) { savedState[IMPORT_REPLACE_ID] = value }
     private var importPickerOpen: Boolean
-        get() = savedState["import-picker-open"] ?: false
-        set(value) { savedState["import-picker-open"] = value }
+        get() = savedState[IMPORT_PICKER_OPEN] ?: false
+        set(value) { savedState[IMPORT_PICKER_OPEN] = value }
     internal val imports = ImportCoordinator(viewModelScope, { uri -> readImportDocument(app, uri) },
         { text, name, replacement -> if (replacement == null) importText(text, name) else replaceTunnel(replacement, text) }, ::notifyUser)
 
     init {
+        // Remove unrelated values restored from an older Activity state before
+        // workers/callbacks can use it or Android saves it again. Only these two
+        // typed, nonsecret picker fields belong in SavedStateHandle.
+        savedState.keys().filterNot { it == IMPORT_REPLACE_ID || it == IMPORT_PICKER_OPEN }
+            .forEach { savedState.remove<Any?>(it) }
+        if (savedState.get<Any?>(IMPORT_REPLACE_ID) !is String) savedState.remove<Any?>(IMPORT_REPLACE_ID)
+        if (savedState.get<Any?>(IMPORT_PICKER_OPEN) !is Boolean) savedState.remove<Any?>(IMPORT_PICKER_OPEN)
         viewModelScope.launch {
             for (ignored in updates) {
                 // Telemetry continues in the VPN service; UI projections sleep while no screen observes them.

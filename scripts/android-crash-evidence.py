@@ -33,7 +33,11 @@ def collect_native_crashes(prefix, output: Path, package, *, run_as=False, runne
     if package not in PACKAGES:
         raise ValueError("Native evidence is restricted to the two owned fixture packages.")
     base = f"/data/user/0/{package}/no_backup/libbox/work"
-    transport = list(prefix) + ["exec-out"] + (["run-as", package] if run_as else [])
+    # exec-out uses the legacy exec: stream and returns 0 after copying it,
+    # even when stat/find failed remotely. Shell v2 carries the real exit code;
+    # -T keeps bytes unmodified by a PTY and -n closes unused stdin. Do not use
+    # -x, which disables remote status propagation again.
+    transport = list(prefix) + ["shell", "-T", "-n"] + (["run-as", package] if run_as else [])
     deadline = time.monotonic() + 90
     report = {"schemaVersion": 1, "package": package, "currentFileAvailable": False,
               "archiveEnumerationAvailable": False, "archiveCount": 0, "files": [], "errors": [],

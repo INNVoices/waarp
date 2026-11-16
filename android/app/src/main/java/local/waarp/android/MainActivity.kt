@@ -22,10 +22,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.lifecycle.DEFAULT_ARGS_KEY
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.viewmodel.MutableCreationExtras
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.CancellationException
@@ -37,7 +39,14 @@ import local.waarp.android.ui.WaarpTheme
 import java.io.File
 
 class MainActivity : ComponentActivity() {
-    private val model: MobileViewModel by viewModels()
+    private val model: MobileViewModel by viewModels(extrasProducer = {
+        MutableCreationExtras(defaultViewModelCreationExtras).apply {
+            // ComponentActivity otherwise copies all incoming Intent extras into
+            // SavedStateHandle, including externally shared VPN credentials.
+            // Imports are explicitly handled in memory by ImportCoordinator.
+            this[DEFAULT_ARGS_KEY] = Bundle()
+        }
+    })
     private val vpnConsent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         model.onConsentResult(result.resultCode == RESULT_OK)
     }
