@@ -2,7 +2,10 @@ package local.waarp.android.ui
 
 import android.os.SystemClock
 import android.view.View
+import android.view.WindowManager
+import android.view.inspector.WindowInspector
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.platform.ViewRootForTest
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
@@ -11,11 +14,14 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.espresso.Espresso
+import androidx.test.espresso.action.ViewActions.closeSoftKeyboard
+import androidx.test.espresso.matcher.RootMatchers.withDecorView
 import androidx.test.espresso.matcher.ViewMatchers.isRoot as isViewRoot
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -32,6 +38,10 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.junit.rules.TestName
+import org.hamcrest.Matchers.sameInstance
+import org.json.JSONArray
+import org.json.JSONObject
 
 /** Exercises the real Activity, ViewModel, native config validation and encrypted repository.
  * Test-only documentation addresses are never connected. Run sequentially on the disposable emulator.
@@ -39,6 +49,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class MobileUiInstrumentedTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @get:Rule val testName = TestName()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private val repository get() = (context.applicationContext as WaarpApplication).repository
     private var previous: AppData? = null
@@ -51,7 +62,12 @@ class MobileUiInstrumentedTest {
             repository.edit { AppData() }
         }
         awaitData { it.profiles.isEmpty() && it.routes.isEmpty() }
-        compose.waitUntil(15_000) { compose.onAllNodes(hasText("Главная") and hasClickAction()).fetchSemanticsNodes().isNotEmpty() }
+        withFailureCapture("failure-ready-${testName.methodName}") {
+            val deadline = SystemClock.uptimeMillis() + 15_000L
+            compose.waitUntil(remaining(deadline)) { compose.onAllNodes(hasText("Главная") and hasClickAction()).fetchSemanticsNodes().isNotEmpty() }
+            val window = awaitFocusedWindow(compose.onNode(hasText("Главная") and hasClickAction()), deadline)
+            assertInitialWindowRendered(window, deadline)
+        }
     }
 
     @After fun restoreRepositoryAndStopVpn() {
@@ -94,8 +110,8 @@ class MobileUiInstrumentedTest {
     @Test fun rejectedImportAndRouteSaveKeepDraftsUntilCorrectedThenPersist() = withFailureCapture {
         tab("Туннели")
         compose.onNodeWithContentDescription("Добавить туннель").performClick()
-        field("Название (необязательно)").performTextInput("UI imported tunnel")
-        field("Конфигурация или ссылка").performTextInput("invalid input")
+        field("Название (необязательно)").enterText("UI imported tunnel")
+        field("Конфигурация или ссылка").enterText("invalid input")
         modalButton("Импортировать", afterTextInput = true)
         awaitText("Формат не распознан", substring = true)
         field("Название (необязательно)").assertTextContains("UI imported tunnel")
@@ -106,7 +122,7 @@ class MobileUiInstrumentedTest {
         field("Название (необязательно)").assertTextContains("UI imported tunnel")
         field("Конфигурация или ссылка").assert(SemanticsMatcher.expectValue(SemanticsProperties.InputText,
             AnnotatedString("invalid input")))
-        field("Конфигурация или ссылка").performScrollTo().performTextReplacement("trojan://synthetic-ui-password@192.0.2.10:443#Synthetic")
+        field("Конфигурация или ссылка").performScrollTo().enterText("trojan://synthetic-ui-password@192.0.2.10:443#Synthetic", replace = true)
         // EditableText is masked by PasswordVisualTransformation; InputText is the exact source value.
         field("Конфигурация или ссылка").assert(SemanticsMatcher.expectValue(SemanticsProperties.InputText,
             AnnotatedString("trojan://synthetic-ui-password@192.0.2.10:443#Synthetic")))
@@ -116,13 +132,13 @@ class MobileUiInstrumentedTest {
         tab("Маршруты")
         compose.onNodeWithContentDescription("Добавить маршрут").performClick()
         compose.onNode(hasText("Адрес") and hasClickAction()).performClick()
-        field("Домены, IP или подсети CIDR").performTextInput("999.0.0.1")
-        field("Название").performScrollTo().performTextInput("UI custom route")
+        field("Домены, IP или подсети CIDR").enterText("999.0.0.1")
+        field("Название").performScrollTo().enterText("UI custom route")
         modalButton("Сохранить маршрут", afterTextInput = true)
         awaitText("Некорректный IP или подсеть", substring = true)
         field("Название").assertTextContains("UI custom route")
         assertTrue(repository.data.value!!.routes.isEmpty())
-        field("Домены, IP или подсети CIDR").performScrollTo().performTextReplacement("example.test")
+        field("Домены, IP или подсети CIDR").performScrollTo().enterText("example.test", replace = true)
         assertEditableText("Домены, IP или подсети CIDR", "example.test")
         modalButton("Сохранить маршрут", afterTextInput = true)
         awaitData { it.routes.singleOrNull()?.name == "UI custom route" }
@@ -153,7 +169,7 @@ class MobileUiInstrumentedTest {
         tab("Туннели")
         compose.onNode(hasText("Группы") and hasClickAction()).performClick()
         compose.onNode(hasText("Группа") and hasClickAction()).performClick()
-        field("Название группы").performTextInput("UI ordered group")
+        field("Название группы").enterText("UI ordered group")
         compose.onNode(hasText("Первый доступный") and hasClickAction()).performClick()
         val checkbox = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Checkbox)
         selectGroupMember("UI Alpha", checkbox)
@@ -188,8 +204,8 @@ class MobileUiInstrumentedTest {
         }
         awaitData { it.routes.size == 120 }
         tab("Маршруты")
-        field("Найти маршрут").performTextInput("Route 110")
-        Espresso.closeSoftKeyboard()
+        field("Найти маршрут").enterText("Route 110")
+        dismissKeyboard(field("Найти маршрут"))
         compose.onNode(hasText("Адреса") and hasClickAction()).performClick()
         // hasText also matches the search field's EditableText. Select the route
         // card, not the identical query that is intentionally still visible.
@@ -198,8 +214,8 @@ class MobileUiInstrumentedTest {
         tab("Маршруты")
         assertEditableText("Найти маршрут", "Route 110")
         compose.onNode(hasText("Адреса") and hasClickAction()).assertIsSelected()
-        field("Найти маршрут").performTextClearance()
-        Espresso.closeSoftKeyboard()
+        field("Найти маршрут").enterText("", replace = true)
+        dismissKeyboard(field("Найти маршрут"))
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Route 119"))
         compose.onNodeWithText("Route 119").assertIsDisplayed()
         compose.onNodeWithContentDescription("Маршрут Route 119").assertIsOn().performClick()
@@ -214,11 +230,11 @@ class MobileUiInstrumentedTest {
         compose.onNodeWithText("Route 119").assertIsDisplayed()
 
         tab("Диагностика")
-        field("Домен или IP").performTextInput("example.test")
-        Espresso.closeSoftKeyboard()
+        field("Домен или IP").enterText("example.test")
+        dismissKeyboard(field("Домен или IP"))
         compose.onNode(hasText("Соединения") and hasClickAction()).performClick()
-        field("Приложение, адрес или путь").performTextInput("test.app")
-        Espresso.closeSoftKeyboard()
+        field("Приложение, адрес или путь").enterText("test.app")
+        dismissKeyboard(field("Приложение, адрес или путь"))
         compose.onNode(hasText("Проверка") and hasClickAction()).performClick()
         assertEditableText("Домен или IP", "example.test")
         compose.onNode(hasText("Соединения") and hasClickAction()).performClick()
@@ -228,7 +244,9 @@ class MobileUiInstrumentedTest {
     }
 
     private fun tab(label: String) {
-        compose.onNode(hasText(label) and hasClickAction()).performClick()
+        val node = compose.onNode(hasText(label) and hasClickAction())
+        awaitFocusedWindow(node, SystemClock.uptimeMillis() + 15_000L)
+        node.performClick()
         compose.waitForIdle()
     }
     private fun field(label: String) = compose.onNode(hasText(label) and hasSetTextAction())
@@ -239,26 +257,17 @@ class MobileUiInstrumentedTest {
         // Background content remains in the semantics tree while the sheet is open.
         val button = compose.onNode(hasText(label) and hasClickAction() and hasAnyAncestor(hasTestTag("waarp-form-sheet")))
         val deadline = SystemClock.uptimeMillis() + 15_000L
+        awaitFocusedWindow(button, deadline)
         if (afterTextInput) {
             // Android IME layout is outside Compose's virtual clock. A scroll during
             // its transition can move the touch target. Read-only confirmations
             // never opened an IME; after a nested picker their window focus is returning.
-            Espresso.closeSoftKeyboard()
-            var windowRoot: View? = null
-            Espresso.onView(isViewRoot()).check { view, error ->
-                if (error != null) throw error
-                windowRoot = view
-            }
-            compose.waitUntil((deadline - SystemClock.uptimeMillis()).coerceAtLeast(1L)) {
-                compose.runOnUiThread {
-                    windowRoot?.let { ViewCompat.getRootWindowInsets(it)?.isVisible(WindowInsetsCompat.Type.ime()) == false } == true
-                }
-            }
+            dismissKeyboard(button, deadline)
         }
         button.performScrollTo()
         var previousBounds: Pair<Rect, Rect>? = null
         var stableSince = SystemClock.uptimeMillis()
-        compose.waitUntil((deadline - SystemClock.uptimeMillis()).coerceAtLeast(1L)) {
+        compose.waitUntil(remaining(deadline)) {
             val bounds = runCatching {
                 button.assertIsDisplayed().assertIsEnabled()
                 button.fetchSemanticsNode().boundsInRoot to compose.onNodeWithTag("waarp-form-sheet").fetchSemanticsNode().boundsInRoot
@@ -273,8 +282,79 @@ class MobileUiInstrumentedTest {
         compose.waitForIdle()
     }
 
-    private fun withFailureCapture(name: String = "failure-import-route", block: () -> Unit) {
-        try { block() }
+    private fun remaining(deadline: Long) = (deadline - SystemClock.uptimeMillis()).coerceAtLeast(1L)
+
+    private fun isWindowReady(window: View) = window.isAttachedToWindow && window.isShown &&
+        window.hasWindowFocus() && !window.isLayoutRequested && window.width > 0 && window.height > 0
+
+    private fun awaitFocusedWindow(node: SemanticsNodeInteraction, deadline: Long): View = withFailureCapture("failure-window-${testName.methodName}") {
+        // Semantics actions can succeed while Android has not presented the window.
+        // Resolve the node's own window: a form belongs to its dialog, not the Activity decor.
+        val window = (node.fetchSemanticsNode().root as ViewRootForTest).view.rootView
+        compose.waitUntil(remaining(deadline)) { compose.runOnUiThread { isWindowReady(window) } }
+        assertEquals("A foreign window obscures the UI", context.packageName,
+            UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).currentPackageName)
+        window
+    }
+
+    private fun SemanticsNodeInteraction.enterText(text: String, replace: Boolean = false) {
+        awaitFocusedWindow(this, SystemClock.uptimeMillis() + 15_000L)
+        assertIsDisplayed().assertIsEnabled()
+        if (replace) performTextReplacement(text) else performTextInput(text)
+    }
+
+    private fun dismissKeyboard(node: SemanticsNodeInteraction, deadline: Long = SystemClock.uptimeMillis() + 10_000L) {
+        val window = awaitFocusedWindow(node, deadline)
+        // Preserve Espresso's real IME action, with an exact focused decor instead
+        // of its default root picker selecting an unfocused BASE_APPLICATION.
+        Espresso.onView(isViewRoot()).inRoot(withDecorView(sameInstance(window))).perform(closeSoftKeyboard())
+        compose.waitUntil(remaining(deadline)) {
+            compose.runOnUiThread { isWindowReady(window) &&
+                ViewCompat.getRootWindowInsets(window)?.isVisible(WindowInsetsCompat.Type.ime()) == false }
+        }
+    }
+
+    private fun assertInitialWindowRendered(window: View, deadline: Long) {
+        // This runs only on the cleared, empty Home screen, before any synthetic
+        // form data is entered. A semantic-only PASS must not accept a blank AVD.
+        val committed = AtomicBoolean()
+        val callback = Runnable { committed.set(true) }
+        compose.runOnUiThread {
+            assertTrue("UI window is not hardware accelerated", window.isHardwareAccelerated)
+            window.viewTreeObserver.registerFrameCommitCallback(callback)
+            window.invalidate()
+        }
+        try {
+            compose.waitUntil(remaining(deadline)) { committed.get() && compose.runOnUiThread { isWindowReady(window) } }
+        } finally {
+            compose.runOnUiThread { if (window.viewTreeObserver.isAlive) window.viewTreeObserver.unregisterFrameCommitCallback(callback) }
+        }
+        val capture = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+            ?: throw AssertionError("Android did not capture the presented Home window")
+        try {
+            val content = compose.runOnUiThread {
+                val position = IntArray(2).also(window::getLocationOnScreen)
+                val bars = checkNotNull(ViewCompat.getRootWindowInsets(window)).getInsets(WindowInsetsCompat.Type.systemBars())
+                android.graphics.Rect(position[0] + bars.left, position[1] + bars.top,
+                    position[0] + window.width - bars.right, position[1] + window.height - bars.bottom)
+            }
+            assertTrue("Captured Home content is outside the display", content.intersect(0, 0, capture.width, capture.height) && !content.isEmpty)
+            val colors = mutableSetOf<Int>()
+            // Uniformity only: no expected color, theme, font or pixel baseline.
+            // Excluding system bars prevents their clock/icons from hiding blank app content.
+            for (y in content.top until content.bottom step 8) {
+                for (x in content.left until content.right step 8) colors += capture.getPixel(x, y) and 0x00ffffff
+            }
+            val directory = File(context.getExternalFilesDir(null), "ui-screenshots").apply { mkdirs() }
+            File(directory, "00-ready-${testName.methodName}.png").outputStream().use {
+                assertTrue("Initial UI screenshot encoding failed", capture.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it))
+            }
+            assertTrue("Presented Home is a uniform blank raster; native rendering is not ready", colors.size > 1)
+        } finally { capture.recycle() }
+    }
+
+    private fun <T> withFailureCapture(name: String = "failure-import-route", block: () -> T): T {
+        try { return block() }
         catch (failure: Throwable) {
             // These cases contain only synthetic documentation-address fixtures.
             // Capture before @After restores data and ActivityScenario closes the form.
@@ -285,10 +365,52 @@ class MobileUiInstrumentedTest {
             }.exceptionOrNull()?.let(failure::addSuppressed)
             runCatching {
                 File(directory, "$name-semantics.txt")
-                    .writeText(compose.onAllNodes(isRoot(), useUnmergedTree = true).printToString())
+                    .writeText(compose.onAllNodes(isRoot(), useUnmergedTree = true).printToString(maxDepth = Int.MAX_VALUE))
             }.exceptionOrNull()?.let(failure::addSuppressed)
+            runCatching { writeWindowEvidence(directory, name) }.exceptionOrNull()?.let(failure::addSuppressed)
             throw failure
         }
+    }
+
+    private fun writeWindowEvidence(directory: File, name: String) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val device = UiDevice.getInstance(instrumentation)
+        val appWindows = compose.runOnUiThread {
+            JSONArray().apply {
+                WindowInspector.getGlobalWindowViews().forEach { view ->
+                    val layout = view.layoutParams as? WindowManager.LayoutParams
+                    val insets = ViewCompat.getRootWindowInsets(view)
+                    val position = IntArray(2).also(view::getLocationOnScreen)
+                    put(JSONObject().put("viewClass", view.javaClass.name).put("package", view.context.packageName)
+                        .put("windowType", layout?.type).put("flags", layout?.flags)
+                        .put("attached", view.isAttachedToWindow).put("shown", view.isShown)
+                        .put("windowFocus", view.hasWindowFocus()).put("viewFocus", view.hasFocus())
+                        .put("layoutRequested", view.isLayoutRequested).put("hardwareAccelerated", view.isHardwareAccelerated)
+                        .put("x", position[0]).put("y", position[1]).put("width", view.width).put("height", view.height)
+                        .put("drawingTimeMs", view.drawingTime).put("displayState", view.display?.state)
+                        .put("imeVisible", insets?.isVisible(WindowInsetsCompat.Type.ime())))
+                }
+            }
+        }
+        val frameworkWindows = JSONArray()
+        instrumentation.uiAutomation.windows.forEach { window ->
+            val bounds = android.graphics.Rect().also(window::getBoundsInScreen)
+            val record = JSONObject().put("id", window.id).put("type", window.type).put("layer", window.layer)
+                .put("active", window.isActive).put("focused", window.isFocused)
+                .put("accessibilityFocused", window.isAccessibilityFocused).put("bounds", bounds.toShortString())
+                .put("package", window.root?.packageName?.toString())
+            runCatching {
+                instrumentation.uiAutomation.getWindowContentFrameStats(window.id)?.let { frames ->
+                    record.put("frameCount", frames.frameCount).put("startTimeNs", frames.startTimeNano)
+                        .put("endTimeNs", frames.endTimeNano)
+                }
+            }.exceptionOrNull()?.let { record.put("frameStatsError", it.javaClass.name) }
+            frameworkWindows.put(record)
+        }
+        File(directory, "$name-windows.json").writeText(JSONObject().put("test", testName.methodName)
+            .put("uptimeMs", SystemClock.uptimeMillis()).put("expectedPackage", context.packageName)
+            .put("foregroundPackage", device.currentPackageName).put("screenOn", device.isScreenOn)
+            .put("appWindows", appWindows).put("frameworkWindows", frameworkWindows).toString(2))
     }
     private fun selectGroupMember(name: String, checkbox: SemanticsMatcher) {
         // The list scrolls inside the form. Bring its viewport into the outer scroll

@@ -12,7 +12,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
+import local.waarp.android.service.VpnRecoveryWatchdog
 import local.waarp.android.service.WaarpVpnService
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -104,64 +106,128 @@ class VpnController(context: Context) {
         launchStart(RuntimeState.requestStart(config))
     }
 
-    private fun launchStart(request: StartRequest) {
-        RuntimeState.whenCurrent(request.generation) {
-            context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-                .edit().putBoolean(WANTED, true).apply()
-            RuntimeState.status.update { it.copy(phase = RuntimePhase.STARTING, message = null, telemetryAvailable = false) }
-        }
+    private fun launchStart(request: StartRequest, newUserIntent: Boolean = true): Boolean {
         try {
+            var enabled = false
+            if (!RuntimeState.whenCurrent(request.generation) {
+                    enabled = VpnRecoveryWatchdog.started(context, newUserIntent)
+                    if (enabled) RuntimeState.status.update {
+                        it.copy(phase = RuntimePhase.STARTING, message = null, telemetryAvailable = false)
+                    }
+                }) return false
+            check(enabled) { "Намерение включить VPN больше не действует" }
             context.startForegroundService(
                 Intent(context, WaarpVpnService::class.java)
                     .setAction(ACTION_START).putExtra(EXTRA_GENERATION, request.generation),
             )
+            return true
         } catch (error: Exception) {
-            RuntimeState.cancelIfCurrent(request.generation)?.let { token ->
-                RuntimeState.service.get()?.requestStop(token, error) ?: RuntimeState.finishStop(token, error)
-            }
+            failAtGeneration(request.generation, error)
             throw error
         }
     }
 
     /** Invalidates in-flight starts immediately; cleanup runs on the service's native lane. */
-    fun stop() = stopToken(RuntimeState.requestStop())
+    fun stop() { stopTransition() }
 
     /** A data update pauses the runtime without changing the user's persisted ON intent. */
-    internal fun pauseForUpdate(expectedGeneration: Long): Long? = RuntimeState.cancelIfCurrent(expectedGeneration)?.also {
-        stopToken(it, clearWanted = false)
-    }
+    internal fun pauseForUpdate(expectedGeneration: Long): Long? =
+        stopTransition(expectedGeneration, requireWanted = true, clearWanted = false, pausedForUpdate = true)
 
     internal fun resumeAfterUpdate(config: String, expectedIdleGeneration: Long): Boolean {
         require(config.isNotBlank())
         if (!RuntimeState.isIdleGeneration(expectedIdleGeneration)) return false
         check(prepare() == null) { "Разрешение VPN отозвано" }
         val request = RuntimeState.startIfIdle(expectedIdleGeneration, config) ?: return false
-        launchStart(request)
-        return true
+        return launchStart(request, newUserIntent = false)
     }
 
     internal fun abandonUpdate(expectedIdleGeneration: Long) {
-        RuntimeState.stopIfIdle(expectedIdleGeneration)?.let { stopToken(it) }
+        stopTransition(expectedIdleGeneration, requireWanted = false)
     }
 
     internal fun hasStartRequest(): Boolean = RuntimeState.wanted()
 
     /** A late native stop callback must never stop a replacement generation. */
     internal fun stopIfCurrent(generation: Long) {
-        RuntimeState.cancelIfCurrent(generation)?.let { stopToken(it) }
+        stopTransition(generation, requireWanted = true)
     }
 
-    private fun stopToken(token: Long, clearWanted: Boolean = true) {
-        if (clearWanted) RuntimeState.whenStopped(token) {
-            context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-                .edit().putBoolean(WANTED, false).apply()
-        }
+    /** Failures must cancel persisted recovery too, but never a replacement ON. */
+    internal fun failAtGeneration(generation: Long, error: Throwable) {
+        stopTransition(generation, error = error)
+    }
+
+    /** Android's null-intent and Always-on starts use the same fuse as the alarm. */
+    internal fun restoreFromSystem(alwaysOn: Boolean): StartRequest? =
+        restoreRequest(deliveredEpoch = null, previousProcess = null, alwaysOn = alwaysOn)
+
+    internal fun recoverFromAlarm(epoch: String, previousProcess: String) {
+        val request = restoreRequest(epoch, previousProcess, alwaysOn = false) ?: return
+        launchStart(request, newUserIntent = false)
+    }
+
+    private fun restoreRequest(deliveredEpoch: String?, previousProcess: String?, alwaysOn: Boolean): StartRequest? {
+        val expected = RuntimeState.sessionGeneration()
+        var request: StartRequest? = null
+        var failure: Throwable? = null
+        var deferredStop: Long? = null
+        try {
+            RuntimeState.whenGeneration(expected) {
+                // A platform restart may already have won the race with its
+                // fallback alarm. It must not replace that in-flight session.
+                if (deliveredEpoch != null && RuntimeState.wanted()) return@whenGeneration
+                if (RuntimeState.isPausedForUpdate()) return@whenGeneration
+                if (!VpnRecoveryWatchdog.canConsider(context, deliveredEpoch, alwaysOn)) return@whenGeneration
+                when (VpnRecoveryWatchdog.claim(context, deliveredEpoch, previousProcess, alwaysOn,
+                    prepare() == null, expected, RuntimeState.sessionGeneration())) {
+                    VpnRecoveryWatchdog.Claim.Start -> request = RuntimeState.requestStart()
+                    VpnRecoveryWatchdog.Claim.Ignore -> Unit
+                    VpnRecoveryWatchdog.Claim.Deferred -> {
+                        deferredStop = RuntimeState.requestStop()
+                    }
+                    VpnRecoveryWatchdog.Claim.Exhausted -> failure = IOException(
+                        "VPN несколько раз завершился. Автовосстановление остановлено; включите VPN вручную")
+                    VpnRecoveryWatchdog.Claim.ConsentMissing -> failure = IOException(
+                        "Разрешение VPN отсутствует. Откройте Waarp и разрешите подключение")
+                }
+            }
+        } catch (error: Exception) { failure = error }
+        deferredStop?.let { finishStopTransition(it, null) }
+        failure?.let { failAtGeneration(expected, it) }
+        return request
+    }
+
+    private fun stopTransition(
+        expectedGeneration: Long? = null,
+        requireWanted: Boolean? = null,
+        clearWanted: Boolean = true,
+        pausedForUpdate: Boolean = false,
+        error: Throwable? = null,
+    ): Long? {
+        var resultError = error
+        val token = RuntimeState.stopAndApply(expectedGeneration, requireWanted, pausedForUpdate) {
+            if (clearWanted) {
+                VpnRecoveryWatchdog.stopped(context, failed = error != null)?.let { persistenceError ->
+                    // Report the failed durable OFF even when another failure caused
+                    // this stop. Native cleanup must still run after a disk error.
+                    if (resultError != null) persistenceError.addSuppressed(resultError!!)
+                    resultError = persistenceError
+                }
+            }
+        } ?: return null
+        finishStopTransition(token, resultError)
+        return token
+    }
+
+    /** Native cancellation and callbacks are outside the persisted-intent transition. */
+    private fun finishStopTransition(token: Long, error: Throwable?) {
         val service = RuntimeState.service.get()
         if (service != null) {
             RuntimeState.updateIfStopped(token) { it.copy(phase = RuntimePhase.STOPPING, message = null) }
-            service.requestStop(token)
+            service.requestStop(token, error)
         } else {
-            RuntimeState.finishStop(token)
+            RuntimeState.finishStop(token, error)
         }
     }
 
@@ -223,10 +289,12 @@ internal object RuntimeState {
     val headless = AtomicReference<HeadlessProbe?>()
     private val counter = AtomicLong()
     private val desired = AtomicReference<StartRequest?>()
+    private var pausedForUpdate = false
     @Volatile var configurationProvider: (suspend () -> String)? = null
     @Volatile var eventNotificationsEnabled: Boolean = true
 
     @Synchronized fun requestStart(config: String? = null): StartRequest {
+        pausedForUpdate = false
         val value = StartRequest(counter.incrementAndGet(), config)
         desired.set(value)
         headless.get()?.cancel()
@@ -234,6 +302,7 @@ internal object RuntimeState {
     }
 
     @Synchronized fun requestStop(): Long {
+        pausedForUpdate = false
         val token = counter.incrementAndGet()
         desired.set(null)
         headless.get()?.cancel()
@@ -266,6 +335,20 @@ internal object RuntimeState {
     @Synchronized fun idleGeneration(): Long? = counter.get().takeIf { !wanted() }
     @Synchronized fun isIdleGeneration(token: Long): Boolean = counter.get() == token && !wanted()
 
+    @Synchronized fun isPausedForUpdate(): Boolean = pausedForUpdate
+
+    /** Persist OFF before another generation can observe this runtime as idle. */
+    @Synchronized fun stopAndApply(
+        expectedGeneration: Long?, requireWanted: Boolean?, paused: Boolean, action: () -> Unit,
+    ): Long? {
+        if (expectedGeneration != null && counter.get() != expectedGeneration) return null
+        if (requireWanted != null && wanted() != requireWanted) return null
+        val token = requestStop()
+        pausedForUpdate = paused
+        action()
+        return token
+    }
+
     @Synchronized fun startIfIdle(expected: Long, config: String): StartRequest? =
         if (isIdleGeneration(expected)) requestStart(config) else null
 
@@ -287,6 +370,12 @@ internal object RuntimeState {
 
     @Synchronized fun whenStopped(token: Long, action: () -> Unit): Boolean {
         if (counter.get() != token || wanted()) return false
+        action()
+        return true
+    }
+
+    @Synchronized fun whenGeneration(generation: Long, action: () -> Unit): Boolean {
+        if (counter.get() != generation) return false
         action()
         return true
     }

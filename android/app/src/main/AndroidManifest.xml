@@ -64,6 +64,12 @@
             <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="true" />
         </service>
 
+        <!-- The explicit immutable alarm can recover a lost sticky restart.
+             It does not wake the device and requires no exact-alarm grant. -->
+        <receiver
+            android:name=".service.VpnRecoveryReceiver"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

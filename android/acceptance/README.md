@@ -43,6 +43,15 @@ Duration is restricted to 7,200–10,800 seconds; interval to 10–30 seconds. O
 the duration fails the soak. Neither test has a shortened acceptance mode.
 CI runs smoke on API29/35/36 and the two-hour soak on API36 with 16KB pages.
 
+Headless CI uses `-gpu software`; the former `swiftshader_indirect` mode is
+[deprecated since Emulator 36.4.9](https://developer.android.com/studio/run/emulator-acceleration).
+The complementary Compose regression suite requires a focused, laid-out native
+window, an actual committed frame and a nonuniform captured empty Home screen
+with system bars excluded before performing its scenario. Its IME action targets
+the exact window owning the Compose node. This guards against semantic-only
+success on an unrendered AVD; it does not prove that the old GPU mode caused a
+particular blank frame or that the replacement has passed acceptance.
+
 Both classes require an explicitly disposable `ro.kernel.qemu=1`, userdebug/eng
 emulator, because they clear the target package and alter synthetic device state.
 The host enables `adb root`. The observer checks its actual UID; if UIAutomation
@@ -96,6 +105,22 @@ in the background during the soak. No target app method is invoked directly.
 
 ## Smoke contract
 
+The recovery under test combines Android `START_STICKY` with Waarp's independent
+`VpnRecoveryWatchdog`. The implementation follows review of AOSP `ActiveServices`
+and `Vpn` and the GPLv3 [LxBox analysis pinned to
+`71d3379c8bb7a7d276d440be5ac3ada3a8cd9eef`](https://github.com/Leadaxe/LxBox/blob/71d3379c8bb7a7d276d440be5ac3ada3a8cd9eef/docs/spec/tasks/428-vpn-service-start-sticky.md);
+[production documentation](../../docs/ANDROID.md#production-hardening-in-rc1)
+records the source references and guards. An inexact, non-wakeup
+`ELAPSED_REALTIME` alarm is armed for 30 seconds later and postponed by an ON
+heartbeat every 10 seconds. No exact-alarm permission or wake lock is requested.
+Both recovery paths share the same two-attempt rolling five-minute fuse and
+five-second minimum restart gap. OFF/revoke cancels the alarm and persisted ON
+intent; epoch/generation/consent checks and the live-process/configuration-edit
+pause guards prevent stale or competing recovery. Exhaustion requires a new
+explicit ON. Android can defer alarm delivery in Doze or device sleep, so the
+90-second emulator deadline below is not a recovery-time promise on physical
+devices.
+
 The single smoke case requires all these public behaviors:
 
 1. Import, select-app route, real Android VPN consent, encrypted DNS and HTTP.
@@ -104,15 +129,25 @@ The single smoke case requires all these public behaviors:
 3. Rename through the UI and verify traffic survives the resulting configuration.
 4. Put the target in the background and exchange real traffic from the other UID.
 5. Send SIGKILL to the verified production PID, without starting its activity.
-   Observe a different PID and actual traffic from Android's sticky service
-   restart within90s. Only then open the UI and confirm the renamed profile and
-   selected route were restored from encrypted storage.
+   Observe a different PID and actual encrypted DNS/HTTP through the production
+   sticky/watchdog recovery paths within the unchanged 90-second deadline from
+   SIGKILL. Only then open the UI and confirm the renamed profile and selected
+   route were restored from encrypted storage. The test does not invoke either
+   recovery path directly.
 6. Delete the assigned profile with explicit **no reassignment**, observe
    “Соединения заблокированы”, and send a new DNS request which must be blocked.
 7. Delete the route through the UI and finish with VPN OFF.
+8. With that explicit OFF persisted and UI cleanup complete, background the
+   target and send a second real SIGKILL. Allow at most five seconds to observe
+   the old PID disappear; any different PID already fails. Then observe no target
+   process and no VPN for at least 90 real seconds, sampling approximately every
+   second without launching the target. Finish with a fresh inner DNS request
+   which must remain blocked. Preserve every PID/VPN observation in raw JSONL;
+   host validation rejects any process/VPN reappearance or sample gap over five
+   seconds.
 
 Force-stop is used only for failed disposable-run cleanup, never as proof of
-sticky restart. Smoke has at least five complete encrypted DNS+HTTP rounds and
+process recovery. Smoke has at least five complete encrypted DNS+HTTP rounds and
 two real process-memory snapshots. UI actions have bounded readiness checks and
 one normal click each; a failed mutation is not silently retried.
 
@@ -175,6 +210,9 @@ Files live under the acceptance APK's external files directory:
   **successful** full DNS+HTTP exchange, flushed to disk immediately.
 - `release-soak-resources.jsonl`: every resource observation, also flushed before
   its acceptance check, including an observation that failed a budget.
+- `release-smoke-off-observations.jsonl`: monotonic time, actual target PID and VPN
+  presence throughout the post-OFF SIGKILL absence window, flushed before each
+  check so an unexpected restart remains in the evidence.
 - PNG screenshots; on failure, `failure-release-<mode>.xml` with keys redacted.
   Private configuration input remains masked, and is never copied into reports.
 
@@ -191,14 +229,26 @@ events [{name, elapsedRealtimeMs, facts}]
 ```
 
 The failure branch additionally records sanitized `failureClass` and `failure`.
-`passed` starts false and becomes true only after all gates and normal OFF finish.
+`passed` starts false and becomes true only after all gates and normal OFF finish,
+including the smoke case's post-OFF process-death observation.
 
 Smoke events must be `setup`, `off`, `onAgain`, `edit`, `background`,
-`processRestoration`, `persistedState`, `deleteAssignedProfile`, `cleanup`.
+`processRestoration`, `persistedState`, `deleteAssignedProfile`, `cleanup`,
+`explicitOffRemainsStopped`.
 The summary contains `resourceSamples` (two objects) and
 `minifiedReleaseBlackBox=true`. In `processRestoration.facts`, the old/new PID
 must differ, `newPidObserved=true`, `targetRelaunchedByTestBeforeRecovery=false`,
 `encryptedDnsAndHttp=true`, and `recoveryMs<=90000`.
+
+`explicitOffRemainsStopped.facts` contains `oldPid`, `killedAtElapsedMs`,
+`firstAbsentElapsedMs`, `lastAbsentElapsedMs`, `observationSpanMs`, `sampleCount`,
+`targetRelaunchedByTestBeforeObservationEnds=false`, `noProcessRestart=true`,
+`vpnAbsent=true` and `innerReplyBlocked=true`. Each raw OFF observation contains
+`elapsedRealtimeMs`, `pid=-1` and `vpnActive=false`. The host recomputes the
+at-least-90,000ms span and count, requires ordered samples no more than 5,000ms
+apart, checks the summary against those rows and rejects any non-absent PID or
+active VPN. A summary flag without these raw observations cannot approve OFF
+stability.
 
 Soak additionally requires:
 

@@ -50,6 +50,29 @@ def median(rows, metric):
     return sorted(row[metric] for row in rows)[len(rows) // 2]
 
 
+def validate_explicit_off(rows, observed):
+    true_fields(observed, ("noProcessRestart", "vpnAbsent", "innerReplyBlocked"))
+    integer(observed["oldPid"], "PID killed after OFF", 2)
+    killed = integer(observed["killedAtElapsedMs"], "OFF process kill timestamp")
+    require(observed["targetRelaunchedByTestBeforeObservationEnds"] is False,
+            "The test relaunched the target while observing explicit OFF.")
+    require(len(rows) >= 2, "Missing real observations after explicit OFF and SIGKILL.")
+    previous = None
+    for row in rows:
+        at = integer(row["elapsedRealtimeMs"], "OFF observation timestamp")
+        require(type(row["pid"]) is int and row["pid"] == -1 and row["vpnActive"] is False,
+                "A target process or VPN reappeared after explicit OFF.")
+        if previous is not None:
+            require(0 < at - previous <= 5000, "Repeated OFF observation or an unobserved gap longer than five seconds.")
+        previous = at
+    first, last = rows[0]["elapsedRealtimeMs"], rows[-1]["elapsedRealtimeMs"]
+    require(0 <= first - killed <= 5000 and last - first >= 90000,
+            "Explicit OFF was not observed for ninety real seconds after actual process death.")
+    require(observed["firstAbsentElapsedMs"] == first and observed["lastAbsentElapsedMs"] == last
+            and observed["observationSpanMs"] == last - first and observed["sampleCount"] == len(rows),
+            "Explicit OFF summary and raw observations disagree.")
+
+
 def validate_device(directory, mode, installed, duration=7200, interval=15):
     evidence = directory / "app-evidence"
     kind = "smoke" if mode == "journeys" else "soak"
@@ -103,6 +126,7 @@ def validate_device(directory, mode, installed, duration=7200, interval=15):
         true_fields(events["persistedState"], ("renamedProfileRestored", "selectedRouteRestored"))
         true_fields(events["deleteAssignedProfile"], ("blockedUi", "explicitNoReassignment", "innerReplyBlocked"))
         true_fields(events["cleanup"], ("routeDeletedThroughUi",))
+        validate_explicit_off(read_rows(evidence, "release-smoke-off-observations.jsonl"), events["explicitOffRemainsStopped"])
         require(len(summary["resourceSamples"]) == 2, "Missing before/after real process snapshots.")
         for sample in summary["resourceSamples"]:
             true_fields(sample, ("procAvailable",))

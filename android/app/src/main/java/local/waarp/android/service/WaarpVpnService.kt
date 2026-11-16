@@ -5,7 +5,6 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.VpnService
@@ -19,7 +18,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -44,6 +46,7 @@ class WaarpVpnService : VpnService() {
     private val destroyed = AtomicBoolean()
     private var foreground = false
     @Volatile private var latestStartId = 0
+    @Volatile private var acceptedGeneration = -1L
     private lateinit var notificationManager: NotificationManager
 
     override fun onCreate() {
@@ -70,6 +73,26 @@ class WaarpVpnService : VpnService() {
                 }
             }
         }
+        scope.launch {
+            RuntimeState.status.map { it.phase }.distinctUntilChanged().collectLatest { phase ->
+                if (phase != RuntimePhase.ON) {
+                    try { VpnRecoveryWatchdog.interrupted(this@WaarpVpnService) }
+                    catch (error: Exception) {
+                        VpnController(this@WaarpVpnService).failAtGeneration(RuntimeState.sessionGeneration(), error)
+                    }
+                    return@collectLatest
+                }
+                while (true) {
+                    val generation = RuntimeState.currentGeneration() ?: break
+                    try { VpnRecoveryWatchdog.heartbeat(this@WaarpVpnService) }
+                    catch (error: Exception) {
+                        VpnController(this@WaarpVpnService).failAtGeneration(generation, error)
+                        break
+                    }
+                    delay(VpnRecoveryWatchdog.HEARTBEAT_MS)
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -80,9 +103,8 @@ class WaarpVpnService : VpnService() {
             try { promoteToForeground() }
             catch (error: Exception) {
                 val generation = if (intent?.action == VpnController.ACTION_START)
-                    intent.getLongExtra(VpnController.EXTRA_GENERATION, -1) else RuntimeState.currentGeneration() ?: -1
-                RuntimeState.cancelIfCurrent(generation)
-                    ?.let { requestStop(it, error) }
+                    intent.getLongExtra(VpnController.EXTRA_GENERATION, -1) else RuntimeState.sessionGeneration()
+                VpnController(this).failAtGeneration(generation, error)
                 if (!RuntimeState.wanted()) stopSelfResult(startId)
                 return START_NOT_STICKY
             }
@@ -91,32 +113,43 @@ class WaarpVpnService : VpnService() {
             VpnController(this).stop()
             return START_NOT_STICKY
         }
+        // A duplicate platform delivery to this live Service is not a process
+        // death. A newly recreated Service has no accepted generation and must
+        // go through the persisted recovery fuse instead.
+        if (intent?.action != VpnController.ACTION_START && RuntimeState.isCurrent(acceptedGeneration)) {
+            return START_STICKY
+        }
         val request = if (intent?.action == VpnController.ACTION_START) {
             RuntimeState.request(intent.getLongExtra(VpnController.EXTRA_GENERATION, -1))
         } else {
-            val savedIntent = getSharedPreferences(VpnController.PREFERENCES, Context.MODE_PRIVATE)
-                .getBoolean(VpnController.WANTED, false)
-            if (!savedIntent && !isAlwaysOn) null else RuntimeState.requestStart()
+            VpnController(this).restoreFromSystem(isAlwaysOn)
         }
         if (request == null) {
             if (!RuntimeState.wanted()) finishForeground(startId)
             return if (RuntimeState.wanted()) START_STICKY else START_NOT_STICKY
         }
+        if (acceptedGeneration == request.generation) return START_STICKY
         try {
             check(prepare(this) == null) { "Разрешение VPN отсутствует. Откройте Waarp и разрешите подключение" }
             promoteToForeground()
         } catch (error: Exception) {
-            RuntimeState.cancelIfCurrent(request.generation)?.let { requestStop(it, error) }
+            VpnController(this).failAtGeneration(request.generation, error)
             return START_NOT_STICKY
         }
-        RuntimeState.updateIfCurrent(request.generation) {
-            it.copy(phase = RuntimePhase.STARTING, message = null, alwaysOn = isAlwaysOn, lockdown = isLockdownEnabled)
+        if (!RuntimeState.whenCurrent(request.generation) {
+                acceptedGeneration = request.generation
+                RuntimeState.status.update {
+                    it.copy(phase = RuntimePhase.STARTING, message = null, alwaysOn = isAlwaysOn, lockdown = isLockdownEnabled)
+                }
+            }) {
+            if (!RuntimeState.wanted()) finishForeground(startId)
+            return if (RuntimeState.wanted()) START_STICKY else START_NOT_STICKY
         }
-        NativeLane.executor.execute { start(request, startId) }
+        NativeLane.executor.execute { start(request) }
         return START_STICKY
     }
 
-    private fun start(request: StartRequest, startId: Int) {
+    private fun start(request: StartRequest) {
         if (destroyed.get() || !RuntimeState.isCurrent(request.generation)) return
         try {
             closeBackend()
@@ -150,17 +183,18 @@ class WaarpVpnService : VpnService() {
             if (destroyed.get() || !RuntimeState.isCurrent(request.generation)) closeBackend(next)
         } catch (error: Exception) {
             runCatching { closeBackend() }.exceptionOrNull()?.let { if (it !== error) error.addSuppressed(it) }
-            RuntimeState.cancelIfCurrent(request.generation)?.let { token ->
-                if (RuntimeState.finishStop(token, error)) finishForeground(startId)
-            }
+            VpnController(this).failAtGeneration(request.generation, error)
         }
     }
 
     private fun reloadFromRepository(generation: Long) {
         if (destroyed.get()) return
         val request = RuntimeState.reloadIfCurrent(generation) ?: return
-        RuntimeState.updateIfCurrent(request.generation) { it.copy(phase = RuntimePhase.STARTING, message = null) }
-        NativeLane.executor.execute { start(request, latestStartId) }
+        if (!RuntimeState.whenCurrent(request.generation) {
+                acceptedGeneration = request.generation
+                RuntimeState.status.update { it.copy(phase = RuntimePhase.STARTING, message = null) }
+            }) return
+        NativeLane.executor.execute { start(request) }
     }
 
     /** Called after the global generation is invalidated, including during native start. */
@@ -183,8 +217,7 @@ class WaarpVpnService : VpnService() {
     }
 
     private fun failGeneration(generation: Long, error: Throwable) {
-        val token = RuntimeState.cancelIfCurrent(generation) ?: return
-        requestStop(token, error)
+        VpnController(this).failAtGeneration(generation, error)
     }
 
     private fun closeBackend(expected: LibboxBackend? = backend.get()) {
@@ -205,6 +238,8 @@ class WaarpVpnService : VpnService() {
         val current = backend.getAndSet(null)
         current?.cancel()
         if (RuntimeState.service.get() === this) {
+            runCatching { VpnRecoveryWatchdog.interrupted(this) }
+                .onFailure { RuntimeState.appendLog(3, "Не удалось обновить состояние восстановления VPN") }
             RuntimeState.currentGeneration()?.let { generation ->
                 RuntimeState.updateIfCurrent(generation) {
                     it.copy(phase = RuntimePhase.STARTING, message = "Android перезапускает VPN-сервис", telemetryAvailable = false)

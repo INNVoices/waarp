@@ -1,21 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.core
 
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Rect
 import android.net.VpnService
 import android.os.Build
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.core.app.ActivityScenario
 import androidx.core.content.ContextCompat
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.Until
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
@@ -39,6 +40,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -63,12 +66,7 @@ class VpnLifecycleInstrumentedTest {
         activity = ActivityScenario.launch(MainActivity::class.java)
         val consent = controller.prepare()
         if (consent != null) {
-            launchConsent(consent)
-            val device = UiDevice.getInstance(instrumentation)
-            val button = device.wait(Until.findObject(By.res("android", "button1")), 10_000)
-            checkNotNull(button) { "Android VPN consent dialog did not appear" }
-            button.click()
-            withTimeout(10_000) { while (controller.prepare() != null) delay(50) }
+            grantAndroidConsent(consent, "setup")
         }
         assertEquals(null, controller.prepare())
     }
@@ -243,12 +241,7 @@ class VpnLifecycleInstrumentedTest {
         val request = controller.prepare()
         assertNotNull("Revoked VPN authorization must require the real Android consent dialog", request)
         assertEquals(RuntimePhase.OFF, controller.status.value.phase)
-        launchConsent(request!!)
-        val device = UiDevice.getInstance(instrumentation)
-        val allow = device.wait(Until.findObject(By.res("android", "button1")), 10_000)
-        assertNotNull("The Android system VPN consent button must be visible", allow)
-        allow!!.click()
-        withTimeout(10_000) { while (controller.prepare() != null) delay(50) }
+        grantAndroidConsent(request!!, "actual")
         controller.start(tunConfiguration())
         withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.ON || it.phase == RuntimePhase.ERROR } }
         assertEquals(controller.status.value.message, RuntimePhase.ON, controller.status.value.phase)
@@ -319,6 +312,99 @@ class VpnLifecycleInstrumentedTest {
         // Android ConfirmDialog requires a calling Activity/package. A NEW_TASK
         // application-context launch has no caller and can dismiss itself immediately.
         checkNotNull(activity).onActivity { it.startActivityForResult(request, 702) }
+    }
+
+    private data class ConsentButton(val windowId: Int, val bounds: Rect)
+
+    private suspend fun grantAndroidConsent(request: Intent, stage: String) {
+        val component = checkNotNull(request.component) { "Android VPN consent must identify its system component" }
+        val device = UiDevice.getInstance(instrumentation)
+        try {
+            instrumentation.uiAutomation.let { automation ->
+                val info = checkNotNull(automation.serviceInfo)
+                info.flags = info.flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+                    AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+                automation.serviceInfo = info
+            }
+            launchConsent(request)
+            // A generic android:button1 can belong to an unrelated system dialog.
+            // Like AOSP CTS, scope to the component returned by VpnService.prepare;
+            // also require its focused window and a stationary, enabled target.
+            val deadline = SystemClock.elapsedRealtime() + 10_000L
+            var previous: ConsentButton? = null
+            var stableSince = SystemClock.elapsedRealtime()
+            var ready: ConsentButton? = null
+            while (ready == null && SystemClock.elapsedRealtime() < deadline) {
+                val candidate = focusedConsentButton(component.packageName)
+                val now = SystemClock.elapsedRealtime()
+                if (candidate == null || candidate != previous) stableSince = now
+                previous = candidate
+                if (candidate != null && now - stableSince >= 250L) ready = candidate
+                else delay(50)
+            }
+            val target = checkNotNull(ready) { "Android VPN consent did not expose one focused, ready positive button" }
+            check(focusedConsentButton(component.packageName) == target) { "Android VPN consent target changed before the click" }
+            assertTrue("Android VPN consent click was not injected", device.click(target.bounds.centerX(), target.bounds.centerY()))
+            // Exactly one click; the actual authorization must still arrive within
+            // the original deadline. Never bypass it or retry a failed interaction.
+            withTimeout(10_000) { while (controller.prepare() != null) delay(50) }
+        } catch (failure: Throwable) {
+            captureConsentFailure(device, component, stage, failure)
+            throw failure
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun focusedConsentButton(packageName: String): ConsentButton? {
+        val windows = instrumentation.uiAutomation.windows
+        try {
+            val window = windows.singleOrNull { it.isFocused } ?: return null
+            val root = window.root ?: return null
+            try {
+                if (root.packageName?.toString() != packageName) return null
+                val buttons = root.findAccessibilityNodeInfosByViewId("android:id/button1")
+                try {
+                    val button = buttons.singleOrNull {
+                        it.windowId == window.id && it.packageName?.toString() == packageName &&
+                            it.className?.toString() == "android.widget.Button" &&
+                            it.isVisibleToUser && it.isEnabled && it.isClickable
+                    } ?: return null
+                    val bounds = Rect().also(button::getBoundsInScreen)
+                    val windowBounds = Rect().also(window::getBoundsInScreen)
+                    return if (!bounds.isEmpty && windowBounds.contains(bounds)) ConsentButton(window.id, bounds) else null
+                } finally { buttons.forEach { it.recycle() } }
+            } finally { root.recycle() }
+        } finally { windows.forEach { it.recycle() } }
+    }
+
+    private fun captureConsentFailure(device: UiDevice, component: ComponentName, stage: String, failure: Throwable) {
+        // Capture before ActivityScenario closes the dialog. Only synthetic test
+        // screens are present here; never serialize an Intent or VPN configuration.
+        val directory = File(context.getExternalFilesDir(null), "ui-screenshots").apply { mkdirs() }
+        val prefix = "failure-vpn-consent-$stage"
+        runCatching {
+            check(device.takeScreenshot(File(directory, "$prefix.png"))) { "Consent screenshot capture failed" }
+        }.exceptionOrNull()?.let(failure::addSuppressed)
+        runCatching {
+            val output = ByteArrayOutputStream()
+            device.dumpWindowHierarchy(output)
+            check(output.size() <= 512 * 1024) { "Consent window hierarchy exceeds the evidence bound" }
+            // Keep actual node structure, ownership, bounds and state, without any
+            // text fields or accessibility descriptions that could contain payloads.
+            val xml = output.toString("UTF-8").replace(Regex("\\b(text|content-desc)=\"[^\"]*\"")) {
+                "${it.groupValues[1]}=\"\""
+            }
+            File(directory, "$prefix.xml").writeText(xml)
+        }.exceptionOrNull()?.let(failure::addSuppressed)
+        runCatching {
+            val fields = Regex("^\\s*(Window #|mCurrentFocus=|mFocusedApp=|mTopFocusedDisplayId=|mObscuringWindow=|mViewVisibility=|mHasSurface=|mAttrs=|isOnScreen=|isVisible=|mPolicyVisibility=|mHidden=|mDestroying=)")
+            val windows = ParcelFileDescriptor.AutoCloseInputStream(
+                instrumentation.uiAutomation.executeShellCommand("dumpsys window")
+            ).bufferedReader().useLines { lines ->
+                lines.take(20_000).filter(fields::containsMatchIn).take(250).joinToString("\n")
+            }
+            File(directory, "$prefix-windows.txt").writeText("expectedComponent=${component.flattenToShortString()}\n$windows\n")
+        }.exceptionOrNull()?.let(failure::addSuppressed)
     }
 
     private fun fixtureLogs(vararg markers: String): List<String> = controller.logs.value.map { it.message }.filter { line ->
