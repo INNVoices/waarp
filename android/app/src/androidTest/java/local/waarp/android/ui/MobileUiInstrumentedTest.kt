@@ -96,7 +96,7 @@ class MobileUiInstrumentedTest {
         compose.onNodeWithContentDescription("Добавить туннель").performClick()
         field("Название (необязательно)").performTextInput("UI imported tunnel")
         field("Конфигурация или ссылка").performTextInput("invalid input")
-        modalButton("Импортировать")
+        modalButton("Импортировать", afterTextInput = true)
         awaitText("Формат не распознан", substring = true)
         field("Название (необязательно)").assertTextContains("UI imported tunnel")
         compose.onNodeWithTag("waarp-form-sheet").assertExists()
@@ -105,20 +105,20 @@ class MobileUiInstrumentedTest {
         // EditableText is masked by PasswordVisualTransformation; InputText is the exact source value.
         field("Конфигурация или ссылка").assert(SemanticsMatcher.expectValue(SemanticsProperties.InputText,
             AnnotatedString("trojan://synthetic-ui-password@192.0.2.10:443#Synthetic")))
-        modalButton("Импортировать")
+        modalButton("Импортировать", afterTextInput = true)
         awaitData { it.profiles.singleOrNull()?.name == "UI imported tunnel" }
         tab("Маршруты")
         compose.onNodeWithContentDescription("Добавить маршрут").performClick()
         compose.onNode(hasText("Адрес") and hasClickAction()).performClick()
         field("Домены, IP или подсети CIDR").performTextInput("999.0.0.1")
         field("Название").performScrollTo().performTextInput("UI custom route")
-        modalButton("Сохранить маршрут")
+        modalButton("Сохранить маршрут", afterTextInput = true)
         awaitText("Некорректный IP или подсеть", substring = true)
         field("Название").assertTextContains("UI custom route")
         assertTrue(repository.data.value!!.routes.isEmpty())
         field("Домены, IP или подсети CIDR").performScrollTo().performTextReplacement("example.test")
         assertEditableText("Домены, IP или подсети CIDR", "example.test")
-        modalButton("Сохранить маршрут")
+        modalButton("Сохранить маршрут", afterTextInput = true)
         awaitData { it.routes.singleOrNull()?.name == "UI custom route" }
         val saved = runBlocking { ProfileStore(context).read() }
         assertEquals("UI custom route", saved.routes.single().name)
@@ -151,7 +151,7 @@ class MobileUiInstrumentedTest {
         selectGroupMember("UI Alpha", checkbox)
         selectGroupMember("UI Beta", checkbox)
         compose.onNodeWithContentDescription("Поднять UI Beta").performScrollTo().performClick()
-        modalButton("Сохранить группу")
+        modalButton("Сохранить группу", afterTextInput = true)
         awaitData { it.groups.singleOrNull()?.members == listOf(beta.id, alpha.id) }
         assertEquals("first", repository.data.value!!.groups.single().policy)
         screenshot("04-groups")
@@ -177,21 +177,24 @@ class MobileUiInstrumentedTest {
     private fun assertEditableText(label: String, expected: String) {
         field(label).assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(expected)))
     }
-    private fun modalButton(label: String) {
+    private fun modalButton(label: String, afterTextInput: Boolean = false) = withFailureCapture("failure-modal") {
         // Background content remains in the semantics tree while the sheet is open.
         val button = compose.onNode(hasText(label) and hasClickAction() and hasAnyAncestor(hasTestTag("waarp-form-sheet")))
-        // Android IME layout is outside Compose's virtual clock. A scroll during
-        // its transition can put the submit button offscreen or move the touch target.
-        Espresso.closeSoftKeyboard()
-        var windowRoot: View? = null
-        Espresso.onView(isViewRoot()).check { view, error ->
-            if (error != null) throw error
-            windowRoot = view
-        }
         val deadline = SystemClock.uptimeMillis() + 15_000L
-        compose.waitUntil((deadline - SystemClock.uptimeMillis()).coerceAtLeast(1L)) {
-            compose.runOnUiThread {
-                windowRoot?.let { ViewCompat.getRootWindowInsets(it)?.isVisible(WindowInsetsCompat.Type.ime()) == false } == true
+        if (afterTextInput) {
+            // Android IME layout is outside Compose's virtual clock. A scroll during
+            // its transition can move the touch target. Read-only confirmations
+            // never opened an IME; after a nested picker their window focus is returning.
+            Espresso.closeSoftKeyboard()
+            var windowRoot: View? = null
+            Espresso.onView(isViewRoot()).check { view, error ->
+                if (error != null) throw error
+                windowRoot = view
+            }
+            compose.waitUntil((deadline - SystemClock.uptimeMillis()).coerceAtLeast(1L)) {
+                compose.runOnUiThread {
+                    windowRoot?.let { ViewCompat.getRootWindowInsets(it)?.isVisible(WindowInsetsCompat.Type.ime()) == false } == true
+                }
             }
         }
         button.performScrollTo()
@@ -212,18 +215,18 @@ class MobileUiInstrumentedTest {
         compose.waitForIdle()
     }
 
-    private fun withFailureCapture(block: () -> Unit) {
+    private fun withFailureCapture(name: String = "failure-import-route", block: () -> Unit) {
         try { block() }
         catch (failure: Throwable) {
-            // This case contains only synthetic documentation-address fixtures.
+            // These cases contain only synthetic documentation-address fixtures.
             // Capture before @After restores data and ActivityScenario closes the form.
             val directory = File(context.getExternalFilesDir(null), "ui-screenshots").apply { mkdirs() }
             runCatching {
                 UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-                    .takeScreenshot(File(directory, "failure-import-route.png"))
+                    .takeScreenshot(File(directory, "$name.png"))
             }.exceptionOrNull()?.let(failure::addSuppressed)
             runCatching {
-                File(directory, "failure-import-route-semantics.txt")
+                File(directory, "$name-semantics.txt")
                     .writeText(compose.onAllNodes(isRoot(), useUnmergedTree = true).printToString())
             }.exceptionOrNull()?.let(failure::addSuppressed)
             throw failure
