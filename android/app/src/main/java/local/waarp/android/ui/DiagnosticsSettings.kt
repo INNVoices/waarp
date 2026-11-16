@@ -264,7 +264,7 @@ internal fun SettingsScreen(state: MobileState, actions: MobileActions) {
         item {
             Panel {
                 SectionHeading("Общий DNS Android")
-                Text("Android 10/11 может не передать приложение DNS-запроса; для таких запросов используется общий путь.",
+                Text("Android иногда не передаёт приложение DNS-запроса, особенно в версиях 10 и 11; для таких запросов используется общий путь.",
                     style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
                 val choices = listOf(PathChoice(SYSTEM_DNS_AUTOMATIC, "Автоматически по маршрутам", "Общий путь определяется по включённым маршрутам")) +
                     pathChoices(state).map { if (it.id == AUTO_PATH) it.copy(name = "Авто: свои туннели") else it }

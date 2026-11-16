@@ -182,9 +182,10 @@ class MobileRepository(private val context: Context, val controller: VpnControll
         }
     }
 
-    suspend fun probe(extra: List<TunnelProfile>? = null, url: String = "https://www.gstatic.com/generate_204"): List<RuntimeProbeResult> = probes.withLock {
+    suspend fun probe(extra: List<TunnelProfile>? = null, url: String? = null): List<RuntimeProbeResult> = probes.withLock {
         val value = ready()
         val token = generation.get()
+        val sessionGeneration = controller.sessionGeneration()
         val phase = controller.status.value.phase
         check(phase !in setOf(RuntimePhase.STARTING, RuntimePhase.STOPPING) && !_applying.value) { "Дождитесь завершения переключения VPN" }
         val active = phase == RuntimePhase.ON
@@ -195,29 +196,41 @@ class MobileRepository(private val context: Context, val controller: VpnControll
         val sample = SelectionPolicy.sample(eligible.map { it.id }, selected, cursor)
         cursor = sample.second
         val profiles = sample.first.mapNotNull { id -> eligible.find { it.id == id } }
-        val results = if (active) profiles.map { profile ->
-            try { RuntimeProbeResult("p-${profile.id}", controller.urlTest("p-${profile.id}", url), null, System.currentTimeMillis()) }
-            catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { RuntimeProbeResult("p-${profile.id}", null, "Проверка не прошла", System.currentTimeMillis()) }
-        } else {
-            val checker = withContext(Dispatchers.Default) { RoutingCompiler.compile(value, context.packageName, checkerProfiles = profiles) }
-            controller.checkOutbounds(checker.json, profiles.map { "p-${it.id}" }, url)
+        val byTag = profiles.associateBy { "p-${it.id}" }
+        fun currentSession() = generation.get() == token && _data.value?.revision == value.revision &&
+            controller.isSessionGeneration(sessionGeneration) && controller.status.value.phase == phase && !_applying.value
+        suspend fun measure(tags: List<String>, target: String): List<RuntimeProbeResult> {
+            if (!currentSession()) return emptyList()
+            return if (active) tags.map { tag ->
+                if (!currentSession()) return emptyList()
+                try { RuntimeProbeResult(tag, controller.urlTest(tag, target, expectedGeneration = sessionGeneration), null, System.currentTimeMillis()) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { RuntimeProbeResult(tag, null, "Проверка не прошла", System.currentTimeMillis()) }
+            } else {
+                val selectedProfiles = tags.mapNotNull(byTag::get)
+                val checker = withContext(Dispatchers.Default) { RoutingCompiler.compile(value, context.packageName, checkerProfiles = selectedProfiles) }
+                if (!currentSession()) return emptyList()
+                controller.checkOutbounds(checker.json, tags, target)
+            }
         }
-        if (generation.get() != token || _data.value?.revision != value.revision || (active && controller.status.value.phase != RuntimePhase.ON)) return@withLock emptyList()
-        if (extra == null && url == "https://www.gstatic.com/generate_204") {
+        val healthCheck = url == null
+        val results = HealthProbe.run(byTag.keys.toList(), url ?: HealthProbe.PRIMARY, healthCheck, ::currentSession, ::measure)
+        if (!currentSession()) return@withLock emptyList()
+        if (extra == null && healthCheck) {
             _health.update { before -> before.toMutableMap().apply {
                 results.forEach { result -> val id = result.tag.removePrefix("p-"); put(id, (get(id) ?: ProbeHealth()).measured(result.delayMs, result.checkedAt)) }
             } }
             _history.update { before -> before.toMutableMap().apply {
                 results.forEach { result -> val id = result.tag.removePrefix("p-"); put(id, (get(id).orEmpty() + result.delayMs?.toDouble()).takeLast(64)) }
             } }
-            if (active) selectPaths(token, value.revision, results.map { it.tag.removePrefix("p-") }.toSet())
+            if (active) selectPaths(token, value.revision, sessionGeneration, results.map { it.tag.removePrefix("p-") }.toSet())
         }
         results
     }
 
-    private suspend fun selectPaths(token: Long, revision: Long, measured: Set<String>) = edits.withLock {
-        fun currentSession() = generation.get() == token && _data.value?.revision == revision && controller.status.value.phase == RuntimePhase.ON
+    private suspend fun selectPaths(token: Long, revision: Long, sessionGeneration: Long, measured: Set<String>) = edits.withLock {
+        fun currentSession() = generation.get() == token && _data.value?.revision == revision &&
+            controller.isSessionGeneration(sessionGeneration) && controller.status.value.phase == RuntimePhase.ON
         if (!currentSession()) return@withLock
         val compiled = _compiled.value ?: return@withLock
         val health = _health.value
@@ -229,7 +242,7 @@ class MobileRepository(private val context: Context, val controller: VpnControll
             val decision = SelectionPolicy.select(group, current, health, selectionMemory[group.id] ?: SelectionMemory(),
                 active.any { native.tag in it.chain || it.outbound == native.tag }, measured)
             selectionMemory[group.id] = decision.memory
-            if (decision.next != current && decision.next in group.members) controller.selectOutbound(native.tag, "p-${decision.next}")
+            if (decision.next != current && decision.next in group.members) controller.selectOutbound(native.tag, "p-${decision.next}", expectedGeneration = sessionGeneration)
         }
         fun effective(via: String): String = if (via.startsWith("g-")) controller.groups.value.find { it.tag == "grp-$via" }?.selected?.removePrefix("p-").orEmpty() else via
         fun tag(via: String) = if (via.startsWith("g-")) "grp-$via" else "p-$via"
@@ -242,7 +255,7 @@ class MobileRepository(private val context: Context, val controller: VpnControll
                 primary?.healthy == true && effective(pair.first) in measured && native.selected != tag(pair.first) && active.none { selector in it.chain || it.outbound == selector } -> tag(pair.first)
                 else -> native.selected
             }
-            if (next != native.selected) controller.selectOutbound(selector, next)
+            if (next != native.selected) controller.selectOutbound(selector, next, expectedGeneration = sessionGeneration)
         }
     }
 }

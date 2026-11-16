@@ -34,7 +34,8 @@ class SystemDnsPolicyTest {
         val config = node(data)
         assertEquals("reject", netd(config).getString("action"))
         assertTrue(RoutingCompiler.systemDnsPolicy(data).blocked)
-        val attributed = config.getJSONObject("dns").getJSONArray("rules").objects().filter { it.has("package_name") }
+        val attributed = config.getJSONObject("dns").getJSONArray("rules").objects()
+            .filter { it.stringList("package_name").any { name -> name.startsWith("com.example.") } }
         assertEquals(setOf("dns-one", "dns-two"), attributed.map { it.getString("server") }.toSet())
         assertEquals("local", netd(node(data.copy(settings = AppSettings(systemDnsVia = DIRECT)))).getString("server"))
     }
@@ -111,5 +112,29 @@ class SystemDnsPolicyTest {
         assertEquals("dns-${public.first().id}", netd(config).getString("server"))
         assertTrue(config.getJSONObject("dns").getJSONArray("servers").objects()
             .any { it.optString("tag") == netd(config).getString("server") })
+    }
+
+    @Test fun temporarilyUnknownOwnersUseTheSameProtectedOrBlockedDnsPolicyAsNetd() {
+        val data = AppData(profiles = listOf(proxy("one"), proxy("two")), routes = listOf(app("browser", "one")))
+        for (value in listOf(data, data.copy(routes = data.routes + app("chat", "two")))) {
+            val config = node(value)
+            val unknown = config.getJSONObject("dns").getJSONArray("rules").objects().single { it.has("package_name_regex") }
+            assertEquals(listOf(".+"), unknown.stringList("package_name_regex"))
+            assertTrue(unknown.getBoolean("invert"))
+            assertEquals(netd(config).optString("server"), unknown.optString("server"))
+            assertEquals(netd(config).optString("action"), unknown.optString("action"))
+        }
+    }
+
+    @Test fun unknownTrafficCannotEscapeProtectedAppRulesThroughDefaultDirect() {
+        val data = AppData(profiles = listOf(proxy("one")), routes = listOf(app("browser", "one")))
+        val rules = node(data).getJSONObject("route").getJSONArray("rules").objects()
+        val guard = rules.single { it.has("package_name_regex") }
+        assertTrue(guard.getBoolean("invert"))
+        assertEquals("reject", guard.getString("action"))
+        assertTrue(rules.indexOf(guard) > rules.indexOfFirst { it.stringList("package_name") == listOf("com.example.browser") })
+        for (value in listOf(data.copy(settings = AppSettings(defaultVia = "one")), data.copy(routes = emptyList()))) {
+            assertFalse(node(value).getJSONObject("route").getJSONArray("rules").objects().any { it.has("package_name_regex") })
+        }
     }
 }

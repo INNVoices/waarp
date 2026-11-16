@@ -7,6 +7,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.util.Base64
 
@@ -71,6 +72,23 @@ class RuntimeRegressionTest {
         assertNull(RuntimeState.idleGeneration())
         RuntimeState.requestStop()
         assertFalse(RuntimeState.isIdleGeneration(nextProbe))
+    }
+
+    @Test fun queuedCommandCannotCrossAnOnToOnNativeReloadWithTheSameUiState() {
+        val initial = RuntimeState.requestStart("first")
+        RuntimeState.status.value = RuntimeStatus(phase = RuntimePhase.ON, startedAt = 1000)
+        val queued = RuntimeState.sessionGeneration()
+        val reloaded = RuntimeState.reloadIfCurrent(initial.generation)!!
+        // The phase and clock value deliberately remain equal; neither is an epoch.
+        assertEquals(RuntimePhase.ON, RuntimeState.status.value.phase)
+        assertEquals(1000L, RuntimeState.status.value.startedAt)
+        assertEquals(reloaded.generation, RuntimeState.sessionGeneration())
+        assertFalse(RuntimeState.isSessionGeneration(queued))
+        val failure = assertThrows(IllegalStateException::class.java) { RuntimeState.commandBackend(queued) }
+        assertEquals("Сессия VPN изменилась", failure.message)
+        RuntimeState.requireSessionGeneration(reloaded.generation)
+        RuntimeState.requestStop()
+        assertFalse(RuntimeState.isSessionGeneration(reloaded.generation))
     }
 
     @Test fun aNativeCloseFailureStillReleasesEveryOtherResourceAndIsReported() {

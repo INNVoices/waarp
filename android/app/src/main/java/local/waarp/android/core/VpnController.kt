@@ -27,6 +27,10 @@ class VpnController(context: Context) {
     val logs: StateFlow<List<RuntimeLog>> = RuntimeState.logs.asStateFlow()
     val dnsQueries: StateFlow<List<RuntimeDnsQuery>> = RuntimeState.dnsQueries.asStateFlow()
 
+    /** Includes OFF transitions; an ON→ON replacement is a different native session. */
+    internal fun sessionGeneration(): Long = RuntimeState.sessionGeneration()
+    internal fun isSessionGeneration(expected: Long): Boolean = RuntimeState.isSessionGeneration(expected)
+
     /** Application installs this before Android creates the VPN service. */
     fun setConfigurationProvider(provider: suspend () -> String) {
         RuntimeState.configurationProvider = provider
@@ -129,7 +133,7 @@ class VpnController(context: Context) {
         }
     }
 
-    suspend fun selectOutbound(groupTag: String, outboundTag: String) = withBackend {
+    suspend fun selectOutbound(groupTag: String, outboundTag: String, expectedGeneration: Long = sessionGeneration()) = withBackend(expectedGeneration) {
         it.selectOutbound(groupTag, outboundTag)
     }
 
@@ -137,7 +141,8 @@ class VpnController(context: Context) {
         outboundTag: String,
         url: String = "https://www.gstatic.com/generate_204",
         timeoutMs: Int = 5000,
-    ): Long = withBackend { it.urlTest(outboundTag, url, timeoutMs) }
+        expectedGeneration: Long = sessionGeneration(),
+    ): Long = withBackend(expectedGeneration) { it.urlTest(outboundTag, url, timeoutMs) }
 
     suspend fun closeConnection(id: String) = withBackend { it.closeConnection(id) }
     suspend fun closeConnections() = withBackend { it.closeConnections() }
@@ -149,11 +154,16 @@ class VpnController(context: Context) {
         RuntimeState.logs.value = emptyList()
     }
 
-    private suspend fun <T> withBackend(action: (LibboxBackend) -> T): T = withContext(Dispatchers.IO) {
-        val backend = RuntimeState.backend.get()
-            ?: error("VPN не запущен")
-        check(RuntimeState.status.value.phase == RuntimePhase.ON) { "VPN ещё не готов" }
-        action(backend)
+    private suspend fun <T> withBackend(expectedGeneration: Long = sessionGeneration(), action: (LibboxBackend) -> T): T {
+        // Capture before dispatch: a queued command must never select a replacement
+        // backend just because both old and new sessions report ON.
+        val backend = RuntimeState.commandBackend(expectedGeneration)
+        return withContext(Dispatchers.IO) {
+            RuntimeState.requireBackend(expectedGeneration, backend)
+            val result = action(backend) // No RuntimeState monitor is held across JNI.
+            RuntimeState.requireBackend(expectedGeneration, backend)
+            result
+        }
     }
 
     companion object {
@@ -201,6 +211,24 @@ internal object RuntimeState {
     fun isCurrent(generation: Long): Boolean = desired.get()?.generation == generation
     fun wanted(): Boolean = desired.get() != null
     fun currentGeneration(): Long? = desired.get()?.generation
+    fun sessionGeneration(): Long = counter.get()
+    fun isSessionGeneration(expected: Long): Boolean = counter.get() == expected
+
+    @Synchronized fun commandBackend(expected: Long): LibboxBackend {
+        requireSessionGeneration(expected)
+        check(isCurrent(expected)) { "VPN не запущен" }
+        val current = backend.get() ?: error("VPN не запущен")
+        check(current.generation == expected && status.value.phase == RuntimePhase.ON) { "VPN ещё не готов" }
+        return current
+    }
+
+    @Synchronized fun requireBackend(expected: Long, snapshot: LibboxBackend) {
+        check(commandBackend(expected) === snapshot) { "Сессия VPN изменилась" }
+    }
+
+    fun requireSessionGeneration(expected: Long) {
+        check(isSessionGeneration(expected)) { "Сессия VPN изменилась" }
+    }
 
     @Synchronized fun idleGeneration(): Long? = counter.get().takeIf { !wanted() }
     @Synchronized fun isIdleGeneration(token: Long): Boolean = counter.get() == token && !wanted()

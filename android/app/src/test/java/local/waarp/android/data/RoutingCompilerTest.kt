@@ -133,8 +133,10 @@ class RoutingCompilerTest {
 
     @Test fun selfPackageExemptionUsesActualBuildApplicationId() {
         val compiled = RoutingCompiler.compile(AppData(), selfPackage = "local.waarp.android.debug")
-        val rule = routeRules(JSONObject(compiled.json)).single { it.stringList("package_name") == listOf("local.waarp.android.debug") }
+        val node = JSONObject(compiled.json)
+        val rule = routeRules(node).single { it.stringList("package_name") == listOf("local.waarp.android.debug") }
         assertEquals(DIRECT, rule.getString("outbound"))
+        assertEquals("local", dnsRules(node).single { it.stringList("package_name") == listOf("local.waarp.android.debug") }.getString("server"))
     }
 
     @Test fun addressValidationRejectsAmbiguousIpAndInvalidCidr() {

@@ -124,6 +124,7 @@ object RoutingCompiler {
         val dnsRules = mutableListOf<JSONObject>()
         if (data.settings.lanDirect) rules.add(obj("ip_is_private" to true, "outbound" to DIRECT))
         rules.add(obj("package_name" to listOf(selfPackage), "outbound" to DIRECT))
+        dnsRules.add(obj("package_name" to listOf(selfPackage), "server" to "local"))
         if (data.settings.ruDirect) {
             rules.add(obj("domain_suffix" to ruDomains, "outbound" to DIRECT))
             dnsRules.add(obj("domain_suffix" to ruDomains, "server" to "local"))
@@ -170,18 +171,32 @@ object RoutingCompiler {
             }
             routePlans.add(CompiledRoute(route.id, route.via, target.takeUnless { it == BLOCK }, fallback))
         }
+        if (data.settings.defaultVia == DIRECT && data.routes.any { it.enabled && it.kind == "app" && it.via != DIRECT }) {
+            // An unavailable socket owner must not turn a protected app flow into Direct.
+            // Explicit destination/LAN/self rules above still have their normal priority.
+            rules.add(obj("package_name_regex" to listOf(".+"), "invert" to true, "action" to "reject"))
+        }
         val rest = tag(data.settings.defaultVia)
         val systemDns = systemDnsPolicy(data)
         val systemDnsTarget = systemDns.via?.let(::tag)
         // AID_DNS is the real OS-reported owner; package attribution above is left intact.
         // Domain rules retain priority. This shared policy only handles netd's DNS requests.
-        dnsRules.add(obj("user_id" to listOf(1051)).apply {
+        val sharedDnsRule = obj("user_id" to listOf(1051)).apply {
             if (systemDns.blocked || systemDnsTarget == BLOCK) put("action", "reject")
             else put("server", when {
                 systemDns.via == DIRECT -> "local"
                 systemDns.routeId != null && "fb-${systemDns.routeId}" in selectorTargets -> "dns-fb-${systemDns.routeId}"
                 else -> "dns-${systemDns.via}"
             })
+        }
+        dnsRules.add(sharedDnsRule)
+        // Socket ownership can disappear between a packet and Android's lookup.
+        // The pinned core matches no package for nil ProcessInfo; invert catches
+        // that case without attributing the request to an invented application.
+        dnsRules.add(JSONObject(sharedDnsRule.toString()).apply {
+            remove("user_id")
+            put("package_name_regex", jsonArray(listOf(".+")))
+            put("invert", true)
         })
         if (rest == BLOCK) { rules.add(obj("action" to "reject")); dnsRules.add(obj("action" to "reject")) }
         else if (!v6(data.settings.defaultVia)) rules.add(obj("ip_version" to 6, "action" to "reject"))

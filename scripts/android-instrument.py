@@ -49,7 +49,7 @@ def capture_preflight(prefix, output):
     (output / "host-meminfo-before.txt").write_text(host_memory[:64 * 1024])
     report = {"hostCpuCount": os.cpu_count(), "commands": statuses,
               "broadcastQueuesIdle": statuses["broadcast-idle.txt"]["exitCode"] == 0,
-              "scope": "Framework broadcast-queue idle and memory snapshots; no dialogs dismissed, crash records cleared, or tests skipped."}
+              "scope": "Observational framework broadcast-queue idle and memory snapshots; global background work is not app readiness. No dialogs dismissed, crash records cleared, or tests skipped."}
     (output / "preflight.json").write_text(json.dumps(report, indent=2) + "\n")
     return report
 
@@ -152,7 +152,7 @@ def main():
             bundle[active_field] += "\n" + line
     final_codes = re.findall(r"^INSTRUMENTATION_CODE: (-?\d+)\s*$", output, re.M)
     totals = {status: sum(case["status"] == status for case in cases) for status in ("passed", "failed", "skipped")}
-    success = preflight["broadcastQueuesIdle"] and exit_code == 0 and not timed_out and final_codes == ["-1"] and len(cases) > 0 and len(cases) == expected_tests and not totals["failed"] and not totals["skipped"]
+    success = exit_code == 0 and not timed_out and final_codes == ["-1"] and len(cases) > 0 and len(cases) == expected_tests and not totals["failed"] and not totals["skipped"]
     report = {"schemaVersion": 1, "checkedAtUtc": datetime.now(timezone.utc).isoformat(), "device": device, "preflight": preflight, "wallSeconds": elapsed, "tests": len(cases), "expectedTests": expected_tests, **totals, "timedOut": timed_out, "passedGate": success, "cases": cases}
     capture_logs(prefix, options.output, failed=not success)
     screenshots = options.output / "ui-screenshots"

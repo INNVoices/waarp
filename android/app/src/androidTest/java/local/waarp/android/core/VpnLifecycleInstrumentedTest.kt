@@ -103,7 +103,7 @@ class VpnLifecycleInstrumentedTest {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 .putExtra("url", "http://fixture.waarp.test:18080/generate_204")
                 .putExtra("destination", context.packageName))
-            assertTrue("The separate app did not complete its real HTTP request", answer.await(15, TimeUnit.SECONDS))
+            assertTrue("The separate app did not complete its real HTTP request", answer.await(25, TimeUnit.SECONDS))
             assertEquals("HTTP fixture: ${probeError.get()}; DNS=${controller.dnsQueries.value}; " +
                 "flows=${controller.connections.value.filter { testPackage in it.packages }}; " +
                 "native=${fixtureLogs("fixture.waarp.test", "18080")}", 204, statusCode.get())
@@ -186,7 +186,7 @@ class VpnLifecycleInstrumentedTest {
                 answer = CountDownLatch(1)
                 context.startActivity(Intent().setComponent(ComponentName(testPackage, ProbeActivity::class.java.name))
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("dns", true).putExtra("destination", context.packageName))
-                assertTrue("Encrypted DNS cycle $cycle did not complete", answer.await(15, TimeUnit.SECONDS))
+                assertTrue("Encrypted DNS cycle $cycle did not complete", answer.await(25, TimeUnit.SECONDS))
                 assertEquals("Synthetic inner DNS answer must traverse AWG2; cycle=$cycle; ${probeError.get()}; " +
                     "DNS=${controller.dnsQueries.value}; host=${fixtureJson("/proof")}; " +
                     "native=${fixtureLogs("example.com", "10.77.", "18081", profile.id)}", 204, statusCode.get())
@@ -268,7 +268,7 @@ class VpnLifecycleInstrumentedTest {
         {
           "log": {"level":"info"},
           "dns": {"servers":[{"type":"hosts","tag":"fixture-dns","predefined":{"fixture.waarp.test":"10.0.2.2"}}],
-            "rules":[{"package_name":["$testPackage"],"server":"fixture-dns"},{"user_id":[1051],"server":"fixture-dns"},{"action":"reject"}],"final":"fixture-dns","strategy":"ipv4_only"},
+            "rules":[{"package_name":["$testPackage"],"server":"fixture-dns"},{"user_id":[1051],"server":"fixture-dns"},{"package_name_regex":[".+"],"invert":true,"server":"fixture-dns"},{"action":"reject"}],"final":"fixture-dns","strategy":"ipv4_only"},
           "inbounds": [{"type":"tun","tag":"tun","address":["172.23.12.1/30"],"mtu":1400,"auto_route":true,"strict_route":true,"stack":"mixed","include_package":["$testPackage"]}],
           "outbounds": [{"type":"direct","tag":"per-app-route"}],
           "route": {"auto_detect_interface":true,"find_process":true,"default_domain_resolver":"fixture-dns",

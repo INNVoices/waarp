@@ -118,6 +118,10 @@ internal fun HomeScreen(state: MobileState, actions: MobileActions, onRoutes: ()
                 }
                 Text(if (isWhole) "Общий путь действует на устройство. Отдельные маршруты задают исключения."
                     else "Через VPN идут включённые приложения, сервисы и адреса из списка маршрутов.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+                if (!isWhole && state.routes.any { it.kind == RouteKind.APP && it.enabled && it.viaId != DIRECT_PATH }) {
+                    Text("Если Android не определит приложение, соединение без отдельного правила будет заблокировано.",
+                        style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+                }
                 OperationFeedback(operation)
             }
         }

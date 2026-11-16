@@ -44,7 +44,10 @@ class NetworkTools(context: Context) {
         return active?.takeIf(::physical) ?: connectivity.allNetworks.firstOrNull(::physical)
     }
 
-    suspend fun fetch(url: String, maxBytes: Int = MAX_IMPORT_BYTES, physical: Boolean = false): String = withContext(Dispatchers.IO) {
+    // Control-plane fetches must remain reachable when a saved tunnel is broken.
+    // The app UID stays inside TUN for native TCP reverse NAT, so bind these
+    // HTTPS sockets explicitly to the physical network instead of excluding it.
+    suspend fun fetch(url: String, maxBytes: Int = MAX_IMPORT_BYTES, physical: Boolean = true): String = withContext(Dispatchers.IO) {
         val network = if (physical) physicalNetwork() ?: error("Нет физического подключения к сети") else null
         var current = URI(url)
         repeat(5) { redirect ->

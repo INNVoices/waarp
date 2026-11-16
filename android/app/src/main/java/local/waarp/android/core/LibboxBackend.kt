@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicReference
 /** One native core per service generation; UI commands never spawn another tunnel or peer. */
 internal class LibboxBackend(
     private val vpn: VpnService,
-    private val generation: Long,
+    val generation: Long,
     private val onStop: () -> Unit,
     private val onReload: () -> Unit,
     private val onFailure: (Throwable) -> Unit,

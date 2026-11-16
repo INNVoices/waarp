@@ -108,13 +108,16 @@ internal class AndroidPlatform(
         val included = options.includePackage.toStrings().distinct()
         val excluded = options.excludePackage.toStrings().distinct()
         require(included.isEmpty() || excluded.isEmpty()) { "Нельзя смешивать include_package и exclude_package" }
+        // The mixed/system TCP forwarder listens on the TUN address. Its replies
+        // belong to our UID and must return through TUN for the reverse NAT.
+        // Excluding our package leaves TCP SYNs pending although UDP still works.
+        // Real outbound sockets bypass VPN individually through protect(fd).
         if (included.isNotEmpty()) {
-            val selected = included.filter { it != vpn.packageName }
-            require(selected.isNotEmpty()) { "В список VPN не добавлены приложения" }
+            require(included.any { it != vpn.packageName }) { "В список VPN не добавлены приложения" }
             // A vanished package is an explicit config error, never an accidental allow-all.
-            selected.forEach(builder::addAllowedApplication)
+            (included + vpn.packageName).distinct().forEach(builder::addAllowedApplication)
         } else {
-            (excluded + vpn.packageName).distinct().forEach(builder::addDisallowedApplication)
+            excluded.filter { it != vpn.packageName }.forEach(builder::addDisallowedApplication)
         }
 
         httpProxyEnabled = options.isHTTPProxyEnabled
