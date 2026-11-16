@@ -16,7 +16,7 @@ export function importNote(r?: ImportResult) {
   return r?.notApplied?.length ? base + ' · ' + s('imp.note', { v: r.notApplied.join(', ') }) : base
 }
 
-export function AddTunnel({ onClose, onAdded, onPublic, onAutoFindDone, autoFind = false, initialClip = false }: { onClose: () => void; onAdded: (r: ImportResult) => void; onPublic: () => void; onAutoFindDone?: () => void; autoFind?: boolean; initialClip?: boolean }) {
+export function AddTunnel({ onClose, onAdded, onPublic, onDiscoveryDone, initialClip = false }: { onClose: () => void; onAdded: (r: ImportResult) => void; onPublic: () => void; onDiscoveryDone?: () => void; initialClip?: boolean }) {
   const [step, setStep] = useState<Step>(initialClip ? 'clip' : 'pick')
   const [peek, setPeek] = useState<Peek>()
   const [text, setText] = useState('')
@@ -69,9 +69,9 @@ export function AddTunnel({ onClose, onAdded, onPublic, onAutoFindDone, autoFind
     try {
       const r = await api.discoverScan()
       if (!r.ok) { setErr(r.error); return }
-      // A first-run scan is complete only after main returned a successful, bounded result.
-      // Closing the dialog while it is still running (or after an error) must offer it again next launch.
-      onAutoFindDone?.()
+      // Successful explicit discovery completes the empty-library first-run prompt.
+      // An unsuccessful attempt may still be offered again on the next launch.
+      onDiscoveryDone?.()
       setFound(r.items ?? []); setSelected(new Set((r.items ?? []).map((x: Found) => x.id))); setStep('found')
     } catch { setErr(s('add.find.error')) } finally { working.current = false; setBusy(false) }
   }
@@ -96,8 +96,6 @@ export function AddTunnel({ onClose, onAdded, onPublic, onAutoFindDone, autoFind
       if (r.ok) { setRes(r); setStep('done'); onAdded(r) } else setErr(r.error)
     } catch { setErr(s('add.find.error')) } finally { working.current = false; setBusy(false) }
   }
-  useEffect(() => { if (autoFind) void find() }, [])
-
   const clipOk = !!peek && peek.kind !== 'none'
   const clipSub = !peek ? s('add.clip.wait') : clipOk ? [s('add.clip.' + peek.kind), peek.host].filter(Boolean).join(' · ') : s('add.clip.none')
 

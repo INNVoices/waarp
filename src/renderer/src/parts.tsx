@@ -9,22 +9,23 @@ import { hueOf } from './lib/routes'
 import { Cat, Eggs, isNight, isWinter, useEggs } from './eggs'
 import { orbPresentation } from './lib/master'
 
-export function Orb({ status, disabled, why, onClick }: { status: Status; disabled: boolean; why?: string; onClick: () => void }) {
+export function Orb({ status, disabled, busy = false, why, onClick }: { status: Status; disabled: boolean; busy?: boolean; why?: string; onClick: () => void }) {
   const view = orbPresentation(status)
   // closed and can't open: say why right under the button, never "press to open"
-  const locked = disabled && status.open !== true && status.phase === 'off' && !!why
+  const locked = disabled && status.open !== true && status.phase === 'off' && status.startup !== 'recovering' && !!why
   const title = locked ? s('orb.locked') : s(view.titleKey)
   const live = status.phase === 'on'
   const since = live && status.since ? fmtDur(Date.now() - status.since) : ''
   const { egg, k } = useEggs(live)
   const sub = locked ? why
+    : status.startup === 'recovering' && status.phase !== 'stopping' ? s('orb.recovering.sub')
     : status.phase === 'error' ? status.error ?? (view.subKey ? s(view.subKey) : '')
     : view.subKey ? s(view.subKey)
     : live ? status.error ?? since
     : ''
   return (
     <div className={`orb-wrap ph-${view.phaseClass}${isWinter() ? ' winter' : ''}`}>
-      <Plain className="orb" disabled={disabled && status.open !== true && status.phase === 'off'} onClick={onClick} aria-label={title}>
+      <Plain className="orb" disabled={busy || (disabled && status.open !== true && status.phase === 'off')} onClick={onClick} aria-label={title}>
         <svg viewBox="0 0 200 200" className="ring">{/* icon-ok: orb progress ring */}
           <circle cx="100" cy="100" r="92" className="track" />
           <circle cx="100" cy="100" r="92" className="arc" pathLength="100" />

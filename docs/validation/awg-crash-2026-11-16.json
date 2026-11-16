@@ -1,0 +1,12 @@
+{
+  "scenario": "local_awg_sigkill_restart",
+  "holding_reached": true,
+  "both_ports_busy_while_child_alive": true,
+  "child_exit_is_sigkill": true,
+  "both_ports_released_after_kill": true,
+  "fresh_self_test_passed": true,
+  "fresh_self_test_stopped": true,
+  "cleanup_ok": true,
+  "passed": true,
+  "duration_ms": 13243
+}

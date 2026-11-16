@@ -82,6 +82,7 @@
 .orb-s { color: var(--m); font-size: 12px; line-height: 16px; max-width: 280px; }
 .ph-on .orb-s { font-family: var(--mono); color: var(--t2); }
 .hero-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: var(--field); border: 1px solid var(--line); border-radius: var(--r-md); }
 .stats.dim { opacity: .6; }
 .stats > div { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center; padding: 8px 12px; color: var(--m); min-width: 0; }
@@ -395,6 +396,12 @@
 .pub-list.pick-table .pub-row:last-child { border-bottom: 0; }
 .pub-list.pick-table .pick-th { height: 32px; }
 .pub-list.pick-table .pub-add { width: auto; min-width: 88px; padding-inline: 12px; }
+/* Keep the measured ping and row action visible at the 900px minimum window.
+   Long names/addresses retain their existing ellipsis; smaller embedded tables can still scroll. */
+@media (max-width: 1040px) {
+  .pub-list.pick-table .pub-row { grid-template-columns: 44px minmax(100px, 1fr) minmax(140px, 1.1fr) 70px minmax(78px, .8fr) 54px 88px; gap: 8px; min-width: 738px; padding-inline: 8px; }
+  .pub-list.pick-table .pub-proto { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
 .pub.compact { padding: 0; border: 0; background: transparent; }
 .pub.compact .pub-head { padding: 0 2px; }
 @media (max-width: 760px) {

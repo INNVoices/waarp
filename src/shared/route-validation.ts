@@ -1,3 +1,17 @@
+/** Strict IP/CIDR validation shared with persisted profiles, with no Node dependency. */
+export function validIpPrefix(raw: unknown): boolean {
+  if (typeof raw !== 'string') return false
+  const match = /^([^/%]+)\/(\d+)$/.exec(raw)
+  if (!match) return false
+  const ip = match[1], bits = Number(match[2])
+  if (ip.includes(':')) {
+    if (!/^[0-9a-f:.]+$/i.test(ip) || bits > 128) return false
+    try { return new URL(`http://[${ip}]/`).hostname.includes(':') } catch { return false }
+  }
+  const octets = ip.split('.')
+  return bits <= 32 && octets.length === 4 && octets.every(o => /^(?:0|[1-9]\d{0,2})$/.test(o) && Number(o) <= 255)
+}
+
 /** Browser/main-safe validation for user-entered domain and network selectors. */
 export function validateCustom(raw: string): string | null {
   const v = raw.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '')

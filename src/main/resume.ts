@@ -1,5 +1,8 @@
 // Hardening R4: sleep / resume (the core follows ordinary interface changes itself). One coalesced restart per resume,
 // only after a usable physical network is back (bounded, read-only), never overlapping, never a churn loop. Another VPN or adapter is never touched.
+import { isIP } from 'node:net'
+import { performance } from 'node:perf_hooks'
+
 export interface ResumeDeps {
   /** was the tunnel up (so a restart is wanted at all) */
   isOn: () => boolean
@@ -24,12 +27,14 @@ export interface ResumeDeps {
 }
 
 export function createResume(d: ResumeDeps) {
-  const now = d.now ?? Date.now
+  // A wall-clock adjustment after wake must not extend the network readiness budget.
+  const now = d.now ?? (() => performance.now())
   const sleep = d.sleep ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)))
   const setT = d.setTimer ?? ((f: () => void, ms: number) => setTimeout(f, ms))
   const clearT = d.clearTimer ?? ((h: unknown) => clearTimeout(h as NodeJS.Timeout))
   let suspended = false, wanted = false, timer: unknown, running: Promise<void> | undefined, runs = 0, generation = 0
   let wantedRevision: number | undefined
+  let wakeAbort: AbortController | undefined
 
   const run = async () => {
     timer = undefined
@@ -38,10 +43,31 @@ export function createResume(d: ResumeDeps) {
     const ticket = generation, revision = wantedRevision
     const current = () => ticket === generation && !suspended && (!d.isOpen || d.isOpen()) && (!d.revision || d.revision() === revision)
     if (!current()) return
+    const abort = new AbortController()
+    wakeAbort = abort
     running = (async () => {
       runs++
       const end = now() + (d.budgetMs ?? 30_000)
-      const readNetwork = async () => { try { return await d.netReady() } catch { return false } }
+      // The native reader has its own timeout, but the wake budget also bounds a read
+      // that starts near its deadline. A superseded wake releases the waiter immediately.
+      const readNetwork = (): Promise<boolean> => {
+        const remaining = end - now()
+        if (remaining <= 0 || abort.signal.aborted) return Promise.resolve(false)
+        return new Promise(resolve => {
+          let finished = false, timeout: unknown
+          const settle = (ready: boolean) => {
+            if (finished) return
+            finished = true
+            if (timeout !== undefined) clearT(timeout)
+            abort.signal.removeEventListener('abort', cancelled)
+            resolve(ready && now() < end && current())
+          }
+          const cancelled = () => settle(false)
+          abort.signal.addEventListener('abort', cancelled, { once: true })
+          timeout = setT(() => settle(false), remaining)
+          void Promise.resolve().then(() => abort.signal.aborted ? false : d.netReady()).then(ready => settle(ready === true), () => settle(false))
+        })
+      }
       let ready = await readNetwork()
       while (current() && !ready && now() < end) {
         await sleep(Math.min(d.everyMs ?? 1000, Math.max(0, end - now())))
@@ -54,6 +80,7 @@ export function createResume(d: ResumeDeps) {
       try { restarted = await d.restart() } catch { /* report the failed restart once below */ }
       if (current() && !restarted) await d.fail('restart_failed')
     })().catch(() => undefined).finally(() => {
+      if (wakeAbort === abort) wakeAbort = undefined
       running = undefined
       // A second sleep/wake may have cancelled the old network wait. Preserve the new wake request.
       if (wanted && !suspended && timer === undefined) schedule()
@@ -67,6 +94,7 @@ export function createResume(d: ResumeDeps) {
   const cancel = () => {
     generation++
     wanted = false
+    wakeAbort?.abort()
     if (timer !== undefined) { clearT(timer); timer = undefined }
   }
 
@@ -85,12 +113,20 @@ export function createResume(d: ResumeDeps) {
   }
 }
 
-/** one IPv4 default route as Windows reports it (read-only snapshot) */
+/** One IPv4 or IPv6 default route as Windows reports it (read-only snapshot). */
 export interface DefaultRoute { alias: string; nextHop: string; up: boolean }
-/** a usable underlay/default-gateway network: an UP non-Waarp interface with a real IPv4 default gateway. On-link
- *  default routes (next hop 0.0.0.0, typical for VPN adapters) and gateway-less virtual NICs (WSL / Hyper-V) do not count.
+/** A usable underlay/default-gateway network: an UP non-Waarp interface with an IPv4 or IPv6 gateway. On-link
+ *  default routes (next hop 0.0.0.0 / ::, typical for VPN adapters) and gateway-less virtual NICs do not count.
  *  Undefined snapshot (unreadable) = not ready. */
 export function underlayReady(online: boolean, routes: DefaultRoute[] | undefined, own = 'Waarp'): boolean {
   if (!online || !routes) return false
-  return routes.some(r => r.up && r.alias !== own && /^\d{1,3}(\.\d{1,3}){3}$/.test(r.nextHop) && r.nextHop !== '0.0.0.0')
+  return routes.some(r => {
+    if (r.up !== true || r.alias.toLowerCase() === own.toLowerCase()) return false
+    const hop = r.nextHop.split('%')[0].toLowerCase(), family = isIP(hop)
+    if (family === 4) {
+      const first = Number(hop.split('.')[0])
+      return first > 0 && first < 224 && first !== 127
+    }
+    return family === 6 && !/^0*(?::0*)*$/.test(hop) && !/^(?:0*:)*0*1$/.test(hop) && !/^ff[0-9a-f]{2}:/.test(hop)
+  })
 }

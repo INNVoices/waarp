@@ -7,11 +7,11 @@ import type { Conn, Profile, Settings, Status, TunnelHealth } from '../shared/ty
 import { activeRoutes, buildConfig, fallbackGroups, liveSwitches, loadedOf, loadedSets, redact, runtimeAutoLive, tagOf, usedProfiles, withoutAuto, type Loaded } from './awg'
 import { AUTO_ID, autoMembers, autoSample, firstAlive, grpTag, liveGroups, stickyFastest, withAuto, type LiveGroup } from '../shared/groups'
 import { FbTracker } from './fallback'
-import { Health } from './health'
+import { Health, validLatency } from './health'
 import { redactVless, vlessSecrets } from './vless'
 import { outSecrets } from './links'
 import { openVpnSecrets } from './openvpn'
-import { RuntimeJournal } from './runtime-journal'
+import { RuntimeJournal, type ProcessIdentity } from './runtime-journal'
 import { protectPrivateFile } from './private-file'
 import { pickPort, START_BUDGET_MS, untilCancelled, waitReady, type Preflight } from './tun'
 import { ctrlBreak, waitExit } from './stop'
@@ -42,6 +42,7 @@ export class Engine extends EventEmitter {
   private tail: string[] = []
   private journal: RuntimeJournal
   private recoveryOk = false
+  private recoveryError?: string
   private transition: Promise<void> = Promise.resolve()
   /** OFF cancels both the active startup and starts already queued before that command. */
   private stopVersion = 0
@@ -57,18 +58,18 @@ export class Engine extends EventEmitter {
   preflight?: () => Promise<Preflight>
   /** pause between preflight re-checks right after our own stop (Windows may still be removing the adapter) */
   preflightGap = 1500
-  /** R2: graceful signal for the owned core (CTRL_BREAK into its own hidden console); injectable for tests */
-  breakSignal: (pid: number) => Promise<void> = pid => ctrlBreak(pid)
+  /** R2: best-effort CTRL_BREAK for the owned core if it has an isolated console; injectable for tests */
+  breakSignal: (pid: number, identity: ProcessIdentity) => Promise<boolean> = (pid, identity) => ctrlBreak(pid, identity)
   gracefulMs = 5000
   killMs = 4000
 
   constructor(private exe: string, private dir: string, private selfExe: string) {
     super()
-    mkdirSync(dir, { recursive: true })
     this.journal = new RuntimeJournal(dir, exe, 'run.json')
   }
 
   log(): string[] { return this.tail.slice(-300) }
+  get recoveryReady(): boolean { return this.recoveryOk }
 
   private set(s: Partial<Status>) {
     this.status = { ...this.status, ...s }
@@ -83,11 +84,43 @@ export class Engine extends EventEmitter {
     if (this.tail.length > 600) this.tail.splice(0, this.tail.length - 600)
   }
 
-  async killOrphans(otherRuntimesOk = true): Promise<boolean> {
-    const ownRecovered = await this.journal.recover()
-    this.recoveryOk = otherRuntimesOk && ownRecovered && await RuntimeJournal.noUntracked(this.exe)
-    if (!this.recoveryOk) this.set({ phase: 'error', error: 'Не удалось подтвердить принадлежность прошлого процесса. Waarp не будет запускать новый туннель до восстановления.' })
-    return this.recoveryOk
+  private clearJournal(): boolean {
+    if (this.journal.clear() !== false) return true
+    this.recoveryOk = false
+    this.recoveryError = this.journal.lastError ?? 'Процесс закрыт, но его временные файлы не удалены. Повтори восстановление'
+    this.push(`[recovery:cleanup] ${this.recoveryError}`)
+    return false
+  }
+
+  killOrphans(otherRuntimesOk = true, otherError?: string): Promise<boolean> {
+    return this.serialize(async () => {
+      const previousError = this.recoveryError
+      this.recoveryOk = false
+      let error: string | undefined
+      try {
+        // Recovery reconciles a previous run. It must never terminate a core started by
+        // this instance while a late bootstrap/reset callback was waiting in the queue.
+        if (this.child) error = 'Движок ещё работает. Сначала закрой Waarp, затем повтори восстановление'
+        else if (!(await this.journal.recover())) error = this.journal.lastError ?? 'Не удалось восстановить прошлый процесс движка. Повтори восстановление'
+        else if (!otherRuntimesOk) error = otherError ?? 'Проверочный движок не подтвердил остановку. Повтори восстановление'
+        else {
+          const inspected = await RuntimeJournal.inspectUntracked(this.exe)
+          if (!inspected.ok) error = inspected.error
+        }
+      } catch {
+        error = 'Не удалось проверить прошлые процессы Waarp. Повтори восстановление; подробности доступны в диагностике'
+      }
+      this.recoveryError = error
+      this.recoveryOk = !error
+      if (error) {
+        this.push(`[recovery:engine] ${error}`)
+        this.set({ phase: 'error', error })
+      } else {
+        this.push('[recovery:engine] Предыдущие процессы проверены; запуск разрешён')
+        if (previousError && this.status.error === previousError) this.set({ phase: 'off', engine: 'down', since: undefined, error: undefined })
+      }
+      return this.recoveryOk
+    })
   }
 
   start(profiles: Profile[], s: Settings): Promise<void> {
@@ -110,7 +143,10 @@ export class Engine extends EventEmitter {
   }
 
   private async startNow(profiles: Profile[], s: Settings, signal: AbortSignal) {
-    if (!this.recoveryOk) { this.set({ phase: 'error', error: 'Восстановление прошлого процесса не завершено' }); return }
+    if (!this.recoveryOk) {
+      this.set({ phase: 'error', error: this.recoveryError ?? 'Проверка прошлых процессов ещё не завершена. Дождись восстановления и повтори запуск' })
+      return
+    }
     if (this.child && !(await this.stopNow())) return
     if (signal.aborted) return
     if (!existsSync(this.exe)) { this.set({ phase: 'error', error: 'Не найден движок engine\\sing-box.exe' }); return }
@@ -153,6 +189,7 @@ export class Engine extends EventEmitter {
     this.fbRoutes = new Map(groups.map(g => [g.tag, activeRoutes(s).filter(r => r.via === g.main && r.fallback === g.fb).map(r => ({ id: r.id, name: r.name }))]))
     const file = join(this.dir, 'run.json')
     try {
+      mkdirSync(this.dir, { recursive: true })
       writeFileSync(file, JSON.stringify(cfg, null, 1), { mode: 0o600 })
       protectPrivateFile(file)
     }
@@ -168,7 +205,7 @@ export class Engine extends EventEmitter {
     child.stderr?.on('data', d => { if (this.child === child) this.push(String(d)) })
     child.on('exit', code => {
       if (this.child !== child) return
-      this.journal.clear()
+      this.clearJournal()
       this.child = undefined
       this.halt()
       // stopNow owns the final state while a deliberate stop is in progress.  Emitting
@@ -184,19 +221,34 @@ export class Engine extends EventEmitter {
       if (this.child !== child) return
       // ChildProcess also emits error when signalling fails. Keep the live handle/lease until exit is proved.
       if (child.pid && child.exitCode === null && child.signalCode === null) { this.set({ phase: 'error', error: `Ошибка процесса движка: ${e.message}` }); return }
-      this.journal.clear()
+      this.clearJournal()
       this.child = undefined
       this.halt()
       this.set({ phase: 'error', engine: 'down', since: undefined, error: `Движок не запустился: ${e.message}` })
     })
-    if (!(await this.journal.record(child.pid)) || this.child !== child) {
+    // A failed OS spawn emits `error`, not `exit`. Wait for that diagnostic instead
+    // of trying to journal/stop an absent PID and waiting for an exit that cannot fire.
+    if (!child.pid) { await new Promise<void>(resolve => child.once('error', () => resolve())); return }
+    const recorded = await this.journal.record(child.pid)
+    if (!recorded || this.child !== child) {
+      // A fast spawn/config failure can exit while PowerShell is still obtaining the
+      // identity. Keep the actual startup error; a dead child is not an orphan.
+      if (this.child !== child) {
+        this.clearJournal()
+        return
+      }
+      const recordError = this.journal.lastError
       const stopped = await this.stopNow()
-      try { rmSync(file, { force: true }) } catch {}
+      // A live unverified child may still be reading this config. Retain it with the
+      // lease until cleanup can prove that exact child has stopped.
+      if (!this.child) { try { rmSync(file, { force: true }) } catch {} }
       // A process without a verified lease must never be followed by another engine start.
       this.recoveryOk = false
-      this.set({ phase: 'error', error: stopped
-        ? 'Не удалось записать владельца процесса движка; запуск остановлен'
-        : 'Не удалось подтвердить остановку движка без записи владельца; повторный запуск заблокирован' })
+      this.recoveryError = stopped
+        ? `Не удалось записать владельца процесса движка; запуск остановлен. ${recordError ?? 'Повтори запуск, чтобы проверить восстановление'}`
+        : 'Не удалось подтвердить остановку движка без записи владельца. Нажми «Восстановить» перед повторным запуском'
+      this.push(`[recovery:record] ${this.recoveryError}`)
+      this.set({ phase: 'error', error: this.recoveryError })
       return
     }
     // R1.2: give Windows the time to open Wintun (or the core to fail by itself); one start, no retry loop
@@ -229,11 +281,13 @@ export class Engine extends EventEmitter {
         const fallback = await this.fbStep(pings)
         if (this.child !== child || this.stopping || this.pollFailures >= 2) return
         // only probed ids get a verdict; an unsampled Auto candidate keeps its last evidence (or none)
-        const h = { ...this.lastHealth, ...health.step(pings, ids) }
+        const h = { ...this.lastHealth, ...health.step(pings, ids, undefined, this.ids) }
         this.lastHealth = h
         await this.groupStep(h, pings)
         if (this.child !== child || this.stopping || this.pollFailures >= 2) return
-        const allDown = ids.length > 0 && ids.every(id => h[id] === 'down')
+        // A failed rotating batch is not proof that every loaded path is down.
+        // Unmeasured members and older successful evidence prevent that claim.
+        const allDown = this.ids.length > 0 && this.ids.every(id => h[id] === 'down')
         const noneYet = first && ids.length > 0 && ids.every(id => h[id] !== 'ok')
         const error = allDown ? 'Туннели не ответили на две проверки подряд. Проверь сеть или смени подключение' : noneYet ? 'Серверы пока не ответили, проверяю ещё раз' : undefined
         this.lastAutoPick = this.firstSelected.get(AUTO_ID) ?? this.lastAutoPick
@@ -293,7 +347,7 @@ export class Engine extends EventEmitter {
     return this.serialize(() => this.stopNow())
   }
 
-  /** R2 (A + C): graceful CTRL_BREAK to the verified owned core, bounded wait; then a forced stop through our own
+  /** R2 (A + C): try CTRL_BREAK to the verified owned core, wait only if sent; then a forced stop through our own
    *  child handle (it cannot hit a reused PID), bounded wait; then a read-only residue check. 'off' only when clean. */
   private async stopNow(): Promise<boolean> {
     const c = this.child
@@ -302,7 +356,8 @@ export class Engine extends EventEmitter {
       const r = this.status.recovery ? await this.residue() : undefined
       if (r) { this.set({ phase: 'error', engine: 'down', since: undefined, error: r.text, recovery: r.kind }); return false }
       this.halt()
-      this.set({ phase: 'off', engine: 'down', since: undefined, error: undefined, recovery: undefined, pings: {}, health: {}, picked: {}, fallback: {}, autoPool: undefined, down: 0, up: 0 })
+      const error = !this.recoveryOk ? this.recoveryError : undefined
+      this.set({ phase: error ? 'error' : 'off', engine: 'down', since: undefined, error, recovery: undefined, pings: {}, health: {}, picked: {}, fallback: {}, autoPool: undefined, down: 0, up: 0 })
       return true
     }
     this.stopping = true
@@ -310,15 +365,18 @@ export class Engine extends EventEmitter {
     this.set({ phase: 'stopping' })
     let exited = c.exitCode !== null || c.signalCode !== null
     if (!exited && c.pid && (await this.journal.owned(c.pid)) === 'same') {
-      await this.breakSignal(c.pid)
-      exited = await waitExit(c, this.gracefulMs)
+      const identity = this.journal.recordedIdentity(c.pid)
+      if (identity) {
+        if (await this.breakSignal(c.pid, identity)) exited = await waitExit(c, this.gracefulMs)
+        else this.push('[stop] CTRL_BREAK не отправлен: нет подтверждённой отдельной консоли. Закрываю собственный процесс по сохранённому дескриптору')
+      }
     }
     if (!exited) {
       try { c.kill() } catch { /* the wait below decides */ }
       exited = await waitExit(c, this.killMs)
     }
     if (!exited) { this.set({ phase: 'error', error: 'Движок не подтвердил остановку. Новый туннель не будет запущен' }); return false }
-    this.journal.clear()
+    const cleaned = this.clearJournal()
     this.child = undefined
     this.halt()
     const zero = { pings: {}, health: {}, picked: {}, fallback: {}, autoPool: undefined, down: 0, up: 0 }
@@ -329,6 +387,7 @@ export class Engine extends EventEmitter {
       // must not report success while a stale adapter/route is still present.
       return false
     }
+    if (!cleaned) { this.set({ phase: 'error', engine: 'down', since: undefined, error: this.recoveryError, ...zero }); return false }
     this.set({ phase: 'off', engine: 'down', since: undefined, error: undefined, recovery: undefined, ...zero })
     return true
   }
@@ -411,7 +470,7 @@ export class Engine extends EventEmitter {
 
   private async delay(tag: string, url = 'https://www.gstatic.com/generate_204'): Promise<number | undefined> {
     const r = await this.req(`/proxies/${tag}/delay?timeout=6000&url=` + encodeURIComponent(url), 8000)
-    return typeof r?.delay === 'number' && r.delay > 0 ? r.delay : undefined
+    return validLatency(r?.delay) ? r.delay : undefined
   }
 
   private async bounded<T>(items: T[], fn: (item: T) => Promise<void>, limit = 8): Promise<void> {

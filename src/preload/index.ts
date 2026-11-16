@@ -9,6 +9,7 @@ const on = (ch: string) => (cb: (v: any) => void) => {
 const api = {
   snapshot: () => ipcRenderer.invoke('snapshot'),
   toggle: () => ipcRenderer.invoke('toggle'),
+  disconnect: () => ipcRenderer.invoke('disconnect'),
   scanApps: () => ipcRenderer.invoke('apps:scan'),
   pickApp: () => ipcRenderer.invoke('apps:pick'),
   settings: (patch: unknown, base: unknown) => ipcRenderer.invoke('settings', patch, base),

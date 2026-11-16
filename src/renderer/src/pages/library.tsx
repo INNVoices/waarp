@@ -2,7 +2,7 @@
 // (running apps first, then installed apps, services, one address); the list is the summary "target -> where it goes".
 // Choosing a target never picks a path: a new target becomes a neutral draft and opens its own route page.
 import { useMemo, useRef, useState } from 'react'
-import type { AppInfo, Conn, Route, Settings, Snapshot, Status, Via } from '../../../shared/types'
+import type { AppInfo, Conn, Route, Snapshot, Status, Via } from '../../../shared/types'
 import { PRESETS } from '../../../shared/presets'
 import { Btn, Field, fmtBytes, Icon, Plain, Seg, Toggle, Tooltip } from '../ui/kit'
 import { Modal } from '../ui/modal'

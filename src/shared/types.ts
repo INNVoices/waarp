@@ -13,8 +13,10 @@ export interface AwgProfile {
   clientPublicKey?: string
   dns: string[]
   mtu?: number
+  listenPort?: number
   awg: AwgParams
-  peer: { publicKey: string; presharedKey?: string; host: string; port: number; keepalive?: number }
+  /** allowedIPs is absent only in legacy saves made before the importer preserved it. */
+  peer: { publicKey: string; presharedKey?: string; host: string; port: number; keepalive?: number; allowedIPs?: string[] }
   version: string
   addedAt: number
   source?: 'personal' | 'managed' | 'warp'
@@ -144,6 +146,8 @@ export type Phase = 'off' | 'starting' | 'on' | 'stopping' | 'error'
 
 export interface Status {
   phase: Phase
+  /** Startup/retry checks run before a new engine may be started. Independent of master intent. */
+  startup?: 'recovering' | 'ready' | 'failed'
   /** HOTFIX-RUNTIME-01 E: the master switch's own intent (main-owned). open + phase off = open, but no card needs a tunnel now */
   open?: boolean
   since?: number

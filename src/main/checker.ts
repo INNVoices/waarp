@@ -13,6 +13,7 @@ import { RuntimeJournal } from './runtime-journal'
 import { protectPrivateFile } from './private-file'
 import { pickPort, untilCancelled, waitReady } from './tun'
 import { waitExit } from './stop'
+import { validLatency } from './health'
 
 export class Checker {
   private child?: ChildProcess
@@ -22,6 +23,7 @@ export class Checker {
   busy = new Set<string>()
   private journal: RuntimeJournal
   private recovered = false
+  private cleanupOk = true
   private transition: Promise<void> = Promise.resolve()
   private stopVersion = 0
   private starting?: AbortController
@@ -30,7 +32,16 @@ export class Checker {
 
   async recover(): Promise<boolean> {
     this.recovered = await this.journal.recover()
+    this.cleanupOk = this.recovered
     return this.recovered
+  }
+
+  get recoveryError(): string | undefined { return this.journal.lastError }
+
+  private clearJournal(): boolean {
+    this.cleanupOk = this.journal.clear() !== false
+    if (!this.cleanupOk) this.recovered = false
+    return this.cleanupOk
   }
 
   /** profiles whose AWG address is already live on someone else's adapter */
@@ -77,10 +88,11 @@ export class Checker {
     const child = spawn(this.exe, ['run', '-c', file, '-D', this.dir, '--disable-color'], { windowsHide: true, cwd: this.dir })
     this.child = child
     this.key = key
-    child.on('exit', () => { if (this.child === child) { this.child = undefined; this.key = ''; this.journal.clear() } })
-    child.on('error', () => { if (this.child === child && (!child.pid || child.exitCode !== null || child.signalCode !== null)) { this.child = undefined; this.key = ''; this.journal.clear() } })
+    child.on('exit', () => { if (this.child === child) { this.child = undefined; this.key = ''; this.clearJournal() } })
+    child.on('error', () => { if (this.child === child && (!child.pid || child.exitCode !== null || child.signalCode !== null)) { this.child = undefined; this.key = ''; this.clearJournal() } })
     if (!(await this.journal.record(child.pid)) || this.child !== child) {
       const stopped = await this.stopNow()
+      if (stopped) this.clearJournal()
       try { rmSync(file, { force: true }) } catch {}
       if (!stopped) this.recovered = false
       return false
@@ -106,7 +118,7 @@ export class Checker {
 
   private async delay(tag: string, url: string): Promise<number | undefined> {
     const r = await this.req(`/proxies/${tag}/delay?timeout=6000&url=` + encodeURIComponent(url), 8000)
-    return typeof r?.delay === 'number' && r.delay > 0 ? r.delay : undefined
+    return validLatency(r?.delay) ? r.delay : undefined
   }
 
   private async boundedDelays(url: string, failed: undefined | null, only?: string[]): Promise<Record<string, number | undefined | null>> {
@@ -157,14 +169,22 @@ export class Checker {
     this.abortRequests()
     const c = this.child
     this.key = ''
-    if (!c) return true
+    if (!c) return this.cleanupOk
+    // Failed spawn has no PID and emits error/close, never exit. There is no process to wait four seconds for.
+    if (!c.pid) {
+      if (this.child === c) this.child = undefined
+      const clean = this.clearJournal()
+      this.ids = []
+      return clean
+    }
     // Retain the exact handle and lease until exit is confirmed. Concurrent stops share the FIFO.
     if (c.exitCode === null && c.signalCode === null) { try { c.kill() } catch {} }
     const exited = await waitExit(c, 4000)
     if (exited) {
       if (this.child === c) this.child = undefined
-      this.journal.clear()
+      const clean = this.clearJournal()
       this.ids = []
+      return clean
     } else this.recovered = false
     return exited
   }

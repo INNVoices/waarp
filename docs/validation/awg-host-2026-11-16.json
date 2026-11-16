@@ -1,0 +1,19 @@
+{
+  "mode": "userspace_library_probe",
+  "wireguard_revision": "64065e6826ad82aa28429dd829c1c65f29b7f6c9",
+  "config_valid": true,
+  "device_configured": true,
+  "socket_opened": true,
+  "authenticated_handshake": false,
+  "tunneled_dns_reply": false,
+  "dns_answers": 0,
+  "outer_datagrams_sent": 0,
+  "outer_datagrams_received": 0,
+  "decrypted_packets": 0,
+  "device_error_events": 4,
+  "network_error_category": "network_unreachable",
+  "stopped": true,
+  "duration_ms": 20003,
+  "error_stage": "probe",
+  "error_category": "timeout"
+}

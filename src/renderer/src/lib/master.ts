@@ -1,7 +1,7 @@
 import type { Status } from '../../../shared/types'
 
 export type MasterPending = 'opening' | 'closing' | undefined
-export type MasterMode = 'closed' | 'opening' | 'open' | 'idle' | 'applying' | 'closing' | 'error'
+export type MasterMode = 'closed' | 'opening' | 'recovering' | 'open' | 'idle' | 'applying' | 'closing' | 'error'
 
 export interface MasterPresentation {
   mode: MasterMode
@@ -15,8 +15,9 @@ export interface MasterPresentation {
  * master remains open. Keep that distinction in one pure presentation helper.
  */
 export function masterPresentation(status: Status, pending?: MasterPending): MasterPresentation {
-  if (pending === 'opening') return { mode: 'opening', pressed: true, topKey: 'top.starting' }
   if (pending === 'closing') return { mode: 'closing', pressed: false, topKey: 'top.stopping' }
+  if (status.startup === 'recovering') return { mode: 'recovering', pressed: pending === 'opening' || status.open === true, topKey: 'top.recovering' }
+  if (pending === 'opening') return { mode: 'opening', pressed: true, topKey: 'top.starting' }
 
   if (status.open === true) {
     if (status.phase === 'off') return { mode: 'idle', pressed: true, topKey: 'top.idle' }
@@ -37,6 +38,8 @@ export interface OrbPresentation {
 
 /** Same split for the Home hero. A core rebuild is "applying", not a global close/open cycle. */
 export function orbPresentation(status: Status): OrbPresentation {
+  if (status.startup === 'recovering' && status.phase !== 'stopping')
+    return { phaseClass: 'starting', titleKey: 'orb.recovering', subKey: 'orb.recovering.sub' }
   if (status.open === true && status.phase === 'off')
     return { phaseClass: 'on', titleKey: 'orb.on', subKey: 'orb.idle.sub' }
   if (status.open === true && (status.phase === 'starting' || status.phase === 'stopping'))

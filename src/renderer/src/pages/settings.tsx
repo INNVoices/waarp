@@ -3,9 +3,9 @@ import type { Settings, Snapshot } from '../../../shared/types'
 import { Btn, Icon, Toggle } from '../ui/kit'
 import { s } from '../lib/i18n'
 import { api } from '../bridge'
-import type { SettingsPatch } from '../lib/actions'
+import type { SettingsPatch, Toast } from '../lib/actions'
 
-export function SettingsPage({ snap, patch, toast }: { snap: Snapshot; patch: SettingsPatch; toast: (x: string) => void }) {
+export function SettingsPage({ snap, patch, toast }: { snap: Snapshot; patch: SettingsPatch; toast: Toast }) {
   const st = snap.settings
   const [log, setLog] = useState<string[]>()
   const [resetting, setResetting] = useState(false)
@@ -24,14 +24,14 @@ export function SettingsPage({ snap, patch, toast }: { snap: Snapshot; patch: Se
     if (logAction.current) return
     logAction.current = true; setLogging(true)
     try { setLog(await api.log()) }
-    catch { toast(s('set.log.error')) }
+    catch { toast(s('set.log.error'), 'error') }
     finally { logAction.current = false; setLogging(false) }
   }
   const reset = async () => {
     if (resetAction.current) return
     resetAction.current = true; setResetting(true)
-    try { const r = await api.resetNet(); toast(r?.ok ? s('set.reset.done') : r?.error ?? s('set.reset.error')) }
-    catch { toast(s('set.reset.error')) }
+    try { const r = await api.resetNet(); toast(r?.ok ? s('set.reset.done') : r?.error ?? s('set.reset.error'), r?.ok ? 'success' : 'error') }
+    catch { toast(s('set.reset.error'), 'error') }
     finally { resetAction.current = false; setResetting(false) }
   }
   const opt = (k: keyof Settings, id: string, rec?: boolean) => (

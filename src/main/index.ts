@@ -7,7 +7,7 @@ import { basename, join } from 'node:path'
 import type { Notice, Profile, Settings, Snapshot, Status } from '../shared/types'
 import { compilePlan } from '../shared/plan'
 import { ConfError, createWireGuardProfile, parseConf, usedProfiles, validateCustom, withoutAuto } from './awg'
-import { fetchSubscription, isSubscriptionUrl, looksLikeVless, vlessKey } from './vless'
+import { fetchSubscription, isSubscriptionUrl, looksLikeVless } from './vless'
 import { describeExe, scanApps, trayImage } from './apps'
 import { directProbe, icmp } from './offline'
 import { Checker } from './checker'
@@ -19,8 +19,8 @@ import { looksLikeOpenVpn, parseOpenVpn } from './openvpn'
 import { Health } from './health'
 import { Engine } from './engine'
 import { peekClip } from './clip'
-import { adapters, conflicts } from './guard'
-import { isAdmin, POWERSHELL } from './ps'
+import { adapters, adapterInspectionNotice, conflicts } from './guard'
+import { createAdminCheck, POWERSHELL } from './ps'
 import { Store } from './store'
 import { dropServer } from './store-core'
 import { startBridge } from './bridge'
@@ -41,9 +41,15 @@ import { activeIds, diagnosisSet, learn, type NetMemory } from '../shared/netmem
 import { loadMem, saveMem } from './netmem-store'
 import { networkFingerprint } from './netid'
 import { SerialGate } from './serial'
+import { RuntimeRecovery } from './runtime-recovery'
+import { relaunchArgs, relaunchParent, waitForRelaunchParent } from './relaunch'
 
-// one copy only: a second launch (also from the tray-hidden state) just brings the running window up (second-instance -> show)
-if (!app.requestSingleInstanceLock()) app.exit(0)
+// Ordinary launches acquire the lock immediately. An elevated replacement waits
+// for its parent first; the old app keeps the lock throughout the UAC prompt and
+// cleanup, so a third ordinary launch cannot enter the shared state in between.
+let waitingForParent = false
+try { waitingForParent = relaunchParent(process.argv) !== undefined } catch { app.exit(1) }
+if (!waitingForParent && !app.requestSingleInstanceLock()) app.exit(0)
 
 app.setAppUserModelId('local.waarp')
 
@@ -56,6 +62,10 @@ let discoveryBusy = false
 let tray: Tray | undefined
 let quitting = false
 let admin = false
+let adminReady: Promise<boolean> = Promise.resolve(false)
+const checkAdmin = createAdminCheck()
+/** Explicit user actions during first paint supersede the saved auto-connect preference. */
+let connectionAction = 0
 let notices: Notice[] = []
 let bridgeError = false
 let engineIntegrity = false
@@ -71,6 +81,12 @@ const engineExe = app.isPackaged
 
 let store: Store
 let engine: Engine
+
+const runtimeRecovery = new RuntimeRecovery({
+  ready: () => !!engine && engine.recoveryReady,
+  recover: recoverRuntimes,
+  changed: () => { send('status', statusView(engine.status)); updateTray() }
+})
 
 const demandsTunnel = (s: Settings): boolean => s.rest !== 'direct' || s.routes.some(r => r.on && r.via !== 'direct')
 
@@ -112,17 +128,49 @@ const master = new ConnectionControl({
   phase: () => engine.status.phase,
   error: () => engine.status.error,
   demandsTunnel: () => demandsTunnel(store.settings),
-  prepare: () => prepareStart({ stopChecker: pauseMeasurements, notices: refreshNotices }),
+  prepare: prepareConnection,
   start: () => engine.start(store.profiles, store.settings),
   stop: () => engine.stop(),
   serial: work => intentWrites.run(work),
   changed: () => { send('status', statusView(engine.status)); updateTray() }
 })
 const setMaster = (open: boolean) => master.set(open)
-const statusView = (s: Status) => ({ ...withRoutes(s), open: master.open })
+const statusView = (s: Status) => ({ ...withRoutes(s), open: master.open, startup: runtimeRecovery.state })
 async function pauseMeasurements(): Promise<boolean> {
   const stopped = await Promise.all([checker?.stop() ?? true, catalog?.pause() ?? true])
   return stopped.every(Boolean)
+}
+
+/** Called inside the intent queue, with the recovery gate preventing new measurement processes. */
+async function recoverRuntimes(): Promise<boolean> {
+  if (quitting) return false
+  const [measurementStop, engineStop] = await Promise.allSettled([pauseMeasurements(), engine.stop()])
+  const measurementsStopped = measurementStop.status === 'fulfilled' && measurementStop.value
+  const engineStopped = engineStop.status === 'fulfilled' && engineStop.value
+  if (quitting) return false
+  const [checkerResult, catalogResult] = await Promise.allSettled([checker?.recover() ?? true, catalog?.recover() ?? true])
+  if (quitting) return false
+  const checkerRecovered = checkerResult.status === 'fulfilled' && checkerResult.value
+  const catalogRecovered = catalogResult.status === 'fulfilled' && catalogResult.value
+  // A verified journal recovery can finish a checker that did not exit within the initial stop budget.
+  const stopped = measurementsStopped || (checkerRecovered && catalogRecovered && await pauseMeasurements().catch(() => false))
+  const relatedError = !checkerRecovered
+    ? `Проверка личных подключений: ${checker?.recoveryError ?? 'не удалось восстановить прошлый процесс'}`
+    : !catalogRecovered
+      ? `Проверка каталога: ${catalog?.recoveryError ?? 'не удалось восстановить прошлый процесс'}`
+      : !stopped ? 'Проверочный движок не подтвердил остановку. Повтори восстановление.'
+        : !engineStopped ? 'Основной движок не подтвердил остановку. Повтори восстановление.' : undefined
+  return engine.killOrphans(stopped && engineStopped && checkerRecovered && catalogRecovered, relatedError)
+}
+
+async function prepareConnection() {
+  admin = await (adminReady = checkAdmin())
+  if (quitting) return { ok: false as const, error: 'Waarp закрывается' }
+  const stopped = await pauseMeasurements()
+  // A later failed lease or stuck checker must not poison all future ON attempts for this app session.
+  if (!(await runtimeRecovery.ensure(!stopped))) return { ok: false as const, error: engine.status.error ?? 'Не удалось восстановить прошлый процесс. Повтори восстановление.' }
+  if (quitting) return { ok: false as const, error: 'Waarp закрывается' }
+  return prepareStart({ stopChecker: async () => true, notices: () => refreshNotices(true) })
 }
 
 function send(ch: string, data: unknown) {
@@ -177,8 +225,12 @@ function updateTray() {
   ]))
 }
 
-async function refreshNotices() {
-  const list = await adapters()
+async function refreshNotices(beforeStart = false) {
+  // An unreadable OS snapshot is unknown, never an empty list of conflicts. The
+  // periodic watch warns without destroying a healthy session; a new start must
+  // obtain a complete snapshot before it may create another system tunnel.
+  const [scan, elevated] = await Promise.all([adapters().then(list => ({ list }), () => ({ list: undefined })), adminReady = checkAdmin()])
+  admin = elevated
   // A full-route VPN may be the underlay for app-only Waarp routes. It is unsafe only when
   // Waarp also owns the default route. Address collisions are still blocked for profiles
   // actually selected by an enabled route; unused profiles never participate here.
@@ -186,12 +238,12 @@ async function refreshNotices() {
   const required = new Set(plan.requiredProfiles)
   // A conflicting backup must not block an unrelated healthy primary. Guard only the
   // credentials that the compiled plan needs now; standby health is reported beside the route.
-  notices = conflicts(
+  notices = scan.list ? conflicts(
     store.profiles.filter(p => required.has(p.id)),
-    list.filter(a => a.name !== 'Waarp'),
+    scan.list.filter(a => a.name !== 'Waarp'),
     'Waarp',
     plan.scope === 'cards'
-  )
+  ) : [adapterInspectionNotice(!beforeStart && engine.status.phase === 'on')]
   if (bridgeError) notices.unshift({ level: 'warn', title: 'Связь с приложениями отключена', text: 'Windows не подтвердил закрытый доступ к токену локального моста. Waarp продолжает работать самостоятельно.' })
   if (!engineIntegrity) notices.unshift({ level: 'block', title: 'Движок Waarp повреждён', text: 'Контрольная сумма sing-box или его библиотеки не совпадает со сборкой. Переустанови Waarp; запуск туннеля заблокирован.' })
   if (store.secureOff) notices.unshift({ level: 'warn', title: 'Ключи не сохраняются', text: 'Защищённое хранилище Windows сейчас недоступно, поэтому Waarp держит туннели только до закрытия и ничего не пишет на диск открытым текстом.' })
@@ -202,7 +254,8 @@ async function refreshNotices() {
 }
 
 const connect = () => master.connect()
-const toggle = () => master.toggle()
+const toggle = () => { connectionAction++; return master.toggle() }
+const disconnect = () => { connectionAction++; return master.disconnect() }
 
 let watchBusy = false
 async function watch() {
@@ -269,15 +322,18 @@ function setAutostart(on: boolean): Promise<boolean> {
 function relaunchAdmin() {
   if (relaunching) return
   relaunching = true
-  const args = process.argv.slice(1).map(a => `'${a.replace(/'/g, "''")}'`).join(',')
-  const exe = process.execPath.replace(/'/g, "''")
-  const cmd = `Start-Process -FilePath '${exe}' ${args ? `-ArgumentList ${args}` : ''} -Verb RunAs`
-  // The elevated copy must be able to acquire the single-instance mutex. Release it before
-  // Windows starts the new process; reacquire it if UAC is cancelled or launching fails.
-  app.releaseSingleInstanceLock()
-  execFile(POWERSHELL, ['-NoProfile', '-Command', cmd], { windowsHide: true }, err => {
-    if (!err) { quitting = true; app.exit(0); return }
-    app.requestSingleInstanceLock()
+  // Portable wrappers remove the extracted app when it closes. Elevate the stable wrapper itself.
+  const launchExe = (app.isPackaged && process.env.PORTABLE_EXECUTABLE_FILE) || process.execPath
+  const literal = (value: string) => `'${value.replace(/'/g, "''")}'`
+  // Start-Process joins an ArgumentList array, so pass one command line with each Windows argument quoted.
+  const argument = (value: string) => '"' + value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, '$1$1') + '"'
+  const args = relaunchArgs(process.argv.slice(1), process.pid).map(argument).join(' ')
+  const cmd = `$ErrorActionPreference='Stop';Start-Process -FilePath ${literal(launchExe)} ${args ? `-ArgumentList ${literal(args)}` : ''} -Verb RunAs -ErrorAction Stop`
+  const encoded = Buffer.from(cmd, 'utf16le').toString('base64')
+  // Keep the single-instance lock until the old app actually exits. The marked
+  // replacement waits read-only, then acquires the lock before opening shared files.
+  execFile(POWERSHELL, ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { windowsHide: true, timeout: 60_000 }, err => {
+    if (!err) { quitting = true; void shutdownGate().then(() => app.quit()); return }
     relaunching = false
     send('toast', 'Перезапуск с правами администратора отменён')
   })
@@ -302,6 +358,7 @@ function secureIntentHandle(channel: string, handler: IpcHandler): void {
 function ipc() {
   secureHandle('snapshot', () => snapshot())
   secureHandle('toggle', () => toggle())
+  secureHandle('disconnect', () => disconnect())
   secureHandle('apps:scan', () => scanApps(items => send('apps', items)))
   secureHandle('apps:pick', async () => {
     const r = await dialog.showOpenDialog(win!, { title: 'Выбери программу', filters: [{ name: 'Программы', extensions: ['exe'] }], properties: ['openFile'] })
@@ -374,6 +431,7 @@ function ipc() {
   })
   secureHandle('catalog:refresh', async () => {
     if (!engineIntegrity) return { ok: false, error: 'Движок Waarp повреждён. Обновление и проверка каталога заблокированы.' }
+    if (!runtimeRecovery.ready) return { ...catalog?.state, error: 'Дождись восстановления Waarp перед проверкой каталога' }
     if (master.open || engine.status.phase !== 'off') return { ...catalog?.state, error: 'Обновление продолжится после отключения Waarp' }
     return await catalog?.refresh()
   })
@@ -724,7 +782,14 @@ function ipc() {
     const pick = checkSample(usedProfiles(withoutAuto(store.settings), store.profiles).map(p => p.id), store.profiles.filter(p => !p.revoked).map(p => p.id), probeCursor)
     probeCursor = pick.cursor
     const subset = store.profiles.filter(p => pick.ids.includes(p.id))
-    const [direct, via] = await Promise.all([directProbe(target), checker && subset.length && (await checker.ensure(subset, await adapters())) ? checker.probe(target, pick.ids) : Promise.resolve({} as Record<string, number | null>)])
+    const viaPaths = async (): Promise<Record<string, number | null>> => {
+      if (!checker || !subset.length) return {}
+      // A failed adapter scan gives no permission to reuse a possibly live AWG
+      // address. Skip this measurement; it is not evidence that a server failed.
+      try { return await checker.ensure(subset, await adapters()) ? checker.probe(target, pick.ids) : {} }
+      catch { return {} }
+    }
+    const [direct, via] = await Promise.all([directProbe(target), viaPaths()])
     return { direct, ...via }
   })
   /** W3.2: layered Direct evidence + own eligible paths (bounded, never public) -> a cautious finding */
@@ -744,7 +809,8 @@ function ipc() {
       if (engine.status.phase === 'on') return engine.probePaths(target, eligible)
       // the checker is built from the bounded set only, never the whole library
       const subset = store.profiles.filter(p => eligible.includes(p.id))
-      return checker && (await checker.ensure(subset, await adapters())) ? checker.probe(target, eligible) : {}
+      try { return checker && (await checker.ensure(subset, await adapters())) ? checker.probe(target, eligible) : {} }
+      catch { return {} }
     }
     const [direct, all] = await Promise.all([probeLayers(target), viaPaths()])
     const paths: Record<string, number | null> = {}
@@ -755,18 +821,16 @@ function ipc() {
   })
   secureHandle('log', () => engine.log())
   secureHandle('net:reset', () => {
+    connectionAction++
     setMaster(false)
     const stop = engine.stop() // invalidate a pending start immediately, outside the queue
     return intentWrites.run(async () => {
-      const checkerStopped = await pauseMeasurements()
-      const engineStopped = await stop
-      const checkerRecovered = (await checker?.recover()) !== false
-      const catalogRecovered = (await catalog?.recover()) !== false
-      const recovered = await engine.killOrphans(checkerStopped && checkerRecovered && catalogRecovered)
+      await stop.catch(() => false)
+      const recovered = await runtimeRecovery.ensure(true)
       await refreshNotices()
-      return engineStopped && recovered
+      return recovered
         ? { ok: true }
-        : { ok: false, error: 'Не всё удалось закрыть безопасно. Перезапусти Waarp; чужие сетевые настройки не изменялись.' }
+        : { ok: false, error: engine.status.error ?? 'Не всё удалось закрыть безопасно. Повтори восстановление.' }
     })
   })
   secureHandle('admin:relaunch', () => relaunchAdmin())
@@ -781,20 +845,32 @@ function ipc() {
 app.on('second-instance', show)
 
 app.whenReady().then(async () => {
+  // An elevated replacement waits read-only for the parent's bounded cleanup,
+  // then acquires the mutex. Shared writers start only after both conditions hold.
+  if (!(await waitForRelaunchParent(process.argv))) {
+    dialog.showErrorBox('Waarp не перезапустился', 'Предыдущая копия Waarp ещё не закрылась или Windows не дала проверить её завершение. Закрой её и повтори запуск. Настройки и процессы не изменены.')
+    app.quit()
+    return
+  }
+  if (waitingForParent && !app.requestSingleInstanceLock()) { app.quit(); return }
   store = new Store(app.getPath('userData'))
   loadNetMem(app.getPath('userData'))
   engineIntegrity = verifyEngine(engineExe)
   engine = new Engine(engineExe, join(app.getPath('userData'), 'engine'), process.execPath)
   // R1.4: read-only check for a leftover Waarp adapter or a taken service subnet before every TUN start
   engine.preflight = async () => tunPreflight(await tunSnapshot())
-  const allowMeasurements = () => !quitting && !master.open && engine.status.phase === 'off'
+  const allowMeasurements = () => runtimeRecovery.ready && !quitting && !master.open && engine.status.phase === 'off'
   checker = engineIntegrity ? new Checker(engineExe, join(app.getPath('userData'), 'check'), allowMeasurements) : undefined
   catalog = new Catalog(join(app.getPath('userData'), 'catalog'), engineExe, s => send('catalog', s), allowMeasurements)
   discovery = new Discovery()
   // Public checks are explicit. Opening Waarp must not contact third-party nodes or race their checker with TUN.
   // Showing the shell must not wait for PowerShell, orphan recovery, or network-related cleanup.
   // Those checks finish immediately after first paint and update the same snapshot.
-  const adminReady = isAdmin()
+  adminReady = checkAdmin()
+  const startupAction = connectionAction, startupRevision = master.revision
+  // Reserve the queue before IPC becomes callable. A first-paint ON cannot run before orphan recovery,
+  // and a delayed bootstrap pass cannot subsequently kill a core that ON has just launched.
+  const startupRecovery = intentWrites.run(() => runtimeRecovery.ensure())
   engine.on('status', s => { send('status', statusView(s)); updateTray(); watchPings(s) })
   engine.on('fallback', (e: { main: string; fb: string; toFb: boolean; routes: string[] }) => {
     const name = (id: string) => store.profiles.find(p => p.id === id)?.name ?? '?'
@@ -845,13 +921,10 @@ app.whenReady().then(async () => {
   tray = new Tray(trayImage(false))
   tray.on('click', show)
   updateTray()
-  admin = await adminReady
-  const checkerRecovered = (await checker?.recover()) !== false
-  const catalogRecovered = await catalog.recover()
-  const relatedRecovered = checkerRecovered && catalogRecovered
-  await engine.killOrphans(relatedRecovered)
+  const [elevated] = await Promise.all([adminReady, startupRecovery])
+  admin = elevated
   void refreshNotices()
-  if (store.settings.autoConnect && admin && demandsTunnel(store.settings)) void connect()
+  if (!quitting && connectionAction === startupAction && master.revision === startupRevision && !master.open && store.settings.autoConnect && admin && demandsTunnel(store.settings)) void connect()
   // R4: one restart per resume, after a usable network is back; never overlapping, never a churn loop
   const sleepWake = createResume({
     isOn: () => master.open && (engine.status.phase === 'on' || engine.status.phase === 'starting'),
@@ -907,7 +980,7 @@ app.whenReady().then(async () => {
       const ok = !!checker && selected.length > 0 && (await checker.ensure(selected, list))
       const via = ok && checker ? await checker.pings() : {}
       await Promise.all([...profiles.map(async p => { pings[p.id] = via[p.id] ?? (checker?.busy.has(p.id) ? undefined : await icmp(p.host)) }), (async () => { pings.direct = await icmp('1.1.1.1') })()])
-      const health = offHealth.step(via, profiles.map(p => p.id), checker?.busy)
+      const health = offHealth.step(via, ok ? profiles.map(p => p.id) : [], checker?.busy, store.profiles.filter(p => !p.revoked).map(p => p.id))
       if (allowMeasurements() && revision === master.revision) send('status', statusView({ ...engine.status, engine: 'down', pings, health: ok ? health : undefined }))
       else void checker?.stop()
     } catch { /* a background measurement failure must not escape the timer or alter owner intent */ }
@@ -922,9 +995,10 @@ let shutdown: Promise<void> | undefined
 let shutdownDone = false
 const tunnelActive = (): boolean => !!engine && ['on', 'starting', 'stopping'].includes(engine.status.phase)
 function shutdownGate(): Promise<void> {
+  quitting = true
   setMaster(false)
   shutdown ??= (async () => {
-    const r = await bounded(Promise.all([pauseMeasurements(), engine?.stop()]), SHUTDOWN_MS)
+    const r = await bounded(Promise.all([pauseMeasurements(), engine?.stop(), runtimeRecovery.settled()]), SHUTDOWN_MS)
     // past the bound: last resort; the ownership journal stays and the next launch recovers by exact identity
     if (r === 'timeout') engine?.stopSync()
   })().finally(() => { shutdownDone = true })
@@ -958,7 +1032,9 @@ const applyRouting = createApply({
   demandsTunnel,
   start: async s => {
     const revision = master.revision
-    if (await pauseMeasurements() && master.current(revision)) await engine.start(store.profiles, s)
+    const stopped = await pauseMeasurements()
+    if (!master.current(revision) || quitting || !(await runtimeRecovery.ensure(!stopped))) return
+    if (master.current(revision) && !quitting) await engine.start(store.profiles, s)
   },
   live: s => engine.applyLive(store.profiles, s),
   stop: () => engine.stop(),

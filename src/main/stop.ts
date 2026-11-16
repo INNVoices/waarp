@@ -1,21 +1,46 @@
-// Hardening R2 (A + C): graceful Windows stop of the owned core. The core runs in its own hidden console; a hidden
-// helper attaches to that console and raises CTRL_BREAK, which sing-box handles as an interrupt (clean close, exit 0).
-// Only a numeric internal PID enters the helper; PowerShell comes from System32, never from PATH.
-import { execFile } from 'node:child_process'
-import { POWERSHELL } from './ps'
+// Hardening R2: try CTRL_BREAK only for an exactly owned process with an isolated console.
+// A windowsHide/piped Node spawn normally has no console; report that so the caller can use its own child handle
+// immediately instead of waiting for a signal that was never sent. Never signal an inherited/shared console.
+import { ps } from './ps'
+import type { ProcessIdentity } from './runtime-journal'
 
-const SCRIPT = (pid: number) => `$ErrorActionPreference='SilentlyContinue'
-Add-Type -Namespace WaarpStop -Name K -MemberDefinition '[DllImport("kernel32.dll")] public static extern bool FreeConsole(); [DllImport("kernel32.dll")] public static extern bool AttachConsole(uint p); [DllImport("kernel32.dll")] public static extern bool GenerateConsoleCtrlEvent(uint e, uint g);'
-[WaarpStop.K]::FreeConsole() | Out-Null
-if ([WaarpStop.K]::AttachConsole(${pid})) { [WaarpStop.K]::GenerateConsoleCtrlEvent(1, 0) | Out-Null }`
+const quote = (value: string) => `'${value.replace(/'/g, "''")}'`
+const SCRIPT = (pid: number, identity: ProcessIdentity) => `$ErrorActionPreference='Stop'
+$owned=$null
+$attached=$false
+$sent=$false
+try {
+  $owned=[Diagnostics.Process]::GetProcessById(${pid})
+  $null=$owned.Handle
+  $p=Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}'
+  if($null -ne $p -and $p.ExecutablePath -ieq ${quote(identity.path)} -and $p.CreationDate.ToUniversalTime().ToString('o') -ceq ${quote(identity.started)} -and -not $owned.HasExited){
+    Add-Type -Namespace WaarpStop -Name K -MemberDefinition '
+      [System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern bool FreeConsole();
+      [System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern bool AttachConsole(uint p);
+      [System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern uint GetConsoleProcessList([System.Runtime.InteropServices.Out] uint[] p, uint n);
+      [System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern bool GenerateConsoleCtrlEvent(uint e, uint g);
+      public delegate bool Handler(uint e);
+      public static readonly Handler Ignore = delegate(uint e) { return true; };
+      [System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern bool SetConsoleCtrlHandler(Handler h, bool add);'
+    [WaarpStop.K]::FreeConsole() | Out-Null
+    $attached=[WaarpStop.K]::AttachConsole(${pid})
+    if($attached){
+      $members=New-Object uint32[] 3
+      $count=[WaarpStop.K]::GetConsoleProcessList($members,3)
+      if($count -eq 2 -and $members -contains [uint32]${pid} -and $members -contains [uint32]$PID -and [WaarpStop.K]::SetConsoleCtrlHandler([WaarpStop.K]::Ignore,$true)){
+        $sent=[WaarpStop.K]::GenerateConsoleCtrlEvent(1,${pid})
+      }
+    }
+  }
+} catch { } finally { if($attached){[WaarpStop.K]::FreeConsole() | Out-Null};if($null -ne $owned){$owned.Dispose()} }
+$sent | ConvertTo-Json -Compress`
 
-/** best effort: the caller decides by watching the exact process exit, never by this result */
-export function ctrlBreak(pid: number, timeout = 5000): Promise<void> {
-  if (!Number.isSafeInteger(pid) || pid <= 4) return Promise.resolve()
-  const encoded = Buffer.from(SCRIPT(pid), 'utf16le').toString('base64')
-  return new Promise(resolve => {
-    execFile(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { windowsHide: true, timeout }, () => resolve())
-  })
+/** True means a native signal was sent, not that the process exited; the caller must still observe its own handle. */
+export async function ctrlBreak(pid: number, identity: ProcessIdentity, timeout = 5000): Promise<boolean> {
+  if (!Number.isSafeInteger(pid) || pid <= 4 || !identity?.path || !identity.started) return false
+  // Hold a native handle across the second identity check and AttachConsole. A prior ownership
+  // query in Node is not enough: its target can exit before this separate helper even starts.
+  try { return (await ps<boolean>(SCRIPT(pid, identity), timeout)) === true } catch { return false }
 }
 
 /** wait for an exit event (or an already exited child) up to `ms` */

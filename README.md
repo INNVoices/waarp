@@ -37,6 +37,8 @@
 
 Windows 10 / 11, x64. The interface is currently Russian-first.
 
+The current source is **0.4.1-rc.1**, a validation candidate. Stable approval is pending the [release acceptance gates](docs/STABLE-AUDIT-2026-11-16.md); CI artifacts are candidate builds, not a claim that every real-network scenario has passed.
+
 **Found a bug?** Open an issue. **Know how to fix it?** Send a pull request — small, focused fixes are very welcome.
 
 ## How it works
@@ -96,11 +98,11 @@ The public connection catalog refreshes and checks its nodes only when you reque
 Waarp is designed to avoid leaving network state behind and to refuse a start when the state is ambiguous:
 
 - before every start it checks, read-only, for a leftover Waarp adapter or a taken service subnet, and refuses to start rather than change anything;
-- stopping is graceful first, then forced only for the exact process it started, then verified;
+- stopping tries a verified CTRL_BREAK only when an isolated console is available; otherwise it terminates only its own child through the retained handle, then verifies exit;
 - it never deletes network adapters, resets Winsock or DNS, or touches another VPN;
 - after sleep it restarts at most once, and only when a usable network is back.
 
-Known limitations: these rules are covered by offline tests; real sleep, shutdown, adapter-leftover and other-VPN cases have not been run on a test machine yet. The full failure matrix and what is still unproven are in [docs/RELIABILITY.md](docs/RELIABILITY.md).
+Coverage includes offline regressions, native Windows process checks and production-renderer checks. Native TUN lifecycle and protocol tests have separate evidence and boundaries. Physical sleep, shutdown, full routing, other-VPN coexistence and the private remote endpoint require the [stable acceptance matrix](docs/STABLE-AUDIT-2026-11-16.md). Actual results are in [the validation record](docs/VALIDATION-2026-11-16.md); the failure contract is in [docs/RELIABILITY.md](docs/RELIABILITY.md).
 
 ## Security model
 
@@ -122,7 +124,7 @@ Security issues: please follow [SECURITY.md](SECURITY.md) instead of opening a p
 Windows 10/11, Node.js. Administrator rights are needed only when the tunnel starts.
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
@@ -133,9 +135,12 @@ npm run typecheck
 npm test
 npm run check
 npm run build
+npm run test:performance
 ```
 
-`npm run test:live` changes network state; run it only on a disposable Windows test machine.
+`npm run test:ui` serves the built production renderer for Playwright automatically (install Chromium first with `npx playwright install chromium`).
+
+`npm run test:live -- --disposable-windows` creates a real temporary TUN on an administrator Windows test machine and verifies cleanup across 50 cycles. It intentionally disables automatic routes and DNS capture. Run it only on a disposable test machine; it does not establish remote connectivity or full-system routing. The opt-in real-connection runner and AWG library harness are documented in [the validation record](docs/VALIDATION-2026-11-16.md).
 
 ## Contributing
 

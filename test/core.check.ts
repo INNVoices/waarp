@@ -43,7 +43,7 @@ PersistentKeepalive = 25
 
 const p = parseConf(CONF, 'Сервер 1')
 eq(p.address, ['10.8.0.7/32', 'fd00::7/128'], 'address prefixes')
-eq(p.peer, { publicKey: PUB, presharedKey: PUB, host: '203.0.113.10', port: 51820, keepalive: 25 }, 'peer')
+eq(p.peer, { publicKey: PUB, presharedKey: PUB, host: '203.0.113.10', port: 51820, keepalive: 25, allowedIPs: ['0.0.0.0/0', '::/0'] }, 'peer')
 eq(p.mtu, 1376, 'mtu')
 eq(p.awg.jc, 4, 'jc number')
 eq(p.awg.h1, '1020325451-1020325500', 'h1 range')
@@ -197,7 +197,7 @@ ok(cv.dns.servers.some((x: any) => x.tag === 'dns-' + vx.id && x.detour === tagO
 eq(cv.dns.final, 'dns-' + vx.id, 'dns final follows rest')
 const cd: any = buildConfig([p, vx], { ...SV, rest: 'direct', routes: [] }, { api: { port: 1, secret: 's' } })
 eq([cd.endpoints.length, cd.outbounds.length], [0, 1], 'unused profiles are not built')
-eq(conflicts([vx, p], [{ name: 'Wintun', desc: 'x', ipv4: ['10.8.0.7'], fullRoute: false }]).map(x => x.level), ['warn'], 'address clue warns without globally blocking unrelated vless')
+eq(conflicts([vx, p], [{ name: 'Wintun', desc: 'x', ipv4: ['10.8.0.7'], fullRoute: false }]).map(x => x.level), ['warn', 'info'], 'address clue and split-VPN notice do not globally block unrelated vless')
 eq(conflicts([vx], [{ name: 'Ethernet', desc: 'Realtek', ipv4: ['10.8.0.7'], fullRoute: false }]), [], 'guard with only vless')
 const logSecrets = vlessSecrets(vx)
 const leaked = redactVless(redact('err uuid ' + VU + ' pbk ' + VK + ' sid 0123abcd key ' + PK), logSecrets)
@@ -222,12 +222,14 @@ const ad = [
   { name: 'AmneziaVPN', desc: 'WireGuard Tunnel', ipv4: ['10.8.0.7'], fullRoute: true },
   { name: 'Ethernet 2', desc: 'Realtek Gaming 2.5GbE', ipv4: ['192.168.1.5'], fullRoute: false }
 ]
-eq(conflicts([p], ad).map(x => x.level), ['warn'], 'same address is a warning, not proof of credential ownership')
+eq(conflicts([p], ad).map(x => x.level), ['warn', 'block'], 'same address warns but cannot suppress an independent full-VPN route block')
+eq(conflicts([p], ad, 'Waarp', true).map(x => x.level), ['warn', 'warn'], 'app-only scope retains both address and external VPN warnings')
 eq(conflicts([p], [{ ...ad[0], ipv4: ['10.8.0.2'] }, ad[1]]).map(x => x.level), ['block'], 'other full vpn -> block')
 eq(conflicts([p], [{ ...ad[0], ipv4: ['10.8.0.2'] }, ad[1]], 'Waarp', true).map(x => x.level), ['warn'], 'other full vpn may be an underlay for app-only routes')
 eq(conflicts([p], [{ ...ad[0], ipv4: ['10.8.0.2'], fullRoute: false }]).map(x => x.level), ['info'], 'other split vpn -> info')
 eq(conflicts([p], [ad[1]]).length, 0, 'plain lan -> nothing')
 eq(conflicts([p], [{ name: 'Waarp', desc: 'sing-tun', ipv4: ['10.8.0.7'], fullRoute: true }]).length, 0, 'own adapter ignored')
+eq(conflicts([p], [{ name: 'WAARP', desc: 'WireGuard', ipv4: ['10.8.0.7'], fullRoute: true }]).length, 0, 'own adapter matching follows Windows case-insensitive names')
 
 ;(async () => {
   const { startBridge } = await import('../src/main/bridge')
@@ -246,10 +248,15 @@ eq(conflicts([p], [{ name: 'Waarp', desc: 'sing-tun', ipv4: ['10.8.0.7'], fullRo
   ok(!found.some(x => x.source.includes('oversize')), 'discovery ignores oversized files')
   ok(!JSON.stringify(found).includes(PK) && !!discover.profile(found[0]?.id), 'discovery preview omits private key while main retains candidate')
   const { RuntimeJournal } = await import('../src/main/runtime-journal')
-  const journal = new RuntimeJournal(dir, 'F:\\fake\\sing-box.exe', 'run.json')
+  // Use a genuinely running executable name. A malformed lease for an absent
+  // fake executable is safely clearable after the new all-path absence check;
+  // this fixture instead proves an unowned live process is never guessed away.
+  const journal = new RuntimeJournal(dir, process.execPath, 'run.json')
   eq(await journal.recover(), true, 'runtime recovery without a lease leaves all processes alone')
-  writeFileSync(join(dir, 'run.json.owner'), JSON.stringify({ version: 1, runId: 'bad', pid: 42, path: 'F:\\fake\\sing-box.exe', started: '2026-01-01T00:00:00Z' }))
+  const malformed = JSON.stringify({ version: 1, runId: 'bad', pid: 42, path: process.execPath, started: '2026-01-01T00:00:00Z' })
+  writeFileSync(join(dir, 'run.json.owner'), malformed)
   eq(await journal.recover(), false, 'runtime recovery rejects an unowned or malformed lease')
+  eq(readFileSync(join(dir, 'run.json.owner'), 'utf8'), malformed, 'unowned live process retains its unresolved lease evidence')
   const pipe = process.platform === 'win32' ? '\\\\.\\pipe\\waarp-test-' + process.pid : join(dir, 'bridge.sock')
   const srv = startBridge(dir, { version: 't', status: () => ({ phase: 'off' }) }, pipe)
   const { localIpcReady } = await import('./local-ipc')

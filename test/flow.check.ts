@@ -91,6 +91,19 @@ t('explicit master close/open pending overrides internal engine presentation',
   && masterPresentation(baseStatus, 'closing').topKey === 'top.stopping'
   && masterPresentation(baseStatus, 'opening').pressed
   && masterPresentation(baseStatus, 'opening').topKey === 'top.starting')
+t('startup recovery reports progress without claiming the master was opened',
+  masterPresentation({ ...baseStatus, startup: 'recovering' }).topKey === 'top.recovering'
+  && !masterPresentation({ ...baseStatus, startup: 'recovering' }).pressed
+  && orbPresentation({ ...baseStatus, startup: 'recovering' }).titleKey === 'orb.recovering')
+t('an explicit opening during recovery remains cancellable, and closing outranks background recovery',
+  masterPresentation({ ...baseStatus, startup: 'recovering' }, 'opening').pressed
+  && masterPresentation({ ...baseStatus, startup: 'recovering' }, 'opening').topKey === 'top.recovering'
+  && !masterPresentation({ ...baseStatus, startup: 'recovering' }, 'closing').pressed
+  && masterPresentation({ ...baseStatus, startup: 'recovering' }, 'closing').topKey === 'top.stopping'
+  && orbPresentation({ ...baseStatus, startup: 'recovering', phase: 'stopping' }).titleKey === 'orb.stopping')
+t('failed startup recovery returns to the closed error state',
+  !masterPresentation({ ...baseStatus, startup: 'failed', phase: 'error' }).pressed
+  && orbPresentation({ ...baseStatus, startup: 'failed', phase: 'error' }).titleKey === 'orb.error')
 t('Home orb calls an internal reapply switching, never global closing/opening',
   orbPresentation({ ...baseStatus, open: true, phase: 'stopping' }).titleKey === 'orb.applying'
   && orbPresentation({ ...baseStatus, open: true, phase: 'starting' }).titleKey === 'orb.applying')
@@ -150,7 +163,7 @@ const masterPartsSrc = readFileSync('src/renderer/src/parts.tsx', 'utf8')
 t('an already-open master can always be closed even when nothing remains to open',
   appSrc.includes('const masterUnavailable = !master.pressed && !snap.profiles.length && !demandsTunnel')
   && appSrc.includes('disabled={masterUnavailable || busy}')
-  && masterPartsSrc.includes("disabled={disabled && status.open !== true && status.phase === 'off'}")
+  && masterPartsSrc.includes("disabled={busy || (disabled && status.open !== true && status.phase === 'off')}")
   && readFileSync('src/main/index.ts', 'utf8').includes("enabled: master.open || ((store.profiles.length > 0 || demandsTunnel(store.settings)) && admin)"))
 
 const connectionsSrc = readFileSync('src/renderer/src/pages/connections.tsx', 'utf8')

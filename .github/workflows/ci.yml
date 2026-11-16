@@ -17,7 +17,76 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - name: Audit pinned JavaScript dependencies
+        run: npm audit --audit-level=moderate
       - run: npm run typecheck
       - run: npm test
       - run: npm run check
+      - name: Check configuration compiler performance
+        run: npm run test:performance
       - run: npm run build
+      - name: Install browser for UI regressions
+        run: npx playwright install chromium
+      - name: Verify production UI and recovery controls
+        run: npm run test:ui
+        env:
+          WAARP_UI_SCREENSHOTS: out/ui
+      - name: Retain UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: waarp-ui-evidence
+          path: out/ui
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Fetch and verify pinned Windows engine
+        run: npm run engine:fetch
+      - name: Verify 50 native TUN lifecycle cycles
+        run: npm run test:live -- --disposable-windows
+      - name: Build portable Windows package
+        run: npx electron-builder --win portable --publish never
+      - name: Verify packaged runtime and engine checksums
+        run: npm run package:verify
+      - name: Retain native and performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: waarp-validation-evidence
+          path: out/validation
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Retain portable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: waarp-windows-portable
+          path: dist/Waarp-*-portable.exe
+          if-no-files-found: error
+          retention-days: 7
+  userspace-awg:
+    name: AWG protocol and crash (linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.11'
+          cache-dependency-path: test/userspace-awg/go.sum
+      - name: Build pinned userspace AWG library harness
+        working-directory: test/userspace-awg
+        run: go build -trimpath -buildvcs=false -o awg-userspace-audit .
+      - name: Check encrypted loopback lifecycle and crash recovery
+        working-directory: test/userspace-awg
+        run: |
+          mkdir -p ../../out/validation
+          ./awg-userspace-audit --self-test | tee ../../out/validation/awg-loopback.json
+          python3 crash-check.py --binary ./awg-userspace-audit --report ../../out/validation/awg-crash.json
+          go version -m ./awg-userspace-audit > ../../out/validation/awg-build.txt
+      - name: Retain AWG evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: waarp-awg-evidence
+          path: out/validation
+          if-no-files-found: error
+          retention-days: 7

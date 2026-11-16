@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import type { Settings, Snapshot, Status, Via } from '../../../shared/types'
+import type { Snapshot, Status, Via } from '../../../shared/types'
 import type { DirectObs, Finding } from '../../../shared/evidence'
 import { AUTO_ID, autoMembers } from '../../../shared/groups'
 import { Btn, Field, Icon } from '../ui/kit'

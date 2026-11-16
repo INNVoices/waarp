@@ -1,0 +1,29 @@
+{
+  "date": "2026-11-16",
+  "scope": "npm dependency advisories; includes Electron and development/build dependencies; excludes embedded Go engine",
+  "before": {
+    "info": 0,
+    "low": 0,
+    "moderate": 7,
+    "high": 3,
+    "critical": 0,
+    "total": 10
+  },
+  "after": {
+    "info": 0,
+    "low": 0,
+    "moderate": 0,
+    "high": 0,
+    "critical": 0,
+    "total": 0
+  },
+  "pinnedRemediations": {
+    "electron": "44.11.3",
+    "vite": "7.3.8",
+    "minimatch": "11.0.1",
+    "undici6": "6.29.1",
+    "undici7": "7.30.2",
+    "fast-uri": "3.1.9"
+  },
+  "remainingEngineReview": "Bundled sing-box-lx toolchain and TLS dependencies require separate review; npm zero is not an engine security verdict."
+}
