@@ -19,7 +19,8 @@
     "engine:fetch": "node scripts/engine.mjs fetch",
     "engine:verify": "node scripts/engine.mjs verify",
     "test:ui": "node scripts/test-ui.mjs",
-    "test:performance": "node scripts/test-performance.mjs"
+    "test:performance": "node scripts/test-performance.mjs",
+    "package:verify": "node scripts/verify-package.mjs"
   },
   "dependencies": {
     "@fontsource-variable/instrument-sans": "^5.3.0",
@@ -51,7 +52,9 @@
       "buildResources": "build"
     },
     "files": [
-      "out/**/*",
+      "out/main/**/*",
+      "out/preload/**/*",
+      "out/renderer/**/*",
       "package.json"
     ],
     "extraResources": [

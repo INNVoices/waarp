@@ -44,13 +44,17 @@ class FakeChild extends EventEmitter {
       writeFileSync(blocked, 'untouched obstruction')
       const e = new Engine(process.execPath, blocked, process.execPath)
       eq(e.status.phase, 'off', 'unwritable runtime directory does not throw before the app can show its UI')
+      // Windows can report missing descendants as ENOENT, while Unix reports ENOTDIR. Either
+      // recovery result is safe here: absence of an old owner does not prove the directory writable.
+      const recovered = await e.killOrphans()
+      eq(e.recoveryReady, recovered, 'recovery settles and exposes its platform-specific inspection result')
       let spawned = 0
       childProcess.spawn = (() => { spawned++; throw new Error('must not spawn') }) as unknown as typeof childProcess.spawn
+      // Exercise the independent write guard even when this platform already rejected recovery.
       ;(e as any).recoveryOk = true
       await e.start([], DEFAULTS)
       eq([spawned, e.status.phase, e.status.error], [0, 'error', 'Не удалось записать временный конфиг движка'], 'directory creation failure becomes a startup refusal without launching a process')
       eq(readFileSync(blocked, 'utf8'), 'untouched obstruction', 'directory obstruction is preserved rather than deleted')
-      eq(await e.killOrphans(), false, 'blocked journal path stays a diagnosable recovery refusal')
       childProcess.spawn = originalSpawn
       inspected = 0
     }

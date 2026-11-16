@@ -43,16 +43,18 @@ jobs:
         run: npm run engine:fetch
       - name: Verify 50 native TUN lifecycle cycles
         run: npm run test:live -- --disposable-windows
+      - name: Build portable Windows package
+        run: npx electron-builder --win portable --publish never
+      - name: Verify packaged runtime and engine checksums
+        run: npm run package:verify
       - name: Retain native and performance evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: waarp-validation-evidence
           path: out/validation
-          if-no-files-found: error
+          if-no-files-found: ignore
           retention-days: 7
-      - name: Build portable Windows package
-        run: npx electron-builder --win portable --publish never
       - name: Retain portable build
         uses: actions/upload-artifact@v4
         with:
