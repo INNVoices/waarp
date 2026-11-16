@@ -1,15 +1,18 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { AppInfo, Conn, Route, Settings, Snapshot, Status } from '../../../shared/types'
 import { Btn, fmtBytes, fmtSpeed, Icon, Plain, Seg, Toggle, Tooltip } from '../ui/kit'
 import { s, sp } from '../lib/i18n'
 import { moodOf, REST_ID } from '../../../shared/effective'
+import { AUTO_ID, autoMembers } from '../../../shared/groups'
+import { Modal } from '../ui/modal'
 import { connRoute, connsOf, dropRoute, patchRoute } from '../lib/routes'
 import { kindLabel, Mark, Orb, Ping, RouteIcon, viaName, ViaPicker } from '../parts'
 import { api } from '../bridge'
+import type { SettingsPatch } from '../lib/actions'
 
 interface P {
   snap: Snapshot; status: Status; conns: Conn[]; apps: AppInfo[]
-  patch: (p: Partial<Settings>) => void | Promise<void>
+  patch: SettingsPatch
   toast: (text: string) => void
   toggle: () => void
   open: (id: string) => void
@@ -20,20 +23,24 @@ export function Connections({ snap, status, conns, apps, patch, toast, toggle, o
   const st = snap.settings
   const [routingBusy, setRoutingBusy] = useState(false)
   const [busyRoute, setBusyRoute] = useState<string>()
+  const [pickAll, setPickAll] = useState(false)
+  const changing = useRef(false)
   const runPatch = async (p: Partial<Settings>, routeId?: string) => {
-    if (routingBusy) return
+    if (changing.current) return false
+    changing.current = true
     setRoutingBusy(true); setBusyRoute(routeId)
-    try { await patch(p) }
-    finally { setBusyRoute(undefined); setRoutingBusy(false) }
+    try { return await patch(p) }
+    finally { changing.current = false; setBusyRoute(undefined); setRoutingBusy(false) }
   }
   const selectRoute = async (route: Route, via: string) => {
-    if (routingBusy) return
+    if (changing.current) return false
+    changing.current = true
     setRoutingBusy(true); setBusyRoute(route.id)
     try {
       const result = await api.selectRoute(route.id, via)
-      if (!result?.ok || result.error) toast(result?.error ?? 'Не удалось применить маршрут')
-    } catch { toast('Не удалось применить маршрут') }
-    finally { setBusyRoute(undefined); setRoutingBusy(false) }
+      if (!result?.ok || result.error) toast(result?.error ?? s('route.apply.error'))
+    } catch { toast(s('route.apply.error')) }
+    finally { changing.current = false; setBusyRoute(undefined); setRoutingBusy(false) }
   }
   const live = status.phase === 'on'
   // "Живые соединения" are runtime evidence. A truly closed master has no live
@@ -45,10 +52,19 @@ export function Connections({ snap, status, conns, apps, patch, toast, toggle, o
   const demandsTunnel = st.rest !== 'direct' || st.routes.some(r => r.on && r.via !== 'direct')
   const why = block ? block.title : !snap.profiles.length && !demandsTunnel ? s('orb.noserver') : undefined
   const available = snap.profiles.filter(p => !p.revoked)
-  const measured = available.filter(p => status.pings[p.id] !== undefined).sort((a, b) => status.pings[a.id]! - status.pings[b.id]!)
-  const allPick = st.allVia && available.some(p => p.id === st.allVia) ? st.allVia : measured[0]?.id ?? available[0]?.id ?? 'direct'
+  const ownAuto = autoMembers(snap.profiles).length > 0
+  const allPick = st.allVia && (available.some(p => p.id === st.allVia) || st.allVia === AUTO_ID && ownAuto) ? st.allVia : ownAuto ? AUTO_ID : undefined
+  const scope = (mode: 'cards' | 'all') => {
+    if (mode === 'cards') void runPatch({ rest: 'direct', allVia: st.rest !== 'direct' ? st.rest : st.allVia })
+    else if (allPick) void runPatch({ rest: allPick, allVia: allPick })
+    else setPickAll(true) // Public-only libraries need an explicit choice before routing the whole computer.
+  }
   return (
     <div className="page">
+      {pickAll && <Modal title={s('home.scope.choose')} onClose={() => setPickAll(false)} busy={routingBusy}>
+        <p className="hint">{s(available.length ? 'pub.trust' : 'home.scope.empty')}</p>
+        <div className="vgrid one">{available.map(p => <Plain key={p.id} className="vopt" disabled={routingBusy} onClick={async () => { if (await runPatch({ rest: p.id, allVia: p.id })) setPickAll(false) }}><Mark profiles={snap.profiles} via={p.id} /><span>{p.name}</span></Plain>)}</div>
+      </Modal>}
       <section className="hero">
         {/* the window orb is the product character and the one primary action (GPT 36caa9f) */}
         <Orb status={status} disabled={(!snap.profiles.length && !demandsTunnel) || blocked} why={why} onClick={toggle} />
@@ -56,7 +72,7 @@ export function Connections({ snap, status, conns, apps, patch, toast, toggle, o
           <State snap={snap} status={status} disabled={(!snap.profiles.length && !demandsTunnel) || blocked} why={why} />
           <div className="rest">
         <Tooltip tip={s('rest.tip')}><span className="lbl help">{s('home.scope')}</span></Tooltip>
-        <Seg<'cards' | 'all'> disabled={routingBusy} value={st.rest === 'direct' ? 'cards' : 'all'} onChange={m => void runPatch(m === 'all' ? { rest: allPick, allVia: allPick } : { rest: 'direct', allVia: st.rest !== 'direct' ? st.rest : st.allVia })}
+        <Seg<'cards' | 'all'> disabled={routingBusy} value={st.rest === 'direct' ? 'cards' : 'all'} onChange={scope}
           items={[{ v: 'cards', label: s('home.scope.cards') }, { v: 'all', label: s('home.scope.all') }]} />
         {st.rest !== 'direct' && <ViaPicker noDirect disabled={routingBusy} profiles={snap.profiles} via={st.rest} pings={status.pings} live={live} down={v => v === st.rest ? status.routes?.[REST_ID]?.reason === 'path_down' : status.health?.[v] === 'down'} onChange={v => void runPatch({ rest: v, allVia: v })} />}
           </div>
@@ -73,14 +89,16 @@ export function Connections({ snap, status, conns, apps, patch, toast, toggle, o
           const cs = live ? connsOf(r, conns) : []
           const tr = cs.reduce((a, c) => a + c.down + c.up, 0)
           return (
-            <div key={r.id} className={'rcard' + (r.on ? ' on' : '') + (busyRoute === r.id ? ' applying' : '')} onClick={() => open(r.id)}>
+            <div key={r.id} className={'rcard' + (r.on ? ' on' : '') + (busyRoute === r.id ? ' applying' : '')}>
               <Plain className="rc-x" disabled={routingBusy} aria-label={s('conn.remove')} onClick={e => { e.stopPropagation(); void runPatch({ routes: dropRoute(st, r.id) }, r.id) }}><Icon n="x" s={12} /></Plain>
               <div className="rc-top">
+                <Plain className="rc-open" onClick={() => open(r.id)} aria-label={r.name}>
                 <div className="rc-ic"><RouteIcon r={r} icon={icon(r)} /></div>
                 <div className="rc-t">
                   <div className="rc-n">{r.name}</div>
                   <div className="rc-k">{kindLabel(r)}{tr > 0 && <small className="m mono">{` · ${fmtBytes(tr)}`}</small>}{live && status.fallback[r.id] && <Tooltip tip={s('conn.fb.tip', { v: viaName(snap.profiles, status.fallback[r.id]) })}><span className="fb-mark"><Icon n="refresh" s={12} /></span></Tooltip>}</div>
                 </div>
+                </Plain>
                 <Tooltip tip={s(r.on ? 'conn.on.tip' : 'conn.off.tip')}><span><Toggle on={r.on} disabled={routingBusy} onChange={v => void runPatch({ routes: patchRoute(st, r.id, { on: v }) }, r.id)} label={r.name} /></span></Tooltip>
               </div>
               <ViaPicker compact disabled={routingBusy} profiles={snap.profiles} via={r.via} pings={status.pings} live={live} down={v => v === r.via ? status.routes?.[r.id]?.reason === 'path_down' : status.health?.[v] === 'down'} onChange={v => void selectRoute(r, v)} />
@@ -111,13 +129,14 @@ function State({ snap, status, disabled, why }: { snap: Snapshot; status: Status
   const fb = eff.filter(e => e.state === 'fallback').length
   const bad = eff.filter(e => e.reason === 'path_down').length
   const engineOut = eff.some(e => e.reason === 'engine_down')
+  const waiting = eff.filter(e => e.state === 'retrying' && e.reason === 'waiting').length
   const m = moodOf(status.routes ?? {}), stuck = eff.filter(e => e.state === 'blocked').length
   const mood: Mood = status.phase === 'on' ? (m === 'ok' ? 'on' : m)
     : status.open === true && status.phase === 'off' ? 'idle'
     : status.phase === 'starting' || status.phase === 'stopping' ? 'busy'
     : status.phase === 'error' ? 'error' : 'off'
   const exit = st.rest === 'direct' ? s('home.exit.cards', { n: st.routes.filter(r => r.on && r.via !== 'direct').length }) : s('home.exit.all', { v: viaName(snap.profiles, st.rest) })
-  const rec = fb ? s('home.sub.recovering', { n: fb }) : engineOut ? s('home.sub.engine') : s('home.sub.pathdown', { n: bad })
+  const rec = fb ? s('home.sub.recovering', { n: fb }) : engineOut ? s('home.sub.engine') : bad ? s('home.sub.pathdown', { n: bad }) : s('home.sub.checking', { n: waiting })
   const sub = mood === 'idle' ? s('home.sub.idle')
     : mood === 'busy' && status.open === true ? s('home.sub.engine')
     : mood === 'recovering' ? rec
@@ -143,7 +162,7 @@ function Stats({ status }: { status: Status }) {
     <div className={'stats' + (on ? '' : ' dim')}>
       <div><Icon n="down" s={14} /><b>{on ? fmtSpeed(status.down) : dash}</b><small>{on ? fmtBytes(status.downTotal) : s('meter.down')}</small></div>
       <div><Icon n="up" s={14} /><b>{on ? fmtSpeed(status.up) : dash}</b><small>{on ? fmtBytes(status.upTotal) : s('meter.up')}</small></div>
-      <div><Icon n="bolt" s={14} /><b>{status.pings.direct ? s('meter.ms', { n: status.pings.direct }) : dash}</b><small>{s('meter.isp')}</small></div>
+      <div><Icon n="bolt" s={14} /><b>{status.pings.direct !== undefined ? s('meter.ms', { n: status.pings.direct }) : dash}</b><small>{s('meter.isp')}</small></div>
     </div>
   )
 }

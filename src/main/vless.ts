@@ -1,6 +1,7 @@
 import type { VlessFields, VlessNetwork, VlessProfile, VlessSecurity, VlessXhttpExtra } from '../shared/vless-types'
 import { lookup } from 'node:dns/promises'
-import { isIP } from 'node:net'
+import type { LookupAddress } from 'node:dns'
+import { BlockList, isIP, type LookupFunction } from 'node:net'
 import { request as httpsRequest } from 'node:https'
 import { Readable } from 'node:stream'
 import { ConfError } from './conf-error'
@@ -8,7 +9,7 @@ import { ConfError } from './conf-error'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const PBK = /^[A-Za-z0-9_-]{43}$/
 const SID = /^(?:[0-9a-f]{2}){0,8}$/i
-const LINK = /^vless:\/\/([^@/?#]+)@(\[[^\]]+\]|[^:/?#]+):(\d{1,5})\/?(?:\?([^#]*))?(?:#(.*))?$/s
+const LINK = /^vless:\/\/([^@/?#]+)@(\[[^\]]+\]|[^:/?#]+):(\d{1,5})\/?(?:\?([^#]*))?(?:#(.*))?$/is
 const FPS = ['chrome', 'firefox', 'safari', 'edge', 'ios', 'android', '360', 'qq', 'random', 'randomized']
 const MODES = ['auto', 'packet-up', 'stream-up', 'stream-one']
 const KNOWN = new Set(['type', 'security', 'pbk', 'sid', 'fp', 'sni', 'path', 'host', 'mode', 'flow', 'encryption', 'extra', 'spx', 'alpn', 'serviceName', 'headerType', 'allowInsecure', 'insecure', 'pqv'])
@@ -255,53 +256,79 @@ export function redactVless(s: string, known: string[] = []): string {
 }
 
 const PRIVATE_HOST = /^(?:localhost|.*\.localhost|\[?::1?\]?|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|0\.0\.0\.0)$/i
+const PRIVATE_ADDRESSES = new BlockList()
+for (const [address, prefix] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.168.0.0', 16], ['224.0.0.0', 3]] as const) PRIVATE_ADDRESSES.addSubnet(address, prefix, 'ipv4')
+for (const [address, prefix] of [['::', 128], ['::1', 128], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8]] as const) PRIVATE_ADDRESSES.addSubnet(address, prefix, 'ipv6')
+const hostnameOf = (u: URL): string => u.hostname.replace(/^\[|\]$/g, '')
 
 export interface FetchOpts { fetchImpl?: typeof fetch; timeoutMs?: number; maxBytes?: number; maxRedirects?: number }
 
 function checkUrl(u: URL) {
   if (u.protocol !== 'https:') throw new ConfError('Подписка должна быть по https')
-  if (PRIVATE_HOST.test(u.hostname)) throw new ConfError('Адрес подписки указывает на локальную сеть')
+  if (u.username || u.password) throw new ConfError('Логин и пароль в адресе подписки не поддерживаются')
+  if (PRIVATE_HOST.test(hostnameOf(u).replace(/\.$/, '')) || privateIp(hostnameOf(u))) throw new ConfError('Адрес подписки указывает на локальную сеть')
 }
 
 function privateIp(address: string): boolean {
-  const a = address.toLowerCase().replace(/^::ffff:/, '')
-  if (isIP(a) === 4) {
-    const p = a.split('.').map(Number)
-    return p[0] === 0 || p[0] === 10 || p[0] === 127 || (p[0] === 169 && p[1] === 254) || (p[0] === 172 && p[1] >= 16 && p[1] <= 31) || (p[0] === 192 && p[1] === 168) || p[0] >= 224
-  }
-  return isIP(a) === 6 && (a === '::' || a === '::1' || a.startsWith('fc') || a.startsWith('fd') || /^fe[89ab]/.test(a))
+  const family = isIP(address)
+  // BlockList also checks IPv4-mapped IPv6 against IPv4 ranges (including canonical ::ffff:7f00:1).
+  return family !== 0 && PRIVATE_ADDRESSES.check(address, family === 4 ? 'ipv4' : 'ipv6')
 }
 
-async function resolvedPublic(u: URL): Promise<{ address: string; family: 4 | 6 }> {
-  if (isIP(u.hostname)) {
-    if (privateIp(u.hostname)) throw new ConfError('Адрес подписки указывает на локальную сеть')
-    return { address: u.hostname, family: isIP(u.hostname) as 4 | 6 }
+function untilAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => { signal.removeEventListener('abort', abort); reject(new Error('aborted')) }
+    signal.addEventListener('abort', abort, { once: true })
+    if (signal.aborted) abort()
+    work.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
+  })
+}
+
+async function resolvedPublic(u: URL, signal: AbortSignal): Promise<LookupAddress[]> {
+  const hostname = hostnameOf(u)
+  if (isIP(hostname)) {
+    if (privateIp(hostname)) throw new ConfError('Адрес подписки указывает на локальную сеть')
+    return [{ address: hostname, family: isIP(hostname) }]
   }
   let addresses: { address: string; family: number }[]
-  try { addresses = await lookup(u.hostname, { all: true, verbatim: true }) }
-  catch { throw new ConfError('Не удалось определить адрес сервера подписки') }
+  try { addresses = await untilAbort(lookup(hostname, { all: true, verbatim: true }), signal) }
+  catch (error) { if (signal.aborted) throw error; throw new ConfError('Не удалось определить адрес сервера подписки') }
   if (!addresses.length || addresses.some(x => privateIp(x.address))) throw new ConfError('Адрес подписки указывает на локальную сеть')
-  const first = addresses[0]
-  return { address: first.address, family: first.family as 4 | 6 }
+  return addresses
 }
 
-/** Resolve once, reject every private answer, then pin the actual TLS socket to the checked address. */
+/** The caller has validated this address set; never resolve again when Node tries another IP family. */
+export function pinnedAddressLookup(addresses: readonly LookupAddress[]): LookupFunction {
+  return (_hostname, options, callback) => {
+    const family = options.family === 'IPv4' ? 4 : options.family === 'IPv6' ? 6 : options.family
+    const candidates = addresses.filter(address => !family || address.family === family)
+    if (!candidates.length) { callback(Object.assign(new Error('No checked address for this family'), { code: 'ENOTFOUND' }), []); return }
+    // Node's dual-stack connector requests all:true. Returning a string there breaks every HTTPS dial.
+    if (options.all) callback(null, candidates)
+    else callback(null, candidates[0].address, candidates[0].family)
+  }
+}
+
+/** Resolve once, reject every private answer, then pin TLS sockets to the checked address set. */
 async function pinnedFetch(u: URL, signal: AbortSignal): Promise<Response> {
-  const target = await resolvedPublic(u)
+  const target = await resolvedPublic(u, signal)
+  signal.throwIfAborted()
+  const hostname = hostnameOf(u)
   return await new Promise<Response>((resolve, reject) => {
     const req = httpsRequest({
-      protocol: 'https:', hostname: u.hostname, port: u.port || 443, path: u.pathname + u.search,
-      method: 'GET', servername: isIP(u.hostname) ? undefined : u.hostname,
+      protocol: 'https:', hostname, port: u.port || 443, path: u.pathname + u.search,
+      method: 'GET', servername: isIP(hostname) ? undefined : hostname, signal,
       headers: { Accept: 'text/plain, application/octet-stream;q=0.9, */*;q=0.1', 'User-Agent': 'Waarp/0.4' },
-      lookup: (_host, _options, cb) => cb(null, target.address, target.family)
+      lookup: pinnedAddressLookup(target)
     }, res => {
       const headers = new Headers()
       for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) headers.set(k, Array.isArray(v) ? v.join(', ') : String(v))
-      resolve(new Response(Readable.toWeb(res) as ReadableStream, { status: res.statusCode ?? 500, statusText: res.statusMessage, headers }))
+      const status = res.statusCode ?? 500
+      if ([204, 205, 304].includes(status)) {
+        res.resume()
+        resolve(new Response(null, { status, statusText: res.statusMessage, headers }))
+      } else resolve(new Response(Readable.toWeb(res) as ReadableStream, { status, statusText: res.statusMessage, headers }))
     })
-    const abort = () => req.destroy(new Error('aborted'))
-    signal.addEventListener('abort', abort, { once: true })
-    req.once('close', () => signal.removeEventListener('abort', abort))
     req.once('error', reject)
     req.end()
   })
@@ -321,32 +348,35 @@ export async function fetchSubscription(url: string, o: FetchOpts = {}): Promise
       try {
         // Production sockets are pinned to the address that passed the private-range check, preventing DNS rebinding.
         // Injected transports keep parser tests deterministic and never touch the network.
-        res = o.fetchImpl ? await f(cur.toString(), { redirect: 'manual', signal: ctl.signal }) : await pinnedFetch(cur, ctl.signal)
+        res = await untilAbort(o.fetchImpl ? f(cur.toString(), { redirect: 'manual', signal: ctl.signal }) : pinnedFetch(cur, ctl.signal), ctl.signal)
       } catch (e) {
         if (e instanceof ConfError) throw e
         throw new ConfError(ctl.signal.aborted ? 'Подписка не ответила за 10 секунд' : 'Не удалось загрузить подписку')
       }
       if (res.status >= 300 && res.status < 400) {
         const loc = res.headers.get('location')
+        void res.body?.cancel().catch(() => undefined)
         if (!loc || hop >= (o.maxRedirects ?? 3)) throw new ConfError('Слишком много перенаправлений подписки')
         try { cur = new URL(loc, cur) } catch { throw new ConfError('Перенаправление подписки не читается') }
         continue
       }
-      if (!res.ok) throw new ConfError(`Подписка ответила кодом ${res.status}`)
+      if (!res.ok) { void res.body?.cancel().catch(() => undefined); throw new ConfError(`Подписка ответила кодом ${res.status}`) }
       const len = Number(res.headers.get('content-length'))
-      if (Number.isFinite(len) && len > max) throw new ConfError('Подписка слишком большая (больше 1 МБ)')
+      if (Number.isFinite(len) && len > max) { void res.body?.cancel().catch(() => undefined); throw new ConfError('Подписка слишком большая (больше 1 МБ)') }
       if (!res.body) throw new ConfError('Подписка не вернула поток данных')
       const chunks: Uint8Array[] = []
       let size = 0
       const reader = res.body.getReader()
-      for (;;) {
-        let r: ReadableStreamReadResult<Uint8Array>
-        try { r = await reader.read() } catch { throw new ConfError(ctl.signal.aborted ? 'Подписка не ответила за 10 секунд' : 'Подписка оборвалась') }
-        if (r.done) break
-        size += r.value.length
-        if (size > max) { void reader.cancel(); throw new ConfError('Подписка слишком большая (больше 1 МБ)') }
-        chunks.push(r.value)
-      }
+      try {
+        for (;;) {
+          let r: ReadableStreamReadResult<Uint8Array>
+          try { r = await untilAbort(reader.read(), ctl.signal) } catch { throw new ConfError(ctl.signal.aborted ? 'Подписка не ответила за 10 секунд' : 'Подписка оборвалась') }
+          if (r.done) break
+          size += r.value.length
+          if (size > max) throw new ConfError('Подписка слишком большая (больше 1 МБ)')
+          chunks.push(r.value)
+        }
+      } finally { void reader.cancel().catch(() => undefined); reader.releaseLock() }
       return Buffer.concat(chunks).toString('utf8')
     }
   } finally {

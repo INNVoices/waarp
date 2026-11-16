@@ -44,6 +44,14 @@ const settings = (on: boolean): Settings => ({ ...DEFAULTS, routes: [route(on)] 
   const blocked = await prepareStart({ stopChecker: async () => true, notices: async () => [blocker] })
   check('blocking notice prevents start', !blocked.ok)
 
+  for (const failed of ['stop', 'scan']) {
+    const ready = await prepareStart({
+      stopChecker: async () => { if (failed === 'stop') throw new Error('checker failed'); return true },
+      notices: async () => { if (failed === 'scan') throw new Error('scan failed'); return [] }
+    })
+    check(`pre-start ${failed} exception is a reported refusal`, !ready.ok)
+  }
+
   let current = settings(false)
   let phase = 'off'
   let starts = 0

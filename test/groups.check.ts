@@ -1,7 +1,7 @@
 import { buildConfig, parseConf, usedProfiles } from '../src/main/awg'
 import { peekClip } from '../src/main/clip'
 import { parseVless } from '../src/main/vless'
-import { dropGroup, dropServer, migrate } from '../src/main/store-core'
+import { dropGroup, dropServer, migrate, usersOf } from '../src/main/store-core'
 import { AUTO_ID, AUTO_BUDGET, autoSample, autoMembers, withAuto, firstAlive, stickyFastest, SLOW_ROUNDS, groupName, isGroupId, liveGroups, newGroupId } from '../src/shared/groups'
 import { compilePlan } from '../src/shared/plan'
 import { checkedPatch } from '../src/main/validate'
@@ -49,12 +49,18 @@ const k1 = cfg(withGroup)
 const ut = k1.outbounds.find((o: any) => o.tag === 'grp-g-one')
 ok(ut && ut.type === 'selector', 'fastest group = Waarp-driven selector, no urltest ping-chasing')
 eq(ut.outbounds, ['p-' + a.id, 'p-' + c.id], 'selector members in order (AWG endpoint + VLESS outbound)')
-ok(ut.interrupt_exist_connections === false && ut.default === 'p-' + a.id, 'fastest: an improvement switch does not break established sessions')
+ok(ut.interrupt_exist_connections === true && ut.default === 'p-' + a.id, 'fastest failover releases stale TCP/UDP sessions')
 ok(!JSON.stringify(k1.outbounds).includes('urltest'), 'no urltest anywhere')
 const rule = k1.route.rules.find((r: any) => r.domain_suffix?.includes('site.example.com') && r.outbound)
 eq(rule.outbound, 'grp-g-one', 'the card rule goes to the group')
 ok(k1.dns.servers.some((d: any) => d.tag === 'dns-g-one' && d.detour === 'grp-g-one'), 'group has its own DNS server through the group')
 ok(k1.dns.rules.some((r: any) => r.server === 'dns-g-one'), 'card domains are resolved through the group')
+eq(k1.dns.servers.find((d: any) => d.tag === 'dns-g-one').type, 'https', 'mixed-provider group uses a common encrypted resolver, not the first provider DNS')
+const sameDns = cfg(S({ groups: [G('g-same', [a.id, b.id])], rest: 'g-same' }))
+eq(sameDns.dns.servers.find((d: any) => d.tag === 'dns-g-same').type, 'udp', 'shared imported resolver is retained when all group members agree')
+const distinctDns = buildConfig([{ ...a, dns: ['10.8.0.53'] }, { ...b, dns: ['10.9.0.53'] }], S({ groups: [G('g-dns', [a.id, b.id])], rest: 'g-dns' }), { api: { port: 1, secret: 'x' } })
+eq(distinctDns.dns.servers.find((d: any) => d.tag === 'dns-g-dns')?.server, '1.1.1.1', 'failover never inherits another provider private resolver')
+eq(k1.inbounds[0].strict_route, true, 'Windows multihomed DNS bypass is blocked while TUN runs')
 ok(k1.endpoints.length === 1 && k1.outbounds.some((o: any) => o.type === 'vless'), 'both kinds of member are present')
 const first = cfg(S({ groups: [G('g-first', [c.id, a.id], 'first')], routes: [route('site', 'g-first')] })).outbounds.find((o: any) => o.tag === 'grp-g-first')
 eq([first.type, first.default, first.outbounds[0]], ['selector', 'p-' + c.id, 'p-' + c.id], 'first alive uses an ordered selector')
@@ -95,6 +101,7 @@ eq(all.route.final, 'p-' + a.id, 'everything through a tunnel')
 eq(all.route.rules.find((r: any) => r.domain_suffix?.includes('keep.example.com')).outbound, 'direct', 'a direct card is the exception')
 eq(all.route.rules.find((r: any) => r.domain_suffix?.includes('site.example.com')).outbound, 'p-' + c.id, 'a card keeps its own tunnel')
 eq(all.dns.final, 'dns-' + a.id, 'dns follows the global tunnel')
+ok(all.dns.rules.some((d: any) => d.domain_suffix?.includes('keep.example.com') && d.server === 'local'), 'explicit Direct site also bypasses whole-computer tunnel DNS')
 ok(all.route.rules.some((r: any) => r.outbound === 'direct' && r.domain_suffix?.includes('ru')), 'russian sites stay direct in global mode (ruDirect)')
 ok(!cfg(S({ rest: a.id, ruDirect: false, routes: [] })).route.rules.some((r: any) => r.domain_suffix?.includes('ru')), 'ruDirect off removes the russian exception')
 ok(all.route.rules.some((r: any) => r.ip_is_private && r.outbound === 'direct') && all.inbounds[0].route_exclude_address?.length > 0, 'LAN bypass is explicit and enabled by default')
@@ -179,7 +186,7 @@ ok(missingFallback.canStart && missingFallback.warnings.includes('standby-missin
   eq(withAuto(S({ routes: [route('site', a.id)] }), profiles).groups.length, 0, 'unused Auto adds nothing')
   const k = cfg(sa)
   const ag = k.outbounds.find((o: any) => o.tag === 'grp-' + AUTO_ID)
-  ok(ag && ag.type === 'selector' && ag.interrupt_exist_connections === false, 'Auto = Waarp-driven selector')
+  ok(ag && ag.type === 'selector' && ag.interrupt_exist_connections === true, 'Auto selector releases dead sessions when failing over')
   eq(k.route.rules.find((r: any) => r.domain_suffix?.includes('site.example.com') && r.outbound)?.outbound, 'grp-' + AUTO_ID, 'route goes to Auto')
   ok(!JSON.stringify(ag.outbounds).includes('direct'), 'Auto never contains Direct')
   const none = compilePlan(sa, [pub])
@@ -211,6 +218,10 @@ ok(missingFallback.canStart && missingFallback.warnings.includes('standby-missin
   eq(plan.requiredProfiles.length, 0, 'Auto members are not all required')
   ok(plan.standbyProfiles.length === autoMembers(profiles).length && plan.canStart, 'Auto members are candidates (standby) and the plan can start')
 }
+
+eq(stickyFastest(['x', 'y'], 'x', { x: 'ok', y: 'ok' }, { x: 500, y: 50 }, SLOW_ROUNDS - 1, true), { next: 'x', streak: 0 }, 'active healthy sessions suppress speed-only switching')
+eq(stickyFastest(['x', 'y'], 'x', { x: 'down', y: 'ok' }, { y: 50 }, 0, true).next, 'y', 'active dead sessions still fail over')
+eq(usersOf(S({ groups: [g1], routes: [route('site', g1.id)], rest: g1.id, allVia: g1.id }), a.id), { cards: ['site'], rest: true, all: true }, 'deletion warning includes group consumers and whole computer')
 
 console.log(fails ? `${fails} of ${n} FAILED` : `all ${n} group checks passed`)
 process.exit(fails ? 1 : 0)

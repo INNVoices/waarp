@@ -13,13 +13,12 @@ export const REST_ID = '*rest'
 
 type Live = Pick<Status, 'phase' | 'engine' | 'health' | 'fallback'> & Partial<Pick<Status, 'picked'>>
 
-/** health of a path: a profile's own, or a group's best member (a group works while any member works) */
-function pathHealth(via: Via, s: Settings, health: Record<string, TunnelHealth>): TunnelHealth {
+/** A healthy spare is not evidence that the selected path carries traffic. */
+function pathHealth(via: Via, s: Settings, health: Record<string, TunnelHealth>, picked: Record<string, string>): TunnelHealth {
   const g = (s.groups ?? []).find(x => x.id === via)
   if (!g) return health[via] ?? 'unknown'
-  const hs = g.members.map(m => health[m] ?? 'unknown')
-  for (const want of ['ok', 'degraded', 'unknown', 'busy'] as TunnelHealth[]) if (hs.includes(want)) return want
-  return 'down'
+  const selected = picked[via]
+  return selected && g.members.includes(selected) ? health[selected] ?? 'unknown' : 'unknown'
 }
 
 export function effectiveRoutes(given: Settings, profiles: (Pick<Profile, 'id' | 'revoked'> & AutoSource)[], live: Live): Record<string, RouteEff> {
@@ -34,12 +33,14 @@ export function effectiveRoutes(given: Settings, profiles: (Pick<Profile, 'id' |
     // a missing target is rejected (fail closed), never quietly sent Direct
     if (blocked.has(via)) return { desired: via, state: 'blocked', reason: 'missing' }
     if (!on) return { desired: via, state: 'idle', reason: 'waiting' }
-    const fb = live.fallback?.[id]
-    if (fb) return { desired: via, effective: fb, state: 'fallback', reason: 'main_down' }
     if (live.engine === 'down') return { desired: via, state: 'retrying', reason: 'engine_down' }
-    const h = pathHealth(via, s, health)
+    const fb = live.fallback?.[id]
+    const path = fb ?? via
+    const h = pathHealth(path, s, health, live.picked ?? {})
     if (h === 'busy') return { desired: via, state: 'blocked', reason: 'busy' }
     if (h === 'down') return { desired: via, state: 'retrying', reason: 'path_down' }
+    if (h === 'unknown') return { desired: via, state: 'retrying', reason: 'waiting' }
+    if (fb) return { desired: via, effective: live.picked?.[fb] ?? fb, state: 'fallback', reason: 'main_down' }
     // a group (incl. Auto) reports the member it actually uses, so the UI can say "Авто -> Сервер 1"
     return { desired: via, effective: live.picked?.[via] ?? via, state: 'ok' }
   }

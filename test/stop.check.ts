@@ -5,6 +5,8 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Engine } from '../src/main/engine'
+import { Checker } from '../src/main/checker'
+import { DEFAULTS } from '../src/main/store-core'
 import { RuntimeJournal, type ProcessOps } from '../src/main/runtime-journal'
 import { existsSync, writeFileSync } from 'node:fs'
 import { bounded, ctrlBreak, waitExit } from '../src/main/stop'
@@ -83,6 +85,100 @@ function rig(o: { owned?: 'same' | 'gone' | 'other' | 'unknown'; onBreak?: 'exit
     const { e } = rig({ owned: 'same', onBreak: 'exit', residue: [{ ok: false, kind: 'tun_collision', text: 'busy' }] })
     await e.stop()
     eq(e.status.recovery, 'tun_collision', 'route residue in our subnet -> recovery')
+  }
+
+  // Cancellation does not merely queue OFF behind a full startup timeout.
+  {
+    const e = new Engine(process.execPath, mkdtempSync(join(tmpdir(), 'waarp-cancel-')), 'C:\\W\\Waarp.exe')
+    ;(e as any).recoveryOk = true
+    let release!: (p: Preflight) => void, scans = 0
+    e.preflight = () => { scans++; return new Promise(resolve => { release = resolve }) }
+    const first = e.start([], DEFAULTS), queued = e.start([], DEFAULTS)
+    await Promise.resolve()
+    const stopped = e.stop()
+    const result = await bounded(Promise.all([first, queued, stopped]), 500)
+    ok(result !== 'timeout', 'OFF resolves without waiting for the pending preflight')
+    eq([scans, e.status.phase, !!(e as any).child], [1, 'off', false], 'cancelled/queued starts never spawn a core')
+    release({ ok: true })
+    await Promise.resolve()
+    eq(!!(e as any).child, false, 'late preflight success cannot resurrect a cancelled start')
+  }
+  {
+    const { e } = rig({ onBreak: 'exit' })
+    e.preflight = async () => ({ ok: false, kind: 'tun_stale', text: 'still present' })
+    eq(await e.stop(), false, 'initial residue stop is not successful')
+    eq(await e.stop(), false, 'repeated stop without a child still reports residue')
+    eq(e.status.phase, 'error', 'no-child stop never erases the recovery error')
+    e.preflight = async () => ({ ok: true })
+    eq([await e.stop(), e.status.phase, e.status.recovery], [true, 'off', undefined], 'verified clean retry clears recovery')
+  }
+  // A late controller poll cannot repopulate a stopped session; overlapping polls are bounded.
+  {
+    const { e } = rig({ onBreak: 'exit' })
+    let release!: (value: unknown) => void, polls = 0
+    ;(e as any).req = () => { polls++; return new Promise(resolve => { release = resolve }) }
+    const pending = (e as any).poll()
+    await (e as any).poll()
+    eq(polls, 1, 'slow controller response never stacks another poll')
+    await e.stop()
+    release({ downloadTotal: 500, uploadTotal: 100, connections: [{ id: 'old', metadata: { host: 'old.example' } }] })
+    await pending
+    eq([e.status.phase, e.conns.length, (e as any).last], ['off', 0, undefined], 'late connections and counters are discarded after stop')
+  }
+  {
+    const { e, child } = rig({})
+    let release!: () => void, probes = 0
+    const pending = new Promise<void>(resolve => { release = resolve })
+    ;(e as any).ids = Array.from({ length: 20 }, (_, i) => `p${i}`)
+    ;(e as any).delay = async () => { probes++; await pending; return 5 }
+    const ping = e.pingAll()
+    eq(probes, 8, 'one health round launches only its bounded workers')
+    ;(e as any).child = new FakeChild(9999)
+    release()
+    eq(await ping, {}, 'superseded health result cannot describe the new process')
+    eq(probes, 8, 'old workers do not send remaining probes to the new core')
+    ;(e as any).child = child
+    await e.stop()
+  }
+  {
+    const { e } = rig({ onBreak: 'exit' })
+    e.status = { ...e.status, phase: 'on', engine: 'up' }
+    ;(e as any).req = async () => undefined
+    await (e as any).poll()
+    eq(e.status.engine, 'up', 'one missed controller poll does not declare an outage')
+    await (e as any).poll()
+    eq([e.status.phase, e.status.engine, /локальные запросы/.test(e.status.error ?? '')], ['on', 'down', true], 'two failed local polls report controller outage, not remote server failure')
+    ;(e as any).req = async () => ({ downloadTotal: 0, uploadTotal: 0, connections: [] })
+    await (e as any).poll()
+    eq([e.status.phase, e.status.engine, e.status.error], ['on', 'up', undefined], 'a successful local poll clears the controller outage without restarting')
+    await e.stop()
+    eq((e as any).pollFailures, 0, 'controller failure streak is scoped to one engine session')
+  }
+  // The measuring core uses the same cancellation/ownership guarantees, although it has no TUN.
+  {
+    let allowed = true
+    const checker = new Checker(process.execPath, mkdtempSync(join(tmpdir(), 'waarp-checker-')), () => allowed)
+    let release!: (recovered: boolean) => void, recoveries = 0
+    ;(checker as any).recover = () => { recoveries++; return new Promise(resolve => { release = resolve }) }
+    const ensure = checker.ensure([], []), queued = checker.ensure([], [])
+    await Promise.resolve()
+    const stop = checker.stop()
+    allowed = false; release(true)
+    eq(await Promise.all([ensure, queued, stop]), [false, false, true], 'checker stop invalidates the active and queued ensure')
+    eq([recoveries, !!(checker as any).child], [1, false], 'no cancelled checker process is spawned')
+    eq(await checker.ensure([], []), false, 'main admission guard refuses a checker while TUN is wanted')
+  }
+  {
+    const checker = new Checker(process.execPath, mkdtempSync(join(tmpdir(), 'waarp-checker-')))
+    const child = new FakeChild(4242)
+    let cleared = 0
+    ;(checker as any).child = child
+    ;(checker as any).journal = { clear: () => { cleared++ } }
+    const first = checker.stop(), second = checker.stop()
+    await Promise.resolve()
+    eq((checker as any).child === child, true, 'checker retains its live handle until exit')
+    eq(await Promise.all([first, second]), [true, true], 'concurrent checker stops wait for the same confirmed exit')
+    eq([child.kills, cleared, !!(checker as any).child], [1, 1, false], 'one checker is stopped once and its lease cleared once')
   }
 
   // ---- recovery proves the recorded process is gone before the lease is cleared

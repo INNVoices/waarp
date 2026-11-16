@@ -1,6 +1,6 @@
 // WRP-015 public VPN catalog panel: create a group from the 5 fastest alive nodes,
 // alive nodes by country with protocol and ping, refresh with live progress. Public = untrusted, said once, calmly.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Btn, Icon, Plain, Tooltip } from '../ui/kit'
 import { s, sp } from '../lib/i18n'
 import { api } from '../bridge'
@@ -28,19 +28,44 @@ const REGION: Record<Region, Set<string>> = {
 }
 const regionOf = (country: string): Region => country === 'US' || country === 'CA' || REGION.americas.has(country) ? 'americas' : REGION.eu.has(country) ? 'eu' : REGION.asia.has(country) ? 'asia' : 'other'
 
-export function PublicCatalog({ toast, used, onAdded, compact = false }: { toast: (x: string) => void; used: (id: string) => boolean; onAdded?: (id: string) => void; compact?: boolean }) {
+export function PublicCatalog({ toast, used, onAdded, compact = false, disabled = false, refreshAllowed = true }: { toast: (x: string) => void; used: (id: string) => boolean; onAdded?: (id: string) => void; compact?: boolean; disabled?: boolean; refreshAllowed?: boolean }) {
   const [st, setSt] = useState<State>()
   const [all, setAll] = useState(false)
   const [mode, setMode] = useState<PickMode>()
   const [region, setRegion] = useState<Region>()
-  useEffect(() => { void api.catalogGet().then(setSt); return api.onCatalog(setSt) }, [])
-  const refresh = async () => {
-    const result = await api.catalogRefresh()
-    if (result?.error) toast(result.error)
-    else if (result) setSt(result)
+  const [error, setError] = useState('')
+  const [action, setAction] = useState<string>()
+  const actionLock = useRef(false)
+  useEffect(() => {
+    let mounted = true, pushed = false
+    const unsubscribe = api.onCatalog((next: State) => { pushed = true; if (mounted) setSt(next) })
+    void api.catalogGet().then((next: State) => { if (mounted && !pushed) setSt(next) }).catch(() => { if (mounted) setError(s('pub.error')) })
+    return () => { mounted = false; unsubscribe() }
+  }, [])
+  const perform = async (key: string, work: () => Promise<void>) => {
+    if (actionLock.current || disabled) return
+    actionLock.current = true; setAction(key); setError('')
+    try { await work() }
+    catch { setError(s('pub.error')) }
+    finally { actionLock.current = false; setAction(undefined) }
   }
-  const best = async () => { const r = await api.catalogBest(); toast(r.ok ? s('pub.best.ok') : r.error); if (r.ok && r.id) onAdded?.(r.id) }
-  const add = async (n: Node) => { const r = await api.catalogAdd(n.id); toast(r.ok ? s('pub.add.ok', { v: clean(n.name) }) : r.error); if (r.ok && r.id) onAdded?.(r.id) }
+  const refresh = () => perform('refresh', async () => {
+    if (!refreshAllowed) { setError(s('pub.refresh.stop')); return }
+    const result = await api.catalogRefresh()
+    if (result?.error) setError(result.error)
+    else if (result) setSt(result)
+  })
+  const best = () => perform('best', async () => {
+    const r = await api.catalogBest()
+    if (!r?.ok) { setError(r?.error ?? s('pub.error')); return }
+    toast(s('pub.best.ok')); if (r.id) onAdded?.(r.id)
+  })
+  const add = (n: Node) => perform(n.id, async () => {
+    const r = await api.catalogAdd(n.id)
+    if (!r?.ok) { setError(r?.error ?? s('pub.error')); return }
+    toast(s('pub.add.ok', { v: clean(n.name) })); if (r.id) onAdded?.(r.id)
+  })
+  const pending = disabled || !!action || st?.busy === true
   const alive = st?.alive ?? []
   const regional = region ? alive.filter(n => regionOf(n.country) === region) : []
   const shown = all ? regional : regional.slice(0, 10)
@@ -57,14 +82,16 @@ export function PublicCatalog({ toast, used, onAdded, compact = false }: { toast
           <span className="m">{st?.busy ? s('pub.checking', { n: st.checked, t: st.planned ?? Math.min(st.total, 64) }) : alive.length ? s('pub.sum', { n: alive.length, t: st?.total ?? 0, ago: ago(st?.updatedAt) }) : s('pub.empty')}</span>
         </div>
         <div className="grow" />
-        <Btn kind="ghost" onClick={() => void refresh()} disabled={st?.busy} title={s('pub.refresh.tip')}><span className={st?.busy ? 'spin' : ''}><Icon n="refresh" /></span>{s('pub.refresh')}</Btn>
-        {mode && <Btn kind="primary" onClick={best} disabled={!alive.length || st?.busy}><Icon n="bolt" />{s('pub.best')}</Btn>}
+        <Btn kind="ghost" onClick={() => void refresh()} disabled={pending || !refreshAllowed} title={s(refreshAllowed ? 'pub.refresh.tip' : 'pub.refresh.stop')}><span className={st?.busy || action === 'refresh' ? 'spin' : ''}><Icon n="refresh" /></span>{s('pub.refresh')}</Btn>
+        {mode && <Btn kind="primary" onClick={best} disabled={!alive.length || pending}><Icon n="bolt" />{s('pub.best')}</Btn>}
       </div>
+      {error && <p className="ferr" role="alert">{error}</p>}
+      {!refreshAllowed && <p className="hint">{s('pub.refresh.stop')}</p>}
       {!mode && <div className="pub-modes">
-        <Plain className="pub-mode primary" disabled={!alive.length || st?.busy} onClick={() => void best()}>
+        <Plain className="pub-mode primary" disabled={!alive.length || pending} onClick={() => void best()}>
           <span className="wz-ic"><Icon n="bolt" /></span><span><b>{s('pub.auto')}</b><small>{s('pub.auto.hint')}</small></span><Icon n="down" />
         </Plain>
-        <Plain className="pub-mode" disabled={!alive.length} onClick={() => setMode('manual')}>
+        <Plain className="pub-mode" disabled={!alive.length || pending} onClick={() => setMode('manual')}>
           <span className="wz-ic"><Icon n="globe" /></span><span><b>{s('pub.manual')}</b><small>{s('pub.manual.hint')}</small></span><Icon n="down" />
         </Plain>
       </div>}
@@ -76,6 +103,7 @@ export function PublicCatalog({ toast, used, onAdded, compact = false }: { toast
         </Plain>)}
       </div>}
       {mode === 'manual' && region && <Plain className="pick-back" onClick={() => setRegion(undefined)}><Icon n="back" />{s('pub.regions.back')}</Plain>}
+      {mode === 'manual' && region && !shown.length && <p className="hint">{s('pub.region.empty')}</p>}
       {region && shown.length > 0 && (
         <div className="pub-list pick-table">
           <div className="pub-row pick-th"><span>{s('pick.country')}</span><span>{s('pick.name')}</span><span>{s('pick.address')}</span><span>{s('pick.protocol')}</span><span>{s('pick.source')}</span><span>{s('pick.ping')}</span><span /></div>
@@ -87,7 +115,7 @@ export function PublicCatalog({ toast, used, onAdded, compact = false }: { toast
               <span className="pub-proto">{n.proto.split(' · ')[0]}</span>
               <span className="m ell">{n.source ?? s('pick.public')}</span>
               <span className="mono pub-ms">{n.ping !== undefined ? s('meter.ms', { n: n.ping }) : '—'}</span>
-              {used(n.id) && !onAdded ? <Tooltip tip={s('pub.in')}><span className="pub-in"><Icon n="check" s={14} /></span></Tooltip> : <Btn kind={onAdded ? 'primary' : 'ghost'} sm className="pub-add" title={onAdded ? s('pick.use') : s('pub.add')} disabled={st?.busy} onClick={() => void add(n)}>{onAdded ? s('pick.use') : <Icon n="plus" />}</Btn>}
+              {used(n.id) && !onAdded ? <Tooltip tip={s('pub.in')}><span className="pub-in"><Icon n="check" s={14} /></span></Tooltip> : <Btn kind={onAdded ? 'primary' : 'ghost'} sm className="pub-add" title={onAdded ? s('pick.use') : s('pub.add')} disabled={pending} onClick={() => void add(n)}>{onAdded ? s('pick.use') : <Icon n="plus" />}</Btn>}
             </div>
           ))}
         </div>

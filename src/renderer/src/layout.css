@@ -1,5 +1,6 @@
 /* layout: shell — 56px rail, 48px top bar, centre panels on --bg, side zones on --side */
 .boot { height: 100%; display: grid; place-items: center; color: var(--m); }
+.boot-content { display: flex; flex-direction: column; align-items: center; gap: 16px; max-width: 420px; padding: 24px; text-align: center; }
 .shell { height: 100%; display: grid; grid-template-columns: 56px minmax(0, 1fr); grid-template-rows: 48px minmax(0, 1fr); }
 .rail { grid-row: 1 / -1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; background: var(--side); border-right: 1px solid var(--line); -webkit-app-region: drag; }
 .rail > * { -webkit-app-region: no-drag; }
@@ -129,7 +130,7 @@
 .ping.slow { color: var(--warn); }
 .ping.bad { color: var(--err); }
 .menu { position: absolute; z-index: 30; left: 0; top: calc(100% + 4px); min-width: 100%; background: var(--raise); border: 1px solid var(--line-2); border-radius: var(--r-md); padding: 4px; box-shadow: 0 12px 32px rgba(0,0,0,.45); animation: pop var(--dur-2) var(--ease-enter); }
-.via-menu { min-width: 256px; }
+.via-menu { min-width: 256px; max-width: min(360px, 80vw); max-height: min(360px, 55vh); overflow: auto; }
 .menu .mi { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 8px; border-radius: var(--r); }
 .menu .mi:hover { background: var(--hi); }
 .menu .mi.on { color: var(--a-text); }
@@ -389,7 +390,7 @@
 .pick-row.add-via { grid-template-columns: minmax(180px, auto) 1fr; cursor: pointer; color: var(--m); }
 .pick-row.add-via:hover { color: var(--t); }
 .pick-add-hint { grid-column: 2 / -1; }
-.pub-list.pick-table { display: block; }
+.pub-list.pick-table { display: block; overflow-x: auto; }
 .pub-list.pick-table .pub-row { grid-template-columns: 48px minmax(150px, 1.05fr) minmax(180px, 1fr) 110px 120px 72px 96px; gap: 14px; min-width: 900px; height: 54px; padding-inline: 12px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
 .pub-list.pick-table .pub-row:last-child { border-bottom: 0; }
 .pub-list.pick-table .pick-th { height: 32px; }
@@ -468,3 +469,5 @@
 .dg-n { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .verdict .btn { margin-left: auto; }
 @media (max-width: 900px) { .dg { grid-template-columns: 1fr; } }
+
+.rc-open { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; text-align: left; }

@@ -401,7 +401,7 @@ export function buildConfig(profiles: Profile[], given: Settings, o: BuildOpts) 
       if (cidrs.length) rules.push(...noV6({ ip_cidr: cidrs }, raw), { ip_cidr: cidrs, outbound: tag })
       const dns = o.selectors ? viaDns(key, dnsR(list[0])) : dnsR(list[0])
       if (domains.length && dns === BLOCK) dnsRules.push({ domain_suffix: domains, action: 'reject' })
-      else if (domains.length && dns !== 'local') dnsRules.push({ domain_suffix: domains, server: dns })
+      else if (domains.length) dnsRules.push({ domain_suffix: domains, server: dns })
     }
   }
   if (rest === BLOCK) dnsRules.push({ action: 'reject' })
@@ -420,9 +420,15 @@ export function buildConfig(profiles: Profile[], given: Settings, o: BuildOpts) 
     const imported = p.kind === 'awg' ? p.dns.find(d => isIP(d) !== 0) : undefined
     return imported ? { type: 'udp', server: imported, server_port: 53 } : { type: 'https', server: '1.1.1.1' }
   }
+  const groupResolver = (members: string[]) => {
+    const resolvers = members.map(id => resolver(used.find(p => p.id === id)!))
+    const same = resolvers.length > 0 && resolvers.every(r => JSON.stringify(r) === JSON.stringify(resolvers[0]))
+    // A private resolver belonging to one provider cannot be assumed reachable through another provider.
+    return same ? resolvers[0] : { type: 'https', server: '1.1.1.1' }
+  }
   for (const p of used) dnsServers.push({ ...resolver(p), tag: 'dns-' + p.id, detour: tagOf(p.id) })
-  for (const g of lg) dnsServers.push({ ...resolver(used.find(p => p.id === g.members[0])!), tag: 'dns-' + g.id, detour: grpTag(g.id) })
-  for (const g of fbs) dnsServers.push({ ...resolver(used.find(p => p.id === g.main)!), tag: 'dns-' + g.tag, detour: g.tag })
+  for (const g of lg) dnsServers.push({ ...groupResolver(g.members), tag: 'dns-' + g.id, detour: grpTag(g.id) })
+  for (const g of fbs) dnsServers.push({ ...groupResolver([g.main, g.fb]), tag: 'dns-' + g.tag, detour: g.tag })
   // a route's DNS follows the route's own selector: the same resolver as its target, detour = the route switch
   for (const d of routeDns) dnsServers.push({ ...dnsServers.find(x => x.tag === d.from)!, tag: d.tag, detour: d.detour })
 
@@ -438,7 +444,8 @@ export function buildConfig(profiles: Profile[], given: Settings, o: BuildOpts) 
       address: [...TUN_ADDRESSES],
       mtu: 1400,
       auto_route: true,
-      strict_route: false,
+      // The pinned core exempts itself from its temporary DNS filter. This is not a persistent kill switch.
+      strict_route: true,
       stack: 'mixed',
       ...(s.lanDirect ? { route_exclude_address: PRIVATE } : {})
     }],
@@ -447,8 +454,8 @@ export function buildConfig(profiles: Profile[], given: Settings, o: BuildOpts) 
       { type: 'direct', tag: DIRECT },
       ...used.flatMap(p => (p.kind === 'vless' ? [vlessOutbound(p, tagOf(p.id))] : p.kind === 'out' ? [{ ...p.outbound, tag: tagOf(p.id) }] : [])),
       // every group is a selector driven by Waarp's own probe rounds (engine.groupStep): no urltest ping-chasing (W2.2).
-      // 'fastest' keeps established sessions on an improvement switch; 'first' only switches away from a dead member.
-      ...lg.map(g => ({ type: 'selector', tag: grpTag(g.id), outbounds: g.members.map(tagOf), default: tagOf(g.members[0]), interrupt_exist_connections: g.policy === 'first' })),
+      // A failed path must release old TCP/UDP sessions. The controller holds healthy paths while traffic is active.
+      ...lg.map(g => ({ type: 'selector', tag: grpTag(g.id), outbounds: g.members.map(tagOf), default: tagOf(g.members[0]), interrupt_exist_connections: true })),
       ...fbs.map(g => ({ type: 'selector', tag: g.tag, outbounds: [tagOf(g.main), tagOf(g.fb)], default: tagOf(g.main), interrupt_exist_connections: true })),
       ...sels
     ],

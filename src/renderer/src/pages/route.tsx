@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { AppInfo, Conn, Route, Settings, Snapshot, Status, Via } from '../../../shared/types'
 import { PRESETS } from '../../../shared/presets'
 import { Btn, fmtBytes, Icon, Plain, Toggle } from '../ui/kit'
@@ -8,28 +8,45 @@ import { isDraft } from '../lib/flow'
 import { kindLabel, Mark, Ping, RouteIcon, subOf, viaName, AutoHint } from '../parts'
 import { PublicCatalog } from './publiccat'
 import { api } from '../bridge'
+import type { SettingsPatch } from '../lib/actions'
 import { AUTO_ID, autoMembers } from '../../../shared/groups'
 import { safeVia } from '../../../shared/companion'
 import { routeSchemeHintKey, routeStateKey } from '../lib/route-state'
 
-interface P { snap: Snapshot; status: Status; conns: Conn[]; apps: AppInfo[]; id: string; patch: (p: Partial<Settings>) => void | Promise<void>; toast: (text: string) => void; back: () => void }
+interface P { snap: Snapshot; status: Status; conns: Conn[]; apps: AppInfo[]; id: string; patch: SettingsPatch; toast: (text: string) => void; back: () => void }
 
 export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }: P) {
+  const [applying, setApplying] = useState<Via>()
+  const [saving, setSaving] = useState(false)
+  const changing = useRef(false)
   const st = snap.settings
   const r = st.routes.find(x => x.id === id)
-  if (!r) return <div className="page"><Btn kind="ghost" onClick={back}><Icon n="back" />{s('nav.back')}</Btn></div>
+  // Hooks must survive a snapshot that removes the route currently being inspected.
+  if (!r) return <div className="page"><p className="lead">{s('route.removed')}</p><Btn kind="ghost" onClick={back}><Icon n="back" />{s('nav.back')}</Btn></div>
   const live = status.phase === 'on'
   const draft = isDraft(r) // new target: off, no path chosen yet
-  const set = (p: Partial<Route>) => patch({ routes: patchRoute(st, r.id, p) })
-  const [applying, setApplying] = useState<Via>()
+  const locked = saving || !!applying
+  const set = async (p: Partial<Route>) => {
+    if (changing.current) return
+    changing.current = true; setSaving(true)
+    try { await patch({ routes: patchRoute(st, r.id, p) }) }
+    finally { changing.current = false; setSaving(false) }
+  }
+  const remove = async () => {
+    if (changing.current) return
+    changing.current = true; setSaving(true)
+    try { if (await patch({ routes: dropRoute(st, r.id) })) back() }
+    finally { changing.current = false; setSaving(false) }
+  }
   const select = async (via: Via) => {
-    if (applying) return
+    if (changing.current) return
+    changing.current = true
     setApplying(via)
     try {
       const result = await api.selectRoute(r.id, via)
-      if (!result?.ok || result.error) toast(result?.error ?? 'Не удалось применить маршрут')
-    } catch { toast('Не удалось применить маршрут') }
-    finally { setApplying(undefined) }
+      if (!result?.ok || result.error) toast(result?.error ?? s('route.apply.error'))
+    } catch { toast(s('route.apply.error')) }
+    finally { changing.current = false; setApplying(undefined) }
   }
   const icon = apps.find(a => 'app:' + a.id === r.id)?.icon
   const cs = live ? connsOf(r, conns) : []
@@ -54,14 +71,14 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
         <div className="rc-ic big"><RouteIcon r={r} icon={icon} size={40} /></div>
         <div className="ph-t"><h1>{r.name}</h1><span className="m">{kindLabel(r)}</span></div>
         <div className="grow" />
-        <Toggle on={r.on} disabled={draft} onChange={v => set({ on: v })} label={r.name} />
-        <Btn kind="danger" onClick={() => { patch({ routes: dropRoute(st, r.id) }); back() }}><Icon n="trash" />{s('conn.remove')}</Btn>
+        <Toggle on={r.on} disabled={draft || locked} onChange={v => set({ on: v })} label={r.name} />
+        <Btn kind="danger" disabled={locked} onClick={() => void remove()}><Icon n="trash" />{s('conn.remove')}</Btn>
       </div>
 
       {draft && <div className="route-now warn" role="status"><span className="st-dot" aria-hidden /><span className="grow">{s('route.draft')}</span></div>}
       {!draft && visibleNowText && <div className={'route-now' + (applying ? ' applying' : e?.state === 'fallback' || e?.state === 'retrying' ? ' warn' : e?.state === 'blocked' ? ' err' : '')} role="status" aria-live="polite">
         <span className="st-dot" aria-hidden /><span className="grow">{visibleNowText}</span>
-        {!applying && (e?.state === 'retrying' || e?.state === 'fallback') && <span className="m">{s('route.now.why')}</span>}
+        {!applying && (e?.state === 'retrying' && e.reason !== 'waiting' || e?.state === 'fallback') && <span className="m">{s('route.now.why')}</span>}
       </div>}
       <section className="panel">
         <h3>{s('route.server')}</h3>
@@ -70,7 +87,7 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
             const on = !draft && r.via === v
             const p = snap.profiles.find(x => x.id === v)
             return (
-              <Plain key={v} disabled={!!applying} aria-busy={applying === v} className={'vopt' + (on ? ' on' : '') + (applying === v ? ' applying' : '')} onClick={() => void select(v)}>
+              <Plain key={v} disabled={locked} aria-busy={applying === v} aria-pressed={on} className={'vopt' + (on ? ' on' : '') + (applying === v ? ' applying' : '')} onClick={() => void select(v)}>
                 <span className="radio" />
                 <span className="vo-t"><span className="vo-n"><Mark profiles={snap.profiles} via={v} />{viaName(snap.profiles, v)}</span>
                   <small className="m ell">{v === 'direct' ? s('via.direct.hint') : v === AUTO_ID ? <AutoHint profiles={snap.profiles} bare /> : subOf(p)}</small></span>
@@ -84,7 +101,7 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
 
       {/* public nodes are a low-trust extra source, never in the main flow (GPT 35816ee C) */}
       {!forCompanion && <details className="pub-more"><summary>{s('route.pub.more')}</summary>
-        <PublicCatalog compact toast={toast} used={pid => snap.profiles.some(p => p.id === pid)} onAdded={pid => void select(pid)} />
+        <PublicCatalog disabled={locked} refreshAllowed={status.phase === 'off' && status.open !== true} compact toast={toast} used={pid => snap.profiles.some(p => p.id === pid)} onAdded={pid => void select(pid)} />
       </details>}
 
       {!draft && r.via !== 'direct' && snap.profiles.find(p => p.id === r.via)?.kind !== 'group' && fbOpts.length > 0 && (
@@ -96,7 +113,7 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
               const on = r.fallback === v
               const p = snap.profiles.find(x => x.id === v)
               return (
-                <Plain key={v ?? 'none'} className={'vopt' + (on ? ' on' : '')} onClick={() => set({ fallback: v })}>
+                <Plain disabled={locked} aria-pressed={on} key={v ?? 'none'} className={'vopt' + (on ? ' on' : '')} onClick={() => set({ fallback: v })}>
                   <span className="radio" />
                   <span className="vo-t"><span className="vo-n">{v ? <><Mark profiles={snap.profiles} via={v} />{viaName(snap.profiles, v)}</> : s('route.fb.none')}</span>
                     <small className="m ell">{v ? subOf(p) : s('route.fb.none.hint')}</small></span>
@@ -112,10 +129,10 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
         <div className="ph-row"><h3>{s('route.scheme')}</h3>{schemeHint && <span className="m">{s(schemeHint)}</span>}</div>
         <div className={"scheme" + (eff === "direct" ? " short" : "")} style={{ '--hue': hueOf(snap.profiles, eff) ?? 'var(--line-2)' } as React.CSSProperties}>
           <div className="node you"><span className="nd-ic"><Icon n="user" s={20} /></span><b>{s('route.you')}</b><small className="m">{s('route.isp')}</small></div>
-          <div className="link"><span className="lk-ms">{live && status.pings.direct ? s('meter.ms', { n: status.pings.direct }) : '—'}</span></div>
+          <div className="link"><span className="lk-ms">{live && status.pings.direct !== undefined ? s('meter.ms', { n: status.pings.direct }) : '—'}</span></div>
           {eff !== 'direct' && <>
             <div className="node srv"><span className="nd-ic"><Mark profiles={snap.profiles} via={eff} /></span><b>{viaName(snap.profiles, eff)}</b><small className="m mono">{snap.profiles.find(p => p.id === eff)?.host}</small></div>
-            <div className="link"><span className="lk-ms">{live && status.pings[eff] ? s('meter.ms', { n: status.pings[eff]! }) : '—'}</span></div>
+            <div className="link"><span className="lk-ms">{live && status.pings[eff] !== undefined ? s('meter.ms', { n: status.pings[eff]! }) : '—'}</span></div>
           </>}
           <div className="node dst"><span className="nd-ic"><RouteIcon r={r} icon={icon} size={28} /></span><b className="ell">{dest ?? r.name}</b><small className="m">{s('route.dest')}</small></div>
         </div>
@@ -127,7 +144,7 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
         <h3>{s('route.more')}</h3>
         {r.kind === 'app' && <>
           <Row title={s('route.dir')} text={r.matchDir ? s('route.dir.text', { d: r.matchDir }) : s('route.dir.none')}>
-            <Toggle on={!!r.matchDir && r.wholeDir === true} disabled={!r.matchDir} onChange={v => set({ wholeDir: v })} label={s('route.dir')} />
+            <Toggle on={!!r.matchDir && r.wholeDir === true} disabled={locked || !r.matchDir} onChange={v => set({ wholeDir: v })} label={s('route.dir')} />
           </Row>
           <div className="path mono selectable">{r.exe}</div>
         </>}

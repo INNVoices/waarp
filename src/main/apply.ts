@@ -13,6 +13,8 @@ export interface ApplyDeps {
   phase: () => string
   /** HOTFIX-RUNTIME-01 E: the master switch's intent; card edits never change it */
   open?: () => boolean
+  /** distinguishes a new OPEN after OFF from the operation that the owner cancelled */
+  revision?: () => number
   /** refreshes notices; true when a hard block is active */
   blocked: () => Promise<boolean>
   demandsTunnel: (s: Settings) => boolean
@@ -25,6 +27,8 @@ export interface ApplyDeps {
 
 export function createApply(d: ApplyDeps): (next: Settings) => Promise<ApplyResult> {
   return async next => {
+    const revision = d.revision?.()
+    const current = () => (!d.open || d.open()) && (!d.revision || d.revision() === revision)
     const previous = d.get()
     d.set(next)
     try { d.save() } catch { d.set(previous); return { saved: false, applied: false, running: isRunning(d.phase()), code: 'save' } }
@@ -32,19 +36,25 @@ export function createApply(d: ApplyDeps): (next: Settings) => Promise<ApplyResu
     try {
       // The owner's global close is higher priority than a route write. Save intent, but never live-switch/restart
       // a core that the master is closing; the next explicit open uses the saved settings.
-      if (d.open && !d.open()) return { saved: true, applied: false, running }
+      if (!current()) return { saved: true, applied: false, running }
       // B2: a pick the running core already serves is a selector switch; the periodic watch still guards the session
-      if (d.phase() === 'on' && d.live && d.demandsTunnel(next) && (await d.live(next))) return { saved: true, applied: true, running }
-      if (await d.blocked()) { if (running) await d.stop(); return { saved: true, applied: false, running, code: 'block' } }
+      if (d.phase() === 'on' && d.live && d.demandsTunnel(next)) {
+        const applied = await d.live(next)
+        if (!current()) return { saved: true, applied: false, running }
+        if (applied) return { saved: true, applied: true, running }
+      }
+      const blocked = await d.blocked()
+      if (!current()) return { saved: true, applied: false, running }
+      if (blocked) { if (running) await d.stop(); return { saved: true, applied: false, running, code: 'block' } }
       if (!running) {
         // E: master open but the core was idle (no card needed it): a card that needs a tunnel starts it, no second master click
-        if (d.open?.() && d.demandsTunnel(next)) { await d.start(next); return d.phase() === 'on' ? { saved: true, applied: true, running } : { saved: true, applied: false, running, code: 'start' } }
+        if (d.open?.() && d.demandsTunnel(next)) { await d.start(next); return !current() ? { saved: true, applied: false, running } : d.phase() === 'on' ? { saved: true, applied: true, running } : { saved: true, applied: false, running, code: 'start' } }
         return { saved: true, applied: false, running }
       }
       // E: no card needs a tunnel any more: the core stops, the master stays open (the caller keeps its intent)
-      if (!d.demandsTunnel(next)) { await d.stop(); return { saved: true, applied: d.phase() === 'off', running, ...(d.phase() === 'off' ? {} : { code: 'start' as const }) } }
+      if (!d.demandsTunnel(next)) { await d.stop(); return { saved: true, applied: current() && d.phase() === 'off', running, ...(d.phase() === 'off' ? {} : { code: 'start' as const }) } }
       await d.start(next)
-      return d.phase() === 'on' ? { saved: true, applied: true, running } : { saved: true, applied: false, running, code: 'start' }
+      return !current() ? { saved: true, applied: false, running } : d.phase() === 'on' ? { saved: true, applied: true, running } : { saved: true, applied: false, running, code: 'start' }
     } finally { d.changed() }
   }
 }

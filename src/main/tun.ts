@@ -18,16 +18,32 @@ export const serviceGuardRule = (): Record<string, unknown> => ({ ip_cidr: [...T
 
 /** R1.2: total time the core gets to open Wintun and answer its controller (Windows can need ~15 s to fail on its own) */
 export const START_BUDGET_MS = 20_000
-export async function waitReady(o: { probe: () => Promise<boolean>; alive: () => boolean; budget?: number; every?: number; now?: () => number; sleep?: (ms: number) => Promise<void> }): Promise<'ready' | 'exited' | 'timeout'> {
+/** Race a read-only operation against cancellation without leaving an abort listener behind. */
+export async function untilCancelled<T>(job: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
+  if (signal.aborted) { void job.catch(() => undefined); return undefined }
+  let cancel!: () => void
+  const aborted = new Promise<undefined>(resolve => { cancel = () => resolve(undefined); signal.addEventListener('abort', cancel, { once: true }) })
+  try { return await Promise.race([job, aborted]) }
+  finally { signal.removeEventListener('abort', cancel) }
+}
+
+export async function waitReady(o: { probe: () => Promise<boolean>; alive: () => boolean; signal?: AbortSignal; budget?: number; every?: number; now?: () => number; sleep?: (ms: number) => Promise<void> }): Promise<'ready' | 'exited' | 'timeout' | 'cancelled'> {
   const now = o.now ?? Date.now, sleep = o.sleep ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)))
   const end = now() + (o.budget ?? START_BUDGET_MS)
   while (now() < end) {
+    if (o.signal?.aborted) return 'cancelled'
     if (!o.alive()) return 'exited'
-    if (await o.probe()) return 'ready'
+    const probe = o.probe()
+    const ready = o.signal ? await untilCancelled(probe, o.signal) : await probe
+    if (o.signal?.aborted) return 'cancelled'
+    // A reply queued before exit is not proof that the current process is still ready.
     if (!o.alive()) return 'exited'
-    await sleep(o.every ?? 300)
+    if (ready) return 'ready'
+    const pause = sleep(Math.min(o.every ?? 300, Math.max(0, end - now())))
+    if (o.signal) await untilCancelled(pause, o.signal)
+    else await pause
   }
-  return 'timeout'
+  return o.signal?.aborted ? 'cancelled' : 'timeout'
 }
 
 /** R1.3: a free loopback port from a broad ephemeral range; undefined = none, and then nothing is spawned */
@@ -84,6 +100,7 @@ export function tunPreflight(snap: TunSnapshot | undefined): Preflight {
 }
 
 const SNAP = `
+$ErrorActionPreference='Stop'
 $a=@(Get-NetAdapter -IncludeHidden | Where-Object { $_.Name -eq '${TUN.name}' } | ForEach-Object { [pscustomobject]@{ name=$_.Name; desc=$_.InterfaceDescription; status=[string]$_.Status } })
 $ip=@(Get-NetIPAddress | Where-Object { $_.IPAddress -like '172.19.*' -or $_.IPAddress -like 'fdfe:*' } | ForEach-Object { [pscustomobject]@{ ip=$_.IPAddress; alias=$_.InterfaceAlias } })
 $rt=@(Get-NetRoute | Where-Object { $_.DestinationPrefix -like '172.19.*' -or $_.DestinationPrefix -like 'fdfe:*' } | ForEach-Object { [pscustomobject]@{ prefix=$_.DestinationPrefix; alias=$_.InterfaceAlias } })
@@ -99,6 +116,7 @@ export async function tunSnapshot(): Promise<TunSnapshot | undefined> {
 }
 
 const ROUTES = `
+$ErrorActionPreference='Stop'
 $up=@(Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | ForEach-Object { $_.ifIndex })
 @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' | ForEach-Object { [pscustomobject]@{ alias=$_.InterfaceAlias; nextHop=$_.NextHop; up=($up -contains $_.ifIndex) } }) | ConvertTo-Json -Compress
 `

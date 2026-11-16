@@ -1,19 +1,19 @@
-// Туннели: own tunnels, groups, and the sources that are coming ("скоро", never pretending to work). No text boxes:
-// tunnels come in through "+ Туннель", groups are made by picking tunnels.
-import { useState } from 'react'
+// Saved connections, their groups, and the explicitly refreshed public catalog share one destination.
+import { useRef, useState } from 'react'
 import type { Group, ProfileView, Settings, Snapshot, Status } from '../../../shared/types'
 import { dropGroup, usersOf } from '../../../main/store-core'
 import { Modal } from '../ui/modal'
 import { Area, Btn, Icon, Input, Plain, Tooltip } from '../ui/kit'
 import { s, sp } from '../lib/i18n'
 import { api } from '../bridge'
+import type { SettingsPatch } from '../lib/actions'
 import { Mark, Ping } from '../parts'
 import { AddTunnel, importNote, type ImportResult } from './addtunnel'
 import { GroupDialog } from './groupdlg'
+import { PublicCatalog } from './publiccat'
 
-const COMING = ['warp'] as const
 
-export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status: Status; patch: (p: Partial<Settings>) => void; toast: (x: string) => void }) {
+export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status: Status; patch: SettingsPatch; toast: (x: string) => void }) {
   const [edit, setEdit] = useState<string>()
   const [name, setName] = useState('')
   const [adding, setAdding] = useState(false)
@@ -24,9 +24,15 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
   const [replaceError, setReplaceError] = useState('')
   const [replaceBusy, setReplaceBusy] = useState(false)
   const [subBusy, setSubBusy] = useState<string>()
+  const [removing, setRemoving] = useState(false)
+  const removeLock = useRef(false)
+  const replaceLock = useRef(false)
+  const renameCanceled = useRef(false)
   const [visibleOwn, setVisibleOwn] = useState(24)
   const [query, setQuery] = useState('')
   const live = status.phase === 'on'
+  const changing = status.phase === 'starting' || status.phase === 'stopping'
+  const refreshAllowed = status.phase === 'off' && status.open !== true
   const st = snap.settings
   const own = snap.profiles.filter(p => p.kind !== 'group')
   const filteredOwn = query.trim() ? own.filter(p => `${p.name} ${p.host} ${p.version}`.toLowerCase().includes(query.trim().toLowerCase())) : own
@@ -35,16 +41,20 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
   const uses = (id: string) => st.routes.filter(r => r.via === id).length + (st.rest === id ? 1 : 0)
   const nameOf = (id: string) => own.find(p => p.id === id)?.name ?? s('via.gone')
   const rename = async (p: ProfileView) => {
-    if (p.kind === 'group') { const n = name.trim().slice(0, 40); if (n) patch({ groups: st.groups.map(g => (g.id === p.id ? { ...g, name: n } : g)) }) }
-    else {
-      try { const result = await api.renameProfile(p.id, name); if (result?.error) toast(result.error) }
-      catch { toast(s('srv.save.error')) }
+    if (renameCanceled.current) return
+    const n = name.trim().slice(0, 40)
+    if (!n) { toast(s('srv.name.empty')); return }
+    if (p.kind === 'group') {
+      if (!await patch({ groups: st.groups.map(g => (g.id === p.id ? { ...g, name: n } : g)) })) return
+    } else {
+      try { const result = await api.renameProfile(p.id, n); if (result?.error) { toast(result.error); return } }
+      catch { toast(s('srv.save.error')); return }
     }
-    setEdit(undefined)
+    setEdit(current => current === p.id ? undefined : current)
   }
   const nameCell = (p: ProfileView) => edit === p.id
     ? <Input autoFocus className="inp" value={name} onChange={e => setName(e.target.value)} onBlur={() => void rename(p)}
-        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEdit(undefined) }} />
+        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { e.preventDefault(); renameCanceled.current = true; setEdit(undefined) } }} />
     : <Tooltip tip={p.name}><b className="srv-n ell">{p.name}</b></Tooltip>
   // C08: tunnel health is its own fact (ok / degraded / down / busy), measured by the tunnel or the local checker
   const ping = (p: ProfileView) => {
@@ -58,70 +68,74 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
       <span className="m">{uses(p.id) ? sp('srv.uses', uses(p.id)) : s('srv.unused')}</span>
       <div className="grow" />
       {onEdit && <Btn kind="ghost" title={s('grp.edit')} onClick={onEdit}><Icon n="apps" /></Btn>}
-      {p.subscription && <Btn kind="ghost" disabled={live || !!subBusy} title={live ? s('srv.sub.stop') : s('srv.sub.refresh')} onClick={async () => {
+      {p.subscription && <Btn kind="ghost" disabled={!refreshAllowed || !!subBusy} title={!refreshAllowed ? s('srv.sub.stop') : s('srv.sub.refresh')} onClick={async () => {
         setSubBusy(p.id)
         try {
           const r = await api.refreshSubscription(p.id)
-          toast(r.ok ? s('srv.sub.done', { u: r.updated ?? 0, a: r.added ?? 0, m: r.missing ?? 0 }) : r.error)
+          toast(r.ok ? s('srv.sub.done', { u: r.updated ?? 0, a: r.added ?? 0, m: r.missing ?? 0 }) : r.error ?? s('srv.sub.error'))
         } catch { toast(s('srv.sub.error')) }
         finally { setSubBusy(undefined) }
       }}><span className={subBusy === p.id ? 'spin' : ''}><Icon n="refresh" /></span></Btn>}
-      {p.kind !== 'group' && !p.subscription && p.source !== 'managed' && p.source !== 'public' && p.source !== 'warp' && <Btn kind="ghost" title={s('srv.replace')} onClick={() => { setReplacing(p); setReplacement(''); setReplaceError('') }}><Icon n="refresh" /></Btn>}
-      <Btn kind="ghost" title={p.source === 'managed' ? s('srv.managed.locked') : p.source === 'public' ? s('srv.public.locked') : s('set.rename')} disabled={p.source === 'managed' || p.source === 'public'} onClick={() => { setEdit(p.id); setName(p.name) }}><Icon n="edit" /></Btn>
-      <Btn kind="danger" title={p.source === 'managed' ? s('srv.managed.locked') : s('set.remove')} disabled={p.source === 'managed'} onClick={() => setDel(p)}><Icon n="trash" /></Btn>
+      {p.kind !== 'group' && !p.subscription && p.source !== 'managed' && p.source !== 'public' && p.source !== 'warp' && <Btn kind="ghost" disabled={changing} title={s('srv.replace')} onClick={() => { setReplacing(p); setReplacement(''); setReplaceError('') }}><Icon n="refresh" /></Btn>}
+      <Btn kind="ghost" title={p.source === 'managed' ? s('srv.managed.locked') : p.source === 'public' ? s('srv.public.locked') : s('set.rename')} disabled={p.source === 'managed' || p.source === 'public'} onClick={() => { renameCanceled.current = false; setEdit(p.id); setName(p.name) }}><Icon n="edit" /></Btn>
+      <Btn kind="danger" title={p.source === 'managed' ? s('srv.managed.locked') : s('set.remove')} disabled={p.source === 'managed' || changing} onClick={() => setDel(p)}><Icon n="trash" /></Btn>
     </div>
   )
   // C03: deleting a used tunnel shows its cards first; they get a replacement or stay blocked, never silently direct
   const remove = async (p: ProfileView, replace?: string) => {
-    if (p.kind === 'group') patch(dropGroup(st, p.id, replace))
-    else {
-      try {
+    if (removeLock.current) return
+    removeLock.current = true; setRemoving(true)
+    try {
+      if (p.kind === 'group') {
+        if (!await patch(dropGroup(st, p.id, replace))) return
+      } else {
         const result = await api.removeProfile(p.id, replace)
         if (result?.error) { toast(result.error); return }
         if (result?.warning) toast(result.warning)
       }
-      catch { toast(s('srv.save.error')); return }
-    }
-    setDel(undefined)
+      setDel(undefined)
+    } catch { toast(s('srv.save.error')) }
+    finally { removeLock.current = false; setRemoving(false) }
   }
   const delDlg = del && (() => {
     const u = usersOf(st, del.id)
     const others = snap.profiles.filter(x => !x.revoked && x.id !== del.id && !(x.kind === 'group' && x.members?.includes(del.id) && x.members.length === 1))
     const n = u.cards.length + (u.rest ? 1 : 0) + (u.all ? 1 : 0)
     return (
-      <Modal title={s('del.title', { v: del.name })} onClose={() => setDel(undefined)}>
+      <Modal title={s('del.title', { v: del.name })} onClose={() => setDel(undefined)} busy={removing}>
         {n === 0 ? <p className="lead">{s('del.unused')}</p> : <>
           <p className="lead">{sp('del.used', n)}</p>
-          <ul className="del-list">{u.cards.map(c => <li key={c} className="ell">{c}</li>)}{u.rest && <li>{s('rest.label')}</li>}{u.all && <li>{s('del.all')}</li>}</ul>
+          <ul className="del-list">{u.cards.map((c, i) => <li key={i} className="ell">{c}</li>)}{u.rest && <li>{s('rest.label')}</li>}{u.all && <li>{s('del.all')}</li>}</ul>
           <p className="hint">{s('del.how')}</p>
           <div className="del-opts">
-            {others.map(o => <Btn key={o.id} onClick={() => void remove(del, o.id)}><Mark profiles={snap.profiles} via={o.id} />{s('del.to', { v: o.name })}</Btn>)}
+            {others.map(o => <Btn disabled={removing} key={o.id} onClick={() => void remove(del, o.id)}><Mark profiles={snap.profiles} via={o.id} />{s('del.to', { v: o.name })}</Btn>)}
           </div>
         </>}
         <div className="modal-foot">
-          <Btn onClick={() => setDel(undefined)}>{s('del.cancel')}</Btn>
-          <Btn kind="danger" onClick={() => void remove(del)}><Icon n="trash" />{n ? s('del.block') : s('set.remove')}</Btn>
+          <Btn disabled={removing} onClick={() => setDel(undefined)}>{s('del.cancel')}</Btn>
+          <Btn kind="danger" disabled={removing} onClick={() => void remove(del)}><Icon n="trash" />{n ? s('del.block') : s('set.remove')}</Btn>
         </div>
       </Modal>
     )
   })()
   const replace = async (file: boolean) => {
-    if (!replacing || replaceBusy) return
+    if (!replacing || replaceLock.current) return
+    replaceLock.current = true
     setReplaceBusy(true); setReplaceError('')
     try {
       const result: { ok: boolean; error?: string; warning?: string; canceled?: boolean } = await api.replaceProfile(replacing.id, file ? { file: true } : { text: replacement })
       if (result.ok) { setReplacing(undefined); setReplacement(''); toast(result.warning ?? s('srv.replace.done')) }
-      else if (!result.canceled) setReplaceError(result.error ?? s('add.find.error'))
-    } catch { setReplaceError(s('add.find.error')) }
-    finally { setReplaceBusy(false) }
+      else if (!result.canceled) setReplaceError(result.error ?? s('srv.save.error'))
+    } catch { setReplaceError(s('srv.save.error')) }
+    finally { replaceLock.current = false; setReplaceBusy(false) }
   }
   return (
     <div className="page">
       {delDlg}
-      {replacing && <Modal title={s('srv.replace')} onClose={() => { if (!replaceBusy) setReplacing(undefined) }}>
+      {replacing && <Modal title={s('srv.replace')} busy={replaceBusy} onClose={() => { if (!replaceBusy) setReplacing(undefined) }}>
         <p className="lead">{replacing.name}</p>
         <p className="hint">{s('srv.replace.note')}</p>
-        <Area className="selectable mono wz-area" spellCheck={false} placeholder={s(replacing.kind === 'awg' ? 'srv.replace.awg' : replacing.kind === 'openvpn' ? 'srv.replace.openvpn' : 'srv.replace.link')} value={replacement} onChange={e => { setReplacement(e.target.value); setReplaceError('') }} />
+        <Area disabled={replaceBusy} className="selectable mono wz-area" spellCheck={false} placeholder={s(replacing.kind === 'awg' ? 'srv.replace.awg' : replacing.kind === 'openvpn' ? 'srv.replace.openvpn' : 'srv.replace.link')} value={replacement} onChange={e => { setReplacement(e.target.value); setReplaceError('') }} />
         {replaceError && <div className="ferr">{replaceError}</div>}
         <div className="wz-foot">
           <Btn disabled={replaceBusy} onClick={() => void replace(true)}><Icon n="file" />{s('srv.replace.file')}</Btn>
@@ -149,6 +163,7 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
               <Mark profiles={snap.profiles} via={p.id} />
               {nameCell(p)}
               {p.source === 'managed' && <i className="badge">{s('srv.managed')}</i>}
+              {p.source === 'public' && <i className="badge warn">{s('srv.public')}</i>}
               {p.subscriptionMissing && <i className="badge warn">{s('srv.sub.missing')}</i>}
               <div className="grow" />
             </div>
@@ -187,15 +202,8 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
         </div>
       </>}
 
-      <div className="sec-head"><h2>{s('srv.soon')}</h2></div>
-      <div className="srv-grid">
-        {COMING.map(k => (
-          <Plain key={k} className="panel srv soon" disabled tip={s('add.soon.' + k)}>
-            <div className="srv-top"><span className="wz-ic"><Icon n="bolt" s={20} /></span><b className="srv-n">{s('add.' + k)}</b><div className="grow" /><i className="badge">{s('add.soon')}</i></div>
-            <span className="hint">{s('srv.soon.' + k)}</span>
-          </Plain>
-        ))}
-      </div>
+      <div className="sec-head"><h2>{s('pub.sec')}</h2></div>
+      <PublicCatalog toast={toast} used={id => snap.profiles.some(p => p.id === id)} refreshAllowed={refreshAllowed} />
 
       {adding && <AddTunnel onClose={() => setAdding(false)} onAdded={(r: ImportResult) => toast(importNote(r))}
         onPublic={() => { setAdding(false); requestAnimationFrame(() => document.getElementById('public-catalog')?.scrollIntoView({ behavior: 'smooth' })) }} />}

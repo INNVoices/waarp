@@ -1,17 +1,43 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { Settings, Snapshot } from '../../../shared/types'
 import { Btn, Icon, Toggle } from '../ui/kit'
 import { s } from '../lib/i18n'
 import { api } from '../bridge'
+import type { SettingsPatch } from '../lib/actions'
 
-export function SettingsPage({ snap, patch, toast }: { snap: Snapshot; patch: (p: Partial<Settings>) => void; toast: (x: string) => void }) {
+export function SettingsPage({ snap, patch, toast }: { snap: Snapshot; patch: SettingsPatch; toast: (x: string) => void }) {
   const st = snap.settings
   const [log, setLog] = useState<string[]>()
   const [resetting, setResetting] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [logging, setLogging] = useState(false)
+  const action = useRef(false)
+  const logAction = useRef(false)
+  const resetAction = useRef(false)
+  const save = async (k: keyof Settings, value: boolean) => {
+    if (action.current) return
+    action.current = true; setSaving(true)
+    try { await patch({ [k]: value } as Partial<Settings>) }
+    finally { action.current = false; setSaving(false) }
+  }
+  const readLog = async () => {
+    if (logAction.current) return
+    logAction.current = true; setLogging(true)
+    try { setLog(await api.log()) }
+    catch { toast(s('set.log.error')) }
+    finally { logAction.current = false; setLogging(false) }
+  }
+  const reset = async () => {
+    if (resetAction.current) return
+    resetAction.current = true; setResetting(true)
+    try { const r = await api.resetNet(); toast(r?.ok ? s('set.reset.done') : r?.error ?? s('set.reset.error')) }
+    catch { toast(s('set.reset.error')) }
+    finally { resetAction.current = false; setResetting(false) }
+  }
   const opt = (k: keyof Settings, id: string, rec?: boolean) => (
-    <div className="opt" onClick={() => patch({ [k]: !st[k] } as Partial<Settings>)}>
+    <div className="opt" onClick={() => void save(k, !st[k])}>
       <div><b>{s(id)}{rec && <em className="rec">{s('set.rec')}</em>}</b><p>{s(id + '.text')}</p></div>
-      <Toggle on={!!st[k]} onChange={v => patch({ [k]: v } as Partial<Settings>)} label={s(id)} />
+      <Toggle disabled={saving} on={!!st[k]} onChange={v => void save(k, v)} label={s(id)} />
     </div>
   )
   return (
@@ -36,20 +62,20 @@ export function SettingsPage({ snap, patch, toast }: { snap: Snapshot; patch: (p
           <h3>{s('set.net')}</h3>
           <div className="opts">
             {opt('ruDirect', 'set.ru', true)}
-            {opt('dnsAll', 'set.dns')}
             {opt('lanDirect', 'set.lan', true)}
           </div>
+          <p className="hint">{s('set.dns.behavior')}</p>
         </section>
         <section className="panel">
           <h3>{s('set.fix')}</h3>
           <div className="opts">
             <div className="opt static">
               <div><b>{s('set.reset')}</b><p>{s('set.reset.text')}</p></div>
-              <Btn disabled={resetting} onClick={async () => { if (resetting) return; setResetting(true); try { const r = await api.resetNet(); toast(r?.ok ? s('set.reset.done') : r?.error ?? s('set.reset.error')) } finally { setResetting(false) } }}><span className={resetting ? 'spin' : ''}><Icon n="refresh" /></span>{s('set.reset.go')}</Btn>
+              <Btn disabled={resetting} onClick={() => void reset()}><span className={resetting ? 'spin' : ''}><Icon n="refresh" /></span>{s('set.reset.go')}</Btn>
             </div>
             <div className="opt static">
               <div><b>{s('set.log')}</b><p>{s('set.log.text')}</p></div>
-              <Btn onClick={async () => setLog(await api.log())}><Icon n="doc" />{s(log ? 'set.log.refresh' : 'set.log.show')}</Btn>
+              <Btn disabled={logging} onClick={() => void readLog()}><Icon n="doc" />{s(log ? 'set.log.refresh' : 'set.log.show')}</Btn>
             </div>
           </div>
           {log && <pre className="log selectable">{log.length ? log.join('\n') : s('set.log.empty')}</pre>}

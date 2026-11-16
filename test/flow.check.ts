@@ -1,5 +1,5 @@
 // WAARP-IA-TARGET-FIRST-01: target-first flow. Pure renderer logic (lib/flow.ts), no Electron, no network.
-import { acquire, addEntry, back, draftOf, goTo, initialNav, isDraft, normAddr, openRoute, showCatalog, showList, targetId, type Nav } from '../src/renderer/src/lib/flow'
+import { acquire, addEntry, back, draftOf, goTo, initialNav, isDraft, mergeScannedApps, normAddr, openRoute, showCatalog, showList, targetId, type Nav } from '../src/renderer/src/lib/flow'
 import { customRoute } from '../src/renderer/src/lib/routes'
 import { AUTO_ID } from '../src/shared/groups'
 import type { AppInfo, Route } from '../src/shared/types'
@@ -69,7 +69,14 @@ const preloadSrc = readFileSync('src/preload/index.ts', 'utf8')
 t('master click acknowledges opening/closing immediately without mutating authoritative status',
   appSrc.includes("setMasterPending(closing ? 'closing' : 'opening')") && appSrc.includes('const controlStatus: Status = masterPending'))
 t('Windows icons hydrate through main -> preload -> renderer without a manual rescan',
-  appsSrc.includes('onHydrated?.(list.map') && indexSrc.includes("send('apps', items)") && preloadSrc.includes("onApps: on('apps')") && appSrc.includes('api.onApps') && appSrc.includes('current.filter(a => !scanned.has(a.id))'))
+  appsSrc.includes('onHydrated?.(list.map') && indexSrc.includes("send('apps', items)") && preloadSrc.includes("onApps: on('apps')") && appSrc.includes('api.onApps') && appSrc.includes('mergeScannedApps(current, x)'))
+const manualApp = { ...app('manual'), source: 'manual' } as AppInfo
+const goneScanApp = { ...app('gone'), source: 'installed' } as AppInfo
+const freshScanApp = { ...app('scanned'), source: 'running', icon: 'fixture-icon' } as AppInfo
+const mergedApps = mergeScannedApps([manualApp, goneScanApp], [freshScanApp])
+t('scan completion keeps a concurrently picked EXE but removes stale scanned entries', mergedApps.length === 2 && mergedApps[0] === manualApp && mergedApps[1] === freshScanApp)
+t('icon hydration replaces matching manual entries without duplicates', mergeScannedApps([manualApp], [{ ...manualApp, icon: 'hydrated' }]).length === 1 && mergeScannedApps([manualApp], [{ ...manualApp, icon: 'hydrated' }])[0].icon === 'hydrated')
+
 const baseStatus = { phase: 'off', open: false, pings: {}, fallback: {}, down: 0, up: 0, downTotal: 0, upTotal: 0 } as unknown as Status
 t('master presentation follows global intent during internal core restart',
   masterPresentation({ ...baseStatus, open: true, phase: 'stopping' }).pressed
@@ -108,6 +115,10 @@ t('closed master still says a tunnel route is waiting for opening',
   routeStateKey({ on: true, via: 'p1' } as Route, baseStatus, { desired: 'p1', state: 'idle', reason: 'waiting' }) === 'route.st.idle'
   && routeSchemeHintKey({ via: 'p1' } as Route, baseStatus) === 'route.scheme.off')
 
+t('an unmeasured live path says checking rather than working or missing a translation',
+  routeStateKey({ on: true, via: 'p1' } as Route, { ...baseStatus, open: true, phase: 'on' }, { desired: 'p1', state: 'retrying', reason: 'waiting' }) === 'route.st.waiting'
+  && routeStateKey({ on: true, via: 'p1' } as Route, { ...baseStatus, open: true, phase: 'on' }, { desired: 'p1', state: 'retrying' }) === 'route.st.waiting')
+
 const layoutSrc = readFileSync('src/renderer/src/layout.css', 'utf8')
 t('live-connections summary adapts at the declared 900px window minimum instead of clipping columns',
   layoutSrc.includes('@media (max-width: 1050px)')
@@ -130,7 +141,7 @@ const partsSrc = readFileSync('src/renderer/src/parts.tsx', 'utf8')
 t('route-list path changes use the same route:select command and serialize pending apply',
   librarySrc.includes('const [applying, setApplying]')
   && librarySrc.includes('await api.selectRoute(route.id, via)')
-  && librarySrc.includes('disabled={!!applying}')
+  && librarySrc.includes('disabled={!!applying || saving}')
   && librarySrc.includes("s('route.applying'")
   && partsSrc.includes('disabled?: boolean')
   && partsSrc.includes('disabled={disabled}'))
@@ -140,7 +151,7 @@ t('an already-open master can always be closed even when nothing remains to open
   appSrc.includes('const masterUnavailable = !master.pressed && !snap.profiles.length && !demandsTunnel')
   && appSrc.includes('disabled={masterUnavailable || busy}')
   && masterPartsSrc.includes("disabled={disabled && status.open !== true && status.phase === 'off'}")
-  && readFileSync('src/main/index.ts', 'utf8').includes("enabled: masterOpen || ((store.profiles.length > 0 || demandsTunnel(store.settings)) && admin)"))
+  && readFileSync('src/main/index.ts', 'utf8').includes("enabled: master.open || ((store.profiles.length > 0 || demandsTunnel(store.settings)) && admin)"))
 
 const connectionsSrc = readFileSync('src/renderer/src/pages/connections.tsx', 'utf8')
 const kitSrc = readFileSync('src/renderer/src/ui/kit.tsx', 'utf8')

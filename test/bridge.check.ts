@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startBridge } from '../src/main/bridge'
+import { localIpcReady } from './local-ipc'
 import { bridgeStatus, createPending, PICK_TTL, companionEditsOk, companionRoutesSafe, ensureIntent, listCompanion, parseTarget, pickOptions, routeOf, safeVia } from '../src/shared/companion'
 import { checkedPatch } from '../src/main/validate'
 import { AUTO_ID } from '../src/shared/groups'
@@ -126,7 +127,7 @@ const R = (via: string, extra: Partial<Route> = {}): Route => ({ id: ID, kind: '
 
   // ---- over the pipe
   const dir = mkdtempSync(join(tmpdir(), 'waarp-bridge-'))
-  const pipe = '\\\\.\\pipe\\waarp-test-' + process.pid
+  const pipe = process.platform === 'win32' ? '\\\\.\\pipe\\waarp-test-' + process.pid : join(dir, 'bridge.sock')
   let settings = S()
   let connects = 0, navs: unknown[] = [], slow = false, inFlight = 0, maxInFlight = 0
   const secretish = { host: '203.0.113.10', key: 'PRIVATEKEY', token: 'should-not-leak' }
@@ -148,7 +149,12 @@ const R = (via: string, extra: Partial<Route> = {}): Route => ({ id: ID, kind: '
       open: t => { const p = parseTarget(t); if (!p) return { error: 'bad_target' }; navs.push(p.id); return { ok: true } },
     },
   }, pipe)
-  await new Promise(r => setTimeout(r, 100))
+  if (!(await localIpcReady(server))) {
+    rmSync(dir, { recursive: true, force: true })
+    console.log(`bridge.check: ${n} non-IPC checks`)
+    if (fails) process.exitCode = 1
+    return
+  }
   const token = JSON.parse(readFileSync(join(dir, 'bridge.json'), 'utf8')).token as string
   const call = (method: string, params?: unknown, tok = token): Promise<any> => new Promise((res, rej) => {
     const s = connect(pipe); let buf = ''

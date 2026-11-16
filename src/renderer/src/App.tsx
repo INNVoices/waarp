@@ -7,7 +7,7 @@ import { logoClick } from './eggs'
 import { Connections } from './pages/connections'
 import { RoutePage } from './pages/route'
 import { Library } from './pages/library'
-import { addEntry, back, goTo, initialNav, openRoute, showCatalog, showList, type Nav, type Page } from './lib/flow'
+import { addEntry, back, goTo, initialNav, mergeScannedApps, openRoute, showCatalog, showList, type Nav, type Page } from './lib/flow'
 import { Servers } from './pages/servers'
 import { AddTunnel, importNote } from './pages/addtunnel'
 import { Analyzer } from './pages/analyzer'
@@ -28,6 +28,12 @@ export function App() {
   const [nav, setNav] = useState<Nav>(initialNav)
   const { page, routeId } = nav
   const [busy, setBusy] = useState(false)
+  const [bootError, setBootError] = useState(false)
+  const [bootAttempt, setBootAttempt] = useState(0)
+  const masterLock = useRef(false)
+  const scanLock = useRef(false)
+  const snapshotVersion = useRef(0)
+  const statusVersion = useRef(0)
   const [masterPending, setMasterPending] = useState<'opening' | 'closing'>()
   const [toast, setToast] = useState<string>()
   const [adding, setAdding] = useState(false)
@@ -40,21 +46,33 @@ export function App() {
   const [, tick] = useState(0)
 
   // a failed scan must not leave the library as endless placeholders: show it empty and say why
-  const rescan = async () => { setScanning(true); try { setApps(await api.scanApps()) } catch { setApps(a => a ?? []); setToast(s('lib.scan_failed')) } finally { setScanning(false) } }
+  const rescan = async () => {
+    if (scanLock.current) return
+    scanLock.current = true; setScanning(true)
+    try { const scanned: AppInfo[] = await api.scanApps(); setApps(current => mergeScannedApps(current, scanned)) }
+    catch { setApps(a => a ?? []); setToast(s('lib.scan_failed')) }
+    finally { scanLock.current = false; setScanning(false) }
+  }
 
   useEffect(() => {
+    let mounted = true
+    setBootError(false)
+    const sv = snapshotVersion.current, tv = statusVersion.current
     void api.snapshot().then((x: Snapshot) => {
-      setSnap(x); setStatus(x.status)
-      if (!x.profiles.length && localStorage.getItem('waarp-first-scan') !== 'done') {
-        // Offer discovery on first launch, but do not inspect local folders before the user
-        // explicitly chooses the search action in the add dialog.
-        setAdding(true)
-      }
-    })
+      if (!mounted) return
+      // A snapshot response may arrive after a newer push event. Do not roll back live state.
+      if (snapshotVersion.current === sv) setSnap(x)
+      if (statusVersion.current === tv) setStatus(x.status)
+      if (snapshotVersion.current === sv && !x.profiles.length && localStorage.getItem('waarp-first-scan') !== 'done') setAdding(true)
+    }).catch(() => { if (mounted) setBootError(true) })
     void rescan()
-    const a = api.onSnapshot((x: Snapshot) => { setSnap(x); setStatus(x.status) })
+    const a = api.onSnapshot((x: Snapshot) => {
+      snapshotVersion.current++; statusVersion.current++
+      setSnap(x); setStatus(x.status); setBootError(false)
+    })
     let lastPing: Status['pings'] | undefined
     const b = api.onStatus((x: Status) => {
+      statusVersion.current++
       setStatus(x)
       if (x.phase === 'starting' || x.phase === 'stopping') { hist.current = {}; lastPing = undefined; return }
       if (x.pings !== lastPing) {
@@ -66,21 +84,15 @@ export function App() {
       }
     })
     const c = api.onConns((x: Conn[]) => setConns(x))
-    const appsHydrated = api.onApps((x: AppInfo[]) => setApps(current => {
-      if (!current) return x
-      // Icon hydration belongs to the background scan. Preserve a manually picked exe that
-      // the user may have added while Windows shell icons were still resolving.
-      const scanned = new Set(x.map(a => a.id))
-      return [...current.filter(a => !scanned.has(a.id)), ...x]
-    }))
+    const appsHydrated = api.onApps((x: AppInfo[]) => setApps(current => mergeScannedApps(current, x)))
     const d = api.onToast((x: string) => setToast(x))
     // a companion app asked Waarp (bridge routes.open) to show its route, or to pick a path for its target
     const e = api.onNav((x: { route?: string; pick?: { id?: unknown; name?: unknown } }) => {
       if (typeof x?.route === 'string') { const id = x.route; setNav(n => openRoute(n, id)) }
       else if (x?.pick && typeof x.pick.id === 'string' && typeof x.pick.name === 'string') setPick({ id: x.pick.id, name: x.pick.name })
     })
-    return () => { a(); b(); c(); appsHydrated(); d(); e() }
-  }, [])
+    return () => { mounted = false; a(); b(); c(); appsHydrated(); d(); e() }
+  }, [bootAttempt])
 
   // The elapsed-time label needs a clock only while the tunnel is on. Keeping this timer alive
   // while idle rerendered the complete application every second for no visible change.
@@ -110,17 +122,23 @@ export function App() {
     return () => { window.removeEventListener('focus', focus); clearTimeout(timer) }
   }, [])
 
-  if (!snap || !status) return <div className="boot"><Logo s={28} /></div>
+  if (!snap || !status) return <div className="boot"><div className="boot-content" role="status"><Logo s={28} />{bootError && <><p>{s('app.load.error')}</p><Btn onClick={() => setBootAttempt(n => n + 1)}><Icon n="refresh" />{s('app.load.retry')}</Btn></>}</div></div>
 
-  const patch = async (p: Partial<Settings>) => {
-    try { setSnap(await api.settings(p)) }
-    catch { setToast(s('set.save.error')) }
+  const patch = async (p: Partial<Settings>): Promise<boolean> => {
+    const sv = snapshotVersion.current, tv = statusVersion.current
+    try {
+      const next: Snapshot & { saved?: boolean } = await api.settings(p, snap.settings)
+      if (snapshotVersion.current === sv) setSnap(next)
+      if (statusVersion.current === tv) setStatus(next.status)
+      return next.saved !== false
+    } catch { setToast(s('set.save.error')); return false }
   }
   const go = (p: Page) => setNav(n => goTo(n, p))
   const open = (id: string) => setNav(n => openRoute(n, id))
   const addApp = (a: AppInfo) => setApps(l => [a, ...(l ?? []).filter(x => x.id !== a.id)])
   const toggle = async () => {
-    if (busy) return
+    if (masterLock.current) return
+    masterLock.current = true
     const closing = status.open === true || status.phase === 'on' || status.phase === 'starting'
     setMasterPending(closing ? 'closing' : 'opening')
     setBusy(true)
@@ -129,11 +147,16 @@ export function App() {
       // The event stream is the fast path, but a failed native startup may stop and
       // exit in the same turn. Reconcile from the authoritative main-process state
       // so the switch can never remain visually open after the engine has failed.
-      const fresh = await api.snapshot()
-      setSnap(fresh)
-      setStatus(fresh.status)
       if (!r.ok && r.error) setToast(r.error)
-    } finally {
+    } catch { setToast(s('top.toggle.error')) }
+    finally {
+      try {
+        const sv = snapshotVersion.current, tv = statusVersion.current
+        const fresh: Snapshot = await api.snapshot()
+        if (snapshotVersion.current === sv) setSnap(fresh)
+        if (statusVersion.current === tv) setStatus(fresh.status)
+      } catch { setToast(s('top.state.error')) }
+      masterLock.current = false
       setMasterPending(undefined)
       setBusy(false)
     }
@@ -184,14 +207,14 @@ export function App() {
         <Notices list={snap.notices} admin={snap.admin} />
         {page === 'home' && !hasRouting && <Welcome onAdd={() => setAdding(true)} />}
         {page === 'home' && hasRouting && <Connections snap={snap} status={controlStatus} conns={conns} apps={apps ?? []} patch={patch} toast={setToast} toggle={toggle} open={open} add={() => setNav(addEntry)} />}
-          {page === 'route' && routeId && <RoutePage snap={snap} status={status} conns={conns} apps={apps ?? []} id={routeId} patch={patch} toast={setToast} back={() => setNav(back)} />}
+          {page === 'route' && routeId && <RoutePage key={routeId} snap={snap} status={status} conns={conns} apps={apps ?? []} id={routeId} patch={patch} toast={setToast} back={() => setNav(back)} />}
           {page === 'lib' && <Library snap={snap} status={status} conns={conns} apps={apps} loading={scanning} rescan={rescan} addApp={addApp} patch={patch} toast={setToast} open={open} mode={nav.libMode} setMode={m => setNav(m === 'catalog' ? showCatalog : showList)} />}
           {page === 'servers' && <Servers snap={snap} status={status} patch={patch} toast={setToast} />}
           {page === 'an' && <Analyzer snap={snap} status={status} hist={hist.current} patch={patch} />}
           {page === 'settings' && <SettingsPage snap={snap} patch={patch} toast={setToast} />}
       </main>
       {adding && <AddTunnel autoFind={autoFind} initialClip={initialClip} onAutoFindDone={() => localStorage.setItem('waarp-first-scan', 'done')} onClose={() => { setAdding(false); setAutoFind(false); setInitialClip(false) }} onAdded={r => { setToast(importNote(r)); if (!r.clientPublicKey) { setAdding(false); setAutoFind(false); setInitialClip(false); setNav(n => snap.settings.routes.length ? goTo(n, 'lib') : addEntry(n)) } }}
-        onPublic={() => { setAdding(false); setAutoFind(false); setInitialClip(false); go('servers'); setTimeout(() => document.getElementById('public-catalog')?.scrollIntoView({ behavior: 'smooth' }), 150) }} />}
+        onPublic={() => { setAdding(false); setAutoFind(false); setInitialClip(false); go('servers'); requestAnimationFrame(() => document.getElementById('public-catalog')?.scrollIntoView({ behavior: 'smooth' })) }} />}
       {clipHint && !adding && <div className="clip-hint" role="status"><span>{s('clip.found', { v: clipHint.host ?? s('add.clip.' + clipHint.kind) })}</span><Btn kind="primary" onClick={() => { setClipHint(undefined); setInitialClip(true); setAdding(true) }}>{s('imp.add')}</Btn><Plain aria-label={s('nav.close')} onClick={() => setClipHint(undefined)}><Icon n="x" s={14} /></Plain></div>}
       {pick && <CompanionPick snap={snap} pick={pick} toast={setToast} done={id => { setPick(undefined); if (id) open(id) }} manage={() => go('servers')} />}
       {toast && <div className="toast" role="status"><Icon n={/не удал|ошиб|не вышл|нельзя|не найд|занят|не подход/i.test(toast) ? 'warn' : 'check'} />{toast}</div>}

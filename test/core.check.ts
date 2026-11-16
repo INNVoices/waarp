@@ -172,7 +172,7 @@ eq(e1.h1, '1020325451-1020325500', 'endpoint h1 range string')
 eq(e1.h2, 3288052141, 'endpoint h2 number')
 eq(e1.mtu, 1376, 'endpoint mtu')
 eq(e1.peers[0].pre_shared_key, PUB, 'psk')
-eq(c.inbounds[0].strict_route, false, 'never strict route')
+eq(c.inbounds[0].strict_route, true, 'Windows strict routing limits multihomed DNS escape while the core is alive')
 
 const VU = '11111111-2222-3333-4444-555555555555', VK = 'q9MMmIcttvDr6uEcmpRFioaJZ5sHOAannstz3-5cwBM'
 const vx = parseVless(`vless://${VU}@9.9.9.9:443?type=xhttp&security=reality&pbk=${VK}&sid=0123abcd&fp=firefox&sni=www.apple.com&path=%2Fxh&mode=stream-one#X`)
@@ -250,10 +250,16 @@ eq(conflicts([p], [{ name: 'Waarp', desc: 'sing-tun', ipv4: ['10.8.0.7'], fullRo
   eq(await journal.recover(), true, 'runtime recovery without a lease leaves all processes alone')
   writeFileSync(join(dir, 'run.json.owner'), JSON.stringify({ version: 1, runId: 'bad', pid: 42, path: 'F:\\fake\\sing-box.exe', started: '2026-01-01T00:00:00Z' }))
   eq(await journal.recover(), false, 'runtime recovery rejects an unowned or malformed lease')
-  const srv = startBridge(dir, { version: 't', status: () => ({ phase: 'off' }) }, '\\\\.\\pipe\\waarp-test-' + process.pid)
+  const pipe = process.platform === 'win32' ? '\\\\.\\pipe\\waarp-test-' + process.pid : join(dir, 'bridge.sock')
+  const srv = startBridge(dir, { version: 't', status: () => ({ phase: 'off' }) }, pipe)
+  const { localIpcReady } = await import('./local-ipc')
+  if (!(await localIpcReady(srv))) {
+    rmSync(dir, { recursive: true, force: true })
+    console.log(fails ? `${fails}/${n} FAILED` : `all ${n} non-IPC checks passed`)
+    process.exit(fails ? 1 : 0)
+  }
   const info = JSON.parse(readFileSync(join(dir, 'bridge.json'), 'utf8'))
-  const call = (o: object) => new Promise<any>(res => { const c = connect(info.pipe, () => c.write(JSON.stringify(o) + '\n')); c.setEncoding('utf8'); c.on('data', d => { res(JSON.parse(String(d))); c.end() }) })
-  await new Promise(r => setTimeout(r, 100))
+  const call = (o: object) => new Promise<any>((res, reject) => { const c = connect(info.pipe, () => c.write(JSON.stringify(o) + '\n')); c.setEncoding('utf8'); c.on('error', reject); c.on('data', d => { res(JSON.parse(String(d))); c.end() }) })
   eq((await call({ id: 1, method: 'hello' })).error, 'unauthorized', 'bridge needs token')
   eq((await call({ id: 2, token: info.token, method: 'hello' })).result.api, 1, 'bridge hello')
   eq((await call({ id: 3, token: info.token, method: 'status' })).result.phase, 'off', 'bridge status')

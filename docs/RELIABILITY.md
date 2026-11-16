@@ -6,6 +6,13 @@ Columns: what the user sees · what Waarp changes · what it never changes · wh
 
 | Case | User sees | Waarp changes | Never changes | New TUN | Test |
 |---|---|---|---|---|---|
+| OFF during startup / ON-OFF-ON | the latest owner's choice | aborts obsolete readiness/requests; serializes starts | a newer ON is never consumed by an old completion | only for the current revision | `control.check`, `tun.check` |
+| No route needs TUN while an old core remains | idle only after a verified stop, otherwise an error | stops its own unnecessary core | never reports an unverified idle state | no until cleanup succeeds | `control.check` |
+| Catalog refresh races with ON | canceled catalog check, preserved previous list | aborts downloads and verifies checker exit | no background public scan at app launch | only after checker exit | `catalog.check` |
+| A stale renderer saves a whole routes/groups list | refresh-and-retry message | rejects the stale write | newer companion / renderer edits | unchanged | `settings.check` |
+| Removed companion path and another settings edit | the missing route stays blocked; other edits work | allows unchanged unavailable paths to remain or be disabled | no new public/unsafe path | according to the remaining plan | `settings.check` |
+| Selected group member fails while a spare is healthy | the actual selected path's state | changes selector after confirmed failure and frees old sessions | never reports the spare as proof the current path works | unchanged | `effective.check`, `groups.check` |
+| Healthy active sessions and a faster HTTP probe | current sessions keep their path | postpones performance-driven selection until idle | no promise of measured game ping | unchanged | `groups.check` |
 | Controller port taken | "Нет свободного локального порта…" | nothing (no process started) | ports of other apps | yes, next try picks another port | `tun.check` (port) |
 | No engine binary | "Не найден движок…" | nothing | — | no, until reinstall | `matrix.check` |
 | Engine checksum mismatch | block notice "Движок Waarp повреждён" | nothing | — | no, until reinstall | `matrix.check` (verifyEngine) |
@@ -29,6 +36,12 @@ Columns: what the user sees · what Waarp changes · what it never changes · wh
 | Large library on Auto | "Авто: 16 из N кандидатов активны" | runs a bounded pool (16 Auto-only endpoints) | settings, profiles | yes | `autopool.check` |
 | App quit / Windows logoff with the tunnel on | — | waits up to 15 s for a verified stop | — | — | `stop.check` (bounded) |
 
+## Test coverage boundaries
+
+`npm test` discovers offline `test/*.check.ts` suites. Native smoke and live stress remain separate opt-ins. Restricted non-Windows workers can reject Unix sockets with `EPERM`/`EACCES`; only that IPC section is explicitly skipped, and the runner prints `Partial coverage`. A Windows named-pipe failure is never skipped.
+
+The renderer DOM harness is `npm run test:ui` and requires an available Playwright installation and a separately served production renderer. It uses injected IPC, never a real tunnel. The audit environment could not launch Chromium; those scenarios and new screenshots remain unverified. See [the dated audit](AUDIT-2026-11-16.md) for the local test record and release acceptance matrix.
+
 ## Not provable offline
 
 These are planned for a disposable Windows VM and never run on a developer workstation:
@@ -39,3 +52,5 @@ These are planned for a disposable Windows VM and never run on a developer works
 - antivirus file locks;
 - upgrade / reinstall / uninstall;
 - 50+ start/stop cycles.
+- existing game TCP/UDP sessions recovering after selector failover;
+- strict-route DNS filtering, IPv6/application DoH, and private DNS across different providers.

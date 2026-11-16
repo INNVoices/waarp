@@ -9,7 +9,7 @@ import type { RouteEff } from '../../../shared/effective'
 export function routeStateKey(route: Pick<Route, 'on' | 'via'>, status: Pick<Status, 'open' | 'phase'>, eff?: RouteEff, draft = false): string {
   if (!route.on) return draft ? 'route.st.draft' : 'route.st.off'
   if (eff?.state === 'fallback') return 'route.st.fb'
-  if (eff?.state === 'blocked' || eff?.state === 'retrying') return 'route.st.' + eff.reason
+  if (eff?.state === 'blocked' || eff?.state === 'retrying') return 'route.st.' + (eff.reason ?? 'waiting')
   if (route.via === 'direct' || eff?.state === 'direct') return 'route.st.direct'
   if (eff?.state === 'ok') return 'route.st.ok'
   if (status.open === true && (eff?.state === 'idle' || status.phase === 'starting' || status.phase === 'stopping' || status.phase === 'off'))
