@@ -5,10 +5,11 @@ data class SubscriptionMerge(val profiles: List<TunnelProfile>, val updated: Int
 
 object Subscriptions {
     /** Endpoint rotation preserves a route only for unique identities; ambiguous provider entries never steal IDs. */
-    fun reconcile(old: List<TunnelProfile>, incoming: List<TunnelProfile>, subscription: String): SubscriptionMerge {
-        require(incoming.isNotEmpty()) { "Подписка не вернула поддерживаемых профилей; сохранённые данные оставлены" }
+    fun reconcile(old: List<TunnelProfile>, incoming: ImportResult, subscription: String): SubscriptionMerge {
+        require(incoming.skipped == 0) { "Подписка прочитана не полностью. Сохранённые профили оставлены без изменений." }
+        require(incoming.profiles.isNotEmpty()) { "Подписка не вернула поддерживаемых профилей; сохранённые данные оставлены" }
         val prior = old.withIndex().filter { it.value.subscription == subscription }
-        val fresh = incoming.distinctBy(ProfileImporter::identity)
+        val fresh = incoming.profiles.distinctBy(ProfileImporter::identity)
         val matches = mutableMapOf<Int, TunnelProfile>(); val consumed = mutableSetOf<String>()
         fun unique(oldKey: (TunnelProfile) -> String, newKey: (TunnelProfile) -> String, legacyOnly: Boolean = false) {
             val before = prior.filter { it.index !in matches }.groupBy { oldKey(it.value) }

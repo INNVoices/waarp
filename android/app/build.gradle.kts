@@ -2,6 +2,12 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import java.security.MessageDigest
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.ListProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.TaskAction
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -127,31 +133,38 @@ val verifyCoreAar by tasks.registering {
 }
 tasks.named("preBuild").configure { dependsOn(verifyCoreAar) }
 
-val generatedLegalAssets = layout.buildDirectory.dir("generated/waarpLegalAssets")
-val releaseComponents = providers.provider {
-    configurations.getByName("releaseRuntimeClasspath").incoming.resolutionResult.allComponents
-        .mapNotNull { (it.id as? ModuleComponentIdentifier)?.let { id -> "${id.group}:${id.module}:${id.version}" } }
-        .sorted()
-}
-val generateRuntimeDependencyNotice by tasks.registering {
-    group = "verification"
-    description = "Package the exact resolved Maven runtime component inventory."
-    inputs.property("components", releaseComponents)
-    outputs.dir(generatedLegalAssets)
-    doLast {
-        val destination = generatedLegalAssets.get().file("licenses/Maven-runtime-components.json").asFile
+abstract class RuntimeDependencyNoticeTask : DefaultTask() {
+    @get:Input abstract val componentCoordinates: ListProperty<String>
+    @get:Input abstract val configurationName: Property<String>
+    @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction fun writeNotice() {
+        val destination = outputDirectory.get().file("licenses/Maven-runtime-components.json").asFile
         destination.parentFile.mkdirs()
         destination.writeText(JsonOutput.prettyPrint(JsonOutput.toJson(mapOf(
             "schemaVersion" to 1,
-            "configuration" to "releaseRuntimeClasspath",
+            "configuration" to configurationName.get(),
             "scope" to "Resolved Maven components, including dependency platforms. Native engine inventory is in Libbox-buildinfo.txt.",
-            "components" to releaseComponents.get()
+            "components" to componentCoordinates.get()
         ))) + "\n")
     }
 }
-android.sourceSets.getByName("main").assets.srcDir(generatedLegalAssets)
-tasks.matching { it.name == "mergeDebugAssets" || it.name == "mergeReleaseAssets" }.configureEach {
-    dependsOn(generateRuntimeDependencyNotice)
+
+androidComponents.onVariants { variant ->
+    val configuration = "${variant.name}RuntimeClasspath"
+    val task = tasks.register<RuntimeDependencyNoticeTask>("generate${variant.name.replaceFirstChar { it.uppercaseChar() }}RuntimeDependencyNotice") {
+        group = "verification"
+        description = "Package the exact resolved Maven runtime component inventory."
+        configurationName.set(configuration)
+        componentCoordinates.set(providers.provider {
+            configurations.getByName(configuration).incoming.resolutionResult.allComponents
+                .mapNotNull { (it.id as? ModuleComponentIdentifier)?.let { id -> "${id.group}:${id.module}:${id.version}" } }
+                .sorted()
+        })
+    }
+    // The Variant Sources API wires every consumer, including lint's models,
+    // to the producer. A raw sourceSets directory misses that task dependency.
+    variant.sources.assets?.addGeneratedSourceDirectory(task, RuntimeDependencyNoticeTask::outputDirectory)
 }
 
 dependencies {

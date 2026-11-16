@@ -276,6 +276,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
     }
     override suspend fun deleteRoute(id: String) = action { repository.edit { it.copy(routes = it.routes.filterNot { route -> route.id == id }) }; "Маршрут удалён" }
     override suspend fun importText(text: String, name: String) = action {
+        require(text.toByteArray(Charsets.UTF_8).size <= MAX_IMPORT_BYTES) { "Конфиг слишком большой: максимум 1 МБ" }
         val subscription = text.trim().takeIf(ProfileImporter::isSubscription)
         val body = if (subscription != null) network.fetch(subscription) else text
         val imported = withContext(Dispatchers.Default) { ProfileImporter.parse(body, if (subscription != null) "" else name) }
@@ -283,7 +284,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
         var added = 0
         repository.edit { value ->
             if (subscription != null && value.profiles.any { it.subscription == subscription }) {
-                val merged = Subscriptions.reconcile(value.profiles, imported.profiles, subscription); added = merged.added + merged.updated
+                val merged = Subscriptions.reconcile(value.profiles, imported, subscription); added = merged.added + merged.updated
                 value.copy(profiles = merged.profiles)
             } else {
                 val known = value.profiles.map(ProfileImporter::identity).toMutableSet()
@@ -353,7 +354,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
         var summary = ""
         repository.edit { value ->
             require(value.profiles.any { it.id == id && it.subscription == subscription }) { "Подписка изменилась во время загрузки" }
-            val merged = Subscriptions.reconcile(value.profiles, incoming.profiles, subscription)
+            val merged = Subscriptions.reconcile(value.profiles, incoming, subscription)
             summary = "Обновлено: ${merged.updated}; добавлено: ${merged.added}; исчезло у источника: ${merged.missing}"
             value.copy(profiles = merged.profiles)
         }; summary

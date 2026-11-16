@@ -370,8 +370,22 @@ object ProfileImporter {
         }
         return ImportResult(result, skipped)
     }
-    fun identity(profile: TunnelProfile): String = MessageDigest.getInstance("SHA-256")
-        .digest(profile.config.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    /** Connection identity includes DNS policy and ignores JSON object insertion order. */
+    fun identity(profile: TunnelProfile): String {
+        fun canonical(value: Any?): String = when (value) {
+            is JSONObject -> value.keys().asSequence().sorted().joinToString(",", "{", "}") {
+                JSONObject.quote(it) + ":" + canonical(value.get(it))
+            }
+            is JSONArray -> (0 until value.length()).joinToString(",", "[", "]") { canonical(value.get(it)) }
+            null, JSONObject.NULL -> "null"
+            is String -> JSONObject.quote(value)
+            else -> value.toString()
+        }
+        val config = JSONObject(profile.config).apply { remove("tag") }
+        val input = canonical(obj("config" to config, "dns" to profile.dns))
+        return MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+    }
     fun credentialIdentity(profile: TunnelProfile): String {
         val j = JSONObject(profile.config)
         val tls = j.optJSONObject("tls")

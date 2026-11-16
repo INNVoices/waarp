@@ -52,6 +52,15 @@ class ProfileImporterTest {
         assertEquals(12, node.getInt("s3"))
     }
 
+    @Test fun profileIdentityPreservesDnsPolicyButIgnoresJsonKeyOrderAndLocalLabels() {
+        val profile = ProfileImporter.parse(wg()).profiles.single()
+        assertNotEquals(ProfileImporter.identity(profile), ProfileImporter.identity(profile.copy(dns = listOf("10.8.0.53"))))
+        val a = profile.copy(config = """{"type":"wireguard","peers":[{"port":51820,"host":"192.0.2.1"}]}""")
+        val b = a.copy(id = "renamed-id", name = "Local label", config = """{"peers":[{"host":"192.0.2.1","port":51820}],"type":"wireguard","tag":"local-tag"}""")
+        assertEquals(ProfileImporter.identity(a), ProfileImporter.identity(b))
+        assertNotEquals(ProfileImporter.identity(a), ProfileImporter.identity(a.copy(config = a.config.replace("51820", "51821"))))
+    }
+
     @Test fun unsafeOrAmbiguousWireGuardConfigurationsAreRejected() {
         listOf(
             wg("PostUp = echo do-not-execute"), wg("PrivateKey = $peer"),
