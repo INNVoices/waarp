@@ -463,6 +463,13 @@ try {
     })
     assert.ok(overflow.main <= 1, JSON.stringify(overflow))
     assert.ok(overflow.table <= 1, 'public action and ping fit the supported 900px window')
+    await page.evaluate(() => document.fonts.ready)
+    const headingGap = await page.locator('.pub-row.pick-th').evaluate(row => {
+      const country = document.createRange(), name = document.createRange()
+      country.selectNodeContents(row.children[0]); name.selectNodeContents(row.children[1])
+      return name.getBoundingClientRect().left - country.getBoundingClientRect().right
+    })
+    assert.ok(headingGap >= 4, `country and name captions need a visible gap, got ${headingGap}px`)
     const visibleColumns = await page.locator('.pub-row:not(.pick-th)').first().evaluate(row => {
       const table = row.closest('.pick-table').getBoundingClientRect()
       return [...row.querySelectorAll('.pub-ms, .pub-add')].map(element => {

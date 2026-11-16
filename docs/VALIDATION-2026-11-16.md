@@ -38,6 +38,22 @@ Production-сборка обнаружила недопустимый импор
 
 Повторный Windows-прогон на commit `f4e303e5320065ff7a79d7c2145c19403064fd68` завершился **SUCCESS**: [run 43891541976](https://github.com/INNVoices/waarp/actions/runs/43891541976). Выполнены все 34 набора, 18 native process checks, 51 relaunch check и 16 Chromium-регрессий; portable EXE собран. Это доказательство для предыдущего среза. Финальные исправления no-console, UI истории, зависимостей и новые stability gates требуют нового успешного CI на актуальном head.
 
+Новый [run 43895557817](https://github.com/INNVoices/waarp/actions/runs/43895557817), head `32adf0446bdab2ff7366159f26734a9c8b7876d7`, реально завершил 34 набора, **24 native process checks**, **51 relaunch check**, **17 browser regressions** и **50/50 native TUN cycles**. GitHub проверял merge revision `2f5af573…`; его tree `e25b7f165…` совпал с деревом head. Весь job при этом **не был успешным**: portable собрался, но новый ASAR-валидатор использовал `/` для nested path, тогда как установленный `@electron/asar` на Windows разделяет путь по `path.sep`. Сам файл присутствовал в проверенном списке архива. Путь исправлен через `path.join`; финальный head обязан пройти повторный gate.
+
+Сохранённые результаты этого прогона:
+
+| Проверка | Фактический результат |
+| --- | --- |
+| [Настоящий Windows TUN](validation/native-windows-2026-11-16.json) | 50/50, 249,733 s; 25 STOP через подтверждённый no-console force и 25 crash; все cleanup flags true, errors пуст |
+| TUN startup / stop p95 | 2678 / 2715 ms, включая native inventory и проверки владения; не чистое время core |
+| Peak working set ядра | 58 802 176 байт; это максимум в данном сценарии, не доказательство отсутствия долгосрочных утечек |
+| Схема 9 протоколов | 18/18 production/checker конфигов приняты настоящим закреплённым ядром; удалённые подключения не выполнялись |
+| Фактический Go toolchain Windows-ядра | `go1.26.8`, получен из `sing-box version`; отдельный security gate остаётся обязательным |
+| [Renderer stability](validation/renderer-stability-windows-2026-11-16.json) | 100 циклов за 71,338 s; heap +665 296 байт; DOM nodes/listeners/documents без роста; IPC-подписки неизменны; 0 console/page errors |
+| [Windows compiler performance](validation/compiler-performance-windows-2026-11-16.json) | 1000 профилей / 201 маршрут; p95 3,943 ms, max 4,110 ms; retained heap +34 528 байт; config 132 703 байта, 17 endpoints |
+
+Визуальный просмотр снимка 900 px обнаружил тесноту заголовков «Страна»/«Название». Минимальная ширина первого столбца увеличена на 12 px; прежние проверки видимого ping/действия сохранены и дополнены измерением зазора между отрисованными текстами. Последующая проверка относится к новому head, а не переносит PASS с предыдущей сборки.
+
 CI сохраняет `waarp-ui-evidence` со снимками и UI-метриками, `waarp-validation-evidence` с native/performance JSON, `waarp-awg-evidence` с протокольным стендом и `waarp-windows-portable` с EXE. Native process tests не создают TUN. Отдельный 50-cycle runner создаёт настоящий временный TUN без автоматической маршрутизации и захвата DNS. Он не подключается к приватному серверу и не доказывает полную маршрутизацию.
 
 ## Настоящее Linux-ядро и предоставленный конфиг
@@ -107,7 +123,7 @@ Replayable source и команды: [test/userspace-awg](../test/userspace-awg/
 
 ## Performance и критерии stable
 
-Production compiler реально измерен на Linux/Node 24.22.1: 1000 синтетических профилей, 201 маршрут, 5 разогревочных и 30 измеряемых сборок. p50 **2, 17 ms**, p95 **7,85 ms**, max **9,48 ms**; retained heap после GC вырос на 57 848 байт. Сформированный конфиг 132 703 байта, 17 endpoints: 16 Auto плюс один явно выбранный. Все заранее заданные бюджеты пройдены. [Полный результат с samples](validation/compiler-performance-linux-2026-11-16.json).
+Production compiler реально измерен на Linux/Node 24.22.1: 1000 синтетических профилей, 201 маршрут, 5 разогревочных и 30 измеряемых сборок. p50 **2,17 ms**, p95 **7,85 ms**, max **9,48 ms**; retained heap после GC вырос на 57 848 байт. Сформированный конфиг 132 703 байта, 17 endpoints: 16 Auto плюс один явно выбранный. Все заранее заданные бюджеты пройдены. [Полный результат с samples](validation/compiler-performance-linux-2026-11-16.json).
 
 Это измерение работы production-функций, без запущенного ядра и сети. Время запуска/остановки настоящего Windows TUN и heap/DOM 100 циклов Chromium сохраняются отдельными CI-artifacts; их нельзя подменять этим микрозамером.
 

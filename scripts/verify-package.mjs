@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -22,7 +22,8 @@ const forbidden = [...entries].filter(name => /^(test|docs|src|scripts)(\/|$)/.t
 assert.deepEqual(forbidden, [], 'Test bundles, source, screenshots and validation reports must not ship in app.asar')
 const packagedMetadata = JSON.parse(asar.extractFile(archive, 'package.json').toString('utf8'))
 assert.equal(packagedMetadata.version, metadata.version, 'Packaged version does not match the candidate')
-const html = asar.extractFile(archive, 'out/renderer/index.html').toString('utf8')
+// asar 3 traverses directory segments using the host path separator.
+const html = asar.extractFile(archive, join('out', 'renderer', 'index.html')).toString('utf8')
 for (const match of html.matchAll(/(?:src|href)="\.\/([^"?#]+)"/g)) {
   assert.ok(entries.has(`out/renderer/${match[1]}`), `Missing renderer entry asset: ${match[1]}`)
 }

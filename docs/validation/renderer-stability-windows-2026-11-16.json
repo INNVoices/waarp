@@ -1,0 +1,69 @@
+{
+  "scope": "Production renderer in Chromium with injected in-memory IPC; no native engine, VPN, TUN or system routing.",
+  "sourceRevision": "2f5af57329f51f3433cb8c8f77ad45d510b4b97c",
+  "chromium": "159.0.8154.6",
+  "startedAt": "2026-11-16T15:23:25.604Z",
+  "limits": {
+    "warmupCycles": 10,
+    "measuredCycles": 100,
+    "elapsedMs": 90000,
+    "heapGrowthBytes": 8388608,
+    "heapGrowthRatio": 0.25,
+    "domNodeGrowth": 200,
+    "domListenerGrowth": 8,
+    "documentGrowth": 1
+  },
+  "completedCycles": 100,
+  "result": "passed",
+  "baseline": {
+    "heapUsedBytes": 4547028,
+    "documents": 1,
+    "nodes": 163,
+    "jsEventListeners": 192,
+    "ipcListeners": {
+      "snapshot": 1,
+      "status": 1,
+      "conns": 1,
+      "apps": 1,
+      "toast": 1,
+      "nav": 1
+    }
+  },
+  "elapsedMs": 71338.2716,
+  "final": {
+    "heapUsedBytes": 5212324,
+    "documents": 1,
+    "nodes": 163,
+    "jsEventListeners": 192,
+    "ipcListeners": {
+      "snapshot": 1,
+      "status": 1,
+      "conns": 1,
+      "apps": 1,
+      "toast": 1,
+      "nav": 1
+    }
+  },
+  "cycleMs": {
+    "p50": 699.3293000000049,
+    "p95": 766.0881999999983,
+    "max": 766.5141999999978
+  },
+  "growth": {
+    "heapUsedBytes": 665296,
+    "nodes": 0,
+    "jsEventListeners": 0,
+    "documents": 0
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "provenance": {
+    "workflowRun": "https://github.com/INNVoices/waarp/actions/runs/43895557817",
+    "headSha": "32adf0446bdab2ff7366159f26734a9c8b7876d7",
+    "checkoutSha": "2f5af57329f51f3433cb8c8f77ad45d510b4b97c",
+    "verifiedTreeSha": "e25b7f16538563b7f1eee081b8ffefe6a861d82f",
+    "overallRun": "failed at package verification: ASAR Windows path separator; individual reports below passed",
+    "artifactId": 14237524486,
+    "artifactZipSha256": "b9fbf388190ababf77f34c5672b3273c986e87d2d50ff9e657e36f6bf440e8fa"
+  }
+}

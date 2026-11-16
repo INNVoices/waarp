@@ -399,7 +399,7 @@
 /* Keep the measured ping and row action visible at the 900px minimum window.
    Long names/addresses retain their existing ellipsis; smaller embedded tables can still scroll. */
 @media (max-width: 1040px) {
-  .pub-list.pick-table .pub-row { grid-template-columns: 32px minmax(100px, 1fr) minmax(140px, 1.1fr) 70px minmax(78px, .8fr) 54px 88px; gap: 8px; min-width: 726px; padding-inline: 8px; }
+  .pub-list.pick-table .pub-row { grid-template-columns: 44px minmax(100px, 1fr) minmax(140px, 1.1fr) 70px minmax(78px, .8fr) 54px 88px; gap: 8px; min-width: 738px; padding-inline: 8px; }
   .pub-list.pick-table .pub-proto { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 .pub.compact { padding: 0; border: 0; background: transparent; }
