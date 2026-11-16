@@ -191,18 +191,15 @@ def main():
             if result.returncode != 0 or app_crash:
                 report["passedGate"] = False
                 report["crashBufferError"] = "Target crash observed or Android crash evidence could not be read."
-    # Read only the known native crash file from this owned release fixture.
-    result = subprocess.run(prefix + ["exec-out", "cat", f"/data/user/0/{APP}/no_backup/libbox/work/CrashReport-waarp-android.log"],
-                            capture_output=True, text=True, timeout=30)
-    native_crash = result.stdout if result.returncode == 0 else "Native crash file unavailable after fixture shutdown.\n"
-    report["nativeCrashEvidenceAvailable"] = result.returncode == 0
-    if result.returncode != 0 or re.search(r"panic:|fatal error:|SIGSEGV|goroutine \d+ \[", native_crash):
+    # A service restart rotates native panic output into crash_reports/*/go.log.
+    # Include that exact allowlisted history, never the associated config files.
+    crash_reader = module("android_native_crash_evidence", "android-crash-evidence.py")
+    native = crash_reader.collect_native_crashes(prefix, output, APP)
+    report["nativeCrashEvidence"] = native
+    report["nativeCrashEvidenceAvailable"] = native["available"]
+    if not native["passed"]:
         report["passedGate"] = False
-        report["nativeCrashError"] = "Native crash evidence is missing or contains a runtime failure."
-    native_crash = re.sub(r"(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])", "[REDACTED_32_BYTE_KEY]", native_crash)
-    native_crash = re.sub(r"(?<![A-Za-z0-9+/_-])(?:[A-Za-z0-9+/_-]{43}=|[A-Za-z0-9+/_-]{44})(?![A-Za-z0-9+/_=-])",
-                          "[REDACTED_32_BYTE_KEY]", native_crash)
-    (output / "native-crash-report.txt").write_text(native_crash[-2 * 1024 * 1024:])
+        report["nativeCrashError"] = "Current or archived native crash evidence is missing, oversized, or contains a runtime failure."
     if options.mode == "soak" and elapsed < options.duration_seconds:
         report["passedGate"] = False
         report["durationError"] = "The requested real wall-clock soak duration was not completed."

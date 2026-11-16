@@ -7,6 +7,7 @@ ADB shell exit code alone. The app and test APK must already be installed.
 """
 import argparse
 from datetime import datetime, timezone
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -94,19 +95,12 @@ def capture_logs(prefix, output, failed):
             content = f"Log collection failed: {type(error).__name__}\n"
         # Keep bounded diagnostics even if one native log line is unusually large.
         (output / filename).write_text(content[-2 * 1024 * 1024:])
-    # The pinned libbox Setup redirects Go stderr here, outside Android logcat.
-    # Read this exact crash file only; never enumerate app storage/configurations.
-    try:
-        result = subprocess.run(prefix + ["exec-out", "run-as", "local.waarp.android.debug", "cat",
-                                "no_backup/libbox/work/CrashReport-waarp-android.log"],
-                                capture_output=True, text=True, timeout=20)
-        native = result.stdout + result.stderr
-    except (OSError, subprocess.TimeoutExpired) as error:
-        native = f"Native crash collection failed: {type(error).__name__}\n"
-    native = re.sub(r"(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])", "[REDACTED_32_BYTE_KEY]", native)
-    native = re.sub(r"(?<![A-Za-z0-9+/_-])(?:[A-Za-z0-9+/_-]{43}=|[A-Za-z0-9+/_-]{44})(?![A-Za-z0-9+/_=-])",
-                    "[REDACTED_32_BYTE_KEY]", native)
-    (output / "native-crash-report.txt").write_text(native[-2 * 1024 * 1024:])
+    # Setup rotates a previous Go panic away from the current file on restart.
+    # Read only current/.old/go.log crash paths, with the app's run-as identity.
+    spec = importlib.util.spec_from_file_location("android_native_crash_evidence", Path(__file__).with_name("android-crash-evidence.py"))
+    crash_reader = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(crash_reader)
+    native = crash_reader.collect_native_crashes(prefix, output, "local.waarp.android.debug", run_as=True)
     if failed:
         # API 30+ exposes OS termination reasons, including low-memory kills.
         # API 29 may report an unsupported command; preserve that as diagnostics.
@@ -117,6 +111,7 @@ def capture_logs(prefix, output, failed):
         except (OSError, subprocess.TimeoutExpired) as error:
             exits = f"Process exit collection failed: {type(error).__name__}\n"
         (output / "process-exit-info.txt").write_text(exits[-2 * 1024 * 1024:])
+    return native
 
 
 def main():
@@ -160,7 +155,12 @@ def main():
     parsed = parse_instrumentation(output, exit_code, timed_out)
     success = parsed["passedGate"]
     report = {"schemaVersion": 1, "checkedAtUtc": datetime.now(timezone.utc).isoformat(), "device": device, "preflight": preflight, "wallSeconds": elapsed, **parsed}
-    capture_logs(prefix, options.output, failed=not success)
+    native = capture_logs(prefix, options.output, failed=not success)
+    report["nativeCrashEvidence"] = native
+    if not native["passed"]:
+        success = False
+        report["passedGate"] = False
+        report["nativeCrashError"] = "Current or archived native crash evidence is incomplete or contains a runtime failure."
     screenshots = options.output / "ui-screenshots"
     try:
         pulled = subprocess.run(prefix + ["pull", "/sdcard/Android/data/local.waarp.android.debug/files/ui-screenshots", str(screenshots)], capture_output=True, text=True, timeout=60)

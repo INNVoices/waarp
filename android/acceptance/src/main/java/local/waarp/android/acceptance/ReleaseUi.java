@@ -85,14 +85,17 @@ final class ReleaseUi {
 
     void configureFixtureRouting(String profileName) {
         clickDescription("Настройки");
-        UiObject2 lan = find("Локальная сеть напрямую", false, false);
+        // Compose exposes the visible title and the switch description as
+        // separate nodes. The description itself is a non-checkable child;
+        // resolve its actionable parent and wait for the screen transition.
+        UiObject2 lan = ready("Локальная сеть напрямую", true, false, 15000);
         TrafficProbe.require(lan != null && lan.isCheckable(), "lan_setting_missing");
         if (lan.isChecked()) lan.click();
         long deadline = SystemClock.elapsedRealtime() + 30000;
         boolean saved = false;
         while (SystemClock.elapsedRealtime() < deadline) {
-            lan = find("Локальная сеть напрямую", false, false);
-            if (lan != null && lan.isEnabled() && !lan.isChecked()) { saved = true; break; }
+            lan = find("Локальная сеть напрямую", true, false);
+            if (lan != null && lan.isCheckable() && lan.isEnabled() && !lan.isChecked()) { saved = true; break; }
             SystemClock.sleep(100);
         }
         TrafficProbe.require(saved, "lan_setting_not_disabled");

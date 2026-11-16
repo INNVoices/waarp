@@ -4,6 +4,7 @@ package local.waarp.android.core
 import android.content.Context
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.SetupOptions
+import local.waarp.android.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -29,8 +30,8 @@ internal object LibboxRuntime {
             logMaxLines = 500
             debug = false
             crashReportSource = "waarp-android"
-            appVersion = "0.5.0-alpha.1"
-            appMarketingVersion = "0.5.0-alpha.1"
+            appVersion = BuildConfig.VERSION_NAME
+            appMarketingVersion = BuildConfig.VERSION_NAME
         })
         check(Libbox.version() == "1.14.4-lx.35") { "Версия VPN-ядра не совпадает с проверенной сборкой" }
         ready = true

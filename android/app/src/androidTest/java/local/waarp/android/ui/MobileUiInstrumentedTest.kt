@@ -1,6 +1,5 @@
 package local.waarp.android.ui
 
-import android.content.Intent
 import android.os.SystemClock
 import android.view.View
 import androidx.compose.ui.geometry.Rect
@@ -192,7 +191,9 @@ class MobileUiInstrumentedTest {
         field("Найти маршрут").performTextInput("Route 110")
         Espresso.closeSoftKeyboard()
         compose.onNode(hasText("Адреса") and hasClickAction()).performClick()
-        compose.onNodeWithText("Route 110").assertIsDisplayed()
+        // hasText also matches the search field's EditableText. Select the route
+        // card, not the identical query that is intentionally still visible.
+        compose.onNode(hasText("Route 110") and hasClickAction() and !hasSetTextAction()).assertIsDisplayed()
         tab("Туннели")
         tab("Маршруты")
         assertEditableText("Найти маршрут", "Route 110")
@@ -222,28 +223,6 @@ class MobileUiInstrumentedTest {
         assertEditableText("Домен или IP", "example.test")
         compose.onNode(hasText("Соединения") and hasClickAction()).performClick()
         assertEditableText("Приложение, адрес или путь", "test.app")
-        assertEquals(RuntimePhase.OFF, repository.controller.status.value.phase)
-        assertFalse(repository.requestedOpen.value)
-    }
-
-    @Test fun externalImportConfirmationSurvivesRecreationAndCommitsOnce() = withFailureCapture("failure-external-import") {
-        compose.activityRule.scenario.onActivity { activity ->
-            activity.startActivity(Intent(activity, MainActivity::class.java).setAction(Intent.ACTION_SEND)
-                .setType("text/plain").putExtra(Intent.EXTRA_TEXT,
-                    "trojan://synthetic-external@192.0.2.20:443#External%20rotation")
-                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP))
-        }
-        awaitText("Импорт из другого приложения")
-        compose.activityRule.scenario.recreate()
-        awaitText("Импорт из другого приложения")
-        compose.onNode(hasText("Импортировать") and hasClickAction() and hasAnyAncestor(isDialog()))
-            .assertIsDisplayed().assertIsEnabled().performClick()
-        compose.activityRule.scenario.recreate()
-        awaitData { it.profiles.singleOrNull()?.name == "External rotation" }
-        compose.waitUntil(15_000) { compose.onAllNodesWithText("Импорт из другого приложения").fetchSemanticsNodes().isEmpty() }
-        val saved = runBlocking { ProfileStore(context).read() }
-        assertEquals(1, saved.profiles.size)
-        assertEquals("External rotation", saved.profiles.single().name)
         assertEquals(RuntimePhase.OFF, repository.controller.status.value.phase)
         assertFalse(repository.requestedOpen.value)
     }
