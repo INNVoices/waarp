@@ -36,7 +36,7 @@ class NativeCoreInstrumentedTest {
 
     @Test fun actualAarVersionAndGoSecurityFixMatchThePin() {
         assertEquals("1.14.4-lx.35", Libbox.version())
-        assertEquals("go1.26.10", Libbox.goVersion())
+        assertEquals("go1.26.10", Libbox.goVersion().substringBefore(',').trim())
     }
 
     @Test fun productionCompilerIsAcceptedByNativeAndroidCore() = runBlocking {
@@ -114,10 +114,13 @@ class NativeCoreInstrumentedTest {
             "OpenVPN" to "client\ndev tun\nproto udp\nremote 192.0.2.2 1194\npeer-fingerprint ${"12".repeat(32)}\nremote-cert-tls server\n<auth-user-pass>\ntest-user\ntest-password\n</auth-user-pass>",
         )
         for ((format, input) in inputs) {
+            android.util.Log.i("WaarpNativeTests", "Validating $format: import")
             val profile = ProfileImporter.parse(input).profiles.single()
             val data = AppData(profiles = listOf(profile), settings = AppSettings(defaultVia = profile.id))
             try {
+                android.util.Log.i("WaarpNativeTests", "Validating $format: TUN configuration")
                 VpnController(context).validateConfig(RoutingCompiler.compile(data, context.packageName).json)
+                android.util.Log.i("WaarpNativeTests", "Validating $format: checker configuration")
                 VpnController(context).validateConfig(
                     RoutingCompiler.compile(data, context.packageName, checkerProfiles = listOf(profile)).json, requireTun = false)
             } catch (error: Exception) {

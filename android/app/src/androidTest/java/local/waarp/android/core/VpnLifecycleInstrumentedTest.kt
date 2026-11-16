@@ -9,6 +9,7 @@ import android.content.IntentFilter
 import android.net.VpnService
 import android.os.Build
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.core.app.ActivityScenario
 import androidx.core.content.ContextCompat
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -20,6 +21,13 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import io.nekohasekai.libbox.Libbox
 import local.waarp.android.service.WaarpVpnService
+import local.waarp.android.MainActivity
+import local.waarp.android.data.AppData
+import local.waarp.android.data.AppSettings
+import local.waarp.android.data.ProfileImporter
+import local.waarp.android.data.RoutingCompiler
+import local.waarp.android.data.TrafficRoute
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -31,6 +39,9 @@ import org.junit.runner.RunWith
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
+import java.net.InetSocketAddress
+import java.net.Socket
 
 @RunWith(AndroidJUnit4::class)
 class VpnLifecycleInstrumentedTest {
@@ -38,6 +49,7 @@ class VpnLifecycleInstrumentedTest {
     private val context get() = instrumentation.targetContext
     private val controller get() = VpnController(context)
     private val testPackage get() = instrumentation.context.packageName
+    private var activity: ActivityScenario<MainActivity>? = null
 
     @Before fun prepareVpn() = runBlocking {
         controller.stop()
@@ -45,10 +57,10 @@ class VpnLifecycleInstrumentedTest {
         // Test infrastructure grants only this test app's VPN AppOp, never another package.
         instrumentation.uiAutomation.executeShellCommand("appops set ${context.packageName} ACTIVATE_VPN allow")
             .use { android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes() }
-        context.startActivity(context.packageManager.getLaunchIntentForPackage(context.packageName)!!.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        activity = ActivityScenario.launch(MainActivity::class.java)
         val consent = controller.prepare()
         if (consent != null) {
-            context.startActivity(consent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            launchConsent(consent)
             val device = UiDevice.getInstance(instrumentation)
             val button = device.wait(Until.findObject(By.res("android", "button1")), 10_000)
             checkNotNull(button) { "Android VPN consent dialog did not appear" }
@@ -59,15 +71,19 @@ class VpnLifecycleInstrumentedTest {
     }
 
     @After fun stopVpn(): Unit = runBlocking {
-        controller.stop()
-        withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.OFF } }
+        try {
+            controller.stop()
+            withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.OFF } }
+        } finally { activity?.close(); activity = null }
     }
 
     @Test fun realTunRoutesAnotherAppAndShutsDownCleanly() = runBlocking {
         val statusCode = AtomicInteger(-2)
+        val probeError = AtomicReference("")
         val answer = CountDownLatch(1)
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
+                probeError.set(intent.getStringExtra("error").orEmpty())
                 statusCode.set(intent.getIntExtra("code", -3)); answer.countDown()
             }
         }
@@ -84,7 +100,8 @@ class VpnLifecycleInstrumentedTest {
                 .putExtra("url", "http://fixture.waarp.test:18080/generate_204")
                 .putExtra("destination", context.packageName))
             assertTrue("The separate app did not complete its real HTTP request", answer.await(15, TimeUnit.SECONDS))
-            assertEquals(204, statusCode.get())
+            assertEquals("HTTP fixture: ${probeError.get()}; DNS=${controller.dnsQueries.value}; " +
+                "native=${controller.logs.value.takeLast(15).map { it.message }}", 204, statusCode.get())
             val flow = withTimeout(10_000) {
                 controller.connections.first { list -> list.any { testPackage in it.packages && it.outbound == "per-app-route" } }
             }.first { testPackage in it.packages && it.outbound == "per-app-route" }
@@ -107,6 +124,76 @@ class VpnLifecycleInstrumentedTest {
             assertEquals(RuntimePhase.OFF, controller.status.value.phase)
             assertEquals(null, RuntimeState.backend.get())
         }
+    }
+
+    @Test fun encryptedAwg2DnsRoundTripSurvivesOffOn() = runBlocking {
+        val keys = controller.generateWireGuardKeyPair()
+        val peer = fixtureJson("/register", JSONObject().put("public_key", keys.publicKey).toString())
+        val profile = ProfileImporter.parse("""
+            [Interface]
+            PrivateKey = ${keys.privateKey}
+            Address = 10.77.0.2/32
+            DNS = 10.77.0.1
+            MTU = 1280
+            Jc = 2
+            Jmin = 32
+            Jmax = 64
+            S1 = 80
+            S2 = 20
+            S3 = 35
+            S4 = 12
+            H1 = 1000-1100
+            H2 = 2000-2100
+            H3 = 3000-3100
+            H4 = 4000-4100
+            I1 = <r 24>
+            [Peer]
+            PublicKey = ${peer.getString("server_public_key")}
+            Endpoint = 10.0.2.2:${peer.getInt("endpoint_port")}
+            AllowedIPs = 10.77.0.1/32
+            PersistentKeepalive = 0
+        """.trimIndent()).profiles.single()
+        assertEquals("AWG2", profile.protocol)
+        val data = AppData(profiles = listOf(profile), settings = AppSettings(lanDirect = false),
+            routes = listOf(TrafficRoute(name = "Encrypted DNS acceptance", kind = "app", match = testPackage, via = profile.id)))
+        val configuration = RoutingCompiler.compile(data, context.packageName).json
+        controller.validateConfig(configuration)
+        val statusCode = AtomicInteger(-2)
+        var answer = CountDownLatch(1)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                statusCode.set(intent.getIntExtra("code", -3)); answer.countDown()
+            }
+        }
+        ContextCompat.registerReceiver(context, receiver, IntentFilter("local.waarp.android.TEST_DNS_RESULT"), ContextCompat.RECEIVER_EXPORTED)
+        try {
+            repeat(2) { cycle ->
+                val before = fixtureJson("/proof").getLong("encrypted_dns_replies")
+                controller.start(configuration)
+                withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.ON || it.phase == RuntimePhase.ERROR } }
+                assertEquals(controller.status.value.message, RuntimePhase.ON, controller.status.value.phase)
+                statusCode.set(-2)
+                answer = CountDownLatch(1)
+                context.startActivity(Intent().setComponent(ComponentName(testPackage, ProbeActivity::class.java.name))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("dns", true).putExtra("destination", context.packageName))
+                assertTrue("Encrypted DNS cycle $cycle did not complete", answer.await(15, TimeUnit.SECONDS))
+                assertEquals("Synthetic inner DNS answer must traverse AWG2", 204, statusCode.get())
+                withTimeout(10_000) {
+                    controller.dnsQueries.first { list -> list.any { it.domain.startsWith("example.com") &&
+                        it.server == "dns-${profile.id}" && !it.failed } }
+                }
+                val proof = fixtureJson("/proof")
+                assertTrue(proof.getBoolean("authenticated_handshake"))
+                assertTrue("A cached answer cannot substitute for a new encrypted round trip", proof.getLong("encrypted_dns_replies") > before)
+                assertTrue(proof.getBoolean("awg_handshake_header_padding_observed"))
+                assertTrue(proof.getBoolean("awg_transport_header_padding_observed"))
+                assertTrue(proof.getBoolean("plaintext_dns_absent_from_outer_udp"))
+                assertEquals(0L, proof.getLong("device_error_events"))
+                controller.stop()
+                withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.OFF } }
+                assertEquals(null, RuntimeState.backend.get())
+            }
+        } finally { context.unregisterReceiver(receiver) }
     }
 
     @Test fun invalidConfigurationNeverReportsOn() = runBlocking {
@@ -141,7 +228,7 @@ class VpnLifecycleInstrumentedTest {
         val request = controller.prepare()
         assertNotNull("Revoked VPN authorization must require the real Android consent dialog", request)
         assertEquals(RuntimePhase.OFF, controller.status.value.phase)
-        context.startActivity(request!!.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        launchConsent(request!!)
         val device = UiDevice.getInstance(instrumentation)
         val allow = device.wait(Until.findObject(By.res("android", "button1")), 10_000)
         assertNotNull("The Android system VPN consent button must be visible", allow)
@@ -176,4 +263,26 @@ class VpnLifecycleInstrumentedTest {
             "rules":[{"action":"sniff"},{"protocol":"dns","action":"hijack-dns"},{"package_name":["$testPackage"],"outbound":"per-app-route"},{"action":"reject"}]}
         }
     """.trimIndent()
+
+    @Suppress("DEPRECATION")
+    private fun launchConsent(request: Intent) {
+        // Android ConfirmDialog requires a calling Activity/package. A NEW_TASK
+        // application-context launch has no caller and can dismiss itself immediately.
+        checkNotNull(activity).onActivity { it.startActivityForResult(request, 702) }
+    }
+
+    /** Test-only localhost control exchanges public keys/counters, never a private key or profile. */
+    private fun fixtureJson(path: String, body: String? = null): JSONObject = Socket().use { socket ->
+        socket.connect(InetSocketAddress("10.0.2.2", 18081), 3_000)
+        socket.soTimeout = 5_000
+        val payload = body.orEmpty().toByteArray(Charsets.UTF_8)
+        val method = if (body == null) "GET" else "POST"
+        val request = "$method $path HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: ${payload.size}\r\n\r\n"
+        socket.getOutputStream().write(request.toByteArray(Charsets.US_ASCII))
+        socket.getOutputStream().write(payload)
+        socket.getOutputStream().flush()
+        val response = socket.getInputStream().bufferedReader(Charsets.UTF_8).readText()
+        check(response.lineSequence().first().split(' ').getOrNull(1) == "200") { "Local AWG fixture rejected control request" }
+        JSONObject(response.substringAfter("\r\n\r\n"))
+    }
 }

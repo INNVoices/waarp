@@ -70,6 +70,19 @@ class WaarpVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         latestStartId = startId
+        // Even a cancelled/stale startForegroundService Intent carries Android's
+        // foreground deadline. A quick OFF must acknowledge it before stopping.
+        if (intent?.action != VpnController.ACTION_STOP) {
+            try { promoteToForeground() }
+            catch (error: Exception) {
+                val generation = if (intent?.action == VpnController.ACTION_START)
+                    intent.getLongExtra(VpnController.EXTRA_GENERATION, -1) else RuntimeState.currentGeneration() ?: -1
+                RuntimeState.cancelIfCurrent(generation)
+                    ?.let { requestStop(it, error) }
+                if (!RuntimeState.wanted()) stopSelfResult(startId)
+                return START_NOT_STICKY
+            }
+        }
         if (intent?.action == VpnController.ACTION_STOP) {
             VpnController(this).stop()
             return START_NOT_STICKY
@@ -82,7 +95,7 @@ class WaarpVpnService : VpnService() {
             if (!savedIntent && !isAlwaysOn) null else RuntimeState.requestStart()
         }
         if (request == null) {
-            if (!RuntimeState.wanted()) stopSelfResult(startId)
+            if (!RuntimeState.wanted()) finishForeground(startId)
             return if (RuntimeState.wanted()) START_STICKY else START_NOT_STICKY
         }
         try {

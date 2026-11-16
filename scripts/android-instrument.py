@@ -17,6 +17,44 @@ import sys
 import time
 
 
+def capture_logs(prefix, output, failed):
+    """Preserve JNI/Java crash evidence before the disposable emulator exits."""
+    requests = [("crash-buffer.txt", ["-b", "crash", "-d", "-v", "threadtime"])]
+    if failed:
+        requests.append(("logcat-failure.txt", ["-d", "-v", "threadtime", "-t", "2000"]))
+    for filename, arguments in requests:
+        try:
+            result = subprocess.run(prefix + ["logcat", *arguments], capture_output=True, text=True, timeout=20)
+            content = result.stdout + result.stderr
+        except (OSError, subprocess.TimeoutExpired) as error:
+            content = f"Log collection failed: {type(error).__name__}\n"
+        # Keep bounded diagnostics even if one native log line is unusually large.
+        (output / filename).write_text(content[-2 * 1024 * 1024:])
+    # The pinned libbox Setup redirects Go stderr here, outside Android logcat.
+    # Read this exact crash file only; never enumerate app storage/configurations.
+    try:
+        result = subprocess.run(prefix + ["exec-out", "run-as", "local.waarp.android.debug", "cat",
+                                "no_backup/libbox/work/CrashReport-waarp-android.log"],
+                                capture_output=True, text=True, timeout=20)
+        native = result.stdout + result.stderr
+    except (OSError, subprocess.TimeoutExpired) as error:
+        native = f"Native crash collection failed: {type(error).__name__}\n"
+    native = re.sub(r"(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])", "[REDACTED_32_BYTE_KEY]", native)
+    native = re.sub(r"(?<![A-Za-z0-9+/_-])(?:[A-Za-z0-9+/_-]{43}=|[A-Za-z0-9+/_-]{44})(?![A-Za-z0-9+/_=-])",
+                    "[REDACTED_32_BYTE_KEY]", native)
+    (output / "native-crash-report.txt").write_text(native[-2 * 1024 * 1024:])
+    if failed:
+        # API 30+ exposes OS termination reasons, including low-memory kills.
+        # API 29 may report an unsupported command; preserve that as diagnostics.
+        try:
+            result = subprocess.run(prefix + ["shell", "dumpsys", "activity", "exit-info", "local.waarp.android.debug"],
+                                    capture_output=True, text=True, timeout=20)
+            exits = result.stdout + result.stderr
+        except (OSError, subprocess.TimeoutExpired) as error:
+            exits = f"Process exit collection failed: {type(error).__name__}\n"
+        (output / "process-exit-info.txt").write_text(exits[-2 * 1024 * 1024:])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial")
@@ -78,9 +116,13 @@ def main():
     totals = {status: sum(case["status"] == status for case in cases) for status in ("passed", "failed", "skipped")}
     success = exit_code == 0 and not timed_out and final_codes == ["-1"] and len(cases) > 0 and len(cases) == expected_tests and not totals["failed"] and not totals["skipped"]
     report = {"schemaVersion": 1, "checkedAtUtc": datetime.now(timezone.utc).isoformat(), "device": device, "wallSeconds": elapsed, "tests": len(cases), "expectedTests": expected_tests, **totals, "timedOut": timed_out, "passedGate": success, "cases": cases}
+    capture_logs(prefix, options.output, failed=not success)
     screenshots = options.output / "ui-screenshots"
-    pulled = subprocess.run(prefix + ["pull", "/sdcard/Android/data/local.waarp.android.debug/files/ui-screenshots", str(screenshots)], capture_output=True, text=True, timeout=60)
-    screenshot_count = len(list(screenshots.rglob("*.png"))) if pulled.returncode == 0 else 0
+    try:
+        pulled = subprocess.run(prefix + ["pull", "/sdcard/Android/data/local.waarp.android.debug/files/ui-screenshots", str(screenshots)], capture_output=True, text=True, timeout=60)
+        screenshot_count = len(list(screenshots.rglob("*.png"))) if pulled.returncode == 0 else 0
+    except (OSError, subprocess.TimeoutExpired):
+        screenshot_count = 0
     report["uiScreenshotCount"] = screenshot_count
     required_screenshots = {"01-home-empty.png", "02-settings.png", "03-saved-route.png", "04-groups.png"}
     actual_screenshots = {path.name for path in screenshots.rglob("*.png")} if screenshots.exists() else set()
@@ -91,8 +133,14 @@ def main():
     if success:
         startup_samples = []
         for sample in range(3):
-            shell("am", "force-stop", "local.waarp.android.debug")
-            launch = shell("am", "start", "-W", "-n", "local.waarp.android.debug/local.waarp.android.MainActivity")
+            try:
+                shell("am", "force-stop", "local.waarp.android.debug")
+                launch = shell("am", "start", "-W", "-n", "local.waarp.android.debug/local.waarp.android.MainActivity")
+            except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+                success = False
+                report["passedGate"] = False
+                report["startupError"] = type(error).__name__
+                break
             match = re.search(r"^TotalTime: (\d+)", launch, re.M)
             if "Status: ok" not in launch or match is None:
                 success = False
@@ -102,9 +150,16 @@ def main():
             startup_samples.append(int(match.group(1)))
         report["coldActivityLaunchMs"] = startup_samples
         report["performanceScope"] = "Three measured am force-stop/start Activity launches on this emulator; this is a baseline, not a device-independent speed guarantee."
-    (options.output / "result.json").write_text(json.dumps(report, indent=2) + "\n")
     # These reports contain only the disposable test application's process data.
-    (options.output / "meminfo.txt").write_text(shell("dumpsys", "meminfo", "local.waarp.android.debug"))
+    try:
+        (options.output / "meminfo.txt").write_text(shell("dumpsys", "meminfo", "local.waarp.android.debug"))
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        success = False
+        report["passedGate"] = False
+        report["memorySnapshotError"] = type(error).__name__
+    if not success:
+        capture_logs(prefix, options.output, failed=True)
+    (options.output / "result.json").write_text(json.dumps(report, indent=2) + "\n")
     print(f"Android API {device['sdk']}, pages={page_size}: {len(cases)} tests, {totals['passed']} passed, {totals['failed']} failed, {totals['skipped']} skipped; {elapsed:.1f}s.")
     if not success:
         print(output[-12000:], file=sys.stderr)

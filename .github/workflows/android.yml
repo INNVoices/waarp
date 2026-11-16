@@ -7,11 +7,13 @@ on:
     paths:
       - 'android/**'
       - 'scripts/android-*'
+      - 'test/userspace-awg/**'
       - '.github/workflows/android.yml'
   pull_request:
     paths:
       - 'android/**'
       - 'scripts/android-*'
+      - 'test/userspace-awg/**'
       - '.github/workflows/android.yml'
 
 permissions:
@@ -103,6 +105,15 @@ jobs:
         with:
           distribution: temurin
           java-version: '17.0.21+9'
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.26.11'
+          cache-dependency-path: test/userspace-awg/go.sum
+      - name: Build and exercise the real encrypted AWG2 peer
+        working-directory: test/userspace-awg
+        run: |
+          go test -run TestAndroid -count=1 -timeout=35s .
+          go build -trimpath -buildvcs=false -o "$RUNNER_TEMP/awg-android-fixture" .
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: waarp-android-emulator-inputs
@@ -144,8 +155,12 @@ jobs:
           emulator-boot-timeout: 600
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
           script: |
+            python3 scripts/android-awg-control.py start --binary "$RUNNER_TEMP/awg-android-fixture" --report out/android/device-tests/awg-proof.json
             python3 scripts/android-install.py --with-tests
             python3 scripts/android-instrument.py --expect-page-size ${{ matrix.page-size }} --output out/android/device-tests
+      - name: Stop the owned AWG peer and require its encrypted traffic proof
+        if: always()
+        run: python3 scripts/android-awg-control.py stop --require-passed
       - name: Upload runtime evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

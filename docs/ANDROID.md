@@ -99,8 +99,9 @@ GitHub Actions builds once and runs the same actual instrumentation APK on API 2
 2. Actual native build information and native config acceptance for every supported family.
 3. Real native headless HTTP, Android VPN consent, TUN creation, shutdown and cancellation.
 4. Actual traffic from another test APK UID through the TUN to a disposable local fixture, checked against native package/outbound records.
-5. Installed Compose UI navigation/edit/recreate/delete behavior and screenshots.
-6. APK integrity/lint, measured instrumentation duration, process memory and launch timings.
+5. Actual encrypted AWG2 DNS traffic to a temporary Linux peer, OFF/ON and a fresh second round trip. The two sides generate private keys in memory and exchange only public keys. The host checks authenticated handshakes, AWG headers/padding, the absence of the test DNS payload in outer UDP, and final cleanup.
+6. Installed Compose UI navigation/edit/recreate/delete behavior and screenshots.
+7. APK integrity/lint, measured instrumentation duration, process memory and launch timings. Failed runs retain bounded Android/Go crash diagnostics and Android process-exit reasons from the disposable test device.
 
 The fixture is not a user's private VPN server. Parser acceptance is not called a handshake. Emulator gates do not establish physical operator reachability, vendor power management, cellular/Wi-Fi handover, physical camera behavior or every protocol/server combination. These are additional device approval checks. The final audit records actual completed gates, not merely planned ones.
 

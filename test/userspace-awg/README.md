@@ -12,6 +12,40 @@ Successful execution establishes a real authenticated AWG handshake and sends a 
 
 This tests the AWG library and server interoperability, not sing-box routing, Windows Wintun, Electron startup recovery, or whole-computer traffic policy.
 
+### Android encrypted tunnel acceptance
+
+The Android workflow also runs this harness as one ephemeral server peer:
+
+```sh
+go test -run TestAndroid -count=1 -timeout=35s .
+go build -trimpath -buildvcs=false -o "$RUNNER_TEMP/awg-android-fixture" .
+"$RUNNER_TEMP/awg-android-fixture" --android-server --android-port 18081 --android-report "$RUNNER_TEMP/awg-proof.json"
+```
+
+The module selects Go 1.26.11. The server binds ordinary UDP and HTTP control to
+`127.0.0.1:18081`; the Android emulator reaches it through `10.0.2.2`. `/health`
+reports readiness. `POST /register` accepts only the Android-generated public key
+and returns the server public key and UDP port. Each side generates a fresh private
+key in memory. No private key or profile is transferred over the control API,
+written to disk, printed, or included in evidence.
+
+The Android test imports a synthetic AWG2 profile, uses the production routing
+compiler, and starts the actual shipped libbox through `VpnService`. A separate
+test-APK UID sends a fresh DNS query through Android TUN and the profile's DNS
+route. The host peer decrypts and answers it with the documentation-only address
+`192.0.2.42`. Valid EDNS OPT queries are supported because the production router
+can hijack and reconstruct DNS. The test requires the real answer, an authenticated
+handshake, observed AWG header/padding, no plaintext DNS question in either
+direction's outer UDP datagrams, and a new encrypted response after OFF/ON.
+
+`GET /proof` exposes only booleans and counters. SIGTERM/INT closes the peer and
+writes the same evidence plus confirmed shutdown to `--android-report`. The
+server expires after 30 minutes. The workflow retains only this evidence, never
+keys or packet traces. This acceptance proves encrypted AWG2 DNS through the
+Android core and TUN; the separate HTTP fixture exercises per-app TCP routing
+through a Direct outbound. It does not claim an external private gateway or
+encrypted TCP/HTTP interoperability test.
+
 ## Version and sources
 
 - Initial local evidence used Go 1.26.8. The replay/CI toolchain is now pinned to Go 1.26.11 in `go.mod`; each CI artifact retains `go version -m`. Historical verified compiler archive: official `go1.26.8.linux-amd64.tar.gz`, SHA256 `d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b`; [official archive metadata](https://go.dev/dl/?mode=json&include=all).
