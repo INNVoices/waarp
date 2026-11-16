@@ -16,9 +16,10 @@ Columns: what the user sees · what Waarp changes · what it never changes · wh
 | Controller port taken | "Нет свободного локального порта…" | nothing (no process started) | ports of other apps | yes, next try picks another port | `tun.check` (port) |
 | No engine binary | "Не найден движок…" | nothing | — | no, until reinstall | `matrix.check` |
 | Engine checksum mismatch | block notice "Движок Waarp повреждён" | nothing | — | no, until reinstall | `matrix.check` (verifyEngine) |
-| Config write / ACL failure | "Не удалось записать временный конфиг движка" | removes its own temp file | — | yes, next try | `matrix.check` |
+| Config directory / write / ACL failure | "Не удалось записать временный конфиг движка"; shell still opens | removes its own temp file when possible | a file obstructing the runtime directory | yes, after access is restored | `matrix.check`, `engine-recovery.check` |
 | Core exits before ready | the core's own error, or "Движок не стартовал" | own process ends; read-only residue check | adapters, routes, DNS | yes, unless residue is found | `tun.check` (waitReady exited), `matrix.check` |
-| Startup timeout (20 s) | the core's error / "Windows не успел открыть адаптер Waarp…" | stops its own process (graceful, then forced via its own handle) | other adapters | yes, if no residue; no automatic retry | `tun.check`, `stop.check` |
+| Startup timeout (20 s) | the core's error / "Windows не успел открыть адаптер Waarp…" | attempts an ownership-verified console signal when available; otherwise stops via its own child handle | other adapters and shared consoles | yes, if no residue; no automatic retry | `tun.check`, `stop.check` |
+| Core has no isolated console | stop continues without an unused five-second grace wait | uses only the existing child handle; checks exit and residue | other consoles/processes | only after confirmed stop | `stop.check`, `runtime-windows.check` |
 | Stop timeout | "Движок не подтвердил остановку…" | keeps the ownership lease | — | no | `stop.check` (stuck) |
 | Stale lease, PID reused | nothing | clears its own lease | the unrelated process (never signalled) | yes | `stop.check` (recovery) |
 | Stale lease, same process alive | — | terminates that exact identity, clears the lease only after it is gone | anything not matching path + start time | only after confirmed gone | `stop.check` (recovery) |
@@ -38,9 +39,15 @@ Columns: what the user sees · what Waarp changes · what it never changes · wh
 
 ## Test coverage boundaries
 
-`npm test` discovers offline `test/*.check.ts` suites. Native smoke and live stress remain separate opt-ins. Restricted non-Windows workers can reject Unix sockets with `EPERM`/`EACCES`; only that IPC section is explicitly skipped, and the runner prints `Partial coverage`. A Windows named-pipe failure is never skipped.
+`npm test` discovers `test/*.check.ts` suites. On Windows this includes native process ownership, no-console signaling and parent-wait checks using disposable Node children; these checks do not create a TUN or contact a private server. They explicitly skip on other platforms. Restricted non-Windows workers can also reject Unix sockets with `EPERM`/`EACCES`; that IPC section is explicitly skipped, and the runner prints `Partial coverage`. A Windows named-pipe failure is never skipped. External-network live scenarios remain separate opt-ins.
 
-The renderer DOM harness is `npm run test:ui` and requires an available Playwright installation and a separately served production renderer. It uses injected IPC, never a real tunnel. The audit environment could not launch Chromium; those scenarios and new screenshots remain unverified. See [the dated audit](AUDIT-2026-11-16.md) for the local test record and release acceptance matrix.
+The renderer DOM harness is `npm run test:ui`. Run `npm run build` first and install Playwright's Chromium; the wrapper starts its own temporary loopback HTTP server for the production renderer. It uses injected IPC, never a real tunnel. Actual results and platform limits belong in [the validation record](VALIDATION-2026-11-16.md), with the release decision in [the stable acceptance matrix](STABLE-AUDIT-2026-11-16.md). A successful DOM check is not evidence of system routing.
+
+## Windows stop behavior
+
+The normal Node spawn with `windowsHide: true` and piped stdio generally creates no console (`CREATE_NO_WINDOW` in [libuv's Windows launcher](https://github.com/libuv/libuv/blob/v1.51.0/src/win/process.c)). This does not provide an invisible console for `CTRL_BREAK`. The stop helper reports whether a signal was actually sent. Only then does Engine wait the graceful budget; a missing console takes the verified own-handle termination path immediately.
+
+Before any console signal, the helper holds a native process handle and repeats the journal path/creation-time check. It rejects a console containing processes other than the recorded child and the helper, and targets the child's process group instead of broadcasting group zero. Neither a successful helper invocation nor sending a signal proves exit: the child handle and subsequent read-only residue inspection remain the completion criteria. Full Wintun cleanup and shutdown behavior require the native acceptance scenarios below.
 
 ## Not provable offline
 

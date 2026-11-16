@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { RuntimeJournal } from '../src/main/runtime-journal'
+import { ctrlBreak } from '../src/main/stop'
 
 let checks = 0
 const eq = (actual: unknown, expected: unknown, label: string) => {
@@ -28,6 +29,7 @@ async function waitForExit(child: ChildProcess): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'waarp-native-'))
   let child: ChildProcess | undefined
   let bystander: ChildProcess | undefined
+  let noConsole: ChildProcess | undefined
   try {
     const oldDir = join(dir, "build-old O'Brien"), newDir = join(dir, 'build-new')
     mkdirSync(oldDir); mkdirSync(newDir)
@@ -73,10 +75,26 @@ async function waitForExit(child: ChildProcess): Promise<void> {
     eq(await upgraded.recover(), true, 'corrupt owner is safely cleared after actual process absence')
     writeFileSync(ownerFile, owner)
     eq(await upgraded.recover(), true, 'stale old-path owner with exited PID also recovers through CIM')
+    // Production's windowsHide + non-inherited stdio sets CREATE_NO_WINDOW in libuv. An exact
+    // ownership match must not be mistaken for proof that a console signal can be delivered.
+    noConsole = spawn(oldExe, ['-e', 'setInterval(() => {}, 1000)'], { windowsHide: true, stdio: 'ignore' })
+    await new Promise<void>((resolve, reject) => { noConsole!.once('spawn', resolve); noConsole!.once('error', reject) })
+    const signalJournal = new RuntimeJournal(join(dir, 'signal'), oldExe, 'run.json')
+    eq(await signalJournal.record(noConsole.pid), true, 'native no-console child has a recorded owner')
+    const identity = signalJournal.recordedIdentity(noConsole.pid!)
+    if (!identity) throw new Error('Missing native signal identity')
+    eq(await ctrlBreak(noConsole.pid!, { ...identity, path: newExe }), false, 'console helper refuses a matching PID with a different path')
+    eq(await ctrlBreak(noConsole.pid!, { ...identity, started: '2000-01-01T00:00:00.0000000Z' }), false, 'console helper refuses a matching PID and path with a different creation time')
+    eq(await ctrlBreak(noConsole.pid!, identity), false, 'console-less native process never reports a delivered CTRL_BREAK')
+    eq(noConsole.exitCode, null, 'failed native console signal leaves the process alive for the owned-handle fallback')
+    noConsole.kill()
+    await waitForExit(noConsole)
+    eq(signalJournal.clear(), true, 'confirmed owned-handle exit allows ownership cleanup')
     console.log(`runtime-windows.check: ${checks} native checks`)
   } finally {
     if (child && child.exitCode === null && child.signalCode === null) { child.kill(); await waitForExit(child) }
     if (bystander && bystander.exitCode === null && bystander.signalCode === null) { bystander.kill(); await waitForExit(bystander) }
+    if (noConsole && noConsole.exitCode === null && noConsole.signalCode === null) { noConsole.kill(); await waitForExit(noConsole) }
     rmSync(dir, { recursive: true, force: true })
   }
 })().catch(error => { console.error(error); process.exitCode = 1 })

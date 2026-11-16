@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import type { AppInfo, Conn, Route, Settings, Snapshot, Status, Via } from '../../../shared/types'
+import type { AppInfo, Conn, Route, Snapshot, Status, Via } from '../../../shared/types'
 import { PRESETS } from '../../../shared/presets'
 import { Btn, fmtBytes, Icon, Plain, Toggle } from '../ui/kit'
 import { s } from '../lib/i18n'

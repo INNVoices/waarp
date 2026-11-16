@@ -1,9 +1,9 @@
 // Saved connections, their groups, and the explicitly refreshed public catalog share one destination.
 import { useRef, useState } from 'react'
-import type { Group, ProfileView, Settings, Snapshot, Status } from '../../../shared/types'
+import type { Group, ProfileView, Snapshot, Status } from '../../../shared/types'
 import { dropGroup, usersOf } from '../../../main/store-core'
 import { Modal } from '../ui/modal'
-import { Area, Btn, Icon, Input, Plain, Tooltip } from '../ui/kit'
+import { Area, Btn, Icon, Input, Tooltip } from '../ui/kit'
 import { s, sp } from '../lib/i18n'
 import { api } from '../bridge'
 import type { SettingsPatch } from '../lib/actions'

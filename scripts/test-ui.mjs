@@ -11,6 +11,7 @@ const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
 const server = createServer(async (request, response) => {
   try {
     const path = decodeURIComponent(new URL(request.url ?? '/', 'http://127.0.0.1').pathname)
+    if (path === '/favicon.ico') { response.writeHead(204).end(); return }
     const file = resolve(renderer, '.' + (path === '/' ? '/index.html' : path))
     if (!file.startsWith(renderer + sep)) { response.writeHead(403).end(); return }
     const body = await readFile(file)

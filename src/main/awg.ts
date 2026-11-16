@@ -8,7 +8,6 @@ import { ConfError } from './conf-error'
 import { vlessOutbound } from './vless'
 import { AUTO_ID, autoLivePool, grpTag, liveGroups, withAuto, type LiveGroup } from '../shared/groups'
 import { compilePlan, planProfileIds } from '../shared/plan'
-import { validateCustom } from '../shared/route-validation'
 import { serviceGuardRule, TUN, TUN_ADDRESSES } from './tun'
 
 export { validateCustom } from '../shared/route-validation'

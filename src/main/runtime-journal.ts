@@ -4,7 +4,8 @@ import { randomBytes } from 'node:crypto'
 import { isAbsolute, join, win32 } from 'node:path'
 import { ps } from './ps'
 
-interface Identity { path: string; started: string }
+export interface ProcessIdentity { path: string; started: string }
+type Identity = ProcessIdentity
 interface Lease extends Identity { version: 1; runId: string; pid: number }
 export type RuntimeInspection = { ok: true } | {
   ok: false; reason: 'process_running' | 'process_unknown' | 'inspection_failed'; error: string
@@ -94,6 +95,12 @@ export class RuntimeJournal {
     } catch { return 'unknown' }
   }
 
+  /** Recorded evidence only; the signal helper must recheck it while holding the native process handle. */
+  recordedIdentity(pid: number): ProcessIdentity | undefined {
+    const lease = this.lease
+    return lease?.pid === pid ? { path: lease.path, started: lease.started } : undefined
+  }
+
   clear(): boolean {
     this.lease = undefined
     // Keep the ownership evidence until its potentially secret config has been removed too.
@@ -118,9 +125,6 @@ export class RuntimeJournal {
       return { ok: true }
     } catch { return { ok: false, reason: 'inspection_failed', error: 'Не удалось проверить процессы Windows через PowerShell. Повтори восстановление' } }
   }
-
-  /** Compatibility wrapper for callers that only need the yes/no admission decision. */
-  static async noUntracked(exe: string): Promise<boolean> { return (await RuntimeJournal.inspectUntracked(exe)).ok }
 
   /** Missing/corrupt ownership requires absence of every same-name core, even in an old portable directory. */
   private async recoverUnowned(problem: string): Promise<boolean> {

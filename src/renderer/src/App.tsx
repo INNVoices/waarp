@@ -21,7 +21,7 @@ import type { ToastKind } from './lib/actions'
 const RAIL: [Page, string][] = [['home', 'home'], ['lib', 'path'], ['servers', 'plug'], ['an', 'investigate']]
 
 export function App() {
-  const [snap, setSnap] = useState<Snapshot>()
+  const [snap, setSnapState] = useState<Snapshot>()
   const [status, setStatus] = useState<Status>()
   const [conns, setConns] = useState<Conn[]>([])
   const [apps, setApps] = useState<AppInfo[]>()
@@ -40,12 +40,22 @@ export function App() {
   const [toast, setToastState] = useState<{ text: string; kind: ToastKind }>()
   const setToast = (text: string, kind: ToastKind = 'info') => setToastState({ text, kind })
   const [adding, setAdding] = useState(false)
-  const [autoFind, setAutoFind] = useState(false)
   const [initialClip, setInitialClip] = useState(false)
   const [clipHint, setClipHint] = useState<{ kind: string; host?: string }>()
   const [pick, setPick] = useState<Pick>()
   const lastClip = useRef('')
   const hist = useRef<Record<string, (number | undefined)[]>>({})
+  const historyProfiles = useRef<Set<string> | undefined>(undefined)
+  const setSnap = (next: Snapshot) => {
+    // Recovery can temporarily publish an incomplete startup view. Only an accepted
+    // settled snapshot may retire profile history; the direct baseline always stays.
+    if (next.status.startup !== 'recovering') {
+      const ids = new Set(['direct', ...next.profiles.map(profile => profile.id)])
+      historyProfiles.current = ids
+      for (const id of Object.keys(hist.current)) if (!ids.has(id)) delete hist.current[id]
+    }
+    setSnapState(next)
+  }
   const [, tick] = useState(0)
 
   // a failed scan must not leave the library as endless placeholders: show it empty and say why
@@ -81,6 +91,8 @@ export function App() {
       if (x.pings !== lastPing) {
         lastPing = x.pings
         for (const [id, v] of Object.entries(x.pings)) {
+          // A queued measurement from a deleted profile must not recreate its history.
+          if (historyProfiles.current && !historyProfiles.current.has(id)) continue
           const h = (hist.current[id] ??= [])
           h.push(v); if (h.length > 120) h.shift()
         }
@@ -238,8 +250,8 @@ export function App() {
           {page === 'an' && <Analyzer snap={snap} status={status} hist={hist.current} patch={patch} />}
           {page === 'settings' && <SettingsPage snap={snap} patch={patch} toast={setToast} />}
       </main>
-      {adding && <AddTunnel autoFind={autoFind} initialClip={initialClip} onAutoFindDone={() => localStorage.setItem('waarp-first-scan', 'done')} onClose={() => { setAdding(false); setAutoFind(false); setInitialClip(false) }} onAdded={r => { setToast(importNote(r)); if (!r.clientPublicKey) { setAdding(false); setAutoFind(false); setInitialClip(false); setNav(n => snap.settings.routes.length ? goTo(n, 'lib') : addEntry(n)) } }}
-        onPublic={() => { setAdding(false); setAutoFind(false); setInitialClip(false); go('servers'); requestAnimationFrame(() => document.getElementById('public-catalog')?.scrollIntoView({ behavior: 'smooth' })) }} />}
+      {adding && <AddTunnel initialClip={initialClip} onDiscoveryDone={() => localStorage.setItem('waarp-first-scan', 'done')} onClose={() => { setAdding(false); setInitialClip(false) }} onAdded={r => { setToast(importNote(r)); if (!r.clientPublicKey) { setAdding(false); setInitialClip(false); setNav(n => snap.settings.routes.length ? goTo(n, 'lib') : addEntry(n)) } }}
+        onPublic={() => { setAdding(false); setInitialClip(false); go('servers'); requestAnimationFrame(() => document.getElementById('public-catalog')?.scrollIntoView({ behavior: 'smooth' })) }} />}
       {clipHint && !adding && <div className="clip-hint" role="status"><span>{s('clip.found', { v: clipHint.host ?? s('add.clip.' + clipHint.kind) })}</span><Btn kind="primary" onClick={() => { setClipHint(undefined); setInitialClip(true); setAdding(true) }}>{s('imp.add')}</Btn><Plain aria-label={s('nav.close')} onClick={() => setClipHint(undefined)}><Icon n="x" s={14} /></Plain></div>}
       {pick && <CompanionPick snap={snap} pick={pick} toast={setToast} done={id => { setPick(undefined); if (id) open(id) }} manage={() => go('servers')} />}
       {toast && <div className={'toast ' + toast.kind} role={toast.kind === 'error' ? 'alert' : 'status'}><Icon n={toast.kind === 'error' ? 'warn' : toast.kind === 'success' ? 'check' : 'info'} />{toast.text}</div>}

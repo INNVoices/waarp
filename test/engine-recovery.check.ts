@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import childProcess from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Engine } from '../src/main/engine'
@@ -38,6 +38,22 @@ class FakeChild extends EventEmitter {
   let inspection: RuntimeInspection = { ok: true }
   RuntimeJournal.inspectUntracked = async () => { inspected++; return inspection }
   try {
+    {
+      const parent = mkdtempSync(join(tmpdir(), 'waarp-engine-obstructed-')); dirs.push(parent)
+      const blocked = join(parent, 'engine')
+      writeFileSync(blocked, 'untouched obstruction')
+      const e = new Engine(process.execPath, blocked, process.execPath)
+      eq(e.status.phase, 'off', 'unwritable runtime directory does not throw before the app can show its UI')
+      let spawned = 0
+      childProcess.spawn = (() => { spawned++; throw new Error('must not spawn') }) as unknown as typeof childProcess.spawn
+      ;(e as any).recoveryOk = true
+      await e.start([], DEFAULTS)
+      eq([spawned, e.status.phase, e.status.error], [0, 'error', 'Не удалось записать временный конфиг движка'], 'directory creation failure becomes a startup refusal without launching a process')
+      eq(readFileSync(blocked, 'utf8'), 'untouched obstruction', 'directory obstruction is preserved rather than deleted')
+      eq(await e.killOrphans(), false, 'blocked journal path stays a diagnosable recovery refusal')
+      childProcess.spawn = originalSpawn
+      inspected = 0
+    }
     {
       const e = make()
       let recovered = false

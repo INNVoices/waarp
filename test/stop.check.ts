@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { Engine } from '../src/main/engine'
 import { Checker } from '../src/main/checker'
 import { DEFAULTS } from '../src/main/store-core'
-import { RuntimeJournal, type ProcessOps } from '../src/main/runtime-journal'
+import { RuntimeJournal, type ProcessIdentity, type ProcessOps } from '../src/main/runtime-journal'
 import { existsSync, writeFileSync } from 'node:fs'
 import { bounded, ctrlBreak, waitExit } from '../src/main/stop'
 import type { Preflight } from '../src/main/tun'
@@ -23,25 +23,39 @@ class FakeChild extends EventEmitter {
   die(code: number | null, sig: string | null = null) { this.exitCode = code; this.signalCode = sig; this.emit('exit', code, sig) }
 }
 
-function rig(o: { owned?: 'same' | 'gone' | 'other' | 'unknown'; onBreak?: 'exit' | 'ignore'; onKill?: 'exit' | 'ignore'; residue?: Preflight[] }) {
+function rig(o: { owned?: 'same' | 'gone' | 'other' | 'unknown'; onBreak?: 'exit' | 'ignore' | 'unsupported'; onKill?: 'exit' | 'ignore'; residue?: Preflight[] }) {
   const e = new Engine(process.execPath, mkdtempSync(join(tmpdir(), 'waarp-stop-')), 'C:\\W\\Waarp.exe')
   const child = new FakeChild(4242, o.onKill)
-  const log = { breaks: [] as number[], cleared: 0, owned: 0, preflights: 0 }
+  const identity: ProcessIdentity = { path: process.execPath, started: '2026-11-16T09:00:00.1234560Z' }
+  const log = { breaks: [] as number[], identities: [] as ProcessIdentity[], cleared: 0, owned: 0, preflights: 0 }
   ;(e as any).child = child
-  ;(e as any).journal = { owned: async (pid: number) => { log.owned++; return pid === 4242 ? (o.owned ?? 'same') : 'unknown' }, clear: () => { log.cleared++ } }
-  e.breakSignal = async pid => { log.breaks.push(pid); if (o.onBreak === 'exit') setTimeout(() => child.die(0), 5) }
+  ;(e as any).journal = { owned: async (pid: number) => { log.owned++; return pid === 4242 ? (o.owned ?? 'same') : 'unknown' }, recordedIdentity: (pid: number) => pid === 4242 ? identity : undefined, clear: () => { log.cleared++ } }
+  e.breakSignal = async (pid, recorded) => { log.breaks.push(pid); log.identities.push(recorded); if (o.onBreak === 'exit') setTimeout(() => child.die(0), 5); return o.onBreak !== 'unsupported' }
   e.gracefulMs = 60; e.killMs = 60; e.preflightGap = 1
   const queue = [...(o.residue ?? [])]
   e.preflight = async () => { log.preflights++; return queue.shift() ?? { ok: true } }
-  return { e, child, log }
+  return { e, child, log, identity }
 }
 
 ;(async () => {
   // graceful path
   {
-    const { e, child, log } = rig({ owned: 'same', onBreak: 'exit' })
+    const { e, child, log, identity } = rig({ owned: 'same', onBreak: 'exit' })
     eq(await e.stop(), true, 'graceful: stop ok')
     eq([log.breaks, child.kills, child.exitCode, e.status.phase, log.cleared], [[4242], 0, 0, 'off', 1], 'graceful: CTRL_BREAK to the owned pid, no kill, exit 0, off, journal cleared')
+    eq(log.identities, [identity], 'the native signal helper receives the recorded path and creation time, not just a PID')
+  }
+  {
+    const { e, child, log } = rig({ owned: 'same', onBreak: 'exit' })
+    ;(e as any).journal.recordedIdentity = () => undefined
+    await e.stop()
+    eq([log.breaks.length, child.kills], [0, 1], 'ownership cleared after inspection cannot authorize a PID-only console signal')
+  }
+  {
+    const { e, child, log } = rig({ owned: 'same', onBreak: 'unsupported' })
+    e.gracefulMs = 5000
+    eq(await bounded(e.stop(), 200), true, 'a core without a console is stopped without spending the five-second unsent-signal grace period')
+    eq([log.breaks.length, child.kills, e.status.phase], [1, 1, 'off'], 'unavailable CTRL_BREAK falls back only to the exact owned child handle')
   }
   // break ignored -> forced stop through the child handle
   {
@@ -225,7 +239,7 @@ function rig(o: { owned?: 'same' | 'gone' | 'other' | 'unknown'; onBreak?: 'exit
   const c = new FakeChild(1); setTimeout(() => c.die(0), 5)
   eq(await waitExit(c, 500), true, 'waitExit sees the exit'); eq(await waitExit(new FakeChild(2), 20), false, 'waitExit times out')
   const t0 = Date.now()
-  for (const bad of [0, -1, 4, 1.5, Number.NaN]) await ctrlBreak(bad)
+  for (const bad of [0, -1, 4, 1.5, Number.NaN]) await ctrlBreak(bad, ID0)
   ok(Date.now() - t0 < 50, 'ctrlBreak refuses non-numeric / system pids without running anything')
 
   console.log(`stop.check: ${n} checks`)

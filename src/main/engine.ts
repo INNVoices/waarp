@@ -11,7 +11,7 @@ import { Health, validLatency } from './health'
 import { redactVless, vlessSecrets } from './vless'
 import { outSecrets } from './links'
 import { openVpnSecrets } from './openvpn'
-import { RuntimeJournal } from './runtime-journal'
+import { RuntimeJournal, type ProcessIdentity } from './runtime-journal'
 import { protectPrivateFile } from './private-file'
 import { pickPort, START_BUDGET_MS, untilCancelled, waitReady, type Preflight } from './tun'
 import { ctrlBreak, waitExit } from './stop'
@@ -58,14 +58,13 @@ export class Engine extends EventEmitter {
   preflight?: () => Promise<Preflight>
   /** pause between preflight re-checks right after our own stop (Windows may still be removing the adapter) */
   preflightGap = 1500
-  /** R2: graceful signal for the owned core (CTRL_BREAK into its own hidden console); injectable for tests */
-  breakSignal: (pid: number) => Promise<void> = pid => ctrlBreak(pid)
+  /** R2: best-effort CTRL_BREAK for the owned core if it has an isolated console; injectable for tests */
+  breakSignal: (pid: number, identity: ProcessIdentity) => Promise<boolean> = (pid, identity) => ctrlBreak(pid, identity)
   gracefulMs = 5000
   killMs = 4000
 
   constructor(private exe: string, private dir: string, private selfExe: string) {
     super()
-    mkdirSync(dir, { recursive: true })
     this.journal = new RuntimeJournal(dir, exe, 'run.json')
   }
 
@@ -190,6 +189,7 @@ export class Engine extends EventEmitter {
     this.fbRoutes = new Map(groups.map(g => [g.tag, activeRoutes(s).filter(r => r.via === g.main && r.fallback === g.fb).map(r => ({ id: r.id, name: r.name }))]))
     const file = join(this.dir, 'run.json')
     try {
+      mkdirSync(this.dir, { recursive: true })
       writeFileSync(file, JSON.stringify(cfg, null, 1), { mode: 0o600 })
       protectPrivateFile(file)
     }
@@ -347,7 +347,7 @@ export class Engine extends EventEmitter {
     return this.serialize(() => this.stopNow())
   }
 
-  /** R2 (A + C): graceful CTRL_BREAK to the verified owned core, bounded wait; then a forced stop through our own
+  /** R2 (A + C): try CTRL_BREAK to the verified owned core, wait only if sent; then a forced stop through our own
    *  child handle (it cannot hit a reused PID), bounded wait; then a read-only residue check. 'off' only when clean. */
   private async stopNow(): Promise<boolean> {
     const c = this.child
@@ -365,8 +365,11 @@ export class Engine extends EventEmitter {
     this.set({ phase: 'stopping' })
     let exited = c.exitCode !== null || c.signalCode !== null
     if (!exited && c.pid && (await this.journal.owned(c.pid)) === 'same') {
-      await this.breakSignal(c.pid)
-      exited = await waitExit(c, this.gracefulMs)
+      const identity = this.journal.recordedIdentity(c.pid)
+      if (identity) {
+        if (await this.breakSignal(c.pid, identity)) exited = await waitExit(c, this.gracefulMs)
+        else this.push('[stop] CTRL_BREAK не отправлен: нет подтверждённой отдельной консоли. Закрываю собственный процесс по сохранённому дескриптору')
+      }
     }
     if (!exited) {
       try { c.kill() } catch { /* the wait below decides */ }

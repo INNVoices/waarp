@@ -142,9 +142,16 @@ function rig(raw: unknown, ids: Array<{ path: string; started: string } | null |
     {
       const r = rig(undefined, [{ path: EXE, started: START }, { path: '', started: START }, null])
       eq(await r.j.record(777), true, 'valid process can establish ownership')
+      const recorded = r.j.recordedIdentity(777)
+      eq(recorded, { path: EXE, started: START }, 'the signal helper receives both recorded identity fields')
+      if (recorded) recorded.path = OLD
+      eq(r.j.recordedIdentity(777), { path: EXE, started: START }, 'identity evidence is returned as a copy and cannot mutate the ownership lease')
+      eq(r.j.recordedIdentity(778), undefined, 'a different PID cannot obtain recorded ownership evidence')
       eq(await r.j.owned(777), 'unknown', 'missing path is not treated as a different owner')
       eq(await r.j.owned(777), 'gone', 'confirmed absent PID remains distinct from unknown')
       eq(await r.j.record(4), false, 'system PID never authorizes process ownership')
+      r.j.clear()
+      eq(r.j.recordedIdentity(777), undefined, 'cleared ownership cannot authorize a later signal')
     }
     console.log(`runtime-journal.check: ${checks} checks`)
   } finally { for (const dir of directories) rmSync(dir, { recursive: true, force: true }) }
