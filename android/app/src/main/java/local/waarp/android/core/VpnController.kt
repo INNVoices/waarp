@@ -58,22 +58,29 @@ class VpnController(context: Context) {
         config: String, tags: List<String>,
         url: String = "https://www.gstatic.com/generate_204", timeoutMs: Int = 5000,
     ): List<RuntimeProbeResult> = suspendCancellableCoroutine { continuation ->
-        val probe = HeadlessProbe(context, config, tags, url, timeoutMs)
+        val idleGeneration = RuntimeState.idleGeneration()
+        if (idleGeneration == null) {
+            continuation.resumeWith(Result.failure(IllegalStateException(
+                "VPN уже работает: проверяйте его действующие профили через urlTest")))
+            return@suspendCancellableCoroutine
+        }
+        val probe = HeadlessProbe(context, config, tags, url, timeoutMs, idleGeneration)
         continuation.invokeOnCancellation { probe.cancel() }
         NativeLane.executor.execute {
             try {
                 if (!continuation.isActive) return@execute
-                check(!RuntimeState.wanted() && RuntimeState.backend.get() == null) {
-                    "VPN уже работает: проверяйте его действующие профили через urlTest"
+                check(RuntimeState.isIdleGeneration(idleGeneration) && RuntimeState.backend.get() == null) {
+                    "Проверка отменена после изменения состояния VPN"
                 }
                 check(RuntimeState.headless.compareAndSet(null, probe)) { "Проверка уже выполняется" }
                 val result = probe.execute()
+                probe.close()
                 if (continuation.isActive) continuation.resumeWith(Result.success(result))
             } catch (error: Exception) {
                 if (continuation.isActive) continuation.resumeWith(Result.failure(error))
             } finally {
-                probe.close()
-                RuntimeState.headless.compareAndSet(probe, null)
+                try { probe.close() }
+                finally { RuntimeState.headless.compareAndSet(probe, null) }
             }
         }
     }
@@ -101,8 +108,14 @@ class VpnController(context: Context) {
     }
 
     /** Invalidates in-flight starts immediately; cleanup runs on the service's native lane. */
-    fun stop() {
-        val token = RuntimeState.requestStop()
+    fun stop() = stopToken(RuntimeState.requestStop())
+
+    /** A late native stop callback must never stop a replacement generation. */
+    internal fun stopIfCurrent(generation: Long) {
+        RuntimeState.cancelIfCurrent(generation)?.let(::stopToken)
+    }
+
+    private fun stopToken(token: Long) {
         RuntimeState.whenStopped(token) {
             context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
                 .edit().putBoolean(WANTED, false).apply()
@@ -188,6 +201,12 @@ internal object RuntimeState {
     fun isCurrent(generation: Long): Boolean = desired.get()?.generation == generation
     fun wanted(): Boolean = desired.get() != null
     fun currentGeneration(): Long? = desired.get()?.generation
+
+    @Synchronized fun idleGeneration(): Long? = counter.get().takeIf { !wanted() }
+    @Synchronized fun isIdleGeneration(token: Long): Boolean = counter.get() == token && !wanted()
+
+    @Synchronized fun reloadIfCurrent(generation: Long): StartRequest? =
+        if (isCurrent(generation)) requestStart() else null
 
     @Synchronized fun updateIfCurrent(generation: Long, transform: (RuntimeStatus) -> RuntimeStatus) {
         if (isCurrent(generation)) status.update(transform)

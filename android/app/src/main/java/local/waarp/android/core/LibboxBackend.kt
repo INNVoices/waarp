@@ -51,9 +51,18 @@ internal class LibboxBackend(
     private val reconnecting = AtomicBoolean()
     private val reconnect = Executors.newSingleThreadScheduledExecutor { task -> Thread(task, "waarp-control").apply { isDaemon = true } }
     private val cancellation = Executors.newSingleThreadExecutor { task -> Thread(task, "waarp-cancel").apply { isDaemon = true } }
-    private val platform = AndroidPlatform(vpn, vpn, ::current, onNotification, onCancelNotification)
+    private val platform = AndroidPlatform(vpn, vpn, ::current,
+        { event -> publish { onNotification(event) } },
+        { id, type -> publish { onCancelNotification(id, type) } })
 
     private fun current(): Boolean = !closed.get() && RuntimeState.isCurrent(generation)
+
+    /** Convert JNI iterators first; only the immutable result is published under this gate. */
+    private fun publish(epoch: Long? = null, action: () -> Unit) {
+        RuntimeState.whenCurrent(generation) {
+            if (!closed.get() && (epoch == null || epoch == streamEpoch.get())) action()
+        }
+    }
 
     fun start(config: String) {
         check(current()) { "Запуск отменён" }
@@ -87,11 +96,14 @@ internal class LibboxBackend(
                 lockdown = vpn.isLockdownEnabled,
             )
         }
-        RuntimeState.appendLog(1, "VPN-ядро ${Libbox.version()} запущено; доступность сервера проверяется отдельно")
+        publish { RuntimeState.appendLog(1, "VPN-ядро ${Libbox.version()} запущено; доступность сервера проверяется отдельно") }
     }
 
     private fun connectClient() {
-        val epoch = streamEpoch.incrementAndGet()
+        val epoch = synchronized(RuntimeState) {
+            check(current()) { "Запуск отменён" }
+            streamEpoch.incrementAndGet()
+        }
         client.getAndSet(null)?.let { runCatching { it.disconnect() } }
         val options = CommandClientOptions().apply {
             addCommand(Libbox.CommandStatus)
@@ -107,8 +119,8 @@ internal class LibboxBackend(
         client.set(connection) // OFF can cancel a Connect which is still waiting.
         connection.connect()
         if (!current()) { connection.disconnect(); throw IOException("Запуск отменён") }
-        updateGroups(connection.groups)
-        updateOutbounds(connection.outbounds)
+        updateGroups(connection.groups, epoch)
+        updateOutbounds(connection.outbounds, epoch)
     }
 
     private fun disconnected(epoch: Long, message: String) {
@@ -116,7 +128,7 @@ internal class LibboxBackend(
         RuntimeState.updateIfCurrent(generation) {
             it.copy(phase = RuntimePhase.STARTING, message = "Восстанавливается связь с VPN-ядром", telemetryAvailable = false)
         }
-        RuntimeState.appendLog(2, message)
+        publish(epoch) { RuntimeState.appendLog(2, message) }
         reconnect.execute {
             var last: Throwable? = null
             for (attempt in 0..2) {
@@ -138,8 +150,10 @@ internal class LibboxBackend(
 
     fun selectOutbound(group: String, outbound: String) {
         require(group.isNotBlank() && outbound.isNotBlank())
-        command().selectOutbound(group, outbound)
-        updateGroups(command().groups)
+        val epoch = streamEpoch.get()
+        val control = command()
+        control.selectOutbound(group, outbound)
+        updateGroups(control.groups, epoch)
     }
 
     fun urlTest(outbound: String, url: String, timeoutMs: Int): Long {
@@ -205,18 +219,19 @@ internal class LibboxBackend(
     /** Second half of OFF, called only on the native service lane. */
     override fun close() {
         if (!resourcesClosed.compareAndSet(false, true)) return
-        cancel()
-        server.getAndSet(null)?.let { native ->
-            runCatching { native.closeService() }.onFailure { RuntimeState.appendLog(2, it.message.orEmpty()) }
-            native.close()
-        }
-        platform.close()
-        LibboxRuntime.removeConfigurationSnapshot()
-        reconnect.shutdown()
-        cancellation.shutdown()
+        val native = server.getAndSet(null)
+        closeResources(
+            ::cancel,
+            { native?.closeService() },
+            { native?.close() },
+            platform::close,
+            { LibboxRuntime.removeConfigurationSnapshot(strict = true) },
+            { reconnect.shutdown() },
+            { cancellation.shutdown() },
+        )
     }
 
-    private fun updateGroups(iterator: OutboundGroupIterator?) {
+    private fun updateGroups(iterator: OutboundGroupIterator?, epoch: Long) {
         if (!current() || iterator == null) return
         val result = mutableListOf<RuntimeGroup>()
         while (iterator.hasNext()) iterator.next().let { group ->
@@ -225,14 +240,14 @@ internal class LibboxBackend(
             while (items.hasNext()) members += items.next().asModel()
             result += RuntimeGroup(group.tag, group.type, group.selectable, group.selected, members)
         }
-        RuntimeState.groups.value = result
+        publish(epoch) { RuntimeState.groups.value = result }
     }
 
-    private fun updateOutbounds(iterator: OutboundGroupItemIterator?) {
+    private fun updateOutbounds(iterator: OutboundGroupItemIterator?, epoch: Long) {
         if (!current() || iterator == null) return
         val result = mutableListOf<RuntimeOutbound>()
         while (iterator.hasNext()) result += iterator.next().asModel()
-        RuntimeState.outbounds.value = result
+        publish(epoch) { RuntimeState.outbounds.value = result }
     }
 
     private fun OutboundGroupItem.asModel() = RuntimeOutbound(
@@ -245,33 +260,47 @@ internal class LibboxBackend(
         private fun accept(): Boolean = current() && epoch == streamEpoch.get()
         // These Go interfaces have no error result. A thrown exception would abort ART/JNI.
         private inline fun callback(block: () -> Unit) {
-            if (accept()) runCatching(block).onFailure { RuntimeState.appendLog(3, "Ошибка обработки данных ядра: ${it.javaClass.simpleName}") }
+            if (accept()) runCatching(block).onFailure { error ->
+                publish(epoch) { RuntimeState.appendLog(3, "Ошибка обработки данных ядра: ${error.javaClass.simpleName}") }
+            }
         }
         override fun connected() = Unit
         override fun disconnected(message: String) { runCatching { disconnected(epoch, message) } }
-        override fun clearLogs() = callback { RuntimeState.logs.value = emptyList() }
+        override fun clearLogs() = callback { publish(epoch) { RuntimeState.logs.value = emptyList() } }
         override fun setDefaultLogLevel(level: Int) = Unit
         override fun initializeClashMode(modeList: StringIterator?, currentMode: String?) = Unit
         override fun updateClashMode(newMode: String?) = Unit
         override fun writeLogs(messageList: LogIterator?) = callback {
-            if (messageList != null) while (messageList.hasNext()) messageList.next().let { RuntimeState.appendLog(it.level, it.message) }
+            val entries = mutableListOf<Pair<Int, String>>()
+            if (messageList != null) while (messageList.hasNext()) messageList.next().let { entries += it.level to it.message }
+            publish(epoch) { entries.takeLast(500).forEach { RuntimeState.appendLog(it.first, it.second) } }
         }
         override fun writeStatus(message: StatusMessage?) = callback {
             if (started.get() && server.get()?.ready() != true) {
                 onFailure(IOException("VPN-ядро остановилось; соединение закрыто"))
                 return@callback
             }
-            if (message != null) RuntimeState.status.update {
-                it.copy(
+            if (message != null) {
+                val metrics = RuntimeStatus(
                     uploadBytes = message.uplinkTotal, downloadBytes = message.downlinkTotal,
                     uploadBps = message.uplink, downloadBps = message.downlink,
                     memoryBytes = message.memory, connectionCount = message.connectionsIn,
                     telemetryAvailable = message.trafficAvailable,
                 )
+                publish(epoch) {
+                    RuntimeState.status.update {
+                        it.copy(
+                            uploadBytes = metrics.uploadBytes, downloadBytes = metrics.downloadBytes,
+                            uploadBps = metrics.uploadBps, downloadBps = metrics.downloadBps,
+                            memoryBytes = metrics.memoryBytes, connectionCount = metrics.connectionCount,
+                            telemetryAvailable = metrics.telemetryAvailable,
+                        )
+                    }
+                }
             }
         }
-        override fun writeGroups(message: OutboundGroupIterator?) = callback { updateGroups(message) }
-        override fun writeOutbounds(message: OutboundGroupItemIterator?) = callback { updateOutbounds(message) }
+        override fun writeGroups(message: OutboundGroupIterator?) = callback { updateGroups(message, epoch) }
+        override fun writeOutbounds(message: OutboundGroupItemIterator?) = callback { updateOutbounds(message, epoch) }
         override fun writeConnectionEvents(events: ConnectionEvents?) = callback {
             if (events == null) return@callback
             accumulator.applyEvents(events)
@@ -286,12 +315,13 @@ internal class LibboxBackend(
                     item.uplinkTotal, item.downlinkTotal,
                 )
             }
-            RuntimeState.connections.value = result
+            publish(epoch) { RuntimeState.connections.value = result }
         }
         override fun writeDNSQuery(query: DnsQuery?) = callback {
-            if (query != null) RuntimeState.dnsQueries.update {
-                (it + RuntimeDnsQuery(System.currentTimeMillis(), query.domain, query.queryType,
-                    query.getDNSServer(), query.failed, RuntimeRedaction.redact(query.error))).takeLast(200)
+            if (query != null) {
+                val value = RuntimeDnsQuery(System.currentTimeMillis(), query.domain, query.queryType,
+                    query.getDNSServer(), query.failed, RuntimeRedaction.redact(query.error))
+                publish(epoch) { RuntimeState.dnsQueries.update { (it + value).takeLast(200) } }
             }
         }
     }
@@ -307,7 +337,7 @@ internal class LibboxBackend(
             if (enabled != platform.httpProxyEnabled) throw UnsupportedOperationException("Измените HTTP-прокси в конфигурации и переподключитесь")
         }
         override fun triggerNativeCrash(): Unit = throw UnsupportedOperationException("Аварийная отладочная команда отключена")
-        override fun writeDebugMessage(message: String) { runCatching { RuntimeState.appendLog(0, message) } }
+        override fun writeDebugMessage(message: String) { runCatching { publish { RuntimeState.appendLog(0, message) } } }
         override fun connectSSHAgent(): Int = throw UnsupportedOperationException("SSH agent не настроен")
     }
 }

@@ -4,6 +4,8 @@ package local.waarp.android.core
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Base64
@@ -45,6 +47,47 @@ class RuntimeRegressionTest {
         var cancelledNewBackend = false
         RuntimeState.whenStopped(oldStop) { cancelledNewBackend = true }
         assertFalse(cancelledNewBackend)
+    }
+
+    @Test fun staleNativeStopAndReloadCannotReplaceNewUserIntent() {
+        val old = RuntimeState.requestStart("old")
+        val next = RuntimeState.requestStart("next")
+        assertNull(RuntimeState.cancelIfCurrent(old.generation))
+        assertNull(RuntimeState.reloadIfCurrent(old.generation))
+        assertTrue(RuntimeState.isCurrent(next.generation))
+        val reloaded = RuntimeState.reloadIfCurrent(next.generation)!!
+        assertTrue(RuntimeState.isCurrent(reloaded.generation))
+        assertNull(reloaded.config) // Reload must ask the current repository, never replay old config.
+    }
+
+    @Test fun offInvalidatesAnIdleProbeEvenWhenItHasNotEnteredTheNativeLane() {
+        RuntimeState.requestStop()
+        val queuedProbe = RuntimeState.idleGeneration()!!
+        RuntimeState.requestStop()
+        assertFalse(RuntimeState.isIdleGeneration(queuedProbe))
+        val nextProbe = RuntimeState.idleGeneration()!!
+        RuntimeState.requestStart("new VPN")
+        assertFalse(RuntimeState.isIdleGeneration(nextProbe))
+        assertNull(RuntimeState.idleGeneration())
+        RuntimeState.requestStop()
+        assertFalse(RuntimeState.isIdleGeneration(nextProbe))
+    }
+
+    @Test fun aNativeCloseFailureStillReleasesEveryOtherResourceAndIsReported() {
+        val closed = mutableListOf<String>()
+        val nativeFailure = IllegalStateException("native close failed")
+        val platformFailure = IllegalStateException("platform close failed")
+        val result = runCatching {
+            closeResources(
+                { closed += "native"; throw nativeFailure },
+                { closed += "platform"; throw platformFailure },
+                { closed += "snapshot" },
+                { closed += "executor" },
+            )
+        }
+        assertEquals(listOf("native", "platform", "snapshot", "executor"), closed)
+        assertSame(nativeFailure, result.exceptionOrNull())
+        assertEquals(listOf(platformFailure), nativeFailure.suppressed.toList())
     }
 
     @Test fun wireGuardPublicKeyMatchesRfc7748KnownAnswer() {

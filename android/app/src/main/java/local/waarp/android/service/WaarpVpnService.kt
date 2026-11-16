@@ -101,9 +101,9 @@ class WaarpVpnService : VpnService() {
 
     private fun start(request: StartRequest, startId: Int) {
         if (destroyed.get() || !RuntimeState.isCurrent(request.generation)) return
-        closeBackend()
-        if (!RuntimeState.isCurrent(request.generation)) return
         try {
+            closeBackend()
+            if (destroyed.get() || !RuntimeState.isCurrent(request.generation)) return
             val config = request.config ?: runBlocking {
                 withTimeout(20_000) {
                     val provider = RuntimeState.configurationProvider
@@ -114,8 +114,8 @@ class WaarpVpnService : VpnService() {
             if (destroyed.get() || !RuntimeState.isCurrent(request.generation)) return
             val next = LibboxBackend(
                 this, request.generation,
-                onStop = { VpnController(this).stop() },
-                onReload = { reloadFromRepository() },
+                onStop = { VpnController(this).stopIfCurrent(request.generation) },
+                onReload = { reloadFromRepository(request.generation) },
                 onFailure = { error -> failGeneration(request.generation, error) },
                 onNotification = { event -> postCoreNotification(event) },
                 onCancelNotification = { id, type -> notificationManager.cancel(notificationKey(id, type)) },
@@ -125,16 +125,16 @@ class WaarpVpnService : VpnService() {
             next.start(config)
             if (destroyed.get() || !RuntimeState.isCurrent(request.generation)) closeBackend(next)
         } catch (error: Exception) {
-            closeBackend()
+            runCatching { closeBackend() }.exceptionOrNull()?.let { if (it !== error) error.addSuppressed(it) }
             RuntimeState.cancelIfCurrent(request.generation)?.let { token ->
                 if (RuntimeState.finishStop(token, error)) finishForeground(startId)
             }
         }
     }
 
-    private fun reloadFromRepository() {
-        if (destroyed.get() || !RuntimeState.wanted()) return
-        val request = RuntimeState.requestStart()
+    private fun reloadFromRepository(generation: Long) {
+        if (destroyed.get()) return
+        val request = RuntimeState.reloadIfCurrent(generation) ?: return
         RuntimeState.updateIfCurrent(request.generation) { it.copy(phase = RuntimePhase.STARTING, message = null) }
         NativeLane.executor.execute { start(request, latestStartId) }
     }
@@ -149,8 +149,9 @@ class WaarpVpnService : VpnService() {
         val current = captured
         val startId = latestStartId
         NativeLane.executor.execute {
-            closeBackend(current)
-            if (RuntimeState.finishStop(token, error)) finishForeground(startId)
+            val closeError = runCatching { closeBackend(current) }.exceptionOrNull()
+            if (error != null && closeError != null && error !== closeError) error.addSuppressed(closeError)
+            if (RuntimeState.finishStop(token, error ?: closeError)) finishForeground(startId)
         }
     }
 
@@ -183,13 +184,18 @@ class WaarpVpnService : VpnService() {
             }
         }
         NativeLane.executor.execute {
-            if (current != null) {
-                RuntimeState.backend.compareAndSet(current, null)
-                current.close()
+            try {
+                if (current != null) {
+                    RuntimeState.backend.compareAndSet(current, null)
+                    current.close()
+                }
+            } catch (error: Exception) {
+                RuntimeState.appendLog(3, "Ошибка закрытия VPN: ${error.message.orEmpty()}")
+            } finally {
+                // Keep the stop coordinator reachable until its native resources are gone.
+                // Otherwise a simultaneous OFF could observe no Service and claim cleanup finished.
+                RuntimeState.service.compareAndSet(this, null)
             }
-            // Keep the stop coordinator reachable until its native resources are gone.
-            // Otherwise a simultaneous OFF could observe no Service and claim cleanup finished.
-            RuntimeState.service.compareAndSet(this, null)
         }
         scope.cancel()
         super.onDestroy()

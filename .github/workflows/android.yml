@@ -39,7 +39,9 @@ jobs:
           java-version: '17.0.21+9'
       - uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4
       - name: Install pinned Android SDK packages
-        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'platform-tools'
+        run: |
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;35.0.0' 'platform-tools'
       - name: Build actual APKs and verify their signatures, engine and 16 KB alignment
         run: node scripts/android-build.mjs
       - name: Require real passing JVM regression results
@@ -106,7 +108,9 @@ jobs:
           name: waarp-android-emulator-inputs
           path: out/android
       - name: Install verification tools
-        run: sdkmanager 'build-tools;35.0.0' 'platform-tools'
+        run: |
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'build-tools;35.0.0' 'platform-tools'
       - name: Enable KVM on the disposable GitHub runner
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

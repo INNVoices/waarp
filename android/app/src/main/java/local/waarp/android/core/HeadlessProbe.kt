@@ -22,6 +22,7 @@ internal class HeadlessProbe(
     private val tags: List<String>,
     private val url: String,
     private val timeoutMs: Int,
+    private val idleGeneration: Long,
 ) : Closeable {
     private val cancelled = AtomicBoolean()
     private val finished = AtomicBoolean()
@@ -30,7 +31,7 @@ internal class HeadlessProbe(
     private val cancellation = Executors.newSingleThreadExecutor { task -> Thread(task, "waarp-probe-cancel").apply { isDaemon = true } }
     private val platform = AndroidPlatform(context, null, ::current, {}, { _, _ -> })
 
-    private fun current(): Boolean = !cancelled.get() && !RuntimeState.wanted()
+    private fun current(): Boolean = !cancelled.get() && RuntimeState.isIdleGeneration(idleGeneration)
 
     fun execute(): List<RuntimeProbeResult> {
         require(tags.isNotEmpty() && tags.size <= 16 && tags.all { it.isNotBlank() }) { "За одну проверку допустимо от 1 до 16 профилей" }
@@ -83,15 +84,17 @@ internal class HeadlessProbe(
 
     override fun close() {
         if (!finished.compareAndSet(false, true)) return
-        cancel()
-        client.getAndSet(null)?.let { runCatching { it.disconnect() } }
-        server.getAndSet(null)?.let {
-            runCatching { it.closeService() }
-            runCatching { it.close() }
-        }
-        platform.close()
-        LibboxRuntime.removeConfigurationSnapshot()
-        cancellation.shutdown()
+        val control = client.getAndSet(null)
+        val native = server.getAndSet(null)
+        closeResources(
+            ::cancel,
+            { control?.disconnect() },
+            { native?.closeService() },
+            { native?.close() },
+            platform::close,
+            { LibboxRuntime.removeConfigurationSnapshot(strict = true) },
+            { cancellation.shutdown() },
+        )
     }
 
     private inner class Handler : CommandServerHandler {

@@ -65,9 +65,7 @@ internal class AndroidPlatform(
     }
 
     override fun close() {
-        cancelTun()
-        monitor.close()
-        resolver.close()
+        closeResources(::cancelTun, monitor::close, resolver::close)
     }
 
     override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
