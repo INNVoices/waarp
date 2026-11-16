@@ -1,9 +1,17 @@
 package local.waarp.android.ui
 
+import android.os.SystemClock
+import android.view.View
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.text.AnnotatedString
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.test.espresso.Espresso
+import androidx.test.espresso.matcher.ViewMatchers.isRoot as isViewRoot
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
@@ -83,7 +91,7 @@ class MobileUiInstrumentedTest {
         assertFalse(repository.requestedOpen.value)
     }
 
-    @Test fun rejectedImportAndRouteSaveKeepDraftsUntilCorrectedThenPersist() {
+    @Test fun rejectedImportAndRouteSaveKeepDraftsUntilCorrectedThenPersist() = withFailureCapture {
         tab("Туннели")
         compose.onNodeWithContentDescription("Добавить туннель").performClick()
         field("Название (необязательно)").performTextInput("UI imported tunnel")
@@ -94,6 +102,9 @@ class MobileUiInstrumentedTest {
         compose.onNodeWithTag("waarp-form-sheet").assertExists()
         assertTrue(repository.data.value!!.profiles.isEmpty())
         field("Конфигурация или ссылка").performScrollTo().performTextReplacement("trojan://synthetic-ui-password@192.0.2.10:443#Synthetic")
+        // EditableText is masked by PasswordVisualTransformation; InputText is the exact source value.
+        field("Конфигурация или ссылка").assert(SemanticsMatcher.expectValue(SemanticsProperties.InputText,
+            AnnotatedString("trojan://synthetic-ui-password@192.0.2.10:443#Synthetic")))
         modalButton("Импортировать")
         awaitData { it.profiles.singleOrNull()?.name == "UI imported tunnel" }
         tab("Маршруты")
@@ -106,6 +117,7 @@ class MobileUiInstrumentedTest {
         field("Название").assertTextContains("UI custom route")
         assertTrue(repository.data.value!!.routes.isEmpty())
         field("Домены, IP или подсети CIDR").performScrollTo().performTextReplacement("example.test")
+        assertEditableText("Домены, IP или подсети CIDR", "example.test")
         modalButton("Сохранить маршрут")
         awaitData { it.routes.singleOrNull()?.name == "UI custom route" }
         val saved = runBlocking { ProfileStore(context).read() }
@@ -162,11 +174,60 @@ class MobileUiInstrumentedTest {
         compose.waitForIdle()
     }
     private fun field(label: String) = compose.onNode(hasText(label) and hasSetTextAction())
+    private fun assertEditableText(label: String, expected: String) {
+        field(label).assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(expected)))
+    }
     private fun modalButton(label: String) {
         // Background content remains in the semantics tree while the sheet is open.
-        compose.onNode(hasText(label) and hasClickAction() and hasAnyAncestor(hasTestTag("waarp-form-sheet")))
-            .performScrollTo().assertIsDisplayed().performClick()
+        val button = compose.onNode(hasText(label) and hasClickAction() and hasAnyAncestor(hasTestTag("waarp-form-sheet")))
+        // Android IME layout is outside Compose's virtual clock. A scroll during
+        // its transition can put the submit button offscreen or move the touch target.
+        Espresso.closeSoftKeyboard()
+        var windowRoot: View? = null
+        Espresso.onView(isViewRoot()).check { view, error ->
+            if (error != null) throw error
+            windowRoot = view
+        }
+        val deadline = SystemClock.uptimeMillis() + 15_000L
+        compose.waitUntil((deadline - SystemClock.uptimeMillis()).coerceAtLeast(1L)) {
+            compose.runOnUiThread {
+                windowRoot?.let { ViewCompat.getRootWindowInsets(it)?.isVisible(WindowInsetsCompat.Type.ime()) == false } == true
+            }
+        }
+        button.performScrollTo()
+        var previousBounds: Pair<Rect, Rect>? = null
+        var stableSince = SystemClock.uptimeMillis()
+        compose.waitUntil((deadline - SystemClock.uptimeMillis()).coerceAtLeast(1L)) {
+            val bounds = runCatching {
+                button.assertIsDisplayed().assertIsEnabled()
+                button.fetchSemanticsNode().boundsInRoot to compose.onNodeWithTag("waarp-form-sheet").fetchSemanticsNode().boundsInRoot
+            }.getOrNull()
+            if (bounds == null || bounds != previousBounds) {
+                previousBounds = bounds
+                stableSince = SystemClock.uptimeMillis()
+            }
+            bounds != null && SystemClock.uptimeMillis() - stableSince >= 250L
+        }
+        button.assertIsDisplayed().assertIsEnabled().performClick()
         compose.waitForIdle()
+    }
+
+    private fun withFailureCapture(block: () -> Unit) {
+        try { block() }
+        catch (failure: Throwable) {
+            // This case contains only synthetic documentation-address fixtures.
+            // Capture before @After restores data and ActivityScenario closes the form.
+            val directory = File(context.getExternalFilesDir(null), "ui-screenshots").apply { mkdirs() }
+            runCatching {
+                UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+                    .takeScreenshot(File(directory, "failure-import-route.png"))
+            }.exceptionOrNull()?.let(failure::addSuppressed)
+            runCatching {
+                File(directory, "failure-import-route-semantics.txt")
+                    .writeText(compose.onAllNodes(isRoot(), useUnmergedTree = true).printToString())
+            }.exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
     }
     private fun selectGroupMember(name: String, checkbox: SemanticsMatcher) {
         // The list scrolls inside the form. Bring its viewport into the outer scroll
