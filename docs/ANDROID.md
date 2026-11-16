@@ -74,6 +74,8 @@ python3 scripts/android-install.py --variant debug --launch
 
 The build fetches/verifies the AAR, runs JVM tests and debug/release lint, builds debug/release/instrumentation APKs plus the separate release acceptance APK, verifies actual APK contents and publishes a complete `out/android/` set atomically. Earlier artifacts are retained under `out/android-history/`, so older versions or signature modes cannot silently mix with the new release.
 
+CI preserves Gradle's downloaded dependencies on the default branch and on pull requests from this same repository. Fork pull requests and non-default-branch dispatches retain read-only caching. The pinned [setup-gradle action](https://github.com/gradle/actions/blob/48b5f213c81028ace310571dc5ec0fbbca0b2947/docs/setup-gradle.md) scopes a PR's saved cache to that PR; a first cold build still needs repository access. This avoids repeating full dependency downloads on every update, following [Maven Central's HTTP 429 guidance](https://central.sonatype.org/faq/429-error/). Dependency versions, repositories and all build/runtime gates remain unchanged; rate-limit failures are retained as failures and are not retried automatically.
+
 ```sh
 npm run android:core:fetch
 npm run android:core:verify

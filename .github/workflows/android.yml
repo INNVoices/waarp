@@ -42,6 +42,10 @@ jobs:
           distribution: temurin
           java-version: '17.0.21+9'
       - uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4
+        with:
+          # Reuse downloaded dependencies across updates of a trusted PR.
+          # Fork PRs and non-default-branch dispatches retain read-only caches.
+          cache-read-only: ${{ github.ref_name != github.event.repository.default_branch && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) }}
       - name: Install pinned Android SDK packages
         run: |
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
