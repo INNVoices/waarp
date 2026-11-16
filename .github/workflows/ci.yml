@@ -21,3 +21,28 @@ jobs:
       - run: npm test
       - run: npm run check
       - run: npm run build
+      - name: Install browser for UI regressions
+        run: npx playwright install chromium
+      - name: Verify production UI and recovery controls
+        run: npm run test:ui
+        env:
+          WAARP_UI_SCREENSHOTS: out/ui
+      - name: Retain UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: waarp-ui-evidence
+          path: out/ui
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Fetch and verify pinned Windows engine
+        run: npm run engine:fetch
+      - name: Build portable Windows package
+        run: npx electron-builder --win portable --publish never
+      - name: Retain portable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: waarp-windows-portable
+          path: dist/Waarp-*-portable.exe
+          if-no-files-found: error
+          retention-days: 7

@@ -14,6 +14,7 @@ import { Analyzer } from './pages/analyzer'
 import { SettingsPage } from './pages/settings'
 import { CompanionPick, type Pick } from './pages/companionpick'
 import { masterPresentation } from './lib/master'
+import type { ToastKind } from './lib/actions'
 
 // W1 IA (GPT 440a5c3): five permanent destinations. Adding a connection is an action inside
 // Подключения; live flows are evidence inside Главная / Диагностика, never their own screen.
@@ -30,12 +31,14 @@ export function App() {
   const [busy, setBusy] = useState(false)
   const [bootError, setBootError] = useState(false)
   const [bootAttempt, setBootAttempt] = useState(0)
-  const masterLock = useRef(false)
+  const masterAction = useRef<'opening' | 'closing' | 'recovering' | undefined>(undefined)
+  const masterRequest = useRef(0)
   const scanLock = useRef(false)
   const snapshotVersion = useRef(0)
   const statusVersion = useRef(0)
   const [masterPending, setMasterPending] = useState<'opening' | 'closing'>()
-  const [toast, setToast] = useState<string>()
+  const [toast, setToastState] = useState<{ text: string; kind: ToastKind }>()
+  const setToast = (text: string, kind: ToastKind = 'info') => setToastState({ text, kind })
   const [adding, setAdding] = useState(false)
   const [autoFind, setAutoFind] = useState(false)
   const [initialClip, setInitialClip] = useState(false)
@@ -50,7 +53,7 @@ export function App() {
     if (scanLock.current) return
     scanLock.current = true; setScanning(true)
     try { const scanned: AppInfo[] = await api.scanApps(); setApps(current => mergeScannedApps(current, scanned)) }
-    catch { setApps(a => a ?? []); setToast(s('lib.scan_failed')) }
+    catch { setApps(a => a ?? []); setToast(s('lib.scan_failed'), 'error') }
     finally { scanLock.current = false; setScanning(false) }
   }
 
@@ -102,7 +105,7 @@ export function App() {
     return () => clearInterval(t)
   }, [status?.phase])
 
-  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(undefined), 5000); return () => clearTimeout(t) }, [toast])
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToastState(undefined), 5000); return () => clearTimeout(t) }, [toast])
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -131,35 +134,57 @@ export function App() {
       if (snapshotVersion.current === sv) setSnap(next)
       if (statusVersion.current === tv) setStatus(next.status)
       return next.saved !== false
-    } catch { setToast(s('set.save.error')); return false }
+    } catch { setToast(s('set.save.error'), 'error'); return false }
   }
   const go = (p: Page) => setNav(n => goTo(n, p))
   const open = (id: string) => setNav(n => openRoute(n, id))
   const addApp = (a: AppInfo) => setApps(l => [a, ...(l ?? []).filter(x => x.id !== a.id)])
-  const toggle = async () => {
-    if (masterLock.current) return
-    masterLock.current = true
-    const closing = status.open === true || status.phase === 'on' || status.phase === 'starting'
-    setMasterPending(closing ? 'closing' : 'opening')
-    setBusy(true)
+  const reconcileMaster = async (request: number) => {
+    if (request !== masterRequest.current) return
     try {
-      const r = await api.toggle()
+      const sv = snapshotVersion.current, tv = statusVersion.current
+      const fresh: Snapshot = await api.snapshot()
+      if (request !== masterRequest.current) return
+      if (snapshotVersion.current === sv) setSnap(fresh)
+      if (statusVersion.current === tv) setStatus(fresh.status)
+    } catch { if (request === masterRequest.current) setToast(s('top.state.error'), 'error') }
+    finally {
+      if (request === masterRequest.current) {
+        masterAction.current = undefined
+        setMasterPending(undefined)
+        setBusy(false)
+      }
+    }
+  }
+  const toggle = async () => {
+    const cancelOpening = masterAction.current === 'opening'
+    if (masterAction.current && !cancelOpening) return
+    const request = ++masterRequest.current
+    const closing = cancelOpening || status.open === true || status.phase === 'on' || status.phase === 'starting'
+    masterAction.current = closing ? 'closing' : 'opening'
+    setMasterPending(closing ? 'closing' : 'opening')
+    // OFF remains available while ON is waiting on Windows recovery or engine readiness.
+    // An explicit disconnect also cancels before the main-process ON event reaches this renderer.
+    setBusy(closing)
+    try {
+      const r = await (closing ? api.disconnect() : api.toggle())
       // The event stream is the fast path, but a failed native startup may stop and
       // exit in the same turn. Reconcile from the authoritative main-process state
       // so the switch can never remain visually open after the engine has failed.
-      if (!r.ok && r.error) setToast(r.error)
-    } catch { setToast(s('top.toggle.error')) }
-    finally {
-      try {
-        const sv = snapshotVersion.current, tv = statusVersion.current
-        const fresh: Snapshot = await api.snapshot()
-        if (snapshotVersion.current === sv) setSnap(fresh)
-        if (statusVersion.current === tv) setStatus(fresh.status)
-      } catch { setToast(s('top.state.error')) }
-      masterLock.current = false
-      setMasterPending(undefined)
-      setBusy(false)
-    }
+      if (request === masterRequest.current && !r.ok && r.error) setToast(r.error, 'error')
+    } catch { if (request === masterRequest.current) setToast(s('top.toggle.error'), 'error') }
+    finally { await reconcileMaster(request) }
+  }
+  const recover = async () => {
+    if (masterAction.current) return
+    const request = ++masterRequest.current
+    masterAction.current = 'recovering'
+    setBusy(true)
+    try {
+      const r = await api.resetNet()
+      if (request === masterRequest.current) setToast(r?.ok ? s('home.recovery.done') : r?.error ?? s('set.reset.error'), r?.ok ? 'success' : 'error')
+    } catch { if (request === masterRequest.current) setToast(s('set.reset.error'), 'error') }
+    finally { await reconcileMaster(request) }
   }
   // Renderer-only pending phase: acknowledge the click immediately without pretending the
   // main process has already changed its authoritative engine state.
@@ -206,7 +231,7 @@ export function App() {
       <main className="main">
         <Notices list={snap.notices} admin={snap.admin} />
         {page === 'home' && !hasRouting && <Welcome onAdd={() => setAdding(true)} />}
-        {page === 'home' && hasRouting && <Connections snap={snap} status={controlStatus} conns={conns} apps={apps ?? []} patch={patch} toast={setToast} toggle={toggle} open={open} add={() => setNav(addEntry)} />}
+        {page === 'home' && hasRouting && <Connections snap={snap} status={controlStatus} conns={conns} apps={apps ?? []} patch={patch} toast={setToast} toggle={toggle} recover={recover} busy={busy} open={open} add={() => setNav(addEntry)} />}
           {page === 'route' && routeId && <RoutePage key={routeId} snap={snap} status={status} conns={conns} apps={apps ?? []} id={routeId} patch={patch} toast={setToast} back={() => setNav(back)} />}
           {page === 'lib' && <Library snap={snap} status={status} conns={conns} apps={apps} loading={scanning} rescan={rescan} addApp={addApp} patch={patch} toast={setToast} open={open} mode={nav.libMode} setMode={m => setNav(m === 'catalog' ? showCatalog : showList)} />}
           {page === 'servers' && <Servers snap={snap} status={status} patch={patch} toast={setToast} />}
@@ -217,7 +242,7 @@ export function App() {
         onPublic={() => { setAdding(false); setAutoFind(false); setInitialClip(false); go('servers'); requestAnimationFrame(() => document.getElementById('public-catalog')?.scrollIntoView({ behavior: 'smooth' })) }} />}
       {clipHint && !adding && <div className="clip-hint" role="status"><span>{s('clip.found', { v: clipHint.host ?? s('add.clip.' + clipHint.kind) })}</span><Btn kind="primary" onClick={() => { setClipHint(undefined); setInitialClip(true); setAdding(true) }}>{s('imp.add')}</Btn><Plain aria-label={s('nav.close')} onClick={() => setClipHint(undefined)}><Icon n="x" s={14} /></Plain></div>}
       {pick && <CompanionPick snap={snap} pick={pick} toast={setToast} done={id => { setPick(undefined); if (id) open(id) }} manage={() => go('servers')} />}
-      {toast && <div className="toast" role="status"><Icon n={/не удал|ошиб|не вышл|нельзя|не найд|занят|не подход/i.test(toast) ? 'warn' : 'check'} />{toast}</div>}
+      {toast && <div className={'toast ' + toast.kind} role={toast.kind === 'error' ? 'alert' : 'status'}><Icon n={toast.kind === 'error' ? 'warn' : toast.kind === 'success' ? 'check' : 'info'} />{toast.text}</div>}
     </div>
   )
 }

@@ -139,6 +139,36 @@ function rig(o: { on?: boolean; netAt?: number; restartOk?: boolean; restartMs?:
 
   {
     const { r, log, advance, deps } = rig()
+    deps.netReady = () => new Promise(() => undefined)
+    r.suspend(); r.resume(); await advance(2000)
+    await advance(29_999)
+    eq(log.fails, [], 'a pending native inspection keeps its remaining readiness budget')
+    await advance(1)
+    eq([log.restarts, log.fails, r.busy], [0, ['no_network'], false], 'hung native inspection cannot overrun the 30 s wake budget')
+  }
+  {
+    const { r, log, advance, deps } = rig()
+    let release!: (ready: boolean) => void
+    deps.netReady = () => new Promise(resolve => { release = resolve })
+    r.suspend(); r.resume(); await advance(2000)
+    r.cancel(); await advance(0)
+    eq([r.busy, log.restarts, log.fails], [false, 0, []], 'cancel releases the wake waiter without waiting for native inspection')
+    release(true); await advance(0)
+    eq([log.restarts, log.fails], [0, []], 'a late native success cannot resurrect the cancelled wake')
+  }
+  {
+    const { r, log, advance, deps } = rig()
+    deps.netReady = () => new Promise(() => undefined)
+    r.suspend(); r.resume(); await advance(2000)
+    r.suspend(); r.resume()
+    deps.netReady = async () => true
+    await advance(0)
+    await advance(2000)
+    eq([log.restarts, log.fails], [1, []], 'a later wake runs even if the superseded native inspection never resolves')
+  }
+
+  {
+    const { r, log, advance, deps } = rig()
     let revision = 1
     deps.revision = () => revision
     r.suspend(); r.resume()
@@ -158,6 +188,11 @@ function rig(o: { on?: boolean; netAt?: number; restartOk?: boolean; restartMs?:
   eq(underlayReady(true, [R('Other VPN', '0.0.0.0'), R('Ethernet', '10.0.0.1')]), true, 'another VPN plus an underlay gateway -> ready (neither touched)')
   eq(underlayReady(false, [R('Wi-Fi', '192.168.1.1')]), false, 'offline -> not ready')
   eq(underlayReady(true, undefined), false, 'unreadable snapshot -> not ready')
+  eq(underlayReady(true, [R('Wi-Fi', 'fe80::1%12')]), true, 'an IPv6-only default gateway is a usable underlay')
+  eq(underlayReady(true, [R('WAARP', 'fe80::1%12')]), false, 'case variation of our own interface cannot prove external connectivity')
+  for (const invalid of ['999.1.1.1', '0.1.2.3', '127.0.0.1', '224.0.0.1', '::', '0:0:0:0:0:0:0:0', '::1', '0:0:0:0:0:0:0:1', 'ff02::1']) {
+    eq(underlayReady(true, [R('Wi-Fi', invalid)]), false, `invalid/on-link/loopback/multicast next hop ${invalid} is not underlay evidence`)
+  }
 
   console.log(`resume.check: ${n} checks`)
   if (fails) { console.error(`${fails} failed`); process.exit(1) }

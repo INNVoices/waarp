@@ -127,7 +127,9 @@ input, textarea, pre, .selectable { user-select: text; }
 .steps li::before { content: counter(s); position: absolute; left: 0; top: -2px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 600; color: var(--a-text); background: var(--a-sub); box-shadow: inset 0 0 0 1px var(--a-line); }
 
 .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 100; display: flex; align-items: center; gap: 8px; max-width: 560px; padding: 8px 16px; border-radius: var(--r-md); background: var(--raise); border: 1px solid var(--line-2); box-shadow: 0 12px 32px rgba(0,0,0,.45); animation: pop var(--dur-3) var(--ease-enter); }
-.toast .ic { color: var(--warn); }
+.toast .ic { color: var(--m); flex-shrink: 0; }
+.toast.error .ic { color: var(--err); }
+.toast.success .ic { color: var(--a-text); }
 
 /* easter eggs */
 .egg { position: absolute; pointer-events: none; z-index: 5; }

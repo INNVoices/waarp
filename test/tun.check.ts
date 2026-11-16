@@ -67,6 +67,58 @@ const S = (over: Partial<Settings> = {}): Settings => ({ ...DEFAULTS, rest: p.id
     eq(await waitReady({ ...clock, alive: () => present, probe: async () => { present = false; return true } }), 'exited', 'stale successful controller reply after exit is discarded')
   }
 
+  // A request begun before the deadline is not permission to accept success after it.
+  for (const replyAt of [1000, 1001]) {
+    now = 0
+    eq(await waitReady({ ...clock, budget: 1000, alive: () => true, probe: async () => { now = replyAt; return true } }), 'timeout', `controller reply at ${replyAt} ms cannot exceed the 1000 ms budget`)
+  }
+  now = 0
+  eq(await waitReady({ ...clock, budget: 1000, alive: () => true, probe: async () => { now = 999; return true } }), 'ready', 'a live reply before the deadline is still accepted')
+  probes = 0
+  eq(await waitReady({ ...clock, budget: 0, alive: () => true, probe: async () => { probes++; return true } }), 'timeout', 'an exhausted budget returns without a controller call')
+  eq(probes, 0, 'no native probe begins after the budget expires')
+
+  {
+    let at = 0, calls = 0, deadline!: () => void, release!: (value: boolean) => void, cleared = false
+    const pending = waitReady({
+      budget: 1000, now: () => at, alive: () => true,
+      probe: () => { calls++; return new Promise(resolve => { release = resolve }) },
+      setTimer: (f, ms) => { deadline = f; eq(ms, 1000, 'native wait timer uses the remaining startup budget'); return 'deadline' },
+      clearTimer: () => { cleared = true }
+    })
+    at = 1000; deadline()
+    eq(await pending, 'timeout', 'a never-resolving controller call cannot hold readiness beyond its deadline')
+    ok(cleared, 'readiness removes the deadline timer on completion')
+    release(true)
+    await Promise.resolve(); await Promise.resolve()
+    eq(calls, 1, 'late native success cannot schedule another probe after timeout')
+  }
+  {
+    let at = 0, deadline!: () => void, reject!: (error: Error) => void
+    const pending = waitReady({
+      budget: 1000, now: () => at, alive: () => true,
+      probe: () => new Promise<boolean>((_, rejectProbe) => { reject = rejectProbe }),
+      setTimer: f => { deadline = f; return 1 }, clearTimer: () => undefined
+    })
+    at = 1000; deadline()
+    eq(await pending, 'timeout', 'deadline wins over an outstanding request that later fails')
+    reject(new Error('controller failed after timeout'))
+    await new Promise<void>(resolve => setImmediate(resolve))
+    ok(true, 'a late controller rejection is observed, not an unhandled rejection')
+  }
+  {
+    const cancel = new AbortController()
+    let sleeping = false
+    const pending = waitReady({
+      alive: () => true, signal: cancel.signal, probe: async () => false,
+      sleep: () => { sleeping = true; return new Promise(() => undefined) }
+    })
+    for (let i = 0; i < 10 && !sleeping; i++) await Promise.resolve()
+    ok(sleeping, 'retry backoff is pending before cancellation')
+    cancel.abort()
+    eq(await pending, 'cancelled', 'OFF also cancels a pending retry backoff immediately')
+  }
+
   // ---- R1.3 port
   eq(await pickPort(async () => false), undefined, 'no free candidate -> undefined (nothing spawned)')
   let asked: number[] = []

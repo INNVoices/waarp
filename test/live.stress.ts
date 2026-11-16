@@ -9,7 +9,7 @@ mkdirSync(DIR, { recursive: true })
 const CURL = 'C:\Windows\System32\curl.exe'
 const keys = execFileSync(SB, ['generate', 'wg-keypair']).toString()
 const pk = keys.match(/PrivateKey: (\S+)/)![1], pub = keys.match(/PublicKey: (\S+)/)![1]
-const p = parseConf(`[Interface]\nPrivateKey = ${pk}\nAddress = 10.99.0.2/32\nJc = 4\nJmin = 10\nJmax = 50\nH1 = 1\nH2 = 2\nH3 = 3\nH4 = 4\n[Peer]\nPublicKey = ${pub}\nEndpoint = 192.0.2.1:51820\n`)
+const p = parseConf(`[Interface]\nPrivateKey = ${pk}\nAddress = 10.99.0.2/32\nJc = 4\nJmin = 10\nJmax = 50\nH1 = 1\nH2 = 2\nH3 = 3\nH4 = 4\n[Peer]\nPublicKey = ${pub}\nAllowedIPs = 0.0.0.0/0\nEndpoint = 192.0.2.1:51820\n`)
 const cfg = buildConfig([p], { rest: 'direct', groups: [], ruDirect: true, routes: [{ id: 'c', kind: 'app', name: 'curl', exe: CURL, via: p.id, on: true }], dnsAll: false, lanDirect: true, tray: true, autoConnect: false, autostart: false, notify: false }, { api: { port: 19555, secret: 't' } })
 const file = join(DIR, 'run.json')
 writeFileSync(file, JSON.stringify(cfg))

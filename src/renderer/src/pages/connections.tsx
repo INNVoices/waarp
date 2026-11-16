@@ -8,18 +8,20 @@ import { Modal } from '../ui/modal'
 import { connRoute, connsOf, dropRoute, patchRoute } from '../lib/routes'
 import { kindLabel, Mark, Orb, Ping, RouteIcon, viaName, ViaPicker } from '../parts'
 import { api } from '../bridge'
-import type { SettingsPatch } from '../lib/actions'
+import type { SettingsPatch, Toast } from '../lib/actions'
 
 interface P {
   snap: Snapshot; status: Status; conns: Conn[]; apps: AppInfo[]
   patch: SettingsPatch
-  toast: (text: string) => void
+  toast: Toast
   toggle: () => void
+  recover: () => void
+  busy: boolean
   open: (id: string) => void
   add: () => void
 }
 
-export function Connections({ snap, status, conns, apps, patch, toast, toggle, open, add }: P) {
+export function Connections({ snap, status, conns, apps, patch, toast, toggle, recover, busy, open, add }: P) {
   const st = snap.settings
   const [routingBusy, setRoutingBusy] = useState(false)
   const [busyRoute, setBusyRoute] = useState<string>()
@@ -38,8 +40,8 @@ export function Connections({ snap, status, conns, apps, patch, toast, toggle, o
     setRoutingBusy(true); setBusyRoute(route.id)
     try {
       const result = await api.selectRoute(route.id, via)
-      if (!result?.ok || result.error) toast(result?.error ?? s('route.apply.error'))
-    } catch { toast(s('route.apply.error')) }
+      if (!result?.ok || result.error) toast(result?.error ?? s('route.apply.error'), 'error')
+    } catch { toast(s('route.apply.error'), 'error') }
     finally { changing.current = false; setBusyRoute(undefined); setRoutingBusy(false) }
   }
   const live = status.phase === 'on'
@@ -67,9 +69,13 @@ export function Connections({ snap, status, conns, apps, patch, toast, toggle, o
       </Modal>}
       <section className="hero">
         {/* the window orb is the product character and the one primary action (GPT 36caa9f) */}
-        <Orb status={status} disabled={(!snap.profiles.length && !demandsTunnel) || blocked} why={why} onClick={toggle} />
+        <Orb status={status} busy={busy} disabled={(!snap.profiles.length && !demandsTunnel) || blocked} why={why} onClick={toggle} />
         <div className="hero-side">
           <State snap={snap} status={status} disabled={(!snap.profiles.length && !demandsTunnel) || blocked} why={why} />
+          {status.phase === 'error' && status.open !== true && status.startup !== 'recovering' && <div className="hero-actions">
+            <Btn sm disabled={busy || blocked} onClick={toggle}><Icon n="refresh" />{s('home.retry')}</Btn>
+            {(status.startup === 'failed' || status.recovery) && <Btn sm disabled={busy} onClick={recover} title={s('home.recovery.tip')}><Icon n="shield" />{s('home.recovery')}</Btn>}
+          </div>}
           <div className="rest">
         <Tooltip tip={s('rest.tip')}><span className="lbl help">{s('home.scope')}</span></Tooltip>
         <Seg<'cards' | 'all'> disabled={routingBusy} value={st.rest === 'direct' ? 'cards' : 'all'} onChange={scope}
@@ -131,13 +137,15 @@ function State({ snap, status, disabled, why }: { snap: Snapshot; status: Status
   const engineOut = eff.some(e => e.reason === 'engine_down')
   const waiting = eff.filter(e => e.state === 'retrying' && e.reason === 'waiting').length
   const m = moodOf(status.routes ?? {}), stuck = eff.filter(e => e.state === 'blocked').length
-  const mood: Mood = status.phase === 'on' ? (m === 'ok' ? 'on' : m)
+  const recovering = status.startup === 'recovering' && status.phase !== 'stopping'
+  const mood: Mood = recovering ? 'busy' : status.phase === 'on' ? (m === 'ok' ? 'on' : m)
     : status.open === true && status.phase === 'off' ? 'idle'
     : status.phase === 'starting' || status.phase === 'stopping' ? 'busy'
     : status.phase === 'error' ? 'error' : 'off'
   const exit = st.rest === 'direct' ? s('home.exit.cards', { n: st.routes.filter(r => r.on && r.via !== 'direct').length }) : s('home.exit.all', { v: viaName(snap.profiles, st.rest) })
   const rec = fb ? s('home.sub.recovering', { n: fb }) : engineOut ? s('home.sub.engine') : bad ? s('home.sub.pathdown', { n: bad }) : s('home.sub.checking', { n: waiting })
-  const sub = mood === 'idle' ? s('home.sub.idle')
+  const sub = recovering ? s('orb.recovering.sub')
+    : mood === 'idle' ? s('home.sub.idle')
     : mood === 'busy' && status.open === true ? s('home.sub.engine')
     : mood === 'recovering' ? rec
     : mood === 'attention' ? s('home.sub.attention', { n: stuck })
@@ -148,7 +156,7 @@ function State({ snap, status, disabled, why }: { snap: Snapshot; status: Status
     <section className={'state m-' + mood} aria-live="polite">
       <span className="st-dot" aria-hidden />
       <div className="grow">
-        <div className="st-t">{s('home.mood.' + mood)}</div>
+        <div className="st-t">{s(recovering ? 'orb.recovering' : 'home.mood.' + mood)}</div>
         <div className="st-s">{sub}</div>
       </div>
     </section>

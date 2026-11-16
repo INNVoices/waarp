@@ -1,6 +1,6 @@
 import type { AwgProfile, Group, Profile, Route, Settings, Via } from '../shared/types'
 import { PRESETS } from '../shared/presets'
-import { validateCustom } from '../shared/route-validation'
+import { validateCustom, validIpPrefix } from '../shared/route-validation'
 
 export interface Bounds { x: number; y: number; width: number; height: number; max?: boolean }
 export interface Disk { settings: Settings; profiles: string[]; bounds?: Bounds }
@@ -64,6 +64,11 @@ export function normalizeProfile(p: Profile): Profile {
   if (!base) throw new Error('Invalid stored profile')
   if (value.kind === 'awg') {
     if (!Array.isArray(value.address) || typeof value.privateKey !== 'string' || !value.peer || typeof value.peer.host !== 'string' || !Number.isInteger(value.peer.port) || value.peer.port < 1 || value.peer.port > 65535) throw new Error('Invalid stored WireGuard profile')
+    // Absence is the old importer format. An invalid present field must never silently become full-route.
+    if (value.peer.allowedIPs !== undefined) {
+      if (!Array.isArray(value.peer.allowedIPs) || !value.peer.allowedIPs.length || !value.peer.allowedIPs.every(validIpPrefix)) throw new Error('Invalid stored WireGuard AllowedIPs')
+    }
+    if (value.listenPort !== undefined && (!Number.isInteger(value.listenPort) || value.listenPort < 0 || value.listenPort > 65535)) throw new Error('Invalid stored WireGuard ListenPort')
   } else if (value.kind === 'vless') {
     if (!value.vless || typeof value.vless.server !== 'string' || !Number.isInteger(value.vless.port) || value.vless.port < 1 || value.vless.port > 65535 || typeof value.vless.uuid !== 'string') throw new Error('Invalid stored VLESS profile')
   } else if (value.kind === 'out') {

@@ -1,6 +1,7 @@
 import { inflateSync } from 'node:zlib'
 import { generateKeyPairSync } from 'node:crypto'
 import { isIP } from 'node:net'
+import { domainToASCII } from 'node:url'
 import type { AppPick, AwgParams, AwgProfile, Profile, Route, Settings, Via } from '../shared/types'
 import { PRESETS } from '../shared/presets'
 import { ConfError } from './conf-error'
@@ -14,10 +15,12 @@ export { validateCustom } from '../shared/route-validation'
 
 const NUM_KEYS = ['jc', 'jmin', 'jmax', 's1', 's2', 's3', 's4'] as const
 const STR_KEYS = ['h1', 'h2', 'h3', 'h4', 'i1', 'i2', 'i3', 'i4', 'i5'] as const
+const MAX_CONF_BYTES = 1024 * 1024
 
 export { ConfError }
 
 export function unwrapKey(input: string): string {
+  if (Buffer.byteLength(input, 'utf8') > MAX_CONF_BYTES) throw new ConfError('Конфиг слишком большой (максимум 1 МБ)')
   const text = input.trim()
   if (/\[Interface\]/i.test(text)) return text
   const m = text.match(/^vpn:\/\/(.+)$/s)
@@ -26,9 +29,9 @@ export function unwrapKey(input: string): string {
   const buf = Buffer.from(b64 + '='.repeat((4 - (b64.length % 4)) % 4), 'base64')
   let json: string
   try {
-    json = inflateSync(buf.subarray(4)).toString('utf8')
+    json = inflateSync(buf.subarray(4), { maxOutputLength: MAX_CONF_BYTES }).toString('utf8')
   } catch {
-    try { json = inflateSync(buf).toString('utf8') } catch { json = buf.toString('utf8') }
+    try { json = inflateSync(buf, { maxOutputLength: MAX_CONF_BYTES }).toString('utf8') } catch { json = buf.toString('utf8') }
   }
   let data: unknown
   try { data = JSON.parse(json) } catch { throw new ConfError('Ключ vpn:// не читается. Экспортируй из AmneziaVPN «нативный формат AmneziaWG» (.conf)') }
@@ -37,43 +40,114 @@ export function unwrapKey(input: string): string {
   return found
 }
 
-function findConf(v: unknown): string | undefined {
+function findConf(v: unknown, depth = 0): string | undefined {
+  if (depth > 32) return undefined
   if (typeof v === 'string') {
-    if (v.trimStart().startsWith('{')) { try { return findConf(JSON.parse(v)) } catch {} }
+    if (v.trimStart().startsWith('{')) { try { return findConf(JSON.parse(v), depth + 1) } catch {} }
     return /\[Interface\]/i.test(v) ? v : undefined
   }
   if (v && typeof v === 'object') {
     for (const x of Object.values(v as Record<string, unknown>)) {
-      const r = findConf(x)
+      const r = findConf(x, depth + 1)
       if (r) return r
     }
   }
   return undefined
 }
 
+const unsigned = (value: string, field: string, max = 0xffffffff): number => {
+  const n = Number(value)
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(n) || n > max) throw new ConfError(`${field} должен быть целым числом от 0 до ${max}`)
+  return n
+}
+
+function prefixes(value: string | undefined, field: string): string[] {
+  const parts = (value ?? '').split(',').map(x => x.trim()).filter(Boolean)
+  if (!parts.length) throw new ConfError(`В конфиге нет ${field}`)
+  return [...new Set(parts.map(raw => {
+    // wg/awg accept a bare host in both Address and AllowedIPs. Materialize its host prefix for sing-box.
+    const addr = !raw.includes('/') ? raw + (isIP(raw) === 6 ? '/128' : '/32') : raw
+    const match = /^([^/]+)\/(\d+)$/.exec(addr)
+    const family = match && isIP(match[1])
+    if (!match || !family || match[1].includes('%') || Number(match[2]) > (family === 4 ? 32 : 128)) throw new ConfError(`${field} должен содержать корректный IP и маску`)
+    return match[1] + '/' + Number(match[2])
+  }))]
+}
+
+function endpointAddress(value: string): { host: string; port: number } {
+  const match = /^(?:\[([^\]]+)\]|([^:\s]+)):(\d+)$/.exec(value)
+  if (!match) throw new ConfError('Endpoint должен быть вида host:port или [IPv6]:port')
+  const port = unsigned(match[3], 'Порт Endpoint', 65535)
+  if (!port) throw new ConfError('Порт Endpoint должен быть от 1 до 65535')
+  let host = match[1] ?? match[2]
+  if (match[1]) {
+    if (isIP(host) !== 6) throw new ConfError('В квадратных скобках Endpoint должен быть IPv6-адрес')
+  } else if (!isIP(host)) {
+    host = domainToASCII(host).toLowerCase()
+    const labels = host.replace(/\.$/, '').split('.')
+    if (!host || host.length > 253 || /^[\d.]+$/.test(host) || labels.some(label => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label))) throw new ConfError('Endpoint должен содержать корректный IP или имя сервера')
+  }
+  return { host, port }
+}
+
+function magicHeader(value: string, key: string): string {
+  const match = /^(\d+)\s*(?:-\s*(\d+))?$/.exec(value)
+  if (!match) throw new ConfError(`${key} должен быть числом или диапазоном min-max`)
+  const lo = unsigned(match[1], key), hi = match[2] === undefined ? lo : unsigned(match[2], key)
+  if (lo > hi) throw new ConfError(`${key}: начало диапазона не может быть больше конца`)
+  return lo === hi ? String(lo) : `${lo}-${hi}`
+}
+
+/** Validate the pinned Windows AWG CPS grammar without rewriting its case-sensitive packet strings. */
+function signaturePacket(value: string, key: string): string {
+  const tags = [...value.matchAll(/<([^<>]*)>/g)]
+  if (!tags.length || value.replace(/<[^<>]*>/g, '').trim()) throw new ConfError(`${key} должен содержать последовательность тегов <...>`)
+  for (const tag of tags) {
+    const [kind, arg, extra] = tag[1].trim().split(/\s+/)
+    if (['r', 'rc', 'rd', 'dz'].includes(kind)) {
+      // The pinned Windows wireguard-go build uses MaxMessageSize = 2048 - 32 for these tag arguments.
+      if (arg === undefined || extra !== undefined) throw new ConfError(`${key}: у тега ${kind} должен быть один размер`)
+      unsigned(arg, `${key}: размер ${kind}`, 2016)
+    } else if (kind === 'b') {
+      if (!arg || extra !== undefined || !/^(?:0x)?(?:[0-9a-fA-F]{2})+$/.test(arg)) throw new ConfError(`${key}: тег b должен содержать байты в hex-формате`)
+    } else if (!['t', 'd', 'ds'].includes(kind) || arg !== undefined) throw new ConfError(`${key}: неподдерживаемый тег или аргумент`)
+  }
+  return value
+}
+
 export function parseConf(raw: string, name = 'Сервер'): AwgProfile {
   name = String(name).trim().slice(0, 80) || 'Сервер'
   const text = unwrapKey(raw)
-  const sec: Record<string, Record<string, string>> = {}
+  const sec: Record<string, Record<string, string>> = Object.create(null)
   let cur = ''
   for (const line0 of text.split(/\r?\n/)) {
-    const line = line0.replace(/^\s+|\s+$/g, '')
+    const line = line0.split('#', 1)[0].trim()
     if (!line || line.startsWith('#') || line.startsWith(';')) continue
     const h = line.match(/^\[(\w+)\]$/)
     if (h) {
       cur = h[1].toLowerCase()
-      if (sec[cur]) cur = cur + '#'
-      sec[cur] ??= {}
+      if (cur !== 'interface' && cur !== 'peer') throw new ConfError(`Неподдерживаемая секция [${h[1]}]`)
+      if (sec[cur]) throw new ConfError(cur === 'peer' ? 'В одном туннеле Waarp поддерживается один [Peer]; раздели конфиг на отдельные туннели' : 'В одном туннеле должен быть один [Interface]')
+      sec[cur] = Object.create(null)
       continue
     }
-    const kv = line.match(/^([A-Za-z0-9]+)\s*=\s*(.*)$/)
-    if (kv && cur) sec[cur][kv[1].toLowerCase()] = kv[2].trim()
+    const kv = line.match(/^([A-Za-z0-9_]+)\s*=\s*(.*)$/)
+    if (!kv || !cur) throw new ConfError('Строка конфига должна иметь вид параметр = значение внутри секции')
+    const key = kv[1].toLowerCase(), value = kv[2].trim()
+    if ((cur === 'interface' && ['address', 'dns'].includes(key)) || (cur === 'peer' && key === 'allowedips')) sec[cur][key] = [sec[cur][key], value].filter(Boolean).join(', ')
+    else {
+      if (sec[cur][key] !== undefined && sec[cur][key] !== value) throw new ConfError(`Параметр ${kv[1]} задан несколько раз с разными значениями`)
+      sec[cur][key] = value
+    }
   }
   const i = sec['interface'], p = sec['peer']
   if (!i || !p) throw new ConfError('В конфиге нет [Interface] или [Peer]')
-  if (sec['peer#']) throw new ConfError('В одном туннеле Waarp поддерживается один [Peer]; раздели конфиг на отдельные туннели')
   const commands = ['preup', 'postup', 'predown', 'postdown', 'table'].filter(k => i[k] !== undefined)
   if (commands.length) throw new ConfError(`Waarp не выполняет системные директивы из конфига: ${commands.join(', ')}`)
+  const interfaceKeys = new Set<string>(['privatekey', 'address', 'dns', 'mtu', 'listenport', ...NUM_KEYS, ...STR_KEYS])
+  const peerKeys = new Set(['publickey', 'presharedkey', 'endpoint', 'allowedips', 'persistentkeepalive'])
+  const unsupported = [...Object.keys(i).filter(k => !interfaceKeys.has(k)), ...Object.keys(p).filter(k => !peerKeys.has(k))]
+  if (unsupported.length) throw new ConfError(`Импорт не поддерживает параметры: ${unsupported.join(', ')}. Они не были отброшены; нужен поддерживаемый конфиг WireGuard/AmneziaWG 2`)
   if (!i.privatekey) throw new ConfError('В конфиге нет PrivateKey')
   if (!p.publickey) throw new ConfError('В конфиге нет PublicKey сервера')
   if (!p.endpoint) throw new ConfError('В конфиге нет Endpoint сервера')
@@ -81,29 +155,28 @@ export function parseConf(raw: string, name = 'Сервер'): AwgProfile {
   if (!validKey(i.privatekey)) throw new ConfError('PrivateKey должен быть ключом WireGuard (32 байта, base64)')
   if (!validKey(p.publickey)) throw new ConfError('PublicKey сервера должен быть ключом WireGuard (32 байта, base64)')
   if (p.presharedkey && !validKey(p.presharedkey)) throw new ConfError('PresharedKey должен быть ключом WireGuard (32 байта, base64)')
-  const ep = p.endpoint.match(/^\[?([^\]]+?)\]?:(\d+)$/)
-  if (!ep) throw new ConfError('Endpoint должен быть вида host:port')
-  const port = Number(ep[2])
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new ConfError('Порт Endpoint должен быть от 1 до 65535')
+  const ep = endpointAddress(p.endpoint)
   const list = (s?: string) => (s ?? '').split(',').map(x => x.trim()).filter(Boolean)
-  const address = list(i.address).map(a => (a.includes('/') ? a : a.includes(':') ? a + '/128' : a + '/32'))
-  if (!address.length) throw new ConfError('В конфиге нет Address')
-  for (const addr of address) {
-    const [ip, prefix] = addr.split('/')
-    const family = isIP(ip)
-    if (!family || !/^\d+$/.test(prefix ?? '') || Number(prefix) > (family === 4 ? 32 : 128)) throw new ConfError('Address должен содержать корректный IP и маску')
-  }
+  const address = prefixes(i.address, 'Address')
+  const allowedIPs = prefixes(p.allowedips, 'AllowedIPs')
   const awg: AwgParams = {}
   for (const k of NUM_KEYS) if (i[k] !== undefined && i[k] !== '') {
-    const n = Number(i[k])
-    if (!Number.isFinite(n)) throw new ConfError(`Параметр ${k.toUpperCase()} должен быть числом`)
-    awg[k] = n
+    awg[k] = unsigned(i[k], k.toUpperCase(), k.startsWith('s') ? 65535 : 0xffffffff)
   }
-  for (const k of STR_KEYS) if (i[k]) awg[k] = i[k]
-  const mtu = i.mtu ? Number(i.mtu) : undefined
-  if (mtu !== undefined && (!Number.isInteger(mtu) || mtu < 576 || mtu > 9000)) throw new ConfError('MTU должен быть целым числом от 576 до 9000')
-  const keepalive = p.persistentkeepalive ? Number(p.persistentkeepalive) : undefined
-  if (keepalive !== undefined && (!Number.isInteger(keepalive) || keepalive < 0 || keepalive > 65535)) throw new ConfError('PersistentKeepalive должен быть целым числом от 0 до 65535')
+  if ((awg.jmin ?? 0) > (awg.jmax ?? 0)) throw new ConfError('Jmin не может быть больше Jmax')
+  for (const k of STR_KEYS) if (i[k]) awg[k] = k.startsWith('h') ? magicHeader(i[k], k.toUpperCase()) : signaturePacket(i[k], k.toUpperCase())
+  const headers = (['h1', 'h2', 'h3', 'h4'] as const).map((key, index) => {
+    const value = awg[key]
+    const parts = (value && value !== '0' ? value : String(index + 1)).split('-').map(Number)
+    return { key, lo: parts[0], hi: parts[1] ?? parts[0] }
+  })
+  for (let a = 0; a < headers.length; a++) for (let b = a + 1; b < headers.length; b++) {
+    if (headers[a].lo <= headers[b].hi && headers[b].lo <= headers[a].hi) throw new ConfError(`${headers[a].key.toUpperCase()} и ${headers[b].key.toUpperCase()} не должны пересекаться`)
+  }
+  const mtu = i.mtu ? unsigned(i.mtu, 'MTU', 9000) : undefined
+  if (mtu !== undefined && mtu < 576) throw new ConfError('MTU должен быть целым числом от 576 до 9000')
+  const keepalive = p.persistentkeepalive ? (/^off$/i.test(p.persistentkeepalive) ? 0 : unsigned(p.persistentkeepalive, 'PersistentKeepalive', 65535)) : undefined
+  const listenPort = i.listenport ? unsigned(i.listenport, 'ListenPort', 65535) : undefined
   return {
     kind: 'awg',
     id: Math.random().toString(36).slice(2, 10),
@@ -112,13 +185,15 @@ export function parseConf(raw: string, name = 'Сервер'): AwgProfile {
     privateKey: i.privatekey,
     dns: list(i.dns),
     mtu: mtu && Number.isFinite(mtu) ? mtu : undefined,
+    listenPort,
     awg,
     peer: {
       publicKey: p.publickey,
       presharedKey: p.presharedkey || undefined,
-      host: ep[1],
-      port,
-      keepalive
+      host: ep.host,
+      port: ep.port,
+      keepalive,
+      allowedIPs
     },
     version: detectVersion(awg),
     addedAt: Date.now()
@@ -141,8 +216,8 @@ export function createWireGuardProfile(input: { name: string; address: string; e
 
 export function detectVersion(a: AwgParams): string {
   const ranged = [a.h1, a.h2, a.h3, a.h4].some(h => h && h.includes('-'))
-  if (a.s3 !== undefined || a.s4 !== undefined || a.i1 || ranged) return 'AmneziaWG 2'
-  if (a.jc !== undefined || a.h1) return 'AmneziaWG 1'
+  if (a.s3 !== undefined || a.s4 !== undefined || [a.i1, a.i2, a.i3, a.i4, a.i5].some(Boolean) || ranged) return 'AmneziaWG 2'
+  if (NUM_KEYS.some(k => a[k] !== undefined) || [a.h1, a.h2, a.h3, a.h4].some(Boolean)) return 'AmneziaWG 1'
   return 'WireGuard'
 }
 
@@ -282,18 +357,20 @@ export function endpoint(p: AwgProfile) {
     mtu: p.mtu ?? 1280,
     address: p.address,
     private_key: p.privateKey,
+    ...(p.listenPort !== undefined ? { listen_port: p.listenPort } : {}),
     peers: [{
       address: p.peer.host,
       port: p.peer.port,
       public_key: p.peer.publicKey,
       ...(p.peer.presharedKey ? { pre_shared_key: p.peer.presharedKey } : {}),
-      allowed_ips: ['0.0.0.0/0', '::/0'],
-      persistent_keepalive_interval: p.peer.keepalive ?? 25
+      // Old encrypted profiles did not retain this field; preserve their former behavior until re-imported.
+      allowed_ips: p.peer.allowedIPs ?? ['0.0.0.0/0', '::/0'],
+      persistent_keepalive_interval: p.peer.keepalive ?? 0
     }]
   }
   for (const [k, v] of Object.entries(p.awg)) {
     if (v === undefined) continue
-    ep[k] = typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : v
+    ep[k] = /^h[1-4]$/.test(k) && typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : v
   }
   return ep
 }
@@ -348,10 +425,10 @@ export function buildConfig(profiles: Profile[], given: Settings, o: BuildOpts) 
     return 'dns-' + sel
   }
   // HOTFIX-RUNTIME-01 G: IPv6 capability per path, from the imported profile only (never invented). AWG = has an IPv6
-  // interface address; OpenVPN = unknown until the server pushes it -> treated as IPv4-only; proxies (VLESS/out) carry IPv6
+  // interface address and an IPv6 AllowedIPs prefix; OpenVPN = unknown until the server pushes it -> treated as IPv4-only; proxies (VLESS/out) carry IPv6
   // to their server. A group is capable only if every loaded member is (the live pick may move). IPv6 to a path that cannot
   // carry it is rejected (fail closed), never sent Direct; hostname traffic keeps the IPv4-first DNS.
-  const v6p = (p: Profile) => (p.kind === 'awg' ? p.address.some(a => a.includes(':')) : p.kind !== 'openvpn')
+  const v6p = (p: Profile) => (p.kind === 'awg' ? p.address.some(a => a.includes(':')) && (!p.peer.allowedIPs || p.peer.allowedIPs.some(a => a.includes(':'))) : p.kind !== 'openvpn')
   const v6id = (id: string) => { const p = used.find(x => x.id === id); return !!p && v6p(p) }
   const v6 = (tag: string): boolean => {
     if (tag === DIRECT) return true
@@ -470,9 +547,12 @@ export function checkConfig(profiles: Profile[], api: { port: number; secret: st
   const active = profiles.filter(p => !p.revoked)
   return {
     log: { level: 'warn', timestamp: false },
+    // Endpoint bootstrap and probe target names use an explicit local resolver, matching main's
+    // bootstrap policy. IPv4-only AWG clients must not be judged by an unrouteable AAAA candidate.
+    dns: { servers: [{ type: 'local', tag: 'local' }], final: 'local', strategy: 'ipv4_only' },
     endpoints: active.flatMap((p): Record<string, unknown>[] => (p.kind === 'awg' ? [{ ...endpoint(p), system: false }] : p.kind === 'openvpn' ? [{ ...p.endpoint, tag: tagOf(p.id) }] : [])),
     outbounds: [{ type: 'direct', tag: 'direct' }, ...active.flatMap(p => (p.kind === 'vless' ? [vlessOutbound(p, tagOf(p.id))] : p.kind === 'out' ? [{ ...p.outbound, tag: tagOf(p.id) }] : []))],
-    route: { final: 'direct' },
+    route: { final: 'direct', default_domain_resolver: 'local' },
     experimental: { clash_api: { external_controller: `127.0.0.1:${api.port}`, secret: api.secret } }
   }
 }

@@ -1,4 +1,5 @@
 import type { FbGroup } from './awg'
+import { validLatency } from './health'
 
 export const FB_N = 3
 
@@ -15,8 +16,8 @@ export class FbTracker {
   async step(pings: Record<string, number | undefined>, apply: (g: FbGroup, toFb: boolean) => Promise<boolean>): Promise<FbSwitch[]> {
     const done: FbSwitch[] = []
     for (const st of this.states) {
-      const mainUp = pings[st.g.main] !== undefined
-      const fbUp = pings[st.g.fb] !== undefined
+      const mainUp = validLatency(pings[st.g.main])
+      const fbUp = validLatency(pings[st.g.fb])
       if (!st.on) {
         st.fail = mainUp ? 0 : st.fail + 1
         if (st.fail >= this.n && fbUp && (await apply(st.g, true))) { st.on = true; st.ok = 0; done.push({ g: st.g, toFb: true }) }

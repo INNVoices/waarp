@@ -116,8 +116,11 @@ export class Catalog {
   }
 
   node(id: string): Profile | undefined { return this.nodes.get(id) }
+  recoveryError?: string
   async recover(): Promise<boolean> {
-    const recovered = await new RuntimeJournal(join(this.dir, 'catalog-check'), this.exe, 'check.json').recover()
+    const journal = new RuntimeJournal(join(this.dir, 'catalog-check'), this.exe, 'check.json')
+    const recovered = await journal.recover()
+    this.recoveryError = journal.lastError
     if (recovered) { this.checkerStopped = true; this.checker = undefined }
     return recovered
   }

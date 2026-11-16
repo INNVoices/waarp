@@ -82,6 +82,7 @@
 .orb-s { color: var(--m); font-size: 12px; line-height: 16px; max-width: 280px; }
 .ph-on .orb-s { font-family: var(--mono); color: var(--t2); }
 .hero-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: var(--field); border: 1px solid var(--line); border-radius: var(--r-md); }
 .stats.dim { opacity: .6; }
 .stats > div { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center; padding: 8px 12px; color: var(--m); min-width: 0; }

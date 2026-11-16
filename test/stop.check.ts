@@ -182,13 +182,13 @@ function rig(o: { owned?: 'same' | 'gone' | 'other' | 'unknown'; onBreak?: 'exit
   }
 
   // ---- recovery proves the recorded process is gone before the lease is cleared
-  const EXE = 'C:\W\engine\sing-box.exe', ID0 = { path: EXE, started: '2026-10-05T06:00:00.0000000Z' }
+  const EXE = 'C:\\W\\engine\\sing-box.exe', ID0 = { path: EXE, started: '2026-10-05T06:00:00.0000000Z' }
   const jr = (seq: (('same' | 'gone' | 'other' | 'throw'))[], term = true) => {
     const d = mkdtempSync(join(tmpdir(), 'waarp-rec-'))
     writeFileSync(join(d, 'run.json.owner'), JSON.stringify({ version: 1, runId: 'a'.repeat(32), pid: 777, ...ID0 }))
     const log = { terms: 0, ids: 0 }
     const ops: ProcessOps = {
-      identity: async () => { const k = seq[Math.min(log.ids++, seq.length - 1)]; if (k === 'throw') throw new Error('x'); return k === 'gone' ? null : k === 'other' ? { path: 'C:\other.exe', started: ID0.started } : ID0 },
+      identity: async () => { const k = seq[Math.min(log.ids++, seq.length - 1)]; if (k === 'throw') throw new Error('x'); return k === 'gone' ? null : k === 'other' ? { path: 'C:\\other.exe', started: ID0.started } : ID0 },
       terminate: async () => { log.terms++; return term },
       sleep: async () => undefined,
     }

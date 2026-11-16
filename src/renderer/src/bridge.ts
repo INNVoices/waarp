@@ -37,12 +37,22 @@ function mock(): Api {
     id: i === 0 ? 'd' : n, name: n, exe: `C:\\Program Files\\${n}\\${n}.exe`, matchDir: `C:\\Program Files\\${n}`, running: i % 3 !== 2, windowed: i % 2 === 0, source: 'installed'
   }))
   let timer: ReturnType<typeof setInterval> | undefined
+  let toggleVersion = 0
+  const disconnect = async () => {
+    toggleVersion++
+    clearInterval(timer)
+    status = { phase: 'off', open: false, pings: {}, fallback: {}, down: 0, up: 0, downTotal: 0, upTotal: 0 }
+    emit('status', status); emit('conns', [])
+    return { ok: true }
+  }
   return {
     snapshot: async () => snap(),
     toggle: async () => {
-      if (status.phase === 'on') { clearInterval(timer); status = { phase: 'off', pings: {}, fallback: {}, down: 0, up: 0, downTotal: 0, upTotal: 0 }; emit('status', status); emit('conns', []); return { ok: true } }
-      status = { ...status, phase: 'starting' }; emit('status', status)
+      if (status.open || status.phase === 'on' || status.phase === 'starting') return disconnect()
+      const version = ++toggleVersion
+      status = { ...status, phase: 'starting', open: true }; emit('status', status)
       await new Promise(r => setTimeout(r, 1400))
+      if (version !== toggleVersion) return { ok: false }
       status = { ...status, phase: 'on', since: Date.now(), pings: { a: fbDemo ? undefined : 48, b: 112, 'g-auto': fbDemo ? 112 : 48, direct: 9 }, picked: { 'g-auto': fbDemo ? 'b' : 'a' }, fallback: fbDemo ? { 'app:d': 'b' } : {} }; emit('status', status)
       timer = setInterval(() => {
         const d = 40000 + Math.random() * 900000, u = 5000 + Math.random() * 90000
@@ -56,6 +66,7 @@ function mock(): Api {
       }, 1000)
       return { ok: true }
     },
+    disconnect,
     scanApps: async () => { await new Promise(r => setTimeout(r, 600)); return apps },
     pickApp: async () => null,
     settings: async (p: Partial<Settings>) => { settings = { ...settings, ...p }; return snap() },

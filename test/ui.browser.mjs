@@ -1,4 +1,4 @@
-// Real DOM regressions. Serve the built renderer first; all IPC is an injected, in-memory fixture.
+// Real DOM regressions. `npm run test:ui` serves the built renderer; IPC is an injected, in-memory fixture.
 // No engine starts and no host network settings change.
 // WAARP_UI_URL=http://127.0.0.1:4173 WAARP_PLAYWRIGHT=/path/to/playwright/index.mjs
 // WAARP_CHROMIUM=/path/to/chromium node test/ui.browser.mjs
@@ -27,7 +27,9 @@ function fixture(options) {
   const emit = (channel, value) => { for (const fn of listeners.get(channel) ?? []) fn(structuredClone(value)) }
   const state = {
     calls: {}, failSettings: false, initialFailures: options.failInitial ? 1 : 0,
-    status: { phase: 'off', open: false, pings: {}, fallback: {}, down: 0, up: 0, downTotal: 0, upTotal: 0 },
+    status: { phase: 'off', open: false, pings: {}, fallback: {}, down: 0, up: 0, downTotal: 0, upTotal: 0,
+      ...(options.startupFailed ? { phase: 'error', startup: 'failed', error: 'Восстановление прошлого процесса не завершено' } : {}),
+      ...(options.startupRecovering ? { startup: 'recovering' } : {}) },
     profiles: [
       { kind: 'out', id: 'a', name: 'Personal A', host: '192.0.2.1', port: 443, version: 'Trojan', address: [], source: options.publicOnly ? 'public' : 'personal' },
       { kind: 'out', id: 'b', name: 'Personal B', host: '192.0.2.2', port: 443, version: 'Hysteria2', address: [], source: options.publicOnly ? 'public' : 'personal' }
@@ -35,7 +37,7 @@ function fixture(options) {
     settings: { routes: [{ id: 'custom:example.com', kind: 'custom', name: 'Example', value: 'example.com', on: true, via: 'a' }], groups: [], rest: 'direct', ruDirect: true, dnsAll: false, lanDirect: true, tray: true, autoConnect: false, autostart: false, notify: true }
   }
   const count = key => state.calls[key] = (state.calls[key] ?? 0) + 1
-  const snapshot = () => structuredClone({ admin: true, profiles: state.profiles, settings: state.settings, status: state.status, notices: [] })
+  const snapshot = () => structuredClone({ admin: !options.adminPending, profiles: state.profiles, settings: state.settings, status: state.status, notices: [] })
   const push = () => emit('snapshot', snapshot())
   const catalog = { busy: false, total: 1, planned: 1, checked: 1, updatedAt: Date.now(), sources: [], alive: [{ id: 'pub-fixture', name: 'DE Example', host: '198.51.100.1', port: 443, country: 'DE', proto: 'Trojan', ping: 42 }] }
   window.__waarpTest = { state, push, emit, snapshot }
@@ -46,7 +48,16 @@ function fixture(options) {
       if (options.staleInitial && state.calls.snapshot === 1) { const old = snapshot(); return new Promise(resolve => { state.resolveInitial = () => resolve(old) }) }
       return snapshot()
     },
-    toggle: async () => { count('toggle'); throw new Error('fixture: toggle unavailable') },
+    toggle: async () => {
+      count('toggle')
+      if (options.deferToggle) {
+        state.status = { ...state.status, startup: 'recovering', open: true }; push()
+        return new Promise(resolve => { state.resolveToggle = () => resolve({ ok: false, error: 'fixture: stale opening result' }) })
+      }
+      if (options.startupFailed) return { ok: false, error: state.status.error }
+      throw new Error('fixture: toggle unavailable')
+    },
+    disconnect: async () => { count('disconnect'); state.status = { ...state.status, phase: 'off', open: false }; push(); return { ok: true } },
     settings: async patch => {
       count('settings')
       if (state.failSettings) { emit('toast', 'fixture: save refused'); return { ...snapshot(), saved: false } }
@@ -69,7 +80,22 @@ function fixture(options) {
     removeProfile: async id => { count('remove'); state.profiles = state.profiles.filter(profile => profile.id !== id); push(); return { ok: true } },
     renameProfile: async () => ({ ok: true }), replaceProfile: async () => ({ ok: true }), refreshSubscription: async () => ({ ok: true }),
     discoverScan: async () => ({ ok: true, items: [] }), discoverPickFolder: async () => ({ canceled: true }), discoverAdd: async () => ({ ok: false }),
-    log: async () => [], resetNet: async () => ({ ok: true }), win: () => {},
+    log: async () => [],
+    resetNet: async () => {
+      count('resetNet')
+      const finish = () => {
+        state.status = { ...state.status, startup: options.failReset ? 'failed' : 'ready', phase: options.failReset ? 'error' : 'off', open: false,
+          error: options.failReset ? 'Восстановление прошлого процесса не завершено' : undefined }
+        push()
+        return options.failReset ? { ok: false, error: state.status.error } : { ok: true }
+      }
+      if (options.deferReset) {
+        state.status = { ...state.status, startup: 'recovering' }; push()
+        return new Promise(resolve => { state.resolveReset = () => resolve(finish()) })
+      }
+      return finish()
+    },
+    win: () => {},
     onSnapshot: on('snapshot'), onStatus: on('status'), onApps: on('apps'), onConns: on('conns'), onToast: on('toast'), onNav: on('nav'), onCatalog: on('catalog')
   }
 }
@@ -100,6 +126,71 @@ try {
     await page.evaluate(() => { const f = window.__waarpTest; f.state.settings.routes[0].name = 'New route name'; f.push(); f.state.resolveInitial() })
     await page.getByRole('button', { name: 'New route name', exact: true }).waitFor()
     assert.equal(await page.locator('.rc-n').textContent(), 'New route name')
+    await page.context().close()
+  })
+  await check('startup recovery shows progress without claiming an open tunnel', async () => {
+    const page = await pageFor({ startupRecovering: true, adminPending: true })
+    await ready(page)
+    assert.equal(await page.locator('.master').textContent(), strings['top.recovering'])
+    assert.equal(await page.locator('.master').getAttribute('aria-pressed'), 'false')
+    assert.equal(await page.locator('.master').isEnabled(), true, 'first-paint admin=false is pending evidence, not a blocker')
+    assert.equal(await page.locator('.orb').isEnabled(), true)
+    assert.equal(await page.locator('.orb-t').textContent(), strings['orb.recovering'])
+    assert.equal(await page.locator('.orb-s').textContent(), strings['orb.recovering.sub'])
+    assert.equal(await page.locator('.hero-actions').count(), 0)
+    if (screenshotDir) await page.screenshot({ path: resolve(screenshotDir, 'startup-recovering.png') })
+    await page.context().close()
+  })
+  await check('failed recovery exposes retry and repair, and failures never receive a success mark', async () => {
+    const page = await pageFor({ startupFailed: true, failReset: true, deferReset: true })
+    await ready(page)
+    await page.getByRole('button', { name: strings['home.retry'], exact: true }).click()
+    await page.locator('.toast.error[role="alert"]').waitFor()
+    assert.equal(await page.locator('.toast.success').count(), 0)
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.toggle), 1)
+    await page.getByRole('button', { name: strings['home.recovery'], exact: true }).click()
+    await page.waitForFunction(() => typeof window.__waarpTest.state.resolveReset === 'function')
+    assert.equal(await page.locator('.master').isDisabled(), true)
+    assert.equal(await page.locator('.orb').isDisabled(), true)
+    await page.evaluate(() => window.__waarpTest.state.resolveReset())
+    await page.getByRole('button', { name: strings['home.retry'], exact: true }).waitFor()
+    assert.equal(await page.locator('.toast.error').textContent(), 'Восстановление прошлого процесса не завершено')
+    assert.equal(await page.locator('.toast.success').count(), 0)
+    assert.equal(await page.locator('.master').isEnabled(), true)
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.resetNet), 1)
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.settings.routes.length), 1)
+    await page.setViewportSize({ width: 900, height: 600 })
+    assert.ok(await page.evaluate(() => document.querySelector('.main').scrollWidth - document.querySelector('.main').clientWidth) <= 1)
+    if (screenshotDir) await page.screenshot({ path: resolve(screenshotDir, 'startup-recovery-failed.png') })
+    await page.context().close()
+  })
+  await check('recovery success keeps the master closed and preserves routes', async () => {
+    const page = await pageFor({ startupFailed: true })
+    await ready(page)
+    const before = await page.evaluate(() => window.__waarpTest.state.settings.routes)
+    await page.getByRole('button', { name: strings['home.recovery'], exact: true }).click()
+    await page.locator('.toast.success').waitFor()
+    assert.equal(await page.locator('.toast.success').textContent(), strings['home.recovery.done'])
+    assert.equal(await page.locator('.master').getAttribute('aria-pressed'), 'false')
+    assert.deepEqual(await page.evaluate(() => window.__waarpTest.state.settings.routes), before)
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.toggle ?? 0), 0)
+    await page.context().close()
+  })
+  await check('OFF cancels a pending ON and ignores its obsolete completion', async () => {
+    const page = await pageFor({ deferToggle: true })
+    await ready(page)
+    await page.locator('.master').click()
+    await page.waitForFunction(() => typeof window.__waarpTest.state.resolveToggle === 'function')
+    assert.equal(await page.locator('.master').getAttribute('aria-pressed'), 'true')
+    assert.equal(await page.locator('.master').isEnabled(), true)
+    await page.locator('.master').click()
+    await page.waitForFunction(() => window.__waarpTest.state.calls.disconnect === 1)
+    assert.equal(await page.locator('.master').getAttribute('aria-pressed'), 'false')
+    await page.evaluate(() => window.__waarpTest.state.resolveToggle())
+    assert.equal(await page.locator('.toast').count(), 0)
+    assert.equal(await page.locator('.master').isEnabled(), true)
+    assert.equal(await page.locator('.master').getAttribute('aria-pressed'), 'false')
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.toggle), 1)
     await page.context().close()
   })
   await check('finishing the EXE picker preserves routes added or edited while it was open', async () => {
@@ -232,4 +323,12 @@ try {
   })
   assert.deepEqual(errors, [], 'no unhandled promises or React rendering errors')
   console.log(`\n${passed} browser regressions passed; no engine or system routing was started.`)
+} catch (error) {
+  if (screenshotDir) {
+    let n = 0
+    for (const context of browser.contexts()) for (const page of context.pages()) {
+      await page.screenshot({ path: resolve(screenshotDir, `failure-${++n}.png`) }).catch(() => undefined)
+    }
+  }
+  throw error
 } finally { await browser.close() }
