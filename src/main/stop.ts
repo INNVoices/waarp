@@ -31,7 +31,6 @@ export function waitExit(c: { exitCode: number | null; signalCode: string | null
 /** R2.2: run a shutdown job with a hard upper bound; never hangs the app or Windows shutdown */
 export async function bounded<T>(job: Promise<T>, ms: number): Promise<T | 'timeout'> {
   let t: NodeJS.Timeout | undefined
-  const r = await Promise.race([job, new Promise<'timeout'>(res => { t = setTimeout(() => res('timeout'), ms) })])
-  clearTimeout(t)
-  return r
+  try { return await Promise.race([job, new Promise<'timeout'>(res => { t = setTimeout(() => res('timeout'), ms) })]) }
+  finally { clearTimeout(t) }
 }

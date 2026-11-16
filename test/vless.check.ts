@@ -1,5 +1,6 @@
 import { ConfError } from '../src/main/conf-error'
-import { fetchSubscription, isSubscriptionUrl, looksLikeVless, parseSubscription, parseVless, redactVless, vlessKey, vlessOutbound, vlessSecrets } from '../src/main/vless'
+import { createConnection, createServer } from 'node:net'
+import { fetchSubscription, isSubscriptionUrl, looksLikeVless, parseSubscription, parseVless, pinnedAddressLookup, redactVless, vlessKey, vlessOutbound, vlessSecrets } from '../src/main/vless'
 
 let fails = 0, n = 0
 const ok = (c: unknown, msg: string) => { n++; if (!c) { fails++; console.error('FAIL', msg) } }
@@ -29,6 +30,7 @@ export const TCP = `vless://${UUID}@1.2.3.4:8443?type=tcp&security=reality&pbk=$
   eq(min.name, 'Сервер', 'fallback name')
   const plain = parseVless(`vless://${UUID}@h.com:80`)
   eq(plain.vless.security, 'none', 'plain security')
+  eq(parseVless(`VLESS://${UUID}@h.com:80`).vless.server, 'h.com', 'URI scheme is case insensitive')
   eq(vlessOutbound(plain, 't').tls, undefined, 'plain outbound has no tls')
 
   throws(() => parseVless('vless://nouser@h.com:443?security=reality'), 'bad uuid')
@@ -120,6 +122,12 @@ export const TCP = `vless://${UUID}@1.2.3.4:8443?type=tcp&security=reality&pbk=$
   await rejects(() => fetchSubscription('http://sub.example.org/x', { fetchImpl: fakeOk }), 'http refused', /https/)
   await rejects(() => fetchSubscription('https://127.0.0.1/x', { fetchImpl: fakeOk }), 'loopback refused')
   await rejects(() => fetchSubscription('https://192.168.1.5/x', { fetchImpl: fakeOk }), 'lan refused')
+  for (const host of ['[::ffff:127.0.0.1]', '[::ffff:7f00:1]', '[::ffff:c0a8:105]', '[fc00::1]', '[fe80::1]', '[ff02::1]', '100.64.0.1', 'localhost.']) {
+    const before = seen.length
+    await rejects(() => fetchSubscription(`https://${host}/x`, { fetchImpl: fakeOk }), 'non-public mapped/local address refused: ' + host, /локальную/)
+    ok(seen.length === before, 'private destination is refused before the transport is called: ' + host)
+  }
+  await rejects(() => fetchSubscription('https://user:pass@sub.example.org/x', { fetchImpl: fakeOk }), 'URL credentials cannot be silently omitted')
   await rejects(() => fetchSubscription('not a url', { fetchImpl: fakeOk }), 'garbage url')
   const redirHttp = (async () => mk(302, '', { location: 'http://evil.example/x' })) as unknown as typeof fetch
   await rejects(() => fetchSubscription('https://sub.example.org/x', { fetchImpl: redirHttp }), 'redirect to http refused', /https/)
@@ -133,6 +141,36 @@ export const TCP = `vless://${UUID}@1.2.3.4:8443?type=tcp&security=reality&pbk=$
   await rejects(() => fetchSubscription('https://sub.example.org/x', { fetchImpl: (async () => mk(403, 'no')) as unknown as typeof fetch }), 'http error', /403/)
   const hang = ((_u: string, init: RequestInit) => new Promise((_r, rej) => init.signal!.addEventListener('abort', () => rej(new Error('abort'))))) as unknown as typeof fetch
   await rejects(() => fetchSubscription('https://sub.example.org/x', { fetchImpl: hang, timeoutMs: 50 }), 'timeout', /10 секунд/)
+  const ignoresSignal = (async () => new Promise<Response>(() => undefined)) as typeof fetch
+  await rejects(() => fetchSubscription('https://sub.example.org/x', { fetchImpl: ignoresSignal, timeoutMs: 20 }), 'deadline still settles if the transport does not acknowledge abort', /10 секунд/)
+  let canceledRedirect = false
+  let redirectCall = 0
+  const redirectBody = (async () => redirectCall++ === 0
+    ? new Response(new ReadableStream({ cancel: () => { canceledRedirect = true } }), { status: 302, headers: { location: '/final' } })
+    : mk(200, body)) as typeof fetch
+  await fetchSubscription('https://sub.example.org/x', { fetchImpl: redirectBody })
+  ok(canceledRedirect, 'redirect response body is canceled before the next request')
+  let canceledHang = false
+  const bodyHang = (async () => new Response(new ReadableStream({ cancel: () => { canceledHang = true } }))) as typeof fetch
+  await rejects(() => fetchSubscription('https://sub.example.org/x', { fetchImpl: bodyHang, timeoutMs: 20 }), 'body read obeys the same deadline', /10 секунд/)
+  ok(canceledHang, 'timed-out response reader is canceled')
+  // Exercise Node's real autoSelectFamily connector against a loopback-only fixture. No external DNS/network.
+  const local = createServer(socket => socket.end())
+  await new Promise<void>((resolve, reject) => { local.once('error', reject); local.listen(0, '127.0.0.1', resolve) })
+  try {
+    const address = local.address()
+    if (!address || typeof address === 'string') throw new Error('fixture did not bind')
+    let allRequested = false
+    const fixed = pinnedAddressLookup([{ address: '127.0.0.1', family: 4 }])
+    await new Promise<void>((resolve, reject) => {
+      const socket = createConnection({ host: 'no-dns-needed.example.test', port: address.port, autoSelectFamily: true,
+        lookup: (hostname, options, callback) => { allRequested = options.all === true; fixed(hostname, options, callback) } })
+      socket.setTimeout(1000, () => socket.destroy(new Error('local connector timeout')))
+      socket.once('error', reject)
+      socket.once('connect', () => { socket.destroy(); resolve() })
+    })
+    ok(allRequested, 'pinned lookup supports Node dual-stack all:true without ERR_INVALID_IP_ADDRESS')
+  } finally { await new Promise<void>(resolve => local.close(() => resolve())) }
   try { await fetchSubscription('https://sub.example.org/secret-token', { fetchImpl: (async () => mk(500, '')) as unknown as typeof fetch }) } catch (e) { ok(!String((e as Error).message).includes('secret-token'), 'error text has no url') }
 
   console.log(fails ? `${fails}/${n} FAILED` : `all ${n} vless checks passed`)

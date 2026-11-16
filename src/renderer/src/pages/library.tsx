@@ -1,13 +1,14 @@
 // Маршруты (W1, GPT 440a5c3; target-first IA): the library has two explicit modes. The catalog ("+") is target acquisition
 // (running apps first, then installed apps, services, one address); the list is the summary "target -> where it goes".
 // Choosing a target never picks a path: a new target becomes a neutral draft and opens its own route page.
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { AppInfo, Conn, Route, Settings, Snapshot, Status, Via } from '../../../shared/types'
 import { PRESETS } from '../../../shared/presets'
 import { Btn, Field, fmtBytes, Icon, Plain, Seg, Toggle, Tooltip } from '../ui/kit'
 import { Modal } from '../ui/modal'
 import { s, sp } from '../lib/i18n'
 import { api } from '../bridge'
+import type { SettingsPatch } from '../lib/actions'
 import { connsOf, HUES, patchRoute, upsert } from '../lib/routes'
 import { acquire, isDraft, normAddr, type LibMode, type Target } from '../lib/flow'
 import { routeStateKey } from '../lib/route-state'
@@ -19,7 +20,7 @@ type Filter = 'all' | 'run' | 'apps' | 'services' | 'custom'
 interface P {
   snap: Snapshot; status: Status; conns: Conn[]; apps?: AppInfo[]; loading: boolean
   rescan: () => void; addApp: (a: AppInfo) => void
-  patch: (p: Partial<Settings>) => void | Promise<void>; toast: (text: string) => void; open: (id: string) => void; mode: LibMode; setMode: (m: LibMode) => void
+  patch: SettingsPatch; toast: (text: string) => void; open: (id: string) => void; mode: LibMode; setMode: (m: LibMode) => void
 }
 
 const hueOfName = (n: string) => HUES[[...n].reduce((a, c) => a + c.charCodeAt(0), 0) % HUES.length]
@@ -33,11 +34,11 @@ function Mono({ name }: { name: string }) {
   return <span className="mono-ic" style={{ color: h, borderColor: `color-mix(in oklab, ${h} 40%, transparent)`, background: `color-mix(in oklab, ${h} 10%, transparent)` }}>{(name.trim()[0] ?? '?').toUpperCase()}</span>
 }
 
-function Tile({ name, tip, route, profiles, running, children, onClick }: {
-  name: string; tip: string; route?: Route; profiles: Snapshot['profiles']; running?: boolean; children: React.ReactNode; onClick: () => void
+function Tile({ name, tip, route, profiles, running, children, onClick, disabled }: {
+  name: string; tip: string; route?: Route; profiles: Snapshot['profiles']; running?: boolean; children: React.ReactNode; onClick: () => void; disabled?: boolean
 }) {
   return (
-    <Plain className={'tile' + (route && !isDraft(route) ? ' on' : '')} onClick={onClick} tip={tip}>
+    <Plain disabled={disabled} className={'tile' + (route && !isDraft(route) ? ' on' : '')} onClick={onClick} tip={tip}>
       <Well>{children}{running && <i className="run" />}</Well>
       <span className="t-n">{name}</span>
       {route && !isDraft(route) && <span className="t-via"><Icon n="check" s={12} /><Mark profiles={profiles} via={route.via} /></span>}
@@ -51,7 +52,11 @@ export function Library({ snap, status, conns, apps, loading, rescan, addApp, pa
   const [askAddr, setAskAddr] = useState(false)
   const [addr, setAddr] = useState('')
   const [err, setErr] = useState<string | null>(null)
+  const taking = useRef(false)
+  const [pending, setPending] = useState(false)
   const st = snap.settings
+  const latest = useRef({ settings: st, patch })
+  latest.current = { settings: st, patch }
   const routed = new Map(st.routes.map(r => [r.id, r]))
   const ql = q.trim().toLowerCase()
   const match = (n: string, extra = '') => !ql || n.toLowerCase().includes(ql) || extra.toLowerCase().includes(ql)
@@ -65,31 +70,41 @@ export function Library({ snap, status, conns, apps, loading, rescan, addApp, pa
   const show = (k: Filter) => f === 'all' || f === k
 
   // target first: an existing target opens as it is; a new one is saved as a neutral draft (off, no path chosen) and its page opens.
-  const take = async (t: Target) => {
-    const { route, created } = acquire(st, t)
-    if (created) await patch({ routes: upsert(st, route) })
+  const openTarget = async (t: Target) => {
+    // File picking / address validation may finish after a companion changed the route list.
+    const { settings, patch: save } = latest.current
+    const { route, created } = acquire(settings, t)
+    if (created && !await save({ routes: upsert(settings, route) })) return false
     open(route.id)
+    return true
   }
-  const pickExe = async () => {
+  const perform = async (action: () => Promise<unknown>) => {
+    if (taking.current) return
+    taking.current = true; setPending(true)
+    try { await action() }
+    catch { toast(s('route.add.error')) }
+    finally { taking.current = false; setPending(false) }
+  }
+  const take = (t: Target) => perform(() => openTarget(t))
+  const pickExe = () => perform(async () => {
     const a: AppInfo | null = await api.pickApp()
     if (!a) return
     addApp(a)
-    await take({ kind: 'app', app: a })
-  }
+    await openTarget({ kind: 'app', app: a })
+  })
   const closeAddr = () => { setAskAddr(false); setAddr(''); setErr(null) }
-  const createAddr = async () => {
+  const createAddr = () => perform(async () => {
     const x = normAddr(addr)
     const e = x ? await api.validate(x) : s('pick.addr.empty')
     if (e) { setErr(e); return }
-    closeAddr()
-    await take({ kind: 'custom', value: x })
-  }
+    if (await openTarget({ kind: 'custom', value: x })) closeAddr()
+  })
   const anyShown = (show('run') && running.length) || (show('apps') && installed.length) || (show('services') && services.length) || (show('custom') && customs.length)
 
   const appTile = (a: AppInfo) => {
     const r = routed.get('app:' + a.id)
     return (
-      <Tile key={a.id} name={a.name} tip={a.running ? `${a.name} · ${s('tile.running')}\n${a.exe}` : a.exe} route={r} profiles={snap.profiles} running={a.running} onClick={() => void take({ kind: 'app', app: a })}>
+      <Tile disabled={pending} key={a.id} name={a.name} tip={a.running ? `${a.name} · ${s('tile.running')}\n${a.exe}` : a.exe} route={r} profiles={snap.profiles} running={a.running} onClick={() => void take({ kind: 'app', app: a })}>
         {a.icon ? <img src={a.icon} alt="" /> : <Mono name={a.name} />}
       </Tile>
     )
@@ -104,8 +119,8 @@ export function Library({ snap, status, conns, apps, loading, rescan, addApp, pa
         <h1>{s('route.add.title')}</h1>
         <div className="grow" />
         <Btn kind="ghost" onClick={rescan} disabled={loading} title={s('apps.refresh')}><span className={loading ? 'spin' : ''}><Icon n="refresh" /></span></Btn>
-        <Btn onClick={pickExe}><Icon n="folder" />{s('apps.add')}</Btn>
-        <Btn onClick={() => setAskAddr(true)}><Icon n="pin" />{s('pick.addr.add')}</Btn>
+        <Btn disabled={pending} onClick={pickExe}><Icon n="folder" />{s('apps.add')}</Btn>
+        <Btn disabled={pending} onClick={() => setAskAddr(true)}><Icon n="pin" />{s('pick.addr.add')}</Btn>
       </div>
       <div className="toolbar">
         <Field icon="search" placeholder={s('apps.search')} value={q} onChange={e => setQ(e.target.value)} />
@@ -119,7 +134,7 @@ export function Library({ snap, status, conns, apps, loading, rescan, addApp, pa
       {show('services') && services.length > 0 && (
         <Section title={s('lib.services')} n={services.length}>
           {services.map(p => (
-            <Tile key={p.id} name={p.name} tip={p.domains.slice(0, 4).join(', ') + '…'} route={routed.get('preset:' + p.id)} profiles={snap.profiles} onClick={() => void take({ kind: 'preset', id: p.id })}>
+            <Tile disabled={pending} key={p.id} name={p.name} tip={p.domains.slice(0, 4).join(', ') + '…'} route={routed.get('preset:' + p.id)} profiles={snap.profiles} onClick={() => void take({ kind: 'preset', id: p.id })}>
               <Brand brand={p.brand} name={p.name} color={p.color} size={40} />
             </Tile>
           ))}
@@ -127,7 +142,7 @@ export function Library({ snap, status, conns, apps, loading, rescan, addApp, pa
       )}
       {show('custom') && customs.length > 0 && (
         <Section title={s('lib.custom')} n={customs.length}>
-          {customs.map(r => <Tile key={r.id} name={r.name} tip={r.value ?? r.name} route={r} profiles={snap.profiles} onClick={() => open(r.id)}><span className="ph-ic"><Icon n="pin" s={20} /></span></Tile>)}
+          {customs.map(r => <Tile disabled={pending} key={r.id} name={r.name} tip={r.value ?? r.name} route={r} profiles={snap.profiles} onClick={() => open(r.id)}><span className="ph-ic"><Icon n="pin" s={20} /></span></Tile>)}
         </Section>
       )}
       {apps && !anyShown && (
@@ -135,11 +150,11 @@ export function Library({ snap, status, conns, apps, loading, rescan, addApp, pa
       )}
 
       {askAddr && (
-        <Modal title={s('pick.addr.title')} onClose={closeAddr}>
+        <Modal title={s('pick.addr.title')} onClose={closeAddr} busy={pending}>
           <div className="wz-body">
             <div className="addrow">
-              <Field icon="pin" bad={!!err} autoFocus placeholder={s('sites.input1')} value={addr} onChange={e => { setAddr(e.target.value); setErr(null) }} onKeyDown={e => { if (e.key === 'Enter' && addr.trim()) void createAddr() }} />
-              <Btn kind="primary" disabled={!addr.trim()} onClick={() => void createAddr()}><Icon n="plus" />{s('pick.addr.go')}</Btn>
+              <Field disabled={pending} icon="pin" bad={!!err} autoFocus placeholder={s('sites.input1')} value={addr} onChange={e => { setAddr(e.target.value); setErr(null) }} onKeyDown={e => { if (e.key === 'Enter' && addr.trim()) void createAddr() }} />
+              <Btn kind="primary" disabled={pending || !addr.trim()} onClick={() => void createAddr()}><Icon n="plus" />{s('pick.addr.go')}</Btn>
             </div>
             {err && <div className="ferr">{err}</div>}
           </div>
@@ -153,18 +168,28 @@ export function Library({ snap, status, conns, apps, loading, rescan, addApp, pa
 function RouteList({ snap, status, conns, apps, patch, toast, open, add }: { snap: Snapshot; status: Status; conns: Conn[]; apps: AppInfo[]; patch: P['patch']; toast: P['toast']; open: (id: string) => void; add: () => void }) {
   const st = snap.settings, live = status.phase === 'on'
   const [applying, setApplying] = useState<{ id: string; via: Via }>()
+  const [saving, setSaving] = useState(false)
+  const changing = useRef(false)
   const icon = (r: Route) => apps.find(a => 'app:' + a.id === r.id)?.icon
   const selectVia = async (route: Route, via: Via) => {
-    if (applying) return
+    if (changing.current) return
+    changing.current = true
     setApplying({ id: route.id, via })
     try {
       const result = await api.selectRoute(route.id, via)
-      if (!result?.ok || result.error) toast(result?.error ?? 'Не удалось применить маршрут')
+      if (!result?.ok || result.error) toast(result?.error ?? s('route.apply.error'))
     } catch {
-      toast('Не удалось применить маршрут')
+      toast(s('route.apply.error'))
     } finally {
+      changing.current = false
       setApplying(undefined)
     }
+  }
+  const toggleRoute = async (route: Route, on: boolean) => {
+    if (changing.current) return
+    changing.current = true; setSaving(true)
+    try { await patch({ routes: patchRoute(st, route.id, { on }) }) }
+    finally { changing.current = false; setSaving(false) }
   }
   return (
     <div className="page lib">
@@ -189,7 +214,7 @@ function RouteList({ snap, status, conns, apps, patch, toast, open, add }: { sna
                 <span className="rr-n"><b className="ell">{r.name}</b><small>{kindLabel(r)}</small></span>
               </Plain>
               <Icon n="chev" s={14} />
-              <div className="rr-via"><ViaPicker compact disabled={!!applying} profiles={snap.profiles} via={r.via} pings={status.pings} live={live} down={v => v === r.via ? e?.reason === 'path_down' : status.health?.[v] === 'down'} onChange={v => void selectVia(r, v)} /></div>
+              <div className="rr-via"><ViaPicker compact disabled={!!applying || saving} profiles={snap.profiles} via={r.via} pings={status.pings} live={live} down={v => v === r.via ? e?.reason === 'path_down' : status.health?.[v] === 'down'} onChange={v => void selectVia(r, v)} /></div>
               <span className="rr-st">
                 {pending ? <span className="m">{s('route.applying', { v: viaName(snap.profiles, applying.via) })}</span>
                   : !r.on ? <span className="m">{s(routeStateKey(r, status, e, isDraft(r)))}</span>
@@ -199,7 +224,7 @@ function RouteList({ snap, status, conns, apps, patch, toast, open, add }: { sna
                   : <span className={routeStateKey(r, status, e) === 'route.st.ok' ? '' : 'm'}>{s(routeStateKey(r, status, e))}</span>}
                 {tr > 0 && <small className="m mono">{fmtBytes(tr)}</small>}
               </span>
-              <Toggle on={r.on} disabled={!!applying} onChange={v => void patch({ routes: patchRoute(st, r.id, { on: v }) })} label={r.name} />
+              <Toggle on={r.on} disabled={!!applying || saving} onChange={v => void toggleRoute(r, v)} label={r.name} />
             </div>
           )
         })}

@@ -54,6 +54,24 @@ export function companionRoutesSafe(s: Pick<Settings, 'routes' | 'groups'>, prof
   return s.routes.filter(r => r.owner === 'companion').every(r => reservedOk(r) && safeVia(r.via, s, profiles) && (r.fallback === undefined || (r.fallback !== 'direct' && safeVia(r.fallback, s, profiles))))
 }
 
+/** A deleted/revoked path stays blocked, but must not freeze unrelated settings or prevent OFF.
+ * Existing unavailable paths may be retained; a new unsafe/public path or re-enable is rejected. */
+export function companionPatchSafe(next: Pick<Settings, 'routes' | 'groups'>, prev: Pick<Settings, 'routes' | 'groups'>, profiles: Src[]): boolean {
+  return next.routes.filter(r => r.owner === 'companion').every(r => {
+    const old = prev.routes.find(p => p.id === r.id && p.owner === 'companion')
+    const allowed = (via: Via | undefined, before: Via | undefined): boolean => {
+      if (safeVia(via, next, profiles)) return true
+      if (!old || via !== before || (r.on && !old.on)) return false
+      const group = next.groups.find(g => g.id === via)
+      const members = group?.members ?? (via ? [via] : [])
+      if (members.some(id => profiles.some(p => p.id === id && (p.source === 'public' || p.kind === 'group')))) return false
+      // Renaming an unavailable group is fine; introducing new unavailable members is not.
+      return !group || JSON.stringify(group.members) === JSON.stringify(prev.groups.find(g => g.id === via)?.members)
+    }
+    return reservedOk(r) && allowed(r.via, old?.via) && r.fallback !== 'direct' && allowed(r.fallback, old?.fallback)
+  })
+}
+
 export const routeFor = (t: Target, via: Via): Route => ({ id: t.id, kind: 'custom', name: t.name, value: t.host, via, on: true, owner: 'companion' })
 export const routeOf = (s: Pick<Settings, 'routes'>, id: string): Route | undefined => s.routes.find(r => r.id === id)
 /** an existing route under this id must be exactly this companion target (an id can never be redefined) */

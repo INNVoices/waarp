@@ -69,7 +69,8 @@ const ready = (e: Engine) => { (e as any).recoveryOk = true; e.preflightGap = 1;
     const st = new Store(dir)
     ok(!!st.unreadable && st.unreadableCopy, 'unreadable store -> copied aside')
     st.settings = { ...st.settings, notify: false }
-    st.save()
+    let refused = false; try { st.save() } catch { refused = true }
+    ok(refused, 'unreadable store cannot report a successful save')
     eq(readFileSync(join(dir, 'waarp.json'), 'utf8'), '{not json', 'unreadable original is never overwritten')
   }
   // DPAPI unavailable -> secureOff, nothing with secrets written
@@ -78,7 +79,8 @@ const ready = (e: Engine) => { (e as any).recoveryOk = true; e.preflightGap = 1;
     stub.secure = false
     const st = new Store(dir)
     st.profiles = [p as any]
-    st.save()
+    let refused = false; try { st.save() } catch { refused = true }
+    ok(refused, 'DPAPI failure is reported to the caller, not a silent successful save')
     let wrote = true; try { readFileSync(join(dir, 'waarp.json')) } catch { wrote = false }
     eq([st.secureOff, wrote], [true, false], 'DPAPI unavailable -> secureOff, no file written, no plaintext fallback')
     stub.secure = true

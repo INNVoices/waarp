@@ -9,6 +9,15 @@ const str = (v: unknown, max = 300): v is string => typeof v === 'string' && v.l
 const via = (v: unknown): v is Via => str(v, 80) && /^[\w:.-]+$/.test(v)
 const bool = (v: unknown): v is boolean => typeof v === 'boolean'
 
+/** A whole routes/groups array must not overwrite a newer companion or window edit.
+ * Compare only the fields being changed so independent settings can still be saved. */
+export function settingsPatchCurrent(patch: Partial<Settings>, base: unknown, current: Settings): boolean {
+  if (!base || typeof base !== 'object' || Array.isArray(base)) return false
+  const previous = base as Record<string, unknown>
+  return (Object.keys(patch) as (keyof Settings)[]).every(key =>
+    JSON.stringify(previous[key]) === JSON.stringify(current[key]))
+}
+
 function route(r: any): Route | null {
   if (!r || typeof r !== 'object' || !str(r.id, 400) || !str(r.name, 200) || !via(r.via) || !bool(r.on)) return null
   if (!['app', 'preset', 'custom'].includes(r.kind)) return null

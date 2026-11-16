@@ -99,7 +99,12 @@ function dropVia(s: Settings, id: string, replace?: Via): Settings {
 
 /** cards / "rest" that use this tunnel or group: shown before deleting it */
 export function usersOf(s: Settings, id: string): { cards: string[]; rest: boolean; all: boolean } {
-  return { cards: s.routes.filter(r => r.via === id || r.fallback === id).map(r => r.name), rest: s.rest === id, all: s.allVia === id }
+  const affected = new Set([id, ...(s.groups ?? []).filter(g => g.members.includes(id)).map(g => g.id)])
+  return {
+    cards: s.routes.filter(r => affected.has(r.via) || (!!r.fallback && affected.has(r.fallback))).map(r => r.name),
+    rest: affected.has(s.rest),
+    all: !!s.allVia && affected.has(s.allVia)
+  }
 }
 
 /** a tunnel is removed: it leaves every group, a group left without members is removed too */

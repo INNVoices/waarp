@@ -39,7 +39,7 @@ function rig(o: { on?: boolean; netAt?: number; restartOk?: boolean; restartMs?:
     now = Math.max(now, end)
     for (let i = 0; i < 50; i++) await Promise.resolve()
   }
-  return { r, log, advance, clock: () => now }
+  return { r, log, advance, deps: d, clock: () => now }
 }
 
 ;(async () => {
@@ -89,6 +89,62 @@ function rig(o: { on?: boolean; netAt?: number; restartOk?: boolean; restartMs?:
     const { r, log, advance } = rig()
     r.resume(); await advance(5000)
     eq(log.restarts, 1, 'a resume without a seen suspend still restarts once when the tunnel is on')
+  }
+
+  {
+    const { r, log, advance, deps } = rig()
+    deps.netReady = async () => { log.netChecks++; throw new Error('snapshot unreadable') }
+    r.suspend(); r.resume(); await advance(60_000)
+    eq([log.restarts, log.fails], [0, ['no_network']], 'read failures have a bounded failure path, no unhandled rejection')
+    ok(log.netChecks <= 32, 'read failures stay within the network budget')
+  }
+  {
+    const { r, log, advance, deps } = rig()
+    deps.restart = async () => { log.restarts++; throw new Error('restart failed') }
+    r.suspend(); r.resume(); await advance(60_000)
+    eq([log.restarts, log.fails], [1, ['restart_failed']], 'restart exception is reported once without a loop')
+  }
+  {
+    const { r, log, advance, deps } = rig()
+    let release!: (ready: boolean) => void
+    deps.netReady = () => new Promise(resolve => { release = resolve })
+    r.suspend(); r.resume(); await advance(2000)
+    r.cancel(); release(true)
+    await advance(5000)
+    eq([log.restarts, log.fails], [0, []], 'cancel while network read is pending never restarts or reports an old failure')
+  }
+  {
+    const { r, log, advance, deps } = rig()
+    let release!: (ready: boolean) => void, revision = 1
+    deps.revision = () => revision
+    deps.netReady = () => new Promise(resolve => { release = resolve })
+    r.suspend(); r.resume(); await advance(2000)
+    revision += 2; release(true)
+    await advance(5000)
+    eq([log.restarts, log.fails], [0, []], 'OFF then ON supersedes the previous wake even when owner is open again')
+  }
+  {
+    const { r, log, advance, deps } = rig()
+    let release!: (ready: boolean) => void
+    deps.netReady = () => new Promise(resolve => { release = resolve })
+    r.suspend(); r.resume(); await advance(2000)
+    r.suspend(); r.resume()
+    deps.netReady = async () => true
+    release(true)
+    await advance(1000)
+    eq(log.restarts, 0, 'second suspend invalidates the first wake')
+    await advance(5000)
+    eq(log.restarts, 1, 'the next wake is preserved after the cancelled wait settles')
+  }
+
+  {
+    const { r, log, advance, deps } = rig()
+    let revision = 1
+    deps.revision = () => revision
+    r.suspend(); r.resume()
+    revision += 2
+    await advance(5000)
+    eq([log.restarts, log.fails], [0, []], 'OFF/ON during the settle timer also cancels an obsolete wake')
   }
 
   // ---- usable underlay / default-gateway readiness (pure, over a fake route snapshot)

@@ -1,4 +1,5 @@
 import { prepareStart } from './connect'
+import { ConnectionControl } from './connection-control'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, net, Notification, powerMonitor, screen, Tray } from 'electron'
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
@@ -10,7 +11,7 @@ import { fetchSubscription, isSubscriptionUrl, looksLikeVless, vlessKey } from '
 import { describeExe, scanApps, trayImage } from './apps'
 import { directProbe, icmp } from './offline'
 import { Checker } from './checker'
-import { checkedPatch, importRequest, MAX_IMPORT_BYTES, probeTarget, profileName } from './validate'
+import { checkedPatch, importRequest, MAX_IMPORT_BYTES, probeTarget, profileName, settingsPatchCurrent } from './validate'
 import { linksInContainer, parseAny } from './links'
 import { Catalog } from './catalog'
 import { credentialKey, Discovery } from './discovery'
@@ -29,10 +30,10 @@ import { bounded } from './stop'
 import { createResume, underlayReady } from './resume'
 import { scanScreenQr } from './qr'
 import { verifyEngine } from './integrity'
-import { subscriptionCredentialKey, subscriptionEntryKey } from './subscription'
+import { reconcileSubscription, subscriptionEntryKey } from './subscription'
 import { trayPresentation } from './tray-view'
 import { effectiveRoutes, moodOf } from '../shared/effective'
-import { bridgeStatus, companionEditsOk, companionRoutesSafe, createPending, ensureIntent, listCompanion, parseTarget, routeFor, routeOf, safeVia, sameTarget } from '../shared/companion'
+import { bridgeStatus, companionEditsOk, companionPatchSafe, createPending, ensureIntent, listCompanion, parseTarget, routeFor, routeOf, safeVia, sameTarget } from '../shared/companion'
 import { AUTO_BUDGET, AUTO_ID, autoMembers, checkSample } from '../shared/groups'
 import { classify } from '../shared/evidence'
 import { probeLayers } from './layered'
@@ -107,13 +108,22 @@ function snapshot(): Snapshot {
 
 /** HOTFIX-RUNTIME-01 E: the master switch's intent, owned here. Only the master (and a hard block / quit) changes it;
  *  card toggles only decide whether the core is needed right now. */
-let masterOpen = false
-function setMaster(open: boolean) {
-  if (masterOpen === open) return
-  masterOpen = open
-  send('status', statusView(engine.status)); updateTray()
+const master = new ConnectionControl({
+  phase: () => engine.status.phase,
+  error: () => engine.status.error,
+  demandsTunnel: () => demandsTunnel(store.settings),
+  prepare: () => prepareStart({ stopChecker: pauseMeasurements, notices: refreshNotices }),
+  start: () => engine.start(store.profiles, store.settings),
+  stop: () => engine.stop(),
+  serial: work => intentWrites.run(work),
+  changed: () => { send('status', statusView(engine.status)); updateTray() }
+})
+const setMaster = (open: boolean) => master.set(open)
+const statusView = (s: Status) => ({ ...withRoutes(s), open: master.open })
+async function pauseMeasurements(): Promise<boolean> {
+  const stopped = await Promise.all([checker?.stop() ?? true, catalog?.pause() ?? true])
+  return stopped.every(Boolean)
 }
-const statusView = (s: Status) => ({ ...withRoutes(s), open: masterOpen })
 
 function send(ch: string, data: unknown) {
   if (win && !win.isDestroyed()) win.webContents.send(ch, data)
@@ -156,11 +166,11 @@ function show() {
 function updateTray() {
   if (!tray) return
   const used = usedProfiles(store.settings, store.profiles)
-  const view = trayPresentation(engine.status, masterOpen, used.map(x => x.name))
+  const view = trayPresentation(engine.status, master.open, used.map(x => x.name))
   tray.setImage(trayImage(view.active))
   tray.setToolTip(view.tooltip)
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: view.action === 'disconnect' ? 'Отключить Waarp' : 'Подключить Waarp', enabled: masterOpen || ((store.profiles.length > 0 || demandsTunnel(store.settings)) && admin), click: () => void toggle() },
+    { label: view.action === 'disconnect' ? 'Отключить Waarp' : 'Подключить Waarp', enabled: master.open || ((store.profiles.length > 0 || demandsTunnel(store.settings)) && admin), click: () => void toggle() },
     { label: 'Показать окно', click: show },
     { type: 'separator' },
     { label: 'Выход', click: () => { quitting = true; app.quit() } }
@@ -191,49 +201,19 @@ async function refreshNotices() {
   return notices
 }
 
-async function connect() {
-  if (!demandsTunnel(store.settings)) return { ok: false, error: store.profiles.length ? 'Ни одна карточка не идёт через сервер. Выбери сервер хотя бы для одной' : 'Сначала добавь конфиг' }
-
-  // Claim the owner's OPEN intent before native work starts. This makes a later OFF during prepare/start observable
-  // and prevents a completed async connect from resurrecting masterOpen after the owner cancelled it.
-  if (!masterOpen) setMaster(true)
-  if (engine.status.phase === 'on') return { ok: true }
-  if (engine.status.phase === 'starting') return { ok: true }
-
-  const ready = await prepareStart({ stopChecker: () => (checker ? checker.stop() : Promise.resolve(true)), notices: refreshNotices })
-  if (!ready.ok) {
-    if (masterOpen) setMaster(false)
-    return ready
-  }
-  if (!masterOpen) return { ok: false, error: 'Подключение отменено' }
-
-  await engine.start(store.profiles, store.settings)
-  const up = (engine.status as Status).phase === 'on'
-
-  // OFF may have arrived while Engine.start was serialized/running. Never overwrite that newer owner intent.
-  if (!masterOpen) {
-    if (up) await engine.stop()
-    return { ok: false, error: 'Подключение отменено' }
-  }
-  if (!up) setMaster(false)
-  return up ? { ok: true } : { ok: false, error: engine.status.error }
-}
-
-async function toggle() {
-  if (engine.status.phase === 'on' || engine.status.phase === 'starting') { setMaster(false); return (await engine.stop()) ? { ok: true } : { ok: false, error: engine.status.error } }
-  if (masterOpen) { setMaster(false); return { ok: true } }
-  return connect()
-}
+const connect = () => master.connect()
+const toggle = () => master.toggle()
 
 let watchBusy = false
 async function watch() {
   if (engine.status.phase !== 'on') return
   if (watchBusy) return
   watchBusy = true
+  const revision = master.revision
   try {
     const n = await refreshNotices()
     const block = n.find(x => x.level === 'block')
-    if (!block || engine.status.phase !== 'on') return
+    if (!block || !master.current(revision) || engine.status.phase !== 'on') return
     setMaster(false)
     await engine.stop()
     const msg = `Waarp закрылся: ${block.title.toLowerCase()}`
@@ -336,13 +316,12 @@ function ipc() {
     const copy = { ...p, source: 'public' } as Profile
     store.profiles.push(copy); return copy.id
   }
-  const addProfiles = (fresh: Profile[], routeFirst = false): boolean => {
-    const previousProfiles = store.profiles, previousSettings = store.settings
-    const first = routeFirst && previousProfiles.length === 0
+  const addProfiles = (fresh: Profile[]): boolean => {
+    const previousProfiles = store.profiles
+    // Import adds choices. Missing/deleted targets keep their blocked intent until explicitly reassigned.
     store.profiles = [...previousProfiles, ...fresh]
-    if (first) store.settings = { ...store.settings, routes: store.settings.routes.map(r => r.via === 'direct' ? r : { ...r, via: fresh[0].id }) }
     try { store.save(); send('snapshot', snapshot()); return true }
-    catch { store.profiles = previousProfiles; store.settings = previousSettings; return false }
+    catch { store.profiles = previousProfiles; return false }
   }
   secureHandle('catalog:get', () => catalog?.state)
   secureHandle('discover:scan', async () => {
@@ -382,7 +361,7 @@ function ipc() {
     catch { return { ok: false, error: 'Не удалось прочитать выбранную папку' } }
     finally { discoveryBusy = false }
   })
-  secureHandle('discover:add', async (_e, raw: unknown) => {
+  secureIntentHandle('discover:add', async (_e, raw: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     if (!Array.isArray(raw) || raw.length > 500 || !raw.every(id => typeof id === 'string' && /^[0-9a-f]{24}$/.test(id))) return { ok: false, error: 'Неверный список туннелей' }
     const have = new Set(store.profiles.map(credentialKey))
@@ -395,10 +374,10 @@ function ipc() {
   })
   secureHandle('catalog:refresh', async () => {
     if (!engineIntegrity) return { ok: false, error: 'Движок Waarp повреждён. Обновление и проверка каталога заблокированы.' }
-    if (engine.status.phase !== 'off') return { ...catalog?.state, error: 'Обновление продолжится после отключения Waarp' }
+    if (master.open || engine.status.phase !== 'off') return { ...catalog?.state, error: 'Обновление продолжится после отключения Waarp' }
     return await catalog?.refresh()
   })
-  secureHandle('catalog:add', async (_e, id: unknown) => {
+  secureIntentHandle('catalog:add', async (_e, id: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     if (typeof id !== 'string' || !/^pub-[0-9a-f]{20}$/.test(id)) return { ok: false, error: 'Неверный узел каталога' }
     const previousProfiles = store.profiles.slice()
@@ -413,49 +392,59 @@ function ipc() {
     const previousProfiles = store.profiles.slice(), previousSettings = store.settings
     const top = [...new Set((catalog?.state.alive ?? []).slice(0, 5).map(n => addPublic(n.id)).filter((x): x is string => !!x))]
     if (!top.length) return { ok: false, error: 'Живых публичных узлов пока нет. Обнови каталог' }
-    const gid = 'g-public'
-    store.settings = { ...store.settings, groups: [...(store.settings.groups ?? []).filter(g => g.id !== gid), { id: gid, name: 'Публичный · авто', policy: 'fastest', members: top }] }
+    const existing = store.settings.groups.find(g => g.id.startsWith('g-public') && g.policy === 'fastest' && g.members.length === top.length && g.members.every((id, i) => id === top[i]))
+    if (existing) return { ok: true, id: existing.id }
+    if (store.settings.groups.length >= 50) { store.profiles = previousProfiles; return { ok: false, error: 'Достигнут предел в 50 групп. Удали ненужную группу перед добавлением.' } }
+    // Rebuilding the catalog must not silently retarget routes already using an earlier public group.
+    const gid = 'g-public-' + randomBytes(4).toString('hex')
+    store.settings = { ...store.settings, groups: [...store.settings.groups, { id: gid, name: 'Публичные узлы', policy: 'fastest', members: top }] }
     try { store.save() }
     catch { store.profiles = previousProfiles; store.settings = previousSettings; return { ok: false, error: 'Не удалось сохранить группу публичных узлов' } }
     await refreshNotices(); send('snapshot', snapshot())
     return { ok: true, id: gid }
   })
-  secureIntentHandle('settings', async (_e, raw: unknown) => {
-    const blocked = writeError(); if (blocked) { send('toast', blocked); return snapshot() }
+  secureIntentHandle('settings', async (_e, raw: unknown, base: unknown) => {
+    const blocked = writeError(); if (blocked) { send('toast', blocked); return { ...snapshot(), saved: false } }
     const checked = checkedPatch(raw)
-    if (!checked.ok) { send('toast', checked.error); return snapshot() }
+    if (!checked.ok) { send('toast', checked.error); return { ...snapshot(), saved: false } }
     const patch = checked.patch // C09: reject malformed IPC instead of silently dropping fields
+    if (!settingsPatchCurrent(patch, base, store.settings)) { send('toast', 'Настройки уже изменились. Список обновлён — повтори действие.'); return { ...snapshot(), saved: false } }
     // companion routes: never created or redefined by the renderer, never a public / unsafe path or fallback
-    if (patch.routes && !companionEditsOk(patch.routes, store.settings.routes)) { send('toast', 'Маршрут приложения нельзя создать или переопределить вручную'); return snapshot() }
-    if (('routes' in patch || 'groups' in patch) && !companionRoutesSafe({ routes: patch.routes ?? store.settings.routes, groups: patch.groups ?? store.settings.groups }, store.profiles)) { send('toast', COMPANION_SAFE); return snapshot() }
+    if (patch.routes && !companionEditsOk(patch.routes, store.settings.routes)) { send('toast', 'Маршрут приложения нельзя создать или переопределить вручную'); return { ...snapshot(), saved: false } }
+    if (('routes' in patch || 'groups' in patch) && !companionPatchSafe({ routes: patch.routes ?? store.settings.routes, groups: patch.groups ?? store.settings.groups }, store.settings, store.profiles)) { send('toast', COMPANION_SAFE); return { ...snapshot(), saved: false } }
     const routing = ['rest', 'routes', 'ruDirect', 'dnsAll', 'lanDirect', 'groups'].some(k => k in patch)
     const previous = store.settings
     store.settings = { ...store.settings, ...patch }
     if ('autostart' in patch && !(await setAutostart(!!patch.autostart))) {
       store.settings = previous
       send('toast', 'Не удалось изменить автозапуск Windows')
-      return snapshot()
+      return { ...snapshot(), saved: false }
     }
     try { store.save() }
     catch {
       store.settings = previous
       if ('autostart' in patch) void setAutostart(previous.autostart)
-      send('toast', 'Не удалось сохранить настройки'); return snapshot()
+      send('toast', 'Не удалось сохранить настройки'); return { ...snapshot(), saved: false }
     }
     if (routing) {
+      const revision = master.revision
       // Owner OFF wins immediately even if this settings write entered the FIFO earlier/later.
       // Save the new intent, but leave engine shutdown to the master toggle and apply it on the next open.
-      if (!masterOpen) { updateTray(); send('snapshot', snapshot()); return snapshot() }
-      if (engine.status.phase === 'on' && demandsTunnel(store.settings) && (await engine.applyLive(store.profiles, store.settings))) { updateTray(); return snapshot() }
+      if (!master.open) { updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true } }
+      if (engine.status.phase === 'on' && demandsTunnel(store.settings) && (await engine.applyLive(store.profiles, store.settings))) { updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true } }
       const currentNotices = await refreshNotices()
+      if (!master.current(revision)) return { ...snapshot(), saved: true }
       const action = onRoutingPatch(engine.status.phase, currentNotices.some(n => n.level === 'block'))
-      if (action === 'stop') await engine.stop()
-      else if (action === 'start') await engine.start(store.profiles, store.settings)
-      else if (masterOpen && demandsTunnel(store.settings) && !currentNotices.some(n => n.level === 'block')) await engine.start(store.profiles, store.settings)
+      if (action === 'stop') { setMaster(false); await engine.stop() }
+      else if (!demandsTunnel(store.settings)) await engine.stop()
+      else if (action === 'start' || !currentNotices.some(n => n.level === 'block')) {
+        const result = await master.reconnect(revision, { restart: true })
+        if (!result.ok && master.revision === revision) send('toast', result.error)
+      }
     }
     updateTray()
-    if (!routing) send('snapshot', snapshot())
-    return snapshot()
+    send('snapshot', snapshot())
+    return { ...snapshot(), saved: true }
   })
   secureIntentHandle('route:select', async (_e, routeId: unknown, via: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
@@ -501,7 +490,7 @@ function ipc() {
       return { ok: true, token, peek }
     } catch { return { ok: false, error: 'Не удалось прочитать изображение экрана' } }
   })
-  secureHandle('profile:import', async (_e, raw: unknown) => {
+  secureIntentHandle('profile:import', async (_e, raw: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     const from = importRequest(raw)
     if (!from) return { ok: false, error: 'Неверные данные импорта' }
@@ -530,7 +519,7 @@ function ipc() {
         const key = credentialKey(p)
         const dup = store.profiles.find(x => credentialKey(x) === key)
         if (dup) return { ok: false, error: `Этот конфиг уже есть: «${dup.name}»` }
-        if (!addProfiles([p], true)) return { ok: false, error: 'Не удалось сохранить конфиг' }
+        if (!addProfiles([p])) return { ok: false, error: 'Не удалось сохранить конфиг' }
         await refreshNotices(); updateTray()
         return { ok: true, added: 1, id: p.id, ids: [p.id], name: p.name, skipped: 0, notApplied: [] as string[] }
       }
@@ -546,7 +535,7 @@ function ipc() {
           x.subKey = subscriptionEntryKey(x)
         }
         if (!fresh.length) return { ok: false, error: 'Все эти серверы уже есть в списке' }
-        if (!addProfiles(fresh, true)) return { ok: false, error: 'Не удалось сохранить серверы' }
+        if (!addProfiles(fresh)) return { ok: false, error: 'Не удалось сохранить серверы' }
         await refreshNotices(); updateTray()
         const notApplied = [...new Set(fresh.flatMap(x => x.kind === 'vless' ? x.vless.notApplied : []))]
         return { ok: true, added: fresh.length, id: fresh.length === 1 ? fresh[0].id : undefined, ids: fresh.map(p => p.id), name: fresh[0].name, skipped: res.skipped + res.items.length - fresh.length, notApplied }
@@ -557,7 +546,7 @@ function ipc() {
       const p = parseConf(text, name || `Сервер ${store.profiles.length + 1}`)
       const dup = store.profiles.find(x => x.kind === 'awg' && x.privateKey === p.privateKey)
       if (dup) return { ok: false, error: `Этот конфиг уже есть: «${dup.name}»` }
-      if (!addProfiles([p], true)) return { ok: false, error: 'Не удалось сохранить конфиг' }
+      if (!addProfiles([p])) return { ok: false, error: 'Не удалось сохранить конфиг' }
       await refreshNotices()
       updateTray()
       return { ok: true, added: 1, id: p.id, ids: [p.id], name: p.name, skipped: 0, notApplied: [] as string[] }
@@ -565,7 +554,7 @@ function ipc() {
       return { ok: false, error: e instanceof ConfError ? e.message : 'Не получилось прочитать конфиг' }
     }
   })
-  secureHandle('profile:create-wg', async (_e, raw: unknown) => {
+  secureIntentHandle('profile:create-wg', async (_e, raw: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: 'Неверные данные сервера' }
     const values = raw as Record<string, unknown>
@@ -574,15 +563,15 @@ function ipc() {
     if (!name) return { ok: false, error: 'Неверное имя туннеля' }
     try {
       const { profile, clientPublicKey } = createWireGuardProfile({ ...(values as { name: string; address: string; endpoint: string; serverPublicKey: string }), name })
-      if (!addProfiles([profile], true)) return { ok: false, error: 'Не удалось сохранить конфиг' }
+      if (!addProfiles([profile])) return { ok: false, error: 'Не удалось сохранить конфиг' }
       await refreshNotices(); updateTray()
       return { ok: true, added: 1, id: profile.id, ids: [profile.id], name: profile.name, clientPublicKey }
     } catch (e) { return { ok: false, error: e instanceof ConfError ? e.message : 'Не удалось создать конфиг' } }
   })
-  secureHandle('profile:refresh-sub', async (_e, id: unknown) => {
+  secureIntentHandle('profile:refresh-sub', async (_e, id: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     if (typeof id !== 'string' || id.length > 80) return { ok: false, error: 'Подписка не найдена' }
-    if (engine.status.phase !== 'off') return { ok: false, error: 'Отключи Waarp перед обновлением подписки' }
+    if (master.open || engine.status.phase !== 'off') return { ok: false, error: 'Отключи Waarp перед обновлением подписки' }
     const selected = store.profiles.find(p => p.id === id)
     const sub = selected && (selected.kind === 'vless' || selected.kind === 'out') ? selected.sub : undefined
     if (!sub) return { ok: false, error: 'Этот туннель не связан с подпиской' }
@@ -593,41 +582,17 @@ function ipc() {
       const incoming = parsed.items.filter((p): p is Extract<Profile, { kind: 'vless' | 'out' }> => p.kind === 'vless' || p.kind === 'out')
       if (!incoming.length) return { ok: false, error: 'Подписка не вернула поддерживаемых серверов; прежний список сохранён' }
       const oldProfiles = store.profiles
-      const byEntry = new Map(incoming.map(p => [subscriptionEntryKey(p), p]))
-      const byCredential = new Map<string, typeof incoming>()
-      for (const p of incoming) {
-        const key = subscriptionCredentialKey(p)
-        byCredential.set(key, [...(byCredential.get(key) ?? []), p])
-      }
-      const usedIncoming = new Set<string>()
-      let updated = 0, missing = 0
-      const next = oldProfiles.map(p => {
-        if (!((p.kind === 'vless' || p.kind === 'out') && p.sub === sub)) return p
-        const key = p.subKey ?? subscriptionEntryKey(p)
-        const legacyCandidates = p.subKey ? [] : byCredential.get(subscriptionCredentialKey(p)) ?? []
-        const fresh = byEntry.get(key) ?? (legacyCandidates.length === 1 ? legacyCandidates[0] : undefined)
-        if (!fresh) { missing++; return { ...p, subMissing: true } }
-        const freshKey = subscriptionEntryKey(fresh)
-        usedIncoming.add(freshKey); updated++
-        return { ...fresh, id: p.id, name: p.name, addedAt: p.addedAt, source: p.source, revoked: p.revoked, sub, subKey: freshKey, subMissing: false } as Profile
-      })
-      const identities = new Set(next.map(credentialKey))
-      const added: Profile[] = []
-      for (const p of incoming) {
-        const key = subscriptionEntryKey(p)
-        if (usedIncoming.has(key) || identities.has(credentialKey(p))) continue
-        p.sub = sub; p.subKey = key; p.subMissing = false; identities.add(credentialKey(p)); added.push(p)
-      }
-      store.profiles = [...next, ...added]
+      const reconciled = reconcileSubscription(oldProfiles, incoming, sub)
+      store.profiles = reconciled.profiles
       try { store.save() }
       catch { store.profiles = oldProfiles; return { ok: false, error: 'Не удалось сохранить обновление; прежний список оставлен без изменений' } }
       await refreshNotices(); updateTray(); send('snapshot', snapshot())
-      return { ok: true, updated, added: added.length, missing, skipped: parsed.skipped }
+      return { ok: true, updated: reconciled.updated, added: reconciled.added, missing: reconciled.missing, skipped: parsed.skipped }
     } catch (e) {
       return { ok: false, error: e instanceof ConfError ? e.message : 'Не удалось обновить подписку; прежний список сохранён' }
     }
   })
-  secureHandle('profile:replace', async (_e, id: unknown, raw: unknown) => {
+  secureIntentHandle('profile:replace', async (_e, id: unknown, raw: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     if (typeof id !== 'string' || id.length > 80) return { ok: false, error: 'Туннель не найден' }
     const index = store.profiles.findIndex(p => p.id === id)
@@ -665,34 +630,39 @@ function ipc() {
     if (dup) return { ok: false, error: `Этот конфиг уже есть: «${dup.name}»` }
     // The stable ID keeps cards and groups attached. The old engine must stop before the key changes.
     if (engine.status.phase === 'starting' || engine.status.phase === 'stopping') return { ok: false, error: 'Дождись завершения подключения или остановки' }
-    if (checker && !(await checker.stop())) return { ok: false, error: 'Проверочный движок не остановился; конфиг не изменён' }
+    if (!(await pauseMeasurements())) return { ok: false, error: 'Проверочный движок не остановился; конфиг не изменён' }
+    const revision = master.revision
     const wasOn = engine.status.phase === 'on'
-    if (wasOn && !(await engine.stop())) return { ok: false, error: 'Туннель не удалось остановить; конфиг не изменён' }
+    // An error phase may still own a stuck child. Do not rotate credentials until it is gone.
+    if (engine.status.phase !== 'off' && !(await engine.stop())) return { ok: false, error: 'Туннель не удалось остановить; конфиг не изменён' }
     store.profiles[index] = { ...fresh, id: old.id, name: old.name, addedAt: old.addedAt, source: old.source, revoked: old.revoked } as Profile
     try { store.save() }
     catch {
       store.profiles[index] = old
-      if (wasOn && masterOpen) void connect()
+      send('snapshot', snapshot())
+      if (wasOn && master.current(revision)) await master.reconnect(revision)
       return { ok: false, error: 'Не удалось сохранить конфиг; прежний туннель восстановлен' }
     }
     await refreshNotices()
     updateTray()
-    if (wasOn && masterOpen) {
-      const result = await connect()
+    if (wasOn && master.current(revision)) {
+      const result = await master.reconnect(revision, { preserveIntent: true })
+      if (!master.current(revision)) return { ok: true }
       if (!result.ok) {
         await engine.stop()
         store.profiles[index] = old
+        send('snapshot', snapshot())
         try { store.save() }
-        catch { return { ok: false, error: 'Новый конфиг не запустился, а прежний не удалось записать обратно. Туннель остановлен; восстанови конфиг из источника.' } }
-        if (!masterOpen) return { ok: false, error: 'Новый конфиг не запустился. Прежний конфиг восстановлен на диске; Waarp оставлен закрытым по команде пользователя.' }
-        const restored = await connect()
+        catch { setMaster(false); return { ok: false, error: 'Новый конфиг не запустился, а прежний не удалось записать обратно. Туннель остановлен; восстанови конфиг из источника.' } }
+        if (!master.current(revision)) return { ok: false, error: 'Новый конфиг не запустился. Прежний конфиг восстановлен на диске; Waarp оставлен закрытым по команде пользователя.' }
+        const restored = await master.reconnect(revision)
         if (restored.ok) return { ok: false, error: 'Новый конфиг не запустился. Waarp восстановил прежний рабочий конфиг.' }
         return { ok: false, error: 'Новый конфиг не запустился. Прежний конфиг восстановлен на диске, но его запуск тоже не удался.' }
       }
     }
     return { ok: true }
   })
-  secureHandle('profile:rename', (_e, id: unknown, rawName: unknown) => {
+  secureIntentHandle('profile:rename', (_e, id: unknown, rawName: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     const name = profileName(rawName)
     if (typeof id !== 'string' || id.length > 80 || !name) return { ok: false, error: 'Неверное имя туннеля' }
@@ -713,23 +683,32 @@ function ipc() {
     if (store.profiles.some(x => x.id === id && x.source === 'managed')) return { ok: false, error: 'Туннелем управляет команда; удалить его здесь нельзя' }
     if (engine.status.phase === 'starting' || engine.status.phase === 'stopping') return { ok: false, error: 'Дождись завершения подключения или остановки' }
     // Only another existing tunnel/group is a replacement; absent or forged choices leave affected cards blocked.
-    const ok = typeof replace === 'string' && replace !== id && store.views().some(v => v.id === replace)
+    const remaining = store.profiles.filter(x => x.id !== id)
+    const remainingSettings = dropServer(store.settings, id)
+    const ok = typeof replace === 'string' && replace !== id && (remaining.some(p => p.id === replace && !p.revoked) || remainingSettings.groups.some(g => g.id === replace && g.members.some(m => remaining.some(p => p.id === m && !p.revoked))))
+    if (replace !== undefined && !ok) return { ok: false, error: 'Выбранная замена больше недоступна. Выбери другое подключение.' }
+    const nextSettings = dropServer(store.settings, id, ok ? replace as string : undefined)
+    // Missing companion targets may stay blocked. A replacement must never turn one into a public route.
+    const unsafeReplacement = ok && nextSettings.routes.some((r, i) => r.owner === 'companion' && r.via !== store.settings.routes[i]?.via && !safeVia(r.via, nextSettings, remaining))
+    if (unsafeReplacement) return { ok: false, error: COMPANION_SAFE }
     const previousProfiles = store.profiles, previousSettings = store.settings
-    if (checker && !(await checker.stop())) return { ok: false, error: 'Проверочный движок не остановился; туннель не удалён' }
+    if (!(await pauseMeasurements())) return { ok: false, error: 'Проверочный движок не остановился; туннель не удалён' }
+    const revision = master.revision
     const wasOn = engine.status.phase === 'on'
-    if (wasOn && !(await engine.stop())) return { ok: false, error: 'Туннель не удалось остановить; профиль не удалён' }
-    store.profiles = store.profiles.filter(x => x.id !== id)
-    store.settings = dropServer(store.settings, id, ok ? (replace as string) : undefined)
+    if (engine.status.phase !== 'off' && !(await engine.stop())) return { ok: false, error: 'Туннель не удалось остановить; профиль не удалён' }
+    store.profiles = remaining
+    store.settings = nextSettings
     try { store.save() }
     catch {
       store.profiles = previousProfiles; store.settings = previousSettings
-      if (wasOn) void connect()
+      if (wasOn && master.current(revision)) await master.reconnect(revision)
       return { ok: false, error: 'Не удалось сохранить удаление; туннель оставлен без изменений' }
     }
     await refreshNotices()
     updateTray()
-    if (wasOn && masterOpen && demandsTunnel(store.settings)) {
-      const result = await connect()
+    send('snapshot', snapshot())
+    if (wasOn && master.current(revision) && demandsTunnel(store.settings)) {
+      const result = await master.reconnect(revision)
       if (!result.ok) return { ok: true, warning: 'Профиль удалён, но оставшиеся маршруты не запустились: ' + (result.error ?? 'проверь подключение') }
     }
     return { ok: true }
@@ -775,16 +754,20 @@ function ipc() {
     return { target, direct, paths, finding }
   })
   secureHandle('log', () => engine.log())
-  secureHandle('net:reset', async () => {
-    const checkerStopped = (await checker?.stop()) !== false
-    const engineStopped = await engine.stop()
-    const checkerRecovered = (await checker?.recover()) !== false
-    const catalogRecovered = (await catalog?.recover()) !== false
-    const related = checkerStopped && checkerRecovered && catalogRecovered
-    const recovered = await engine.killOrphans(related); await refreshNotices()
-    return engineStopped && recovered
-      ? { ok: true }
-      : { ok: false, error: 'Не всё удалось закрыть безопасно. Перезапусти Waarp; чужие сетевые настройки не изменялись.' }
+  secureHandle('net:reset', () => {
+    setMaster(false)
+    const stop = engine.stop() // invalidate a pending start immediately, outside the queue
+    return intentWrites.run(async () => {
+      const checkerStopped = await pauseMeasurements()
+      const engineStopped = await stop
+      const checkerRecovered = (await checker?.recover()) !== false
+      const catalogRecovered = (await catalog?.recover()) !== false
+      const recovered = await engine.killOrphans(checkerStopped && checkerRecovered && catalogRecovered)
+      await refreshNotices()
+      return engineStopped && recovered
+        ? { ok: true }
+        : { ok: false, error: 'Не всё удалось закрыть безопасно. Перезапусти Waarp; чужие сетевые настройки не изменялись.' }
+    })
   })
   secureHandle('admin:relaunch', () => relaunchAdmin())
   ipcMain.on('win', (event, a: unknown) => {
@@ -804,15 +787,11 @@ app.whenReady().then(async () => {
   engine = new Engine(engineExe, join(app.getPath('userData'), 'engine'), process.execPath)
   // R1.4: read-only check for a leftover Waarp adapter or a taken service subnet before every TUN start
   engine.preflight = async () => tunPreflight(await tunSnapshot())
-  checker = engineIntegrity ? new Checker(engineExe, join(app.getPath('userData'), 'check')) : undefined
-  catalog = new Catalog(join(app.getPath('userData'), 'catalog'), engineExe, s => send('catalog', s))
+  const allowMeasurements = () => !quitting && !master.open && engine.status.phase === 'off'
+  checker = engineIntegrity ? new Checker(engineExe, join(app.getPath('userData'), 'check'), allowMeasurements) : undefined
+  catalog = new Catalog(join(app.getPath('userData'), 'catalog'), engineExe, s => send('catalog', s), allowMeasurements)
   discovery = new Discovery()
-  // Public catalog refreshes in the background; a failure leaves the last usable snapshot intact.
-  const refreshCatalog = () => {
-    if (engineIntegrity && engine.status.phase === 'off' && !powerMonitor.isOnBatteryPower()) void catalog?.refresh().catch(() => undefined)
-  }
-  if (!catalog.state.updatedAt || Date.now() - catalog.state.updatedAt > 30 * 60 * 1000) { const t = setTimeout(refreshCatalog, 3000); t.unref() }
-  const catalogTimer = setInterval(refreshCatalog, 30 * 60 * 1000); catalogTimer.unref()
+  // Public checks are explicit. Opening Waarp must not contact third-party nodes or race their checker with TUN.
   // Showing the shell must not wait for PowerShell, orphan recovery, or network-related cleanup.
   // Those checks finish immediately after first paint and update the same snapshot.
   const adminReady = isAdmin()
@@ -875,24 +854,31 @@ app.whenReady().then(async () => {
   if (store.settings.autoConnect && admin && demandsTunnel(store.settings)) void connect()
   // R4: one restart per resume, after a usable network is back; never overlapping, never a churn loop
   const sleepWake = createResume({
-    isOn: () => masterOpen && (engine.status.phase === 'on' || engine.status.phase === 'starting'),
+    isOn: () => master.open && (engine.status.phase === 'on' || engine.status.phase === 'starting'),
+    isOpen: () => master.open && !quitting,
+    revision: () => master.revision,
     netReady: async () => underlayReady(net.isOnline(), await defaultRoutes()),
-    restart: () => intentWrites.run(async () => {
+    restart: () => {
+      const revision = master.revision
+      return intentWrites.run(async () => {
       // The owner may have closed Waarp during the settle/network-wait window. Never resurrect it afterwards.
-      if (!masterOpen) return true
-      const n = await refreshNotices()
-      if (n.some(x => x.level === 'block') || !demandsTunnel(store.settings)) { await engine.stop(); return true }
-      await engine.start(store.profiles, store.settings)
-      return engine.status.phase === 'on'
-    }),
-    fail: why => intentWrites.run(async () => {
+      if (!master.current(revision)) return true
+      const result = await master.reconnect(revision, { restart: true, preserveIntent: true })
+      return result.ok
+      })
+    },
+    fail: why => {
+      const revision = master.revision
+      return intentWrites.run(async () => {
       // A deliberate close while resume was waiting wins over the stale wake intent and needs no error toast.
-      if (!masterOpen) return
+      if (!master.current(revision)) return
       if (engine.status.phase !== 'error') await engine.stop()
+      if (!master.current(revision)) return
       setMaster(false)
       const msg = why === 'no_network' ? 'После сна сеть не вернулась. Waarp закрыт, включи его, когда интернет появится' : 'После сна Waarp не смог переподключиться и закрыт'
       send('toast', msg); notify(msg)
-    }),
+      })
+    },
   })
   powerMonitor.on('suspend', () => sleepWake.suspend())
   powerMonitor.on('resume', () => sleepWake.resume())
@@ -902,7 +888,8 @@ app.whenReady().then(async () => {
   let offPingBusy = false
   let offPingCursor = 0
   const offPing = async (): Promise<void> => {
-    if (engine.status.phase !== 'off' || offPingBusy || catalog?.state.busy || !win?.isVisible()) return
+    if (!allowMeasurements() || offPingBusy || catalog?.state.busy || !win?.isVisible()) return
+    const revision = master.revision
     offPingBusy = true
     try {
       const pings: Record<string, number | undefined> = {}
@@ -915,13 +902,16 @@ app.whenReady().then(async () => {
       const selectedIds = new Set(selected.map(p => p.id))
       const profiles = store.views().filter(p => p.kind !== 'group' && selectedIds.has(p.id))
       // through each selected tunnel via the checker (real latency over the tunnel); ICMP to the host when the checker can't
-      const ok = !!checker && selected.length > 0 && (await checker.ensure(selected, await adapters()))
+      const list = await adapters()
+      if (!allowMeasurements() || revision !== master.revision) return
+      const ok = !!checker && selected.length > 0 && (await checker.ensure(selected, list))
       const via = ok && checker ? await checker.pings() : {}
       await Promise.all([...profiles.map(async p => { pings[p.id] = via[p.id] ?? (checker?.busy.has(p.id) ? undefined : await icmp(p.host)) }), (async () => { pings.direct = await icmp('1.1.1.1') })()])
       const health = offHealth.step(via, profiles.map(p => p.id), checker?.busy)
-      if (engine.status.phase === 'off') send('status', withRoutes({ ...engine.status, engine: 'down', pings, health: ok ? health : undefined, offline: true, busy: checker ? [...checker.busy] : [] }))
+      if (allowMeasurements() && revision === master.revision) send('status', statusView({ ...engine.status, engine: 'down', pings, health: ok ? health : undefined }))
       else void checker?.stop()
-    } finally { offPingBusy = false }
+    } catch { /* a background measurement failure must not escape the timer or alter owner intent */ }
+    finally { offPingBusy = false }
   }
   void offPing(); const offPingTimer = setInterval(() => void offPing(), 30000); offPingTimer.unref()
 })
@@ -932,8 +922,9 @@ let shutdown: Promise<void> | undefined
 let shutdownDone = false
 const tunnelActive = (): boolean => !!engine && ['on', 'starting', 'stopping'].includes(engine.status.phase)
 function shutdownGate(): Promise<void> {
+  setMaster(false)
   shutdown ??= (async () => {
-    const r = await bounded((async () => { await checker?.stop(); await engine?.stop() })(), SHUTDOWN_MS)
+    const r = await bounded(Promise.all([pauseMeasurements(), engine?.stop()]), SHUTDOWN_MS)
     // past the bound: last resort; the ownership journal stays and the next launch recovers by exact identity
     if (r === 'timeout') engine?.stopSync()
   })().finally(() => { shutdownDone = true })
@@ -961,10 +952,14 @@ const applyRouting = createApply({
   set: s => { store.settings = s },
   save: () => store.save(),
   phase: () => engine.status.phase,
-  open: () => masterOpen,
+  open: () => master.open,
+  revision: () => master.revision,
   blocked: async () => (await refreshNotices(), notices.some(n => n.level === 'block')),
   demandsTunnel,
-  start: s => engine.start(store.profiles, s),
+  start: async s => {
+    const revision = master.revision
+    if (await pauseMeasurements() && master.current(revision)) await engine.start(store.profiles, s)
+  },
   live: s => engine.applyLive(store.profiles, s),
   stop: () => engine.stop(),
   changed: () => send('snapshot', snapshot())

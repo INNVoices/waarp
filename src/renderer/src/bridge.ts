@@ -111,4 +111,12 @@ function mock(): Api {
   } as unknown as Api
 }
 
-export const api: Api = (window as any).api ?? mock()
+/** A missing preload is an error, never a pretend working VPN. Fixtures are browser-dev only. */
+function unavailable(): Api {
+  return new Proxy({} as Api, {
+    get: (_target, key) => typeof key === 'string' && key.startsWith('on') ? () => () => {}
+      : key === 'win' ? () => {} : () => Promise.reject(new Error('Desktop bridge unavailable'))
+  })
+}
+
+export const api: Api = (window as any).api ?? (import.meta.env.DEV && !navigator.userAgent.includes('Electron/') ? mock() : unavailable())

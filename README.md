@@ -54,14 +54,18 @@ Targets can be applications, services or custom hosts. A whole-computer mode rou
 Auto is built to be predictable, not to re-optimise every few seconds:
 
 - only your own non-public connections take part;
-- the current path is sticky; one missed probe does not switch it;
-- a switch needs a confirmed failure or a clearly better sampled candidate;
+- a healthy path stays in use while it has active connections; one missed probe does not switch it;
+- switching for better performance happens only when the current path has no active connections and repeated checks show a clear improvement; confirmed failure can trigger failover;
 - probing is bounded, and the engine keeps at most **16** Auto connections live at once, so a library of hundreds of profiles does not hold hundreds of tunnels in memory (the others stay in your library and remain usable manually and in diagnostics);
 - Auto never falls back to Direct or to a public node. With no eligible path, the route stays unavailable instead of leaking.
+
+Failover closes the affected sessions so traffic can use the replacement path. Games and other apps may need to reconnect.
 
 ### Diagnostics
 
 Waarp answers practical questions: does the target work directly? Through one of my connections? Did it fail at DNS, TCP, TLS or HTTP? It avoids overclaiming: "fails on Direct but works through a connection" is evidence, not automatically censorship. With the tunnel closed, a separate local checker probes a bounded set of your connections without creating a TUN or touching system routes.
+
+Displayed latency measures an HTTP check, not game-server ping. Waarp selects a path for each route; it does not send a session through several paths at once (multipath).
 
 ### Supported connections
 
@@ -71,9 +75,11 @@ Engine: [sing-box-lx](https://github.com/Leadaxe/sing-box-lx) (bundled, with its
 - VLESS, VMess, Trojan, Shadowsocks
 - Hysteria2, TUIC v5
 - OpenVPN (scripts, plugins and external credential files are rejected)
-- subscriptions and supported JSON / YAML containers
+- subscriptions with supported share links, including JSON / YAML containers containing those links
 
-Import from file, clipboard, QR code, subscription link, local discovery or manual entry. A public connection catalog exists as a separate, low-trust source; public nodes never join Auto silently. Those nodes are run by third parties, not Waarp; their operators may log traffic that is not end-to-end encrypted. Sources: [docs/SOURCES.md](docs/SOURCES.md).
+Import from file, clipboard, QR code, subscription link, local discovery or manual entry. Subscription refresh is manual. JSON / YAML import extracts supported share links; it does not convert arbitrary native client configurations.
+
+The public connection catalog refreshes and checks its nodes only when you request it, with no startup or periodic catalog probes. It is a separate, low-trust source; public nodes never join Auto silently. Those nodes are run by third parties, not Waarp; their operators may log traffic that is not end-to-end encrypted. Sources: [docs/SOURCES.md](docs/SOURCES.md).
 
 ## Screenshots
 
@@ -107,7 +113,7 @@ Known limitations: these rules are covered by offline tests; real sleep, shutdow
 
 Waarp is a routing tool, not an anonymity guarantee: a connection provider can still see traffic that passes through it.
 
-**No independent kill switch.** Waarp does not enforce a separate WFP/firewall kill switch. If the engine crashes, Windows may send traffic over its normal route. Do not treat Waarp as leak-proof.
+**DNS protection while running; no independent kill switch.** The tunnel uses temporary Windows DNS filtering (`strict_route`) to limit DNS requests outside the tunnel. This filter depends on the running engine. Waarp does not enforce a separate persistent firewall kill switch; if the engine crashes, Windows may send traffic over its normal route. Do not treat Waarp as leak-proof.
 
 Security issues: please follow [SECURITY.md](SECURITY.md) instead of opening a public issue.
 

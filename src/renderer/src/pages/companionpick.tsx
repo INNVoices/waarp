@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react'
 // A companion app asked to route its target through a concrete Waarp path and none is chosen yet. Main holds the
 // validated target; the user picks the path here. Nothing is written until a choice, and choosing never opens the tunnel.
 import type { Snapshot, Via } from '../../../shared/types'
@@ -11,16 +12,29 @@ import { Mark, subOf, viaName } from '../parts'
 export interface Pick { id: string; name: string }
 
 export function CompanionPick({ snap, pick, toast, done, manage }: { snap: Snapshot; pick: Pick; toast: (t: string) => void; done: (routeId?: string) => void; manage: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const pending = useRef(false)
   const opts: Via[] = pickOptions(snap.settings, snap.profiles)
-  const choose = async (v: Via) => { const r = await api.companionChoose(pick.id, v); if (r.ok) done(pick.id); if (r.error) toast(r.error) }
+  const choose = async (v: Via) => {
+    if (pending.current) return
+    pending.current = true; setBusy(true)
+    try {
+      const r = await api.companionChoose(pick.id, v)
+      // Saving the choice can succeed while applying it to an open tunnel fails.
+      if (!r.ok || r.error) toast(r.error ?? s('route.apply.error'))
+      if (r.ok) done(pick.id)
+    }
+    catch { toast(s('route.apply.error')) }
+    finally { pending.current = false; setBusy(false) }
+  }
   return (
-    <Modal title={pick.name} onClose={() => done()}>
+    <Modal title={pick.name} onClose={() => done()} busy={busy}>
       <div className="wz-body">
         <p className="hint">{s('companion.pick.lead')}</p>
         {!opts.length && <div className="emptyst"><span>{s('companion.pick.none')}</span><Btn kind="primary" onClick={() => { done(); manage() }}><Icon n="plus" />{s('srv.add')}</Btn></div>}
         <div className="vgrid">
           {opts.map(v => (
-            <Plain key={v} className="vopt" onClick={() => void choose(v)}>
+            <Plain disabled={busy} key={v} className="vopt" onClick={() => void choose(v)}>
               <span className="radio" />
               <span className="vo-t"><span className="vo-n"><Mark profiles={snap.profiles} via={v} />{viaName(snap.profiles, v)}</span>
                 <small className="m ell">{subOf(snap.profiles.find(p => p.id === v))}</small></span>

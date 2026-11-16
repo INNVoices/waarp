@@ -52,10 +52,14 @@ eq(effectiveRoutes(S([r('x', 'a')]), P, L({ engine: 'down' })).x.reason, 'engine
 // busy key
 eq(effectiveRoutes(S([r('x', 'a')]), P, L({ health: { a: 'busy' } })).x, { desired: 'a', state: 'blocked', reason: 'busy' }, 'busy blocked')
 
-// groups: alive while any member works
+// A spare does not prove the selected group path works.
 const G = [{ id: 'g-1', name: 'G', policy: 'first' as const, members: ['a', 'b'] }]
-eq(effectiveRoutes(S([r('x', 'g-1')], 'direct', G), P, L({ health: { a: 'down', b: 'ok' } })).x.state, 'ok', 'group with a live member ok')
-eq(effectiveRoutes(S([r('x', 'g-1')], 'direct', G), P, L({ health: { a: 'down', b: 'down' } })).x.reason, 'path_down', 'group all down')
+eq(effectiveRoutes(S([r('x', 'g-1')], 'direct', G), P, { ...L({ health: { a: 'down', b: 'ok' } }), picked: { 'g-1': 'a' } }).x.reason, 'path_down', 'healthy spare cannot hide a dead selected member')
+eq(effectiveRoutes(S([r('x', 'g-1')], 'direct', G), P, { ...L({ health: { a: 'down', b: 'ok' } }), picked: { 'g-1': 'b' } }).x.state, 'ok', 'confirmed healthy selected member works')
+eq(effectiveRoutes(S([r('x', 'g-1')], 'direct', G), P, L()).x.reason, 'waiting', 'no confirmed group selection is still being checked')
+eq(effectiveRoutes(S([r('x', 'a')]), P, L({ health: {} })).x.reason, 'waiting', 'unmeasured connection is not declared healthy')
+eq(effectiveRoutes(S([r('x', 'a', { fallback: 'b' })]), P, L({ engine: 'down', fallback: { x: 'b' } })).x.reason, 'engine_down', 'fallback cannot mask a failed local controller')
+eq(effectiveRoutes(S([r('x', 'a', { fallback: 'b' })]), P, L({ health: { a: 'down', b: 'down' }, fallback: { x: 'b' } })).x.reason, 'path_down', 'failed fallback does not claim to carry traffic')
 
 // whole computer exit
 const e6 = effectiveRoutes(S([], 'a'), P, L({ health: { a: 'down' } }))

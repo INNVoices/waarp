@@ -13,7 +13,7 @@ import { outSecrets } from './links'
 import { openVpnSecrets } from './openvpn'
 import { RuntimeJournal } from './runtime-journal'
 import { protectPrivateFile } from './private-file'
-import { pickPort, START_BUDGET_MS, waitReady, type Preflight } from './tun'
+import { pickPort, START_BUDGET_MS, untilCancelled, waitReady, type Preflight } from './tun'
 import { ctrlBreak, waitExit } from './stop'
 
 export class Engine extends EventEmitter {
@@ -43,6 +43,12 @@ export class Engine extends EventEmitter {
   private journal: RuntimeJournal
   private recoveryOk = false
   private transition: Promise<void> = Promise.resolve()
+  /** OFF cancels both the active startup and starts already queued before that command. */
+  private stopVersion = 0
+  private starting?: AbortController
+  private requests = new Set<AbortController>()
+  private polling?: object
+  private pollFailures = 0
   /** HOTFIX-RUNTIME-01: the running core's config, what it loaded and its Auto pool; set on a ready start, cleared on halt */
   private run?: { cfg: ReturnType<typeof buildConfig>; loaded: Loaded; autoLive: string[] }
   /** count of live route applies in this process (tests, log) */
@@ -85,19 +91,28 @@ export class Engine extends EventEmitter {
   }
 
   start(profiles: Profile[], s: Settings): Promise<void> {
-    return this.serialize(() => this.startNow(profiles, s))
+    const version = this.stopVersion
+    return this.serialize(async () => {
+      if (version !== this.stopVersion) return
+      const controller = new AbortController()
+      this.starting = controller
+      try { await this.startNow(profiles, s, controller.signal) }
+      finally { if (this.starting === controller) this.starting = undefined }
+    })
   }
 
   /** HOTFIX-RUNTIME-01: a routing change the running core can already serve, as selector switches (no stop, no spawn, no
    *  Windows scan). false = not applicable now; the caller then takes its normal path (scan + one restart). `start` itself
    *  always restarts, so resume / explicit restarts keep their meaning. */
   applyLive(profiles: Profile[], s: Settings): Promise<boolean> {
-    return this.serialize(async () => (this.child && this.status.phase === 'on' && this.run ? this.liveApply(profiles, s) : false))
+    const version = this.stopVersion
+    return this.serialize(async () => (version === this.stopVersion && this.child && this.status.phase === 'on' && this.run ? this.liveApply(profiles, s) : false))
   }
 
-  private async startNow(profiles: Profile[], s: Settings) {
+  private async startNow(profiles: Profile[], s: Settings, signal: AbortSignal) {
     if (!this.recoveryOk) { this.set({ phase: 'error', error: 'Восстановление прошлого процесса не завершено' }); return }
     if (this.child && !(await this.stopNow())) return
+    if (signal.aborted) return
     if (!existsSync(this.exe)) { this.set({ phase: 'error', error: 'Не найден движок engine\\sing-box.exe' }); return }
     this.stopping = false
     this.tail = []
@@ -106,10 +121,12 @@ export class Engine extends EventEmitter {
     const fresh = async (): Promise<Preflight> => {
       if (!this.preflight) return { ok: true }
       let pf = await this.preflight()
-      for (let i = 0; i < 2 && !pf.ok && pf.kind === 'tun_stale'; i++) { await new Promise(r => setTimeout(r, this.preflightGap)); pf = await this.preflight() }
+      for (let i = 0; i < 2 && !signal.aborted && !pf.ok && pf.kind === 'tun_stale'; i++) { await untilCancelled(new Promise(r => setTimeout(r, this.preflightGap)), signal); if (!signal.aborted) pf = await this.preflight() }
       return pf
     }
-    const [pf, port] = await Promise.all([fresh(), pickPort()])
+    const prepared = await untilCancelled(Promise.all([fresh(), pickPort()]), signal)
+    if (!prepared || signal.aborted) return
+    const [pf, port] = prepared
     if (!pf.ok) { this.set({ phase: 'error', engine: 'down', since: undefined, error: pf.text, recovery: pf.kind }); return }
     if (!port) { this.set({ phase: 'error', error: 'Нет свободного локального порта для управления движком. Туннель не запущен', recovery: undefined }); return }
     this.api = { port, secret: randomBytes(16).toString('hex') }
@@ -147,8 +164,8 @@ export class Engine extends EventEmitter {
     this.set({ phase: 'starting', error: undefined, recovery: undefined, since: undefined, pings: {}, fallback: {}, down: 0, up: 0, downTotal: 0, upTotal: 0 })
     const child = spawn(this.exe, ['run', '-c', file, '-D', this.dir, '--disable-color'], { windowsHide: true, cwd: this.dir })
     this.child = child
-    child.stdout?.on('data', d => this.push(String(d)))
-    child.stderr?.on('data', d => this.push(String(d)))
+    child.stdout?.on('data', d => { if (this.child === child) this.push(String(d)) })
+    child.stderr?.on('data', d => { if (this.child === child) this.push(String(d)) })
     child.on('exit', code => {
       if (this.child !== child) return
       this.journal.clear()
@@ -165,6 +182,8 @@ export class Engine extends EventEmitter {
     })
     child.on('error', e => {
       if (this.child !== child) return
+      // ChildProcess also emits error when signalling fails. Keep the live handle/lease until exit is proved.
+      if (child.pid && child.exitCode === null && child.signalCode === null) { this.set({ phase: 'error', error: `Ошибка процесса движка: ${e.message}` }); return }
       this.journal.clear()
       this.child = undefined
       this.halt()
@@ -181,9 +200,10 @@ export class Engine extends EventEmitter {
       return
     }
     // R1.2: give Windows the time to open Wintun (or the core to fail by itself); one start, no retry loop
-    const ok = (await waitReady({ probe: async () => !!(await this.req('/version', 800)), alive: () => this.child === child, budget: START_BUDGET_MS })) === 'ready'
+    const ok = (await waitReady({ probe: async () => !!(await this.req('/version', 800)), alive: () => this.child === child, signal, budget: START_BUDGET_MS })) === 'ready'
     try { rmSync(file, { force: true }) } catch {}
-    if (!ok || !this.child) {
+    if (signal.aborted) { await this.stopNow(); return }
+    if (!ok || this.child !== child) {
       if (this.child) await this.stopNow()
       if (this.status.phase !== 'error') {
         const diagnostic = this.tail.filter(l => /FATAL|ERROR|open interface take too much time/i.test(l)).pop()
@@ -200,26 +220,26 @@ export class Engine extends EventEmitter {
     const health = new Health()
     let roundBusy = false
     const round = async (first: boolean) => {
-      if (roundBusy || this.child !== child) return
+      if (roundBusy || this.child !== child || this.stopping || this.pollFailures >= 2) return
       roundBusy = true
       try {
         const ids = this.probeIds()
         const pings = await this.pingAll(ids)
-        if (this.child !== child) return
+        if (this.child !== child || this.stopping || this.pollFailures >= 2) return
         const fallback = await this.fbStep(pings)
-        if (this.child !== child) return
+        if (this.child !== child || this.stopping || this.pollFailures >= 2) return
         // only probed ids get a verdict; an unsampled Auto candidate keeps its last evidence (or none)
         const h = { ...this.lastHealth, ...health.step(pings, ids) }
         this.lastHealth = h
         await this.groupStep(h, pings)
-        if (this.child !== child) return
+        if (this.child !== child || this.stopping || this.pollFailures >= 2) return
         const allDown = ids.length > 0 && ids.every(id => h[id] === 'down')
         const noneYet = first && ids.length > 0 && ids.every(id => h[id] !== 'ok')
-        const error = allDown ? 'Серверы не отвечают (две проверки подряд). Движок работает, проблема на стороне туннелей' : noneYet ? 'Серверы пока не ответили, проверяю ещё раз' : undefined
+        const error = allDown ? 'Туннели не ответили на две проверки подряд. Проверь сеть или смени подключение' : noneYet ? 'Серверы пока не ответили, проверяю ещё раз' : undefined
         this.lastAutoPick = this.firstSelected.get(AUTO_ID) ?? this.lastAutoPick
         this.set({ engine: 'up', pings, health: h, fallback, error, picked: Object.fromEntries(this.firstSelected), autoPool: this.autoPool })
       } catch {
-        if (this.child === child) this.set({ error: 'Не удалось обновить состояние туннелей; повторю проверку' })
+        if (this.child === child && !this.stopping && this.pollFailures < 2) this.set({ error: 'Не удалось обновить состояние туннелей; повторю проверку' })
       } finally { roundBusy = false }
     }
     void round(true)
@@ -230,13 +250,17 @@ export class Engine extends EventEmitter {
    *  false = not live-applicable (or a switch failed): the caller does the one controlled restart. Keeps Auto pool, groups,
    *  fallback pairs and loaded paths exactly as running; DNS of each route follows its own selector. */
   private async liveApply(profiles: Profile[], s: Settings): Promise<boolean> {
-    const run = this.run!
+    const run = this.run!, child = this.child, version = this.stopVersion
+    const current = () => this.child === child && this.stopVersion === version && !this.stopping
     let next: ReturnType<typeof buildConfig>
     try { next = buildConfig(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive: run.autoLive, selectors: true, keep: run.loaded }) }
     catch { return false }
     const switches = liveSwitches(run.cfg, next)
     if (!switches) return false
-    for (const x of switches) if (!(await this.select(x.tag, x.to))) { this.push(`live route apply failed at ${x.tag}; restarting the core once`); return false }
+    for (const x of switches) {
+      if (!current() || !(await this.select(x.tag, x.to))) { this.push(`live route apply failed at ${x.tag}; restarting the core once`); return false }
+    }
+    if (!current()) return false
     this.run = { ...run, cfg: next }
     this.fbRoutes = new Map(run.loaded.fbs.map(g => [g.tag, activeRoutes(s).filter(r => r.via === g.main && r.fallback === g.fb).map(r => ({ id: r.id, name: r.name }))]))
     this.liveApplies++
@@ -245,7 +269,15 @@ export class Engine extends EventEmitter {
     return true
   }
 
+  private abortRequests() {
+    for (const controller of this.requests) controller.abort()
+    this.requests.clear()
+  }
+
   private halt() {
+    this.abortRequests()
+    this.polling = undefined
+    this.pollFailures = 0
     this.run = undefined
     clearInterval(this.timer); clearInterval(this.pingTimer)
     this.timer = this.pingTimer = undefined
@@ -255,6 +287,9 @@ export class Engine extends EventEmitter {
   }
 
   stop(): Promise<boolean> {
+    this.stopVersion++
+    this.starting?.abort()
+    this.abortRequests()
     return this.serialize(() => this.stopNow())
   }
 
@@ -262,8 +297,16 @@ export class Engine extends EventEmitter {
    *  child handle (it cannot hit a reused PID), bounded wait; then a read-only residue check. 'off' only when clean. */
   private async stopNow(): Promise<boolean> {
     const c = this.child
-    if (!c) { this.set({ phase: 'off', engine: 'down', since: undefined }); return true }
+    if (!c) {
+      // A second stop after a crash/residue failure must not turn an unclean state into a successful reset.
+      const r = this.status.recovery ? await this.residue() : undefined
+      if (r) { this.set({ phase: 'error', engine: 'down', since: undefined, error: r.text, recovery: r.kind }); return false }
+      this.halt()
+      this.set({ phase: 'off', engine: 'down', since: undefined, error: undefined, recovery: undefined, pings: {}, health: {}, picked: {}, fallback: {}, autoPool: undefined, down: 0, up: 0 })
+      return true
+    }
     this.stopping = true
+    this.abortRequests()
     this.set({ phase: 'stopping' })
     let exited = c.exitCode !== null || c.signalCode !== null
     if (!exited && c.pid && (await this.journal.owned(c.pid)) === 'same') {
@@ -278,7 +321,7 @@ export class Engine extends EventEmitter {
     this.journal.clear()
     this.child = undefined
     this.halt()
-    const zero = { pings: {}, fallback: {}, down: 0, up: 0 }
+    const zero = { pings: {}, health: {}, picked: {}, fallback: {}, autoPool: undefined, down: 0, up: 0 }
     const r = await this.residue()
     if (r) {
       this.set({ phase: 'error', engine: 'down', since: undefined, error: r.text, recovery: r.kind, ...zero })
@@ -305,27 +348,35 @@ export class Engine extends EventEmitter {
   }
 
   stopSync() {
+    this.stopVersion++
+    this.starting?.abort()
+    this.abortRequests()
     if (!this.child) return
     this.stopping = true
     try { this.child.kill() } catch {}
   }
 
   private async select(tag: string, to: string): Promise<boolean> {
+    const child = this.child, api = this.api, version = this.stopVersion
+    if (!child || this.stopping) return false
     const ctl = new AbortController()
+    this.requests.add(ctl)
     const t = setTimeout(() => ctl.abort(), 3000)
     try {
-      const r = await fetch(`http://127.0.0.1:${this.api.port}/proxies/${encodeURIComponent(tag)}`, {
+      const r = await fetch(`http://127.0.0.1:${api.port}/proxies/${encodeURIComponent(tag)}`, {
         method: 'PUT',
-        headers: { Authorization: `Bearer ${this.api.secret}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${api.secret}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: to }),
         signal: ctl.signal
       })
-      return r.ok
-    } catch { return false } finally { clearTimeout(t) }
+      return r.ok && this.child === child && this.api === api && this.stopVersion === version && !this.stopping
+    } catch { return false } finally { clearTimeout(t); this.requests.delete(ctl) }
   }
 
   private async fbStep(pings: Record<string, number | undefined>): Promise<Record<string, string>> {
-    const done = await this.fb.step(pings, (g, toFb) => this.select(g.tag, tagOf(toFb ? g.fb : g.main)))
+    const child = this.child, tracker = this.fb
+    const done = await tracker.step(pings, (g, toFb) => this.child === child && !this.stopping ? this.select(g.tag, tagOf(toFb ? g.fb : g.main)) : Promise.resolve(false))
+    if (this.child !== child || this.stopping) return {}
     for (const d of done) this.emit('fallback', { main: d.g.main, fb: d.g.fb, toFb: d.toFb, routes: (this.fbRoutes.get(d.g.tag) ?? []).map(r => r.name) })
     const out: Record<string, string> = {}
     for (const g of this.fb.active()) for (const r of this.fbRoutes.get(g.tag) ?? []) out[r.id] = g.fb
@@ -334,23 +385,28 @@ export class Engine extends EventEmitter {
 
   /** W2.2: Waarp, not sing-box, moves group selections: confirmed failure or a sustained clear speed gap only */
   private async groupStep(health: Record<string, TunnelHealth>, pings: Record<string, number | undefined>): Promise<void> {
+    const child = this.child
     await Promise.all(this.groups.map(async g => {
       const current = this.firstSelected.get(g.id) ?? g.members[0]
       let next = current
       if (g.policy === 'first') next = firstAlive(g.members, current, health)
-      else { const r = stickyFastest(g.members, current, health, pings, this.slowStreak.get(g.id) ?? 0); next = r.next; this.slowStreak.set(g.id, r.streak) }
-      if (next !== current && await this.select(grpTag(g.id), tagOf(next))) this.firstSelected.set(g.id, next)
+      else { const r = stickyFastest(g.members, current, health, pings, this.slowStreak.get(g.id) ?? 0, this.conns.some(c => c.via === current)); next = r.next; this.slowStreak.set(g.id, r.streak) }
+      if (next !== current && await this.select(grpTag(g.id), tagOf(next)) && this.child === child && !this.stopping) this.firstSelected.set(g.id, next)
     }))
   }
 
   private async req(path: string, timeout = 3000): Promise<any> {
+    const child = this.child, api = this.api, version = this.stopVersion
+    if (!child || this.stopping) return undefined
     const ctl = new AbortController()
+    this.requests.add(ctl)
     const t = setTimeout(() => ctl.abort(), timeout)
     try {
-      const r = await fetch(`http://127.0.0.1:${this.api.port}${path}`, { headers: { Authorization: `Bearer ${this.api.secret}` }, signal: ctl.signal })
+      const r = await fetch(`http://127.0.0.1:${api.port}${path}`, { headers: { Authorization: `Bearer ${api.secret}` }, signal: ctl.signal })
       if (!r.ok) return undefined
-      return await r.json()
-    } catch { return undefined } finally { clearTimeout(t) }
+      const value = await r.json()
+      return this.child === child && this.api === api && this.stopVersion === version && !this.stopping ? value : undefined
+    } catch { return undefined } finally { clearTimeout(t); this.requests.delete(ctl) }
   }
 
   private async delay(tag: string, url = 'https://www.gstatic.com/generate_204'): Promise<number | undefined> {
@@ -360,8 +416,9 @@ export class Engine extends EventEmitter {
 
   private async bounded<T>(items: T[], fn: (item: T) => Promise<void>, limit = 8): Promise<void> {
     let cursor = 0
+    const child = this.child, version = this.stopVersion
     const worker = async () => {
-      while (this.child) {
+      while (child && this.child === child && this.stopVersion === version && !this.stopping) {
         const at = cursor++
         if (at >= items.length) return
         await fn(items[at])
@@ -371,27 +428,30 @@ export class Engine extends EventEmitter {
   }
 
   async probe(target: string, only?: string[]) {
+    const child = this.child, version = this.stopVersion
     const url = /^https?:\/\//.test(target) ? target : 'https://' + target
     const out: Record<string, number | null> = {}
     await this.bounded(['direct', ...(only ? this.ids.filter(id => only.includes(id)) : this.ids)], async id => {
       const ms = await this.delay(id === 'direct' ? 'direct' : tagOf(id), url)
       out[id] = ms ?? null
     })
-    return out
+    return this.child === child && this.stopVersion === version ? out : {}
   }
 
   /** W3 diagnosis: through the given own paths only; Direct is measured separately by the layered prober */
   async probePaths(target: string, ids: string[]): Promise<Record<string, number | null>> {
+    const child = this.child, version = this.stopVersion
     const url = /^https?:\/\//.test(target) ? target : 'https://' + target
     const out: Record<string, number | null> = {}
     await this.bounded(this.ids.filter(id => ids.includes(id)), async id => { out[id] = (await this.delay(tagOf(id), url)) ?? null })
-    return out
+    return this.child === child && this.stopVersion === version ? out : {}
   }
 
   /** C08: two independent probe targets per round; one failed site never marks a tunnel broken */
   private async probe2(tag: string): Promise<number | undefined> {
+    const child = this.child, version = this.stopVersion
     const a = await this.delay(tag)
-    return a ?? (await this.delay(tag, 'https://cp.cloudflare.com/generate_204'))
+    return a ?? (this.child === child && this.stopVersion === version ? await this.delay(tag, 'https://cp.cloudflare.com/generate_204') : undefined)
   }
 
   /** every id other routes need, plus the bounded Auto sample (current member always included) */
@@ -404,8 +464,10 @@ export class Engine extends EventEmitter {
   }
 
   async pingAll(ids = this.ids) {
+    const child = this.child, version = this.stopVersion
     const out: Record<string, number | undefined> = {}
     await this.bounded(['direct', ...ids], async id => { out[id] = id === 'direct' ? await this.delay('direct') : await this.probe2(tagOf(id)) })
+    if (this.child !== child || this.stopVersion !== version) return {}
     // A group's latency is the measured latency of its actually selected member.
     // Do not report the minimum of unrelated members as though it were the active route.
     await Promise.all(this.groups.map(async g => {
@@ -413,38 +475,52 @@ export class Engine extends EventEmitter {
       const selected = typeof state?.now === 'string' ? g.members.find(id => tagOf(id) === state.now) : undefined
       out[g.id] = selected ? out[selected] : undefined
     }))
-    return out
+    return this.child === child && this.stopVersion === version ? out : {}
   }
 
   private async poll() {
-    const r = await this.req('/connections', 2000)
-    if (!r) return
-    const now = Date.now()
-    const d = r.downloadTotal ?? 0, u = r.uploadTotal ?? 0
-    if (this.last) {
-      const dt = Math.max(0.2, (now - this.last.t) / 1000)
-      this.set({ down: Math.max(0, (d - this.last.d) / dt), up: Math.max(0, (u - this.last.u) / dt), downTotal: d, upTotal: u })
-    }
-    this.last = { t: now, d, u }
-    this.conns = (r.connections ?? []).map((c: any): Conn => {
-      const m = c.metadata ?? {}
-      const exe: string = m.processPath ?? ''
-      const chain: string[] = c.chains ?? []
-      return {
-        id: c.id,
-        app: exe ? exe.split('\\').pop()!.replace(/\.exe$/i, '') : (m.process || 'система'),
-        exe,
-        host: m.host || m.destinationIP || '',
-        port: Number(m.destinationPort) || 0,
-        net: m.network ?? '',
-        via: chain.find(c => c.startsWith('p-'))?.slice(2) ?? 'direct',
-        rule: c.rule ?? '',
-        down: c.download ?? 0,
-        up: c.upload ?? 0,
-        start: Date.parse(c.start) || now
+    const child = this.child, version = this.stopVersion
+    if (!child || this.polling || this.stopping) return
+    const polling = {}
+    this.polling = polling
+    try {
+      const r = await this.req('/connections', 2000)
+      if (this.child !== child || this.stopVersion !== version || this.stopping) return
+      if (!r) {
+        this.pollFailures++
+        if (this.pollFailures >= 2) this.set({ engine: 'down', error: 'Движок не отвечает на локальные запросы. Попробуй отключить и снова включить Waarp' })
+        return
       }
-    })
-    this.emit('conns', this.conns)
+      const recovered = this.pollFailures >= 2
+      this.pollFailures = 0
+      if (recovered) this.set({ engine: 'up', error: undefined })
+      const now = Date.now()
+      const d = r.downloadTotal ?? 0, u = r.uploadTotal ?? 0
+      if (this.last) {
+        const dt = Math.max(0.2, (now - this.last.t) / 1000)
+        this.set({ down: Math.max(0, (d - this.last.d) / dt), up: Math.max(0, (u - this.last.u) / dt), downTotal: d, upTotal: u })
+      }
+      this.last = { t: now, d, u }
+      this.conns = (r.connections ?? []).map((c: any): Conn => {
+        const m = c.metadata ?? {}
+        const exe: string = m.processPath ?? ''
+        const chain: string[] = c.chains ?? []
+        return {
+          id: c.id,
+          app: exe ? exe.split('\\').pop()!.replace(/\.exe$/i, '') : (m.process || 'система'),
+          exe,
+          host: m.host || m.destinationIP || '',
+          port: Number(m.destinationPort) || 0,
+          net: m.network ?? '',
+          via: chain.find(c => c.startsWith('p-'))?.slice(2) ?? 'direct',
+          rule: c.rule ?? '',
+          down: c.download ?? 0,
+          up: c.upload ?? 0,
+          start: Date.parse(c.start) || now
+        }
+      })
+      this.emit('conns', this.conns)
+    } finally { if (this.polling === polling) this.polling = undefined }
   }
 
 }

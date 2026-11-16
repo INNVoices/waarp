@@ -19,11 +19,13 @@ export function firstAlive(members: string[], current: string, health: Record<st
  *  member is clearly faster (by max(150 ms, 50 %)) for SLOW_ROUNDS probe rounds in a row (~75 s at 15 s rounds).
  *  A few ms of difference never moves a session; never falls back to direct. */
 export const SLOW_ROUNDS = 5, SLOW_MS = 150
-export function stickyFastest(members: string[], current: string, health: Record<string, TunnelHealth>, pings: Record<string, number | undefined>, streak: number): { next: string; streak: number } {
+export function stickyFastest(members: string[], current: string, health: Record<string, TunnelHealth>, pings: Record<string, number | undefined>, streak: number, hasActiveConnections = false): { next: string; streak: number } {
   const alive = members.filter(id => health[id] === 'ok' && pings[id] !== undefined).sort((a, b) => pings[a]! - pings[b]!)
   const best = alive[0]
   const holding = members.includes(current) && (health[current] === 'ok' || health[current] === 'degraded')
   if (!holding) return { next: best ?? current, streak: 0 }
+  // A lower HTTP probe time is not a reason to drop a healthy game/voice/download session.
+  if (hasActiveConnections) return { next: current, streak: 0 }
   const cur = pings[current]
   if (!best || best === current || cur === undefined) return { next: current, streak: 0 }
   const clearlySlower = cur - pings[best]! > Math.max(SLOW_MS, pings[best]! * 0.5)

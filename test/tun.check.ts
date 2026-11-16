@@ -56,6 +56,17 @@ const S = (over: Partial<Settings> = {}): Settings => ({ ...DEFAULTS, rest: p.id
   await waitReady({ ...clock, probe: async () => { probes++; return false }, alive: () => true })
   ok(probes > 10 && probes < 100, 'controller probes are bounded: ' + probes)
 
+  // OFF must cancel readiness even while a controller request is pending.
+  {
+    const cancel = new AbortController()
+    const pending = waitReady({ probe: () => new Promise(() => undefined), alive: () => true, signal: cancel.signal })
+    cancel.abort()
+    eq(await pending, 'cancelled', 'cancelled startup does not wait out a hung controller probe')
+    eq(await waitReady({ ...clock, alive: () => false, probe: async () => true }), 'exited', 'an exited process is never ready')
+    let present = true
+    eq(await waitReady({ ...clock, alive: () => present, probe: async () => { present = false; return true } }), 'exited', 'stale successful controller reply after exit is discarded')
+  }
+
   // ---- R1.3 port
   eq(await pickPort(async () => false), undefined, 'no free candidate -> undefined (nothing spawned)')
   let asked: number[] = []

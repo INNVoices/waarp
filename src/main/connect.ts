@@ -13,7 +13,9 @@ export interface PrepareDeps {
 export type Prepared = { ok: true } | { ok: false; error: string }
 
 export async function prepareStart(d: PrepareDeps): Promise<Prepared> {
-  const [stopped, notices] = await Promise.all([d.stopChecker(), d.notices()])
+  const [stopResult, noticeResult] = await Promise.allSettled([d.stopChecker(), d.notices()])
+  if (stopResult.status === 'rejected' || noticeResult.status === 'rejected') return { ok: false, error: 'Не удалось проверить готовность сети. Туннель не запущен; попробуй ещё раз' }
+  const stopped = stopResult.value, notices = noticeResult.value
   if (!stopped) return { ok: false, error: 'Проверочный движок не остановился; основной туннель не будет запущен' }
   const block = notices.find(x => x.level === 'block')
   return block ? { ok: false, error: block.title } : { ok: true }

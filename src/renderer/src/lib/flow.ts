@@ -35,3 +35,9 @@ export function acquire(st: Pick<Settings, 'routes'>, t: Target): { route: Route
 }
 
 export const normAddr = (raw: string): string => raw.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '')
+
+/** A scan refresh replaces its own inventory, while an EXE explicitly picked during it stays visible. */
+export function mergeScannedApps(current: AppInfo[] | undefined, scanned: AppInfo[]): AppInfo[] {
+  const ids = new Set(scanned.map(app => app.id))
+  return [...(current ?? []).filter(app => app.source === 'manual' && !ids.has(app.id)), ...scanned]
+}

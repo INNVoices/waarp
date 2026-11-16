@@ -1,14 +1,15 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { Settings, Snapshot, Status, Via } from '../../../shared/types'
 import type { DirectObs, Finding } from '../../../shared/evidence'
 import { AUTO_ID, autoMembers } from '../../../shared/groups'
 import { Btn, Field, Icon } from '../ui/kit'
 import { s } from '../lib/i18n'
 import { api } from '../bridge'
+import type { SettingsPatch } from '../lib/actions'
 import { customRoute, hueOf, upsert } from '../lib/routes'
 import { Mark, viaName } from '../parts'
 
-export function Analyzer({ snap, status, hist, patch }: { snap: Snapshot; status: Status; hist: Record<string, (number | undefined)[]>; patch: (p: Partial<Settings>) => void | Promise<void> }) {
+export function Analyzer({ snap, status, hist, patch }: { snap: Snapshot; status: Status; hist: Record<string, (number | undefined)[]>; patch: SettingsPatch }) {
   const live = status.phase === 'on'
   const ids: Via[] = ['direct', ...snap.profiles.map(p => p.id)].filter(id => hist[id]?.length)
   return (
@@ -60,14 +61,15 @@ function Chart({ snap, ids, hist }: { snap: Snapshot; ids: Via[]; hist: Record<s
 interface Diag { target: string; direct: DirectObs; paths: Record<string, number | null>; finding: Finding }
 
 /** W3.2 "Почему не открывается?": Direct layer by layer, own paths, then one observation line; never a fake cause */
-function Probe({ snap, live, patch }: { snap: Snapshot; live: boolean; patch: (p: Partial<Settings>) => void | Promise<void> }) {
+function Probe({ snap, live, patch }: { snap: Snapshot; live: boolean; patch: SettingsPatch }) {
   const [t, setT] = useState('youtube.com')
   const [busy, setBusy] = useState(false)
   const [res, setRes] = useState<Diag | null>()
+  const checking = useRef(false)
   const run = async () => {
-    if (!t.trim()) return
-    setBusy(true)
-    try { setRes(await api.diagnose(t)) } catch { setRes(null) } finally { setBusy(false) }
+    if (!t.trim() || checking.current) return
+    checking.current = true; setBusy(true); setRes(undefined)
+    try { setRes(await api.diagnose(t)) } catch { setRes(null) } finally { checking.current = false; setBusy(false) }
   }
   const f = res?.finding
   const host = res?.target.replace(/^https?:\/\//, '').replace(/[/?#].*$/, '')
@@ -80,7 +82,7 @@ function Probe({ snap, live, patch }: { snap: Snapshot; live: boolean; patch: (p
     <section className="panel">
       <div className="ph-row"><h3>{s('an.probe')}</h3><span className="m">{s('an.probe.hint')}</span></div>
       <div className="addrow">
-        <Field icon="globe" placeholder={s('an.probe.ph')} value={t} onChange={e => setT(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void run() }} />
+        <Field disabled={busy} icon="globe" placeholder={s('an.probe.ph')} value={t} onChange={e => { setT(e.target.value); setRes(undefined) }} onKeyDown={e => { if (e.key === 'Enter') void run() }} />
         <Btn kind="primary" onClick={run} disabled={busy || !t.trim()}><span className={busy ? 'spin' : ''}><Icon n={busy ? 'refresh' : 'bolt'} /></span>{s('an.probe.go')}</Btn>
       </div>
       {!live && <p className="hint">{s('an.probe.off')}</p>}

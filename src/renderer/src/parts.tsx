@@ -82,18 +82,30 @@ export function ViaPicker({ profiles, via, pings, live, onChange, compact, noDir
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const closeMenu = () => { setOpen(false); ref.current?.querySelector<HTMLButtonElement>('.via-btn')?.focus() }
   useEffect(() => {
     if (!open) return
     const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
     window.addEventListener('mousedown', h)
-    return () => window.removeEventListener('mousedown', h)
+    const frame = requestAnimationFrame(() => (ref.current?.querySelector<HTMLButtonElement>('.mi.on:not(:disabled)') ?? ref.current?.querySelector<HTMLButtonElement>('.mi:not(:disabled)'))?.focus())
+    return () => { cancelAnimationFrame(frame); window.removeEventListener('mousedown', h) }
   }, [open])
   useEffect(() => { if (disabled) setOpen(false) }, [disabled])
   // Auto first when the user has own connections to pick from (W2.3); public nodes never join Auto
   const opts: Via[] = [...(autoMembers(profiles).length ? [AUTO_ID] : []), ...(noDirect ? [] : ['direct']), ...profiles.map(p => p.id)]
   return (
-    <div className={'via' + (compact ? ' compact' : '')} ref={ref} onClick={e => e.stopPropagation()}>
-      <Plain className="via-btn" disabled={disabled} onClick={() => setOpen(!open)} aria-expanded={open} tip={s('via.tip')}>
+    <div className={'via' + (compact ? ' compact' : '')} ref={ref} onClick={e => e.stopPropagation()} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOpen(false) }} onKeyDown={e => {
+      if (e.key === 'Escape' && open) { e.preventDefault(); e.stopPropagation(); closeMenu(); return }
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
+      e.preventDefault(); e.stopPropagation()
+      if (!open) { setOpen(true); return }
+      const options = [...(ref.current?.querySelectorAll<HTMLButtonElement>('.mi:not(:disabled)') ?? [])]
+      if (!options.length) return
+      const current = options.indexOf(document.activeElement as HTMLButtonElement)
+      const next = e.key === 'Home' ? 0 : e.key === 'End' ? options.length - 1 : (current + (e.key === 'ArrowUp' ? -1 : 1) + options.length) % options.length
+      options[next].focus()
+    }}>
+      <Plain className="via-btn" disabled={disabled} onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="menu" tip={s('via.tip')}>
         <Mark profiles={profiles} via={via} />
         <span className="via-name">{viaName(profiles, via)}</span>
         {/* a deleted / revoked path has no evidence to show, only its blocked name */}
@@ -101,9 +113,9 @@ export function ViaPicker({ profiles, via, pings, live, onChange, compact, noDir
         <Icon n="chev" s={14} />
       </Plain>
       {open && !disabled && (
-        <div className="menu via-menu">
+        <div className="menu via-menu" role="menu" aria-label={s('via.tip')}>
           {opts.map(v => (
-            <Plain key={v} className={'mi' + (v === via ? ' on' : '')} disabled={profiles.some(p => p.id === v && p.revoked)} onClick={() => { onChange(v); setOpen(false) }}>
+            <Plain key={v} role="menuitemradio" aria-checked={v === via} className={'mi' + (v === via ? ' on' : '')} disabled={profiles.some(p => p.id === v && p.revoked)} onClick={() => { onChange(v); closeMenu() }}>
               <Mark profiles={profiles} via={v} />
               <span>{viaName(profiles, v)}</span>
               {v === 'direct' ? <small>{s('via.direct.hint')}</small> : v === AUTO_ID ? <AutoHint profiles={profiles} /> : <Ping ms={pings[v]} live={live} down={down?.(v)} />}

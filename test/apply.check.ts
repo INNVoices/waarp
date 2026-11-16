@@ -60,6 +60,37 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
     eq([r.counts().starts, r.counts().stops], [0, 0], 'master closed: route apply does not restart or stop behind owner action')
   }
 
+  // OFF during the asynchronous scan (and OFF/ON while the scan is pending) invalidates the old apply.
+  for (const reopen of [false, true]) {
+    let current = base, phase = 'on', open = true, revision = 1, starts = 0, changed = 0
+    let release!: (blocked: boolean) => void
+    const pending = new Promise<boolean>(r => { release = r })
+    const apply = createApply({
+      get: () => current, set: s => { current = s }, save: () => undefined, phase: () => phase,
+      open: () => open, revision: () => revision, blocked: () => pending,
+      demandsTunnel: () => true, start: async () => { starts++; phase = 'on' },
+      stop: async () => { phase = 'off' }, changed: () => { changed++ }
+    })
+    const result = apply(sel)
+    open = false; revision++
+    if (reopen) { open = true; revision++ }
+    release(false)
+    eq(await result, { saved: true, applied: false, running: true }, `cancelled scan keeps the saved intent (reopen=${reopen})`)
+    eq([starts, current, changed], [0, sel, 1], 'cancelled apply neither starts nor reverts settings')
+  }
+  {
+    let current = base, open = true, starts = 0
+    let release!: (applied: boolean) => void
+    const result = createApply({
+      get: () => current, set: s => { current = s }, save: () => undefined, phase: () => 'on', open: () => open,
+      live: () => new Promise(r => { release = r }), blocked: async () => false,
+      demandsTunnel: () => true, start: async () => { starts++ }, stop: async () => undefined, changed: () => undefined
+    })(sel)
+    open = false; release(false)
+    const applied = await result
+    eq([applied.saved, applied.applied, starts], [true, false, 0], 'OFF during a failed live switch does not restart the engine')
+  }
+
   // card toggles never carry the master open/closed intent; only a hard block may stop a running core
   eq(onRoutingPatch('off', false), 'none', 'routing patch while closed: no-op')
   eq(onRoutingPatch('off', true), 'none', 'routing patch while closed, even if blocked: no-op')
@@ -92,13 +123,9 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
     && main.includes("secureIntentHandle('companion:choose'") && main.includes("secureIntentHandle('profile:remove'")
     && main.includes('ensure: (target, intent) => intentWrites.run')
     && main.includes("click: () => void toggle()"), 'routing mutations share FIFO while master toggle stays immediate')
-  ok(main.includes("isOn: () => masterOpen &&") && main.includes("restart: () => intentWrites.run(async () =>")
-    && main.includes("if (!masterOpen) return true") && main.includes("fail: why => intentWrites.run(async () =>")
-    && main.includes("setMaster(false)") && main.includes("if (!masterOpen) { updateTray(); send('snapshot', snapshot()); return snapshot() }")
-    && main.includes("if (wasOn && masterOpen)")
-    && main.includes("if (!masterOpen) setMaster(true)")
-    && main.includes("if (!masterOpen) return { ok: false, error: 'Подключение отменено' }")
-    && !main.includes("if (up) setMaster(true)"), 'owner close wins over connect/resume/settings/profile reconnect and terminal resume failure closes its intent')
+  // Owner cancellation is exercised above with deferred live/scan operations. The master connect/disconnect
+  // state machine has its own behavioral suite; do not bind this test to historical main-process source spellings.
+
 
   // H: bridge request ids
   for (const v of [undefined, null, 0, 1, -5, 2.5, Number.MAX_SAFE_INTEGER, '', 'abc', 'x'.repeat(128)]) ok(okId(v), 'id ok: ' + String(v).slice(0, 20))

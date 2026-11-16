@@ -1,12 +1,13 @@
 // WRP-014: bounded, local-only discovery. Never reads another user's folders or follows reparse points.
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { constants } from 'node:fs'
 import { lstat, open, readdir } from 'node:fs/promises'
-import { basename, join, resolve } from 'node:path'
+import { basename, relative, resolve, sep } from 'node:path'
 import type { Profile } from '../shared/types'
-import { parseConf } from './awg'
+import { endpoint, parseConf } from './awg'
 import { linksInContainer, parseAny } from './links'
 import { looksLikeOpenVpn, parseOpenVpn } from './openvpn'
+import { vlessOutbound } from './vless'
 
 export interface FoundTunnel { id: string; name: string; version: string; host: string; source: string }
 const LIMIT_FILES = 500
@@ -36,10 +37,15 @@ async function readBounded(path: string, remaining: number): Promise<{ text: str
 }
 
 export function credentialKey(p: Profile): string {
-  if (p.kind === 'awg') return `awg|${p.privateKey}|${p.peer.host}|${p.peer.port}`
-  if (p.kind === 'vless') return `vless|${p.vless.uuid}|${p.vless.server}|${p.vless.port}`
-  if (p.kind === 'openvpn') return `openvpn|${p.host}|${p.port}|${JSON.stringify(p.endpoint)}`
-  return `out|${p.outbound.type}|${p.outbound.uuid ?? p.outbound.password ?? ''}|${p.host}|${p.port}`
+  const withoutTag = ({ tag: _tag, ...config }: Record<string, unknown>) => config
+  const config = p.kind === 'awg' ? { endpoint: withoutTag(endpoint(p)), dns: p.dns }
+    : p.kind === 'vless' ? withoutTag(vlessOutbound(p, ''))
+      : withoutTag(p.kind === 'openvpn' ? p.endpoint : p.outbound)
+  const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical)
+    : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, v]) => [key, canonical(v)])) : value
+  // Credentials alone are not a connection identity: transport, SNI, cipher and keys can differ at one endpoint.
+  // Hash only effective config; local names, trust labels and UI ids never affect deduplication.
+  return `${p.kind}|${createHash('sha256').update(JSON.stringify(canonical(config))).digest('hex')}`
 }
 
 export class Discovery {
@@ -65,7 +71,8 @@ export class Discovery {
           if (files >= LIMIT_FILES || bytes >= LIMIT_TOTAL_BYTES || Date.now() >= deadline) break
           if (entry.isSymbolicLink()) continue
           const path = resolve(dir.path, entry.name)
-          if (path !== root && !path.startsWith(root + '\\')) continue
+          const rel = relative(root, path)
+          if (rel === '..' || rel.startsWith('..' + sep) || resolve(root, rel) !== path) continue
           if (entry.isDirectory()) {
             if (dir.depth < (folder.maxDepth ?? 1) && queue.length < 100) {
               try { const stat = await lstat(path); if (stat.isDirectory() && !stat.isSymbolicLink()) queue.push({ path, depth: dir.depth + 1 }) } catch { /* inaccessible folder */ }

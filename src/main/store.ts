@@ -59,7 +59,8 @@ export class Store {
   }
 
   save() {
-    if (!this.canSave()) return // no plaintext fallback and never overwrite unreadable source
+    // Callers promise `saved` only after this completes. DPAPI can become unavailable between precheck and save.
+    if (!this.canSave()) throw new Error(this.unreadable ? 'Profile store is unreadable' : 'Secure storage is unavailable')
     const d: Disk = { settings: this.settings, profiles: this.profiles.map(p => this.seal(JSON.stringify(p))) }
     const tmp = this.file + '.tmp'
     try {
