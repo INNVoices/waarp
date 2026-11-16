@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Keep the public engine provenance metadata in the distributable APK. -->
+<resources xmlns:tools="http://schemas.android.com/tools" tools:keep="@raw/engine_integrity" />

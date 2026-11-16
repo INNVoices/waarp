@@ -1,0 +1,320 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
+package local.waarp.android.ui
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CheckCircleOutline
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.MonitorHeart
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Route
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Wifi
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import java.net.URI
+
+@Composable
+internal fun DiagnosticsScreen(state: MobileState, actions: MobileActions, onCreateRoute: (String, String) -> Unit) {
+    var section by rememberSaveable { mutableStateOf("check") }
+    Column(Modifier.fillMaxSize()) {
+        FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("check" to "Проверка", "flows" to "Соединения", "logs" to "Журнал").forEach { (key, label) ->
+                FilterChip(section == key, onClick = { section = key }, label = { Text(label) }, modifier = Modifier.heightIn(min = 48.dp))
+            }
+        }
+        when (section) {
+            "flows" -> FlowsScreen(state)
+            "logs" -> LogsScreen(state, actions)
+            else -> ChecksScreen(state, actions, onCreateRoute)
+        }
+    }
+}
+
+@Composable
+private fun ChecksScreen(state: MobileState, actions: MobileActions, onCreateRoute: (String, String) -> Unit) {
+    val operation = rememberUiOperation()
+    var target by rememberSaveable { mutableStateOf(state.diagnostic?.target.orEmpty()) }
+    val diagnostic = state.diagnostic
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        item {
+            Panel {
+                SectionHeading("Проверить адрес", "Результаты показывают отдельные слои соединения")
+                OutlinedTextField(target, { target = it }, Modifier.fillMaxWidth(), label = { Text("Домен или IP") }, placeholder = { Text("example.com") },
+                    singleLine = true, enabled = !operation.busy && diagnostic?.running != true)
+                ActionButton("Проверить соединение", operation.busy || diagnostic?.running == true, target.isNotBlank(),
+                    onClick = { operation.run({ actions.diagnose(target.trim()) }) }, modifier = Modifier.fillMaxWidth())
+                OperationFeedback(operation)
+                if (state.status.phase != ConnectionPhase.ON) Text("VPN сейчас выключен. Проверка прямого соединения не подтверждает работу туннеля.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+            }
+        }
+        if (diagnostic != null) {
+            item {
+                Panel {
+                    SectionHeading(diagnostic.target, if (diagnostic.running) "Проверка выполняется…" else "Результат последней проверки")
+                    if (diagnostic.running) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    diagnostic.layers.forEach { layer ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            ObservationIcon(layer.result)
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(layer.name, fontWeight = FontWeight.Medium)
+                                Text(observationLabel(layer.result), style = MaterialTheme.typography.labelSmall, color = observationColor(layer.result))
+                                if (layer.detail.isNotBlank()) Text(layer.detail, style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+                            }
+                        }
+                    }
+                    diagnostic.conclusion?.let { InlineMessage(it) }
+                    if (diagnostic.layers.isEmpty() && !diagnostic.running) Text("Результаты отдельных слоёв пока отсутствуют.", color = WaarpMuted)
+                }
+            }
+            if (diagnostic.paths.isNotEmpty()) item {
+                Panel {
+                    SectionHeading("Проверенные пути")
+                    diagnostic.paths.forEach { path ->
+                        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            ObservationIcon(path.result)
+                            Text(path.name, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(validLatency(path.latencyMs)?.let { "${formatMs(it)} мс" } ?: observationLabel(path.result),
+                                style = MaterialTheme.typography.labelMedium, color = observationColor(path.result))
+                        }
+                    }
+                    if (!diagnostic.running && diagnostic.suggestedViaId != null) {
+                        OutlinedButton(onClick = {
+                            val host = runCatching { URI(diagnostic.target).host?.removePrefix("[")?.removeSuffix("]") }.getOrNull()
+                            onCreateRoute(host?.takeIf(String::isNotBlank) ?: diagnostic.target, diagnostic.suggestedViaId)
+                        }, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) {
+                            Icon(Icons.Outlined.Route, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Создать маршрут для адреса")
+                        }
+                    }
+                }
+            }
+        } else item {
+            EmptyState(Icons.Outlined.MonitorHeart, "Сначала — измерение", "Введи адрес, чтобы увидеть результаты DNS и сетевых проверок. Недоступные или неподдерживаемые слои отмечаются отдельно.")
+        }
+        item {
+            SectionHeading("История задержек", "Только реальные измерения; пропуски не соединяются линией", trailing = {
+                IconButton(onClick = { operation.run({ actions.probeTunnels() }) }, enabled = !operation.busy && state.profiles.isNotEmpty()) { Icon(Icons.Outlined.Refresh, "Проверить туннели") }
+            })
+        }
+        if (state.latencyHistory.isEmpty()) item { Text("Пока нет измерений. Запусти проверку туннелей.", style = MaterialTheme.typography.bodyMedium, color = WaarpMuted) }
+        items(state.latencyHistory, key = { it.id }) { history -> LatencyChart(history) }
+    }
+}
+
+@Composable
+private fun ObservationIcon(result: ObservationResult) {
+    Icon(when (result) { ObservationResult.OK -> Icons.Outlined.CheckCircleOutline; ObservationResult.FAILED -> Icons.Outlined.ErrorOutline;
+        ObservationResult.SKIPPED -> Icons.Outlined.Close; ObservationResult.UNKNOWN -> Icons.Outlined.Info },
+        observationLabel(result), Modifier.size(22.dp), tint = observationColor(result))
+}
+
+@Composable
+private fun observationColor(result: ObservationResult): Color = when (result) {
+    ObservationResult.OK -> WaarpGreen
+    ObservationResult.FAILED -> MaterialTheme.colorScheme.error
+    ObservationResult.SKIPPED, ObservationResult.UNKNOWN -> WaarpMuted
+}
+
+private fun observationLabel(result: ObservationResult): String = when (result) {
+    ObservationResult.OK -> "Успешно"
+    ObservationResult.FAILED -> "Ошибка"
+    ObservationResult.SKIPPED -> "Пропущено"
+    ObservationResult.UNKNOWN -> "Не проверено"
+}
+
+@Composable
+private fun LatencyChart(history: LatencySeriesUi) {
+    val samples = remember(history.samplesMs) { history.samplesMs.takeLast(120).map(::validLatency) }
+    val measured = samples.filterNotNull()
+    val max = (measured.maxOrNull() ?: 1.0).coerceAtLeast(1.0)
+    val stroke = WaarpOrange
+    val grid = MaterialTheme.colorScheme.outlineVariant
+    Panel {
+        SectionHeading(history.name, if (measured.isEmpty()) "Успешных измерений пока нет" else "Последнее: ${samples.lastOrNull()?.let { "${formatMs(it)} мс" } ?: "нет ответа"}")
+        if (samples.isNotEmpty()) {
+            Text("${formatMs(max)} мс", style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
+            Canvas(Modifier.fillMaxWidth().height(90.dp).semantics { contentDescription = "${history.name}: ${measured.size} успешных измерений из ${samples.size}" }) {
+                val top = 4.dp.toPx()
+                val height = (size.height - top * 2).coerceAtLeast(1f)
+                drawLine(grid, Offset(0f, top + height), Offset(size.width, top + height), 1.dp.toPx())
+                drawLine(grid.copy(alpha = .5f), Offset(0f, top + height / 2), Offset(size.width, top + height / 2), 1.dp.toPx())
+                var previous: Offset? = null
+                samples.forEachIndexed { index, sample ->
+                    if (sample == null) previous = null
+                    else {
+                        val x = if (samples.size == 1) size.width / 2 else index.toFloat() / (samples.size - 1) * size.width
+                        val point = Offset(x, top + height * (1 - sample / max).toFloat())
+                        previous?.let { drawLine(stroke, it, point, 2.dp.toPx()) }
+                        drawCircle(stroke, 2.dp.toPx(), point)
+                        previous = point
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Раньше", style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
+                Text("Последнее", style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FlowsScreen(state: MobileState) {
+    var query by rememberSaveable { mutableStateOf("") }
+    var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    val flows = remember(state.flows, query) { state.flows.filter { flow -> listOf(flow.appName, flow.packageName, flow.host, flow.viaLabel).any { it.contains(query, true) } } }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { SearchField(query, { query = it }, "Приложение, адрес или путь") }
+        item { SectionHeading("${flows.size} соединений", if (state.status.phase == ConnectionPhase.ON) "Наблюдаемые движком сейчас" else "VPN выключен; последние наблюдения") }
+        if (flows.isEmpty()) item {
+            EmptyState(Icons.Outlined.Wifi, "Нет наблюдаемых соединений", if (state.status.phase == ConnectionPhase.ON) "Открой приложение с включённым маршрутом. Его соединения появятся здесь."
+                else "Включи VPN и открой приложение, чтобы увидеть реальные соединения.")
+        }
+        items(flows, key = { it.id }) { flow ->
+            Panel {
+                Column(Modifier.fillMaxWidth().clickable { selected = if (selected == flow.id) null else flow.id }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(flow.appName.ifBlank { "Приложение не определено" }, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("${flow.host}:${flow.port}", style = MaterialTheme.typography.bodySmall, color = WaarpMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                        Icon(Icons.Outlined.ChevronRight, if (selected == flow.id) "Свернуть соединение" else "Подробности соединения")
+                    }
+                    Text("${flow.network.uppercase()} · ${flow.viaLabel}", style = MaterialTheme.typography.labelMedium)
+                    Text("↓ ${formatBytes(flow.downloadedBytes)}  ·  ↑ ${formatBytes(flow.uploadedBytes)}", style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
+                }
+                if (selected == flow.id) SelectionContainer {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (flow.packageName.isNotBlank()) KeyValue("Пакет Android", flow.packageName, mono = true)
+                        if (flow.rule.isNotBlank()) KeyValue("Совпавшее правило", flow.rule)
+                        KeyValue("Идентификатор соединения", flow.id, mono = true)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LogsScreen(state: MobileState, actions: MobileActions) {
+    val operation = rememberUiOperation()
+    var query by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(Unit) { operation.run({ actions.readLogs() }) }
+    val lines = remember(state.logs, query) { state.logs.filter { it.contains(query, true) }.takeLast(400) }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { operation.run({ actions.readLogs() }) }, enabled = !operation.busy, modifier = Modifier.weight(1f).heightIn(min = 50.dp)) { Icon(Icons.Outlined.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Обновить") }
+                OutlinedButton(onClick = actions::shareDiagnostics, modifier = Modifier.weight(1f).heightIn(min = 50.dp)) { Icon(Icons.Outlined.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Отчёт") }
+            }
+            OperationFeedback(operation)
+        }
+        item { SearchField(query, { query = it }, "Найти в журнале") }
+        item { Text("Последние ${lines.size} строк. Отчёт подготавливается без приватных ключей и ссылок подписок.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted) }
+        if (lines.isEmpty()) item { EmptyState(Icons.Outlined.Description, "Журнал пуст", "События работы движка появятся после запуска. Для свежих данных нажми «Обновить».") }
+        items(lines.size) { index ->
+            SelectionContainer {
+                Text(lines[index], style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
+                    color = if (lines[index].contains("error", true) || lines[index].contains("ошибка", true)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+            }
+        }
+    }
+}
+
+@Composable
+internal fun SettingsScreen(state: MobileState, actions: MobileActions) {
+    val operation = rememberUiOperation()
+    Column(Modifier.fillMaxSize()) {
+    if (operation.error != null || operation.message != null) Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) { OperationFeedback(operation) }
+    LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        item {
+            Panel {
+                SectionHeading("Маршрутизация")
+                SettingsToggle("Локальная сеть напрямую", "Доступ к устройствам и сервисам в локальной сети", state.settings.lanDirect, !operation.busy) {
+                    operation.run({ actions.saveSettings(SettingsPatch(lanDirect = it)) })
+                }
+                HorizontalDivider()
+                SettingsToggle("Домены .ru, .su и .рф напрямую", "Исключение для доменов; не определяет страну сервера по IP", state.settings.ruDirect, !operation.busy) {
+                    operation.run({ actions.saveSettings(SettingsPatch(ruDirect = it)) })
+                }
+            }
+        }
+        item {
+            Panel {
+                SectionHeading("Запуск и уведомления")
+                SettingsToggle("Подключаться при запуске", "Включать сохранённые маршруты при открытии Waarp", state.settings.autoConnect, !operation.busy) {
+                    operation.run({ actions.saveSettings(SettingsPatch(autoConnect = it)) })
+                }
+                HorizontalDivider()
+                SettingsToggle("Уведомления об ошибках", "Дополнительные сообщения об ошибках и смене состояния", state.settings.notifications, !operation.busy) {
+                    operation.run({ actions.saveSettings(SettingsPatch(notifications = it)) })
+                }
+                Text("Служебное уведомление активного VPN требуется Android.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+            }
+        }
+        item {
+            Panel {
+                SectionHeading("Защита Android")
+                KeyValue("Постоянный VPN", booleanStatus(state.settings.systemAlwaysOn))
+                KeyValue("Блокировать соединения без VPN", booleanStatus(state.settings.systemLockdown))
+                Text("Эти параметры задаются в системных настройках VPN. Их состояние может быть неизвестно, пока служба не запущена.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+                OutlinedButton(onClick = actions::openSystemVpnSettings, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Text("Открыть настройки VPN Android"); Spacer(Modifier.width(8.dp)); Icon(Icons.Outlined.ChevronRight, null) }
+            }
+        }
+        item {
+            Panel {
+                SectionHeading("Обслуживание")
+                Text("Восстановление завершает оставшееся состояние службы после сбоя. Сохранённые профили и маршруты остаются на месте.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+                OutlinedButton(onClick = { operation.run({ actions.recover() }) }, enabled = !operation.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) {
+                    Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Восстановить состояние VPN")
+                }
+                OutlinedButton(onClick = { operation.run({ actions.refresh() }) }, enabled = !operation.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Text("Обновить данные приложения") }
+                OutlinedButton(onClick = actions::shareDiagnostics, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Icon(Icons.Outlined.Share, null); Spacer(Modifier.width(8.dp)); Text("Поделиться диагностикой") }
+            }
+        }
+        item {
+            Panel {
+                SectionHeading("Waarp для Android")
+                KeyValue("Приложение", state.appVersion.ifBlank { "Версия не определена" })
+                KeyValue("Движок", state.engineVersion.ifBlank { "Версия не определена" })
+                Text("Маршруты приложений используют пакеты и UID Android. Конфигурация и ключи хранятся в закрытом хранилище приложения.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+            }
+        }
+    }
+    }
+}
+
+@Composable
+private fun SettingsToggle(title: String, detail: String, value: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, fontWeight = FontWeight.Medium)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+        }
+        Switch(value, onChange, enabled = enabled, modifier = Modifier.semantics { contentDescription = title })
+    }
+}
+
+private fun booleanStatus(value: Boolean?) = when (value) { true -> "Включено"; false -> "Выключено"; null -> "Пока неизвестно" }

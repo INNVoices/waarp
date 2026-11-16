@@ -1,0 +1,63 @@
+Waarp for Android 0.5.0-alpha.1
+
+The Android application is licensed under the GNU General Public License,
+version 3 or, at your option, any later version (GPL-3.0-or-later).
+The full license is included in GPL-3.0.txt and android/LICENSE in the source.
+This license applies to the Android application. The separate desktop code's
+Apache-2.0 license is not changed by the addition of this Android module.
+
+Application source and build instructions:
+https://github.com/INNVoices/waarp
+android/ and scripts/android-* contain the Android sources and build scripts.
+docs/ANDROID.md describes the Android build and corresponding engine source.
+
+Embedded native VPN engine:
+Leadaxe/sing-box-lx 1.14.4-lx.35
+Source commit: f1bac271853eaf13398ce1030c948aebc3aed2e1
+https://github.com/Leadaxe/sing-box-lx/tree/f1bac271853eaf13398ce1030c948aebc3aed2e1
+https://github.com/Leadaxe/sing-box-lx/releases/tag/v1.14.4-lx.35
+AAR SHA-256: e5cfd79364316150acd5c9ddbb5d6d8c749f1ce4a590f9a3eaa408f949b8fd7b
+The exact upstream license notice is preserved in Libbox-LICENSE.txt.
+The upstream module declarations are preserved in Libbox-go.mod.txt.
+Libbox-buildinfo.txt contains the actual Go version and dependency inventory
+extracted from the pinned native binary, including local submodule replacements.
+native-notices/index.json maps all 112 embedded Go dependency modules to their
+included license/notice files. Non-local module archives were verified against
+the Go h1 checksums embedded in libbox. The four local replacements use the
+pinned source tree's exact gitlink commits, recorded in that index.
+The upstream notices and their applicable licenses also apply to this engine.
+Waarp is an independent client; its name does not imply upstream endorsement.
+
+Go runtime and standard library:
+Go 1.26.10, Copyright The Go Authors, BSD 3-Clause; see Go-BSD.txt.
+https://github.com/golang/go/tree/go1.26.10
+
+WireGuard Curve25519 Java implementation:
+Copyright © 2016 Southern Storm Software, Pty Ltd.
+Copyright © 2017-2025 WireGuard LLC. All Rights Reserved.
+Apache-2.0; see WireGuard-Apache-2.0.txt, including its original source header.
+Source commit: e7b3a3c118836e112620b1302a8ba1873ad4daac
+File blob: c9a592f21d686456af8c03faaf0c1bd23592fb5c
+https://git.zx2c4.com/wireguard-android/
+Only the package relocation and annotation removal were needed by this client.
+
+AndroidX (Android Open Source Project): Apache-2.0.
+Compose BOM 2025.11.01; Compose UI/Foundation 1.9.5; Material3 1.4.0;
+Material Icons Extended 1.7.8; Activity 1.11.0; Lifecycle 2.9.4; Core 1.17.0.
+https://android.googlesource.com/platform/frameworks/support/
+
+Kotlin standard library and annotations: Apache-2.0, JetBrains and contributors.
+Kotlin 2.2.21: https://github.com/JetBrains/kotlin/tree/v2.2.21
+kotlinx.coroutines 1.10.2: https://github.com/Kotlin/kotlinx.coroutines/tree/1.10.2
+
+ZXing Android Embedded 4.3.0: Apache-2.0, Journey Mobile and contributors.
+https://github.com/journeyapps/zxing-android-embedded/tree/v4.3.0
+ZXing Core 3.5.3: Apache-2.0, ZXing authors.
+https://github.com/zxing/zxing/tree/zxing-3.5.3
+
+The full Apache License 2.0 is included in Apache-2.0.txt.
+Maven-runtime-components.json contains the exact resolved Maven component
+versions, generated during the application build.
+Test-only JUnit, AndroidX Test, Espresso, UI Automator and org.json dependencies
+are not bundled into the release application. Instrumentation is distributed as
+a separate debug test APK and is never enabled in the release manifest.

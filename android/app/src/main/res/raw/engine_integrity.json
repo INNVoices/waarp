@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "project": "Leadaxe/sing-box-lx",
+  "version": "1.14.4-lx.35",
+  "sourceCommit": "f1bac271853eaf13398ce1030c948aebc3aed2e1",
+  "url": "https://github.com/Leadaxe/sing-box-lx/releases/download/v1.14.4-lx.35/libbox-1.14.4-lx.35.aar",
+  "sha256": "e5cfd79364316150acd5c9ddbb5d6d8c749f1ce4a590f9a3eaa408f949b8fd7b",
+  "bytes": 122825998,
+  "license": "GPL-3.0-or-later",
+  "goVersion": "go1.26.10",
+  "nativeDependencyCount": 112,
+  "packagedAbis": ["arm64-v8a", "armeabi-v7a", "x86_64"],
+  "nativeLibraries": {
+    "arm64-v8a": { "sha256": "b6a5d66d95481de12de2978ca9c5ec8fe7d9b3e99f446434eb0dbd5d9a2e2d3f", "bytes": 84191088, "elfBits": 64 },
+    "armeabi-v7a": { "sha256": "677c493cdaf3296276a362e98f44fc053c46a9efd2dfb168f72bae889e7cf0bf", "bytes": 75738984, "elfBits": 32 },
+    "x86_64": { "sha256": "5ba914deb4da8470b863739b31c37d25d9645b68807ea0241db0d1c7e0c49f51", "bytes": 88979456, "elfBits": 64 }
+  }
+}

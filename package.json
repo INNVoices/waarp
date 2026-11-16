@@ -18,6 +18,11 @@
     "test:live": "node scripts/test-live.mjs",
     "engine:fetch": "node scripts/engine.mjs fetch",
     "engine:verify": "node scripts/engine.mjs verify",
+    "android:build": "node scripts/android-build.mjs",
+    "android:core:fetch": "node scripts/android-core.mjs fetch",
+    "android:core:verify": "node scripts/android-core.mjs verify",
+    "android:collect": "node scripts/android-build.mjs --collect",
+    "android:install": "python3 scripts/android-install.py --launch",
     "test:ui": "node scripts/test-ui.mjs",
     "test:performance": "node scripts/test-performance.mjs",
     "package:verify": "node scripts/verify-package.mjs"
