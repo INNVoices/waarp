@@ -134,17 +134,23 @@ class MobileRepository(private val context: Context, val controller: VpnControll
         val next = withContext(Dispatchers.Default) { compile(after) }
         controller.validateConfig(next.json)
         val token = generation.get()
-        val active = controller.status.value.phase in setOf(RuntimePhase.ON, RuntimePhase.STARTING)
+        val phase = controller.status.value.phase
+        val nativeGeneration = controller.sessionGeneration()
+        val active = phase in setOf(RuntimePhase.ON, RuntimePhase.STARTING)
         val requiresRestart = active && next.json != _compiled.value?.json
         _applying.value = true
         var committed = false
+        var pausedGeneration: Long? = null
         try {
-            if (requiresRestart) {
-                controller.stop()
-                withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.OFF || it.phase == RuntimePhase.ERROR } }
-            }
             withContext(NonCancellable) {
-                // Once the atomic disk commit starts, publish the matching memory state even if the editor is dismissed.
+                // Once a runtime update begins, leaving the screen cannot strand
+                // the old data with a stopped VPN between cleanup and disk commit.
+                if (requiresRestart) {
+                    pausedGeneration = controller.pauseForUpdate(nativeGeneration)
+                    if (pausedGeneration != null) withTimeout(20_000) {
+                        controller.status.first { it.phase == RuntimePhase.OFF || it.phase == RuntimePhase.ERROR }
+                    }
+                }
                 store.write(after)
                 _data.value = after; _loadError.value = null; _compiled.value = next
                 committed = true
@@ -152,8 +158,13 @@ class MobileRepository(private val context: Context, val controller: VpnControll
                 val valid = after.profiles.filter { !it.revoked && !it.subscriptionMissing && beforeById[it.id]?.config == it.config }.map { it.id }.toSet()
                 _health.update { map -> map.filterKeys { it in valid } }
                 _history.update { map -> map.filterKeys { it in valid } }
-                if (requiresRestart && _requestedOpen.value && generation.get() == token) {
-                    try { controller.start(next.json) }
+                selectionMemory.keys.retainAll(after.groups.map { it.id }.toSet() + AUTO)
+                if (requiresRestart) selectionMemory.clear()
+                val paused = pausedGeneration
+                if (paused != null && _requestedOpen.value && generation.get() == token) {
+                    // A notification OFF/revoke changes the native epoch even
+                    // while phase observers are suppressed by _applying.
+                    try { controller.resumeAfterUpdate(next.json, paused) }
                     catch (error: Exception) {
                         _requestedOpen.value = false; generation.incrementAndGet()
                         throw IllegalStateException("Изменения сохранены, но VPN не перезапустился. Повторите подключение.", error)
@@ -162,9 +173,16 @@ class MobileRepository(private val context: Context, val controller: VpnControll
                 after
             }
         } catch (error: Exception) {
+            pausedGeneration?.let(controller::abandonUpdate)
             if (requiresRestart && !committed) { _requestedOpen.value = false; generation.incrementAndGet() }
             throw error
-        } finally { _applying.value = false }
+        } finally {
+            _applying.value = false
+            if (phase in setOf(RuntimePhase.ON, RuntimePhase.STARTING, RuntimePhase.STOPPING) &&
+                !controller.hasStartRequest() && generation.compareAndSet(token, token + 1)) {
+                _requestedOpen.value = false
+            }
+        }
       }
     }
 
@@ -234,13 +252,13 @@ class MobileRepository(private val context: Context, val controller: VpnControll
         if (!currentSession()) return@withLock
         val compiled = _compiled.value ?: return@withLock
         val health = _health.value
-        val active = controller.connections.value.filter { it.active }
+        val activeTags = controller.activeFlowTags.value
         for (group in compiled.groups) {
             if (!currentSession()) return@withLock
             val native = controller.groups.value.find { it.tag == "grp-${group.id}" } ?: continue
             val current = native.selected.removePrefix("p-")
             val decision = SelectionPolicy.select(group, current, health, selectionMemory[group.id] ?: SelectionMemory(),
-                active.any { native.tag in it.chain || it.outbound == native.tag }, measured)
+                activeTags == null || native.tag in activeTags, measured)
             selectionMemory[group.id] = decision.memory
             if (decision.next != current && decision.next in group.members) controller.selectOutbound(native.tag, "p-${decision.next}", expectedGeneration = sessionGeneration)
         }
@@ -252,7 +270,7 @@ class MobileRepository(private val context: Context, val controller: VpnControll
             val primary = health[effective(pair.first)]; val fallback = health[effective(pair.second)]
             val next = when {
                 primary?.down == true && fallback?.healthy == true && effective(pair.second) in measured -> tag(pair.second)
-                primary?.healthy == true && effective(pair.first) in measured && native.selected != tag(pair.first) && active.none { selector in it.chain || it.outbound == selector } -> tag(pair.first)
+                primary?.healthy == true && effective(pair.first) in measured && native.selected != tag(pair.first) && activeTags != null && selector !in activeTags -> tag(pair.first)
                 else -> native.selected
             }
             if (next != native.selected) controller.selectOutbound(selector, next, expectedGeneration = sessionGeneration)

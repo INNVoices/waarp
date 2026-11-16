@@ -1,6 +1,6 @@
 # Waarp Android
 
-Android is implemented in this repository under `android/`. Build products go to **`out/android/`**. Version **0.5.0-alpha.1** identifies the first mobile validation candidate, not an approved stable release.
+Android is implemented in this repository under `android/`. Build products go to **`out/android/`**. Version **0.5.0-rc.1** is the production-hardening candidate. Approval requires the actual release acceptance below; a version label alone does not establish stability.
 
 ## Platform
 
@@ -72,15 +72,15 @@ npm run android:build
 python3 scripts/android-install.py --variant debug --launch
 ```
 
-The build fetches/verifies the AAR, runs JVM tests and lint, builds debug/release/instrumentation APKs, verifies actual APK contents and writes `out/android/`.
+The build fetches/verifies the AAR, runs JVM tests and debug/release lint, builds debug/release/instrumentation APKs plus the separate release acceptance APK, verifies actual APK contents and publishes a complete `out/android/` set atomically. Earlier artifacts are retained under `out/android-history/`, so older versions or signature modes cannot silently mix with the new release.
 
 ```sh
 npm run android:core:fetch
 npm run android:core:verify
 cd android
-./gradlew --no-daemon testDebugUnitTest lintDebug
-./gradlew --no-daemon assembleDebug assembleDebugAndroidTest
-./gradlew --no-daemon assembleRelease
+./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:lintRelease
+./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest
+./gradlew --no-daemon :app:assembleRelease :acceptance:assembleRelease
 cd ..
 npm run android:collect
 ```
@@ -98,7 +98,35 @@ WAARP_ANDROID_KEY_ALIAS
 WAARP_ANDROID_KEY_PASSWORD
 ```
 
-Keep the production keystore/credentials outside Git and retain the key for subsequent updates. Debug keys are development identities. Debug and release have different package IDs and can be installed separately.
+Keep the production keystore/credentials outside Git and retain the key for subsequent updates. `android/release-signing.json` pins the public update certificate. The verifier rejects a release signed by another identity. Debug keys are development identities. Debug and release have different package IDs and can be installed separately.
+
+For an unsigned CI build, sign the exact accepted inputs locally with the retained private identity:
+
+```sh
+python3 scripts/android-sign.py sign-apks --credentials /absolute/private/path/waarp-android-signing-credentials.json
+```
+
+`android-sign.py` compares every APK ZIP payload entry before and after signing; the code, resources and native libraries must be unchanged. Passwords are supplied to signing tools through their supported environment inputs, never command-line values. The private key is not placed in `out/`, Git, CI variables or public artifacts. CI installs the same optimized release payload with a disposable test certificate that cannot update the production installation. The final production signature is applied only after accepting those exact payload hashes.
+
+## Production hardening in rc.1
+
+The service cancels a suspended current-configuration provider before queued shutdown, preventing a repository/native-lane lock inversion. A validated configuration edit commits stop/write/restart as one cancellation-safe transaction while preserving a later explicit OFF/revoke. Telemetry reconnects remember a stream failure that arrives during connection establishment; a failed subscription cannot publish ON. Native URL-test cancellation closes its own command client without waiting on the UI thread.
+
+Auto's active-flow guard now uses all real active outbound/chain tags, independent of the 500-row UI display limit. Unknown telemetry is not treated as an idle connection set. Android network callbacks consume their ordered arguments and invalidate same-interface address changes instead of rereading racing ConnectivityManager snapshots inside callbacks.
+
+UI projection runs on a background dispatcher with unchanged-section caches. The installed-app icon cache is bounded, large lists are lazy, and log keys survive bounded-ring rollover. Tab filters/scroll positions survive navigation. Modal drafts and import work survive Activity rotation without placing private configurations in saved Bundles. Only nonsensitive file-picker metadata survives process recreation. Accepted mutations are owned by the ViewModel, so scrolling a card away or switching tabs does not discard the action; cancellable diagnostic work stays cancellable.
+
+Subscription/catalog downloads and HTTP diagnostics use pinned [OkHttp 5.3.2](https://github.com/lysine-dev/okhttp), Android's cancellable DNS resolver and explicit physical-network sockets. This pin retains the validated API36/AGP8 toolchain; OkHttp5.5.x requires compileSdk37. Cancellation remains effective before connection creation, and a total deadline bounds redirect chains and slow response trickles. Bounded reads apply to decompressed response bytes. Existing TLS hostname/certificate checks remain enabled. Actual localhost socket regression tests exercise stalled headers, trickle cancellation and independence of simultaneous calls.
+
+## Optimized release approval
+
+The debug instrumentation suite remains a regression gate. A separate `com.android.test` module under [`android/acceptance`](../android/acceptance/README.md) exercises the actual R8-minified, nondebuggable release via UI Automator from a different UID. It does not load production classes, change keep rules or add runtime test hooks. This follows Android's [guidance to test release optimizations](https://developer.android.com/topic/performance/app-optimization/test-the-optimization).
+
+Release journeys run on API 29/35/36: real UI import and selected-app routing, encrypted AWG2 DNS plus 64 KiB HTTP payloads, OFF/ON, rename, background operation, SIGKILL followed by Android's own sticky-service recovery, persisted configuration, deletion with blocked intent and cleanup. The independent Linux peer records authenticated traffic and unique request counts; the host reconciles these against device observations.
+
+After all three native/UI and all three release journey jobs pass, API 36 with actual 16,384-byte pages runs **7,200 real seconds** of encrypted traffic, including screen-off, observed deep Doze and observed physical-network loss/recovery. Memory, allocated heaps, thread and descriptor counts must remain within the predetermined budgets in the acceptance README. Raw samples, screenshots, failure diagnostics and traffic series are retained. A shortened run, missing sample, skip or uncorroborated device claim fails approval. Three measured release cold starts additionally must each complete within 10 seconds on the CI emulator; these timings do not establish physical-device frame performance.
+
+`scripts/android-release-proof.py` independently recomputes counts, duration, resource medians/peaks and fixed budgets from raw records, then requires the stopped AWG peer to corroborate the encrypted traffic and its duration. The latest acceptance report must identify the exact source commit and APK payload hashes; historical alpha results below do not approve rc.1.
 
 ## Executable acceptance
 

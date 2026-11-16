@@ -1,5 +1,6 @@
 package local.waarp.android.ui
 
+import android.content.Intent
 import android.os.SystemClock
 import android.view.View
 import androidx.compose.ui.geometry.Rect
@@ -101,12 +102,18 @@ class MobileUiInstrumentedTest {
         field("Название (необязательно)").assertTextContains("UI imported tunnel")
         compose.onNodeWithTag("waarp-form-sheet").assertExists()
         assertTrue(repository.data.value!!.profiles.isEmpty())
+        compose.activityRule.scenario.recreate()
+        awaitText("Формат не распознан", substring = true)
+        field("Название (необязательно)").assertTextContains("UI imported tunnel")
+        field("Конфигурация или ссылка").assert(SemanticsMatcher.expectValue(SemanticsProperties.InputText,
+            AnnotatedString("invalid input")))
         field("Конфигурация или ссылка").performScrollTo().performTextReplacement("trojan://synthetic-ui-password@192.0.2.10:443#Synthetic")
         // EditableText is masked by PasswordVisualTransformation; InputText is the exact source value.
         field("Конфигурация или ссылка").assert(SemanticsMatcher.expectValue(SemanticsProperties.InputText,
             AnnotatedString("trojan://synthetic-ui-password@192.0.2.10:443#Synthetic")))
         modalButton("Импортировать", afterTextInput = true)
         awaitData { it.profiles.singleOrNull()?.name == "UI imported tunnel" }
+        awaitNoForm()
         tab("Маршруты")
         compose.onNodeWithContentDescription("Добавить маршрут").performClick()
         compose.onNode(hasText("Адрес") and hasClickAction()).performClick()
@@ -120,6 +127,7 @@ class MobileUiInstrumentedTest {
         assertEditableText("Домены, IP или подсети CIDR", "example.test")
         modalButton("Сохранить маршрут", afterTextInput = true)
         awaitData { it.routes.singleOrNull()?.name == "UI custom route" }
+        awaitNoForm()
         val saved = runBlocking { ProfileStore(context).read() }
         assertEquals("UI custom route", saved.routes.single().name)
         assertEquals("example.test", saved.routes.single().match)
@@ -131,6 +139,7 @@ class MobileUiInstrumentedTest {
         modalButton("Удалить маршрут")
         modalButton("Удалить")
         awaitData { it.routes.isEmpty() }
+        awaitNoForm()
         assertEquals(RuntimePhase.OFF, repository.controller.status.value.phase)
     }
 
@@ -153,6 +162,7 @@ class MobileUiInstrumentedTest {
         compose.onNodeWithContentDescription("Поднять UI Beta").performScrollTo().performClick()
         modalButton("Сохранить группу", afterTextInput = true)
         awaitData { it.groups.singleOrNull()?.members == listOf(beta.id, alpha.id) }
+        awaitNoForm()
         assertEquals("first", repository.data.value!!.groups.single().policy)
         screenshot("04-groups")
         compose.onNode(hasText("Добавленные") and hasClickAction()).performClick()
@@ -162,11 +172,80 @@ class MobileUiInstrumentedTest {
         compose.onNode(hasText("UI Beta") and hasClickAction() and hasAnyAncestor(isDialog())).performClick()
         modalButton("Переназначить и удалить")
         awaitData { value -> value.profiles.none { it.id == alpha.id } && value.routes.single().via == beta.id }
+        awaitNoForm()
         assertEquals(listOf(beta.id), repository.data.value!!.groups.single().members)
         val saved = runBlocking { ProfileStore(context).read() }
         assertEquals(beta.id, saved.routes.single().via)
         assertEquals(listOf(beta.id), saved.groups.single().members)
         assertEquals(RuntimePhase.OFF, repository.controller.status.value.phase)
+    }
+
+    @Test fun tabsAndSectionsRetainFiltersScrollAndDiagnosticDraft() = withFailureCapture("failure-navigation-state") {
+        runBlocking {
+            repository.edit { AppData(routes = List(120) { index ->
+                TrafficRoute("state-route-$index", "Route ${index.toString().padStart(3, '0')}",
+                    "custom", "host$index.example.test", DIRECT_PATH)
+            }) }
+        }
+        awaitData { it.routes.size == 120 }
+        tab("Маршруты")
+        field("Найти маршрут").performTextInput("Route 110")
+        Espresso.closeSoftKeyboard()
+        compose.onNode(hasText("Адреса") and hasClickAction()).performClick()
+        compose.onNodeWithText("Route 110").assertIsDisplayed()
+        tab("Туннели")
+        tab("Маршруты")
+        assertEditableText("Найти маршрут", "Route 110")
+        compose.onNode(hasText("Адреса") and hasClickAction()).assertIsSelected()
+        field("Найти маршрут").performTextClearance()
+        Espresso.closeSoftKeyboard()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Route 119"))
+        compose.onNodeWithText("Route 119").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Маршрут Route 119").assertIsOn().performClick()
+        tab("Главная")
+        awaitData { value -> value.routes.single { it.id == "state-route-119" }.enabled == false }
+        assertFalse(runBlocking { ProfileStore(context).read() }.routes.single { it.id == "state-route-119" }.enabled)
+        tab("Маршруты")
+        compose.onNodeWithText("Route 119").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Маршрут Route 119").assertIsOff()
+        compose.onNodeWithContentDescription("Настройки").performClick()
+        compose.onNodeWithContentDescription("Назад").performClick()
+        compose.onNodeWithText("Route 119").assertIsDisplayed()
+
+        tab("Диагностика")
+        field("Домен или IP").performTextInput("example.test")
+        Espresso.closeSoftKeyboard()
+        compose.onNode(hasText("Соединения") and hasClickAction()).performClick()
+        field("Приложение, адрес или путь").performTextInput("test.app")
+        Espresso.closeSoftKeyboard()
+        compose.onNode(hasText("Проверка") and hasClickAction()).performClick()
+        assertEditableText("Домен или IP", "example.test")
+        compose.onNode(hasText("Соединения") and hasClickAction()).performClick()
+        assertEditableText("Приложение, адрес или путь", "test.app")
+        assertEquals(RuntimePhase.OFF, repository.controller.status.value.phase)
+        assertFalse(repository.requestedOpen.value)
+    }
+
+    @Test fun externalImportConfirmationSurvivesRecreationAndCommitsOnce() = withFailureCapture("failure-external-import") {
+        compose.activityRule.scenario.onActivity { activity ->
+            activity.startActivity(Intent(activity, MainActivity::class.java).setAction(Intent.ACTION_SEND)
+                .setType("text/plain").putExtra(Intent.EXTRA_TEXT,
+                    "trojan://synthetic-external@192.0.2.20:443#External%20rotation")
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP))
+        }
+        awaitText("Импорт из другого приложения")
+        compose.activityRule.scenario.recreate()
+        awaitText("Импорт из другого приложения")
+        compose.onNode(hasText("Импортировать") and hasClickAction() and hasAnyAncestor(isDialog()))
+            .assertIsDisplayed().assertIsEnabled().performClick()
+        compose.activityRule.scenario.recreate()
+        awaitData { it.profiles.singleOrNull()?.name == "External rotation" }
+        compose.waitUntil(15_000) { compose.onAllNodesWithText("Импорт из другого приложения").fetchSemanticsNodes().isEmpty() }
+        val saved = runBlocking { ProfileStore(context).read() }
+        assertEquals(1, saved.profiles.size)
+        assertEquals("External rotation", saved.profiles.single().name)
+        assertEquals(RuntimePhase.OFF, repository.controller.status.value.phase)
+        assertFalse(repository.requestedOpen.value)
     }
 
     private fun tab(label: String) {
@@ -243,6 +322,10 @@ class MobileUiInstrumentedTest {
     }
     private fun awaitData(predicate: (AppData) -> Boolean) {
         compose.waitUntil(15_000) { repository.data.value?.let(predicate) == true }
+        compose.waitForIdle()
+    }
+    private fun awaitNoForm() {
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag("waarp-form-sheet").fetchSemanticsNodes().isEmpty() }
         compose.waitForIdle()
     }
     private fun awaitText(text: String, substring: Boolean = false) {

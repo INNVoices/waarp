@@ -17,6 +17,33 @@ import sys
 import time
 
 
+def parse_instrumentation(output, exit_code, timed_out):
+    """Read AndroidJUnitRunner's protocol, shared by debug and external release gates."""
+    bundle, cases = {}, []
+    expected_tests = 0
+    active_field = None
+    for line in output.splitlines():
+        if line.startswith("INSTRUMENTATION_STATUS: "):
+            key, _, value = line[len("INSTRUMENTATION_STATUS: "):].partition("=")
+            bundle[key] = value
+            active_field = key
+            if key == "numtests":
+                expected_tests = max(expected_tests, int(value))
+        elif line.startswith("INSTRUMENTATION_STATUS_CODE: "):
+            code = int(line.rsplit(" ", 1)[-1])
+            if code <= 0 and bundle.get("class") and bundle.get("test"):
+                status = "passed" if code == 0 else "skipped" if code in (-3, -4) else "failed"
+                cases.append({"class": bundle["class"], "name": bundle["test"], "status": status, "statusCode": code})
+            bundle, active_field = {}, None
+        elif active_field == "stack":
+            bundle[active_field] += "\n" + line
+    final_codes = re.findall(r"^INSTRUMENTATION_CODE: (-?\d+)\s*$", output, re.M)
+    totals = {status: sum(case["status"] == status for case in cases) for status in ("passed", "failed", "skipped")}
+    success = exit_code == 0 and not timed_out and final_codes == ["-1"] and len(cases) > 0 and len(cases) == expected_tests and not totals["failed"] and not totals["skipped"]
+    return {"tests": len(cases), "expectedTests": expected_tests, **totals, "timedOut": timed_out,
+            "passedGate": success, "cases": cases}
+
+
 def capture_preflight(prefix, output):
     """Drain boot broadcasts and record actual guest/host memory before tests."""
     commands = [
@@ -130,30 +157,9 @@ def main():
         timed_out = True
     elapsed = time.monotonic() - started
     (options.output / "instrumentation.txt").write_text(output)
-    bundle = {}
-    cases = []
-    expected_tests = 0
-    active_field = None
-    for line in output.splitlines():
-        if line.startswith("INSTRUMENTATION_STATUS: "):
-            key, _, value = line[len("INSTRUMENTATION_STATUS: "):].partition("=")
-            bundle[key] = value
-            active_field = key
-            if key == "numtests":
-                expected_tests = max(expected_tests, int(value))
-        elif line.startswith("INSTRUMENTATION_STATUS_CODE: "):
-            code = int(line.rsplit(" ", 1)[-1])
-            if code <= 0 and bundle.get("class") and bundle.get("test"):
-                status = "passed" if code == 0 else "skipped" if code in (-3, -4) else "failed"
-                cases.append({"class": bundle["class"], "name": bundle["test"], "status": status, "statusCode": code})
-            bundle = {}
-            active_field = None
-        elif active_field == "stack":
-            bundle[active_field] += "\n" + line
-    final_codes = re.findall(r"^INSTRUMENTATION_CODE: (-?\d+)\s*$", output, re.M)
-    totals = {status: sum(case["status"] == status for case in cases) for status in ("passed", "failed", "skipped")}
-    success = exit_code == 0 and not timed_out and final_codes == ["-1"] and len(cases) > 0 and len(cases) == expected_tests and not totals["failed"] and not totals["skipped"]
-    report = {"schemaVersion": 1, "checkedAtUtc": datetime.now(timezone.utc).isoformat(), "device": device, "preflight": preflight, "wallSeconds": elapsed, "tests": len(cases), "expectedTests": expected_tests, **totals, "timedOut": timed_out, "passedGate": success, "cases": cases}
+    parsed = parse_instrumentation(output, exit_code, timed_out)
+    success = parsed["passedGate"]
+    report = {"schemaVersion": 1, "checkedAtUtc": datetime.now(timezone.utc).isoformat(), "device": device, "preflight": preflight, "wallSeconds": elapsed, **parsed}
     capture_logs(prefix, options.output, failed=not success)
     screenshots = options.output / "ui-screenshots"
     try:
@@ -167,7 +173,7 @@ def main():
     if not required_screenshots.issubset(actual_screenshots):
         success = False
         report["passedGate"] = False
-        report["uiScreenshotError"] = "The three UI instrumentation scenarios did not provide their screenshots."
+        report["uiScreenshotError"] = "The UI instrumentation scenarios did not provide their required screenshots."
     if success:
         startup_samples = []
         for sample in range(3):
@@ -198,7 +204,7 @@ def main():
     if not success:
         capture_logs(prefix, options.output, failed=True)
     (options.output / "result.json").write_text(json.dumps(report, indent=2) + "\n")
-    print(f"Android API {device['sdk']}, pages={page_size}: {len(cases)} tests, {totals['passed']} passed, {totals['failed']} failed, {totals['skipped']} skipped; {elapsed:.1f}s.")
+    print(f"Android API {device['sdk']}, pages={page_size}: {parsed['tests']} tests, {parsed['passed']} passed, {parsed['failed']} failed, {parsed['skipped']} skipped; {elapsed:.1f}s.")
     if not success:
         print(output[-12000:], file=sys.stderr)
     return 0 if success else 1

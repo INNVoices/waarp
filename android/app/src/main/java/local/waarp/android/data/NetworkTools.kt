@@ -3,30 +3,34 @@ package local.waarp.android.data
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.DnsResolver
+import android.net.InetAddresses
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.CancellationSignal
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import local.waarp.android.ui.CatalogSourceUi
 import local.waarp.android.ui.DiagnosticLayerUi
 import local.waarp.android.ui.ObservationResult
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
-import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.InetSocketAddress
-import java.net.Socket
+import java.net.Proxy
 import java.net.URI
-import java.net.URL
 import java.net.URLEncoder
-import java.security.MessageDigest
-import java.util.zip.GZIPInputStream
-import javax.net.ssl.HttpsURLConnection
+import java.net.UnknownHostException
+import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 import kotlin.coroutines.coroutineContext
@@ -36,6 +40,10 @@ data class CatalogResult(val profiles: List<TunnelProfile>, val sources: List<Ca
 /** All probes are actual network operations. TCP reachability is never promoted to tunnel health. */
 class NetworkTools(context: Context) {
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
+    private val http = OkHttpClient.Builder()
+        .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false)
+        .connectTimeout(10, TimeUnit.SECONDS).readTimeout(12, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS).build()
     fun physicalNetwork(): Network? {
         val active = connectivity.activeNetwork
         fun physical(n: Network) = connectivity.getNetworkCapabilities(n)?.let {
@@ -48,31 +56,80 @@ class NetworkTools(context: Context) {
     // The app UID stays inside TUN for native TCP reverse NAT, so bind these
     // HTTPS sockets explicitly to the physical network instead of excluding it.
     suspend fun fetch(url: String, maxBytes: Int = MAX_IMPORT_BYTES, physical: Boolean = true): String = withContext(Dispatchers.IO) {
-        val network = if (physical) physicalNetwork() ?: error("Нет физического подключения к сети") else null
-        var current = URI(url)
-        repeat(5) { redirect ->
-            coroutineContext.ensureActive()
-            require(current.scheme.equals("https", true) && current.host != null && current.rawUserInfo == null) { "Нужна HTTPS-ссылка без логина в адресе" }
-            val connection = (network?.openConnection(current.toURL()) ?: current.toURL().openConnection()) as HttpsURLConnection
-            connection.instanceFollowRedirects = false
-            connection.connectTimeout = 10_000; connection.readTimeout = 12_000
-            connection.setRequestProperty("User-Agent", "Waarp-Android/0.5")
-            connection.setRequestProperty("Accept", if (current.host == "cloudflare-dns.com") "application/dns-json" else "text/plain, application/json, */*")
-            connection.setRequestProperty("Accept-Encoding", "gzip")
-            try {
-                val code = connection.responseCode
-                if (code in setOf(301, 302, 303, 307, 308)) {
-                    require(redirect < 4) { "Слишком много перенаправлений" }
-                    current = current.resolve(connection.getHeaderField("Location") ?: error("Нет адреса перенаправления"))
-                } else {
-                    require(code in 200..299) { "Сервер вернул HTTP $code" }
-                    require(connection.contentLengthLong <= maxBytes || connection.contentLengthLong < 0) { "Ответ сервера слишком большой" }
-                    val input = if (connection.contentEncoding.equals("gzip", true)) GZIPInputStream(connection.inputStream) else connection.inputStream
-                    return@withContext input.use { readBounded(it, maxBytes).toString(Charsets.UTF_8) }
+        NetworkOperation.within(30_000) {
+            require(maxBytes > 0)
+            val network = if (physical) physicalNetwork() ?: error("Нет физического подключения к сети") else null
+            var current = URI(url)
+            repeat(5) { redirect ->
+                coroutineContext.ensureActive()
+                require(current.scheme.equals("https", true) && current.host != null && current.rawUserInfo == null) { "Нужна HTTPS-ссылка без логина в адресе" }
+                val client = clientFor(network, current.host)
+                val request = Request.Builder().url(current.toString())
+                    .header("User-Agent", "Waarp-Android/0.5")
+                    .header("Accept", if (current.host == "cloudflare-dns.com") "application/dns-json" else "text/plain, application/json, */*")
+                    .build()
+                val context = coroutineContext
+                val reply = NetworkOperation.http(client.newCall(request)) { response ->
+                    if (response.code in setOf(301, 302, 303, 307, 308)) {
+                        require(redirect < 4) { "Слишком много перенаправлений" }
+                        FetchReply.Redirect(response.header("Location") ?: error("Нет адреса перенаправления"))
+                    } else {
+                        require(response.isSuccessful) { "Сервер вернул HTTP ${response.code}" }
+                        val body = response.body
+                        require(body.contentLength() <= maxBytes || body.contentLength() < 0) { "Ответ сервера слишком большой" }
+                        // OkHttp transparently decompresses gzip; bound decompressed bytes.
+                        FetchReply.Body(body.byteStream().use { readBounded(it, maxBytes) { context.ensureActive() }.toString(Charsets.UTF_8) })
+                    }
                 }
-            } finally { connection.disconnect() }
+                when (reply) {
+                    is FetchReply.Redirect -> current = current.resolve(reply.location)
+                    is FetchReply.Body -> return@within reply.text
+                }
+            }
+            error("Не удалось загрузить HTTPS-ссылку")
         }
-        error("Не удалось загрузить HTTPS-ссылку")
+    }
+
+    private sealed interface FetchReply {
+        data class Redirect(val location: String) : FetchReply
+        data class Body(val text: String) : FetchReply
+    }
+
+    private suspend fun clientFor(network: Network?, host: String): OkHttpClient {
+        // Resolve before enqueue via Android's asynchronous, cancellable resolver.
+        // Every redirect gets fresh answers on this same physical network. Disable
+        // implicit system proxies: control-plane/diagnostic sockets are explicitly
+        // direct and must never recurse into a saved, currently broken VPN route.
+        val addresses = resolve(network, host)
+        return http.newBuilder().proxy(Proxy.NO_PROXY).dns { requested ->
+            if (!requested.equals(host, true)) throw UnknownHostException("Unexpected HTTP DNS lookup")
+            addresses
+        }.apply { if (network != null) socketFactory(network.socketFactory) }.build()
+    }
+
+    /** Android's asynchronous resolver supplies actual network binding and cancellable DNS. */
+    private suspend fun resolve(network: Network?, host: String): List<InetAddress> = NetworkOperation.within(5_000) {
+        val unbracketed = host.removeSurrounding("[", "]")
+        if (InetAddresses.isNumericAddress(unbracketed)) return@within listOf(InetAddresses.parseNumericAddress(unbracketed))
+        suspendCancellableCoroutine { continuation ->
+            val cancellation = CancellationSignal()
+            continuation.invokeOnCancellation { NetworkOperation.cancel(cancellation::cancel) }
+            if (continuation.isActive) try {
+                DnsResolver.getInstance().query(network, host, DnsResolver.FLAG_EMPTY, Dispatchers.IO.asExecutor(), cancellation,
+                    object : DnsResolver.Callback<List<InetAddress>> {
+                        override fun onAnswer(answer: List<InetAddress>, rcode: Int) {
+                            if (continuation.isActive) continuation.resumeWith(
+                                if (rcode == 0 && answer.isNotEmpty()) Result.success(answer)
+                                else Result.failure(UnknownHostException("No usable DNS answer")))
+                        }
+                        override fun onError(error: DnsResolver.DnsException) {
+                            if (continuation.isActive) continuation.resumeWith(Result.failure(UnknownHostException("DNS resolution failed")))
+                        }
+                    })
+            } catch (error: Exception) {
+                if (continuation.isActive) continuation.resumeWith(Result.failure(error))
+            }
+        }
     }
 
     suspend fun catalog(): CatalogResult = coroutineScope {
@@ -134,7 +191,7 @@ class NetworkTools(context: Context) {
         }
         var addresses = emptyList<InetAddress>()
         observe("Системный DNS · напрямую") {
-            addresses = network.getAllByName(uri.host).toList()
+            addresses = resolve(network, uri.host)
             require(addresses.isNotEmpty()); "${addresses.size} адресов"
         }
         observe("DNS over HTTPS · Cloudflare") {
@@ -150,24 +207,33 @@ class NetworkTools(context: Context) {
         val port = if (uri.port == -1) 443 else uri.port
         observe("TCP · напрямую") {
             val start = System.nanoTime()
-            network.socketFactory.createSocket().use { socket -> socket.connect(InetSocketAddress(address, port), 5000) }
+            network.socketFactory.createSocket().use { socket ->
+                NetworkOperation.within(7_000) {
+                    NetworkOperation.call(socket::close) { socket.connect(InetSocketAddress(address, port), 5000) }
+                }
+            }
             "Соединение установлено, ${(System.nanoTime() - start) / 1_000_000} мс"
         }
         observe("TLS · проверка сертификата") {
             val socket = network.socketFactory.createSocket()
             try {
-                socket.connect(InetSocketAddress(address, port), 5000); socket.soTimeout = 7000
-                ((SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(socket, uri.host, port, true) as SSLSocket).use { tls ->
-                    tls.sslParameters = tls.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
-                    tls.startHandshake(); "${tls.session.protocol}, имя и цепочка сертификата проверены"
+                NetworkOperation.within(14_000) {
+                    NetworkOperation.call(socket::close) {
+                        socket.connect(InetSocketAddress(address, port), 5000); socket.soTimeout = 7000
+                        ((SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(socket, uri.host, port, true) as SSLSocket).use { tls ->
+                            tls.sslParameters = tls.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
+                            tls.startHandshake(); "${tls.session.protocol}, имя и цепочка сертификата проверены"
+                        }
+                    }
                 }
             } finally { socket.close() }
         }
         observe("HTTP · напрямую") {
-            val connection = network.openConnection(uri.toURL()) as HttpsURLConnection
-            connection.instanceFollowRedirects = false; connection.connectTimeout = 5000; connection.readTimeout = 7000
-            connection.requestMethod = "HEAD"
-            try { "Ответ HTTP ${connection.responseCode}" } finally { connection.disconnect() }
+            NetworkOperation.within(12_000) {
+                val client = clientFor(network, uri.host)
+                val request = Request.Builder().url(uri.toString()).head().build()
+                NetworkOperation.http(client.newCall(request)) { "Ответ HTTP ${it.code}" }
+            }
         }
         result
     }
@@ -181,9 +247,9 @@ class NetworkTools(context: Context) {
             "igareck · SS" to "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_SS%2BAll_RUS.txt",
             "VPN Gate" to "https://www.vpngate.net/api/iphone/",
         )
-        fun readBounded(input: InputStream, limit: Int = MAX_IMPORT_BYTES): ByteArray {
+        fun readBounded(input: InputStream, limit: Int = MAX_IMPORT_BYTES, checkActive: () -> Unit = {}): ByteArray {
             val output = ByteArrayOutputStream(); val buffer = ByteArray(8192)
-            while (true) { val n = input.read(buffer); if (n < 0) break; require(output.size() + n <= limit) { "Файл слишком большой" }; output.write(buffer, 0, n) }
+            while (true) { checkActive(); val n = input.read(buffer); if (n < 0) break; require(output.size() + n <= limit) { "Файл слишком большой" }; output.write(buffer, 0, n) }
             return output.toByteArray()
         }
         fun safeError(error: Throwable): String = when (error) {

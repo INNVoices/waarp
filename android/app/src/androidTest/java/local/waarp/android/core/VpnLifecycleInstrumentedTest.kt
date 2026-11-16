@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.VpnService
 import android.os.Build
+import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.core.app.ActivityScenario
 import androidx.core.content.ContextCompat
@@ -15,6 +16,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -262,6 +265,41 @@ class VpnLifecycleInstrumentedTest {
             assertTrue(controller.status.value.message.orEmpty().contains("профиль уже удалён"))
             assertEquals(null, RuntimeState.backend.get())
         } finally { RuntimeState.configurationProvider = previous }
+    }
+
+    @Test fun offCancelsAWaitingConfigurationProviderBeforeTheNativeLaneCanDeadlock() = runBlocking {
+        val previous = RuntimeState.configurationProvider
+        val entered = CompletableDeferred<Unit>()
+        val cancelled = CompletableDeferred<Unit>()
+        try {
+            controller.setConfigurationProvider {
+                entered.complete(Unit)
+                try { awaitCancellation() }
+                finally { cancelled.complete(Unit) }
+            }
+            context.getSharedPreferences(VpnController.PREFERENCES, Context.MODE_PRIVATE)
+                .edit().putBoolean(VpnController.WANTED, true).commit()
+            context.startForegroundService(Intent(context, WaarpVpnService::class.java).setAction(VpnService.SERVICE_INTERFACE))
+            withTimeout(10_000) { entered.await() }
+            assertEquals(RuntimePhase.STARTING, controller.status.value.phase)
+
+            val stoppedAt = SystemClock.elapsedRealtime()
+            controller.stop()
+            // Do not manually release the provider: only production STOP can
+            // cancel it. Waiting for its old 20-second timeout must fail here.
+            withTimeout(5_000) {
+                cancelled.await()
+                controller.status.first { it.phase == RuntimePhase.OFF }
+            }
+            assertTrue("OFF must finish within 5 seconds despite a suspended provider",
+                SystemClock.elapsedRealtime() - stoppedAt < 5_000)
+            assertTrue(cancelled.isCompleted)
+            assertFalse(RuntimeState.wanted())
+            assertEquals(null, RuntimeState.backend.get())
+        } finally {
+            controller.stop()
+            RuntimeState.configurationProvider = previous
+        }
     }
 
     private fun tunConfiguration(): String = """

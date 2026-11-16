@@ -1,7 +1,5 @@
 package local.waarp.android.ui
 
-import android.graphics.drawable.Drawable
-
 const val DIRECT_PATH = "direct"
 const val AUTO_PATH = "g-auto"
 
@@ -19,12 +17,13 @@ data class MobileState(
     val flows: List<FlowUi> = emptyList(),
     val latencyHistory: List<LatencySeriesUi> = emptyList(),
     val diagnostic: DiagnosticUi? = null,
-    val logs: List<String> = emptyList(),
+    val logs: List<LogLineUi> = emptyList(),
     val notices: List<NoticeUi> = emptyList(),
     val error: String? = null,
     val message: UiMessage? = null,
     val appVersion: String = "",
     val engineVersion: String = "",
+    val backgroundTask: String? = null,
 )
 
 enum class ConnectionPhase { OFF, STARTING, ON, STOPPING, ERROR }
@@ -104,7 +103,7 @@ data class AppUi(
     val name: String,
     val uid: Int,
     val system: Boolean = false,
-    val icon: Drawable? = null,
+    val versionCode: Long = 0,
 )
 
 data class PresetUi(val id: String, val name: String, val description: String, val domains: List<String> = emptyList())
@@ -152,6 +151,7 @@ data class PublicNodeUi(
     val sourceLabel: String = "Публичный источник",
     val latencyMs: Double? = null,
     val health: TunnelHealth = TunnelHealth.UNKNOWN,
+    val added: Boolean = false,
 )
 
 data class CatalogSourceUi(val name: String, val count: Int, val ok: Boolean, val error: String? = null)
@@ -167,6 +167,8 @@ data class FlowUi(
     val downloadedBytes: Long = 0,
     val uploadedBytes: Long = 0,
 )
+
+data class LogLineUi(val id: Long, val text: String)
 
 data class LatencySeriesUi(val id: String, val name: String, val samplesMs: List<Double?>)
 data class DiagnosticLayerUi(val name: String, val result: ObservationResult, val detail: String = "")

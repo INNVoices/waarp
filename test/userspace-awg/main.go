@@ -594,13 +594,14 @@ func main() {
 	androidServer := flag.Bool("android-server", false, "Serve one ephemeral Android AWG2 test peer on loopback only")
 	androidPort := flag.Int("android-port", 18081, "Loopback TCP control and UDP AWG port for the Android acceptance fixture")
 	androidReport := flag.String("android-report", "", "Write only boolean/counter evidence after the Android fixture stops")
+	androidDuration := flag.Duration("android-duration", 30*time.Minute, "Android fixture lifetime (1m to 4h; use 3h for the two-hour release soak)")
 	flag.Parse()
 	if *androidServer {
-		if *path != "" || *network || *selfTest || *hold != 0 || *androidPort < 1024 || *androidPort > 65535 || *androidReport == "" {
+		if *path != "" || *network || *selfTest || *hold != 0 || *androidPort < 1024 || *androidPort > 65535 || *androidReport == "" || *androidDuration < time.Minute || *androidDuration > 4*time.Hour {
 			fmt.Println(`{"error_stage":"arguments","error_category":"invalid_android_fixture_arguments"}`)
 			os.Exit(2)
 		}
-		if err := executeAndroidServer(*androidPort, *androidReport); err != nil {
+		if err := executeAndroidServerFor(*androidPort, *androidReport, *androidDuration); err != nil {
 			fmt.Println(`{"error_stage":"android_fixture","error_category":"operation_failed"}`)
 			os.Exit(1)
 		}

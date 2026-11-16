@@ -20,9 +20,11 @@ import urllib.request
 
 BOOL_FIELDS = {
     "client_registered", "authenticated_handshake", "awg_handshake_header_padding_observed",
-    "awg_transport_header_padding_observed", "plaintext_dns_absent_from_outer_udp", "stopped", "passed",
+    "awg_transport_header_padding_observed", "plaintext_dns_absent_from_outer_udp", "stopped", "passed", "http_server_started",
 }
-COUNT_FIELDS = {"encrypted_dns_replies", "outer_datagrams_sent", "outer_datagrams_received", "device_error_events"}
+COUNT_FIELDS = {"encrypted_dns_replies", "outer_datagrams_sent", "outer_datagrams_received", "device_error_events",
+                "encrypted_dns_unique_queries", "encrypted_http_requests", "encrypted_http_unique_requests", "encrypted_http_bytes",
+                "first_encrypted_request_unix_ms", "last_encrypted_request_unix_ms"}
 
 
 def process_identity(pid):
@@ -68,7 +70,7 @@ def read_proof(path):
         raise ValueError("AWG proof has a non-boolean status.")
     if any(type(proof[key]) is not int or proof[key] < 0 for key in COUNT_FIELDS):
         raise ValueError("AWG proof has a non-counter value.")
-    passed = all(proof[key] for key in BOOL_FIELDS - {"passed"}) and proof["encrypted_dns_replies"] >= 2 and \
+    passed = all(proof[key] for key in BOOL_FIELDS - {"passed", "http_server_started"}) and proof["encrypted_dns_replies"] >= 2 and \
         proof["outer_datagrams_sent"] > 0 and proof["outer_datagrams_received"] > 0 and proof["device_error_events"] == 0
     if proof["passed"] != passed:
         raise ValueError("AWG proof verdict disagrees with its recorded counters.")
@@ -83,6 +85,7 @@ def main():
     parser.add_argument("--port", type=int, default=18081)
     parser.add_argument("--state-dir", type=Path)
     parser.add_argument("--require-passed", action="store_true")
+    parser.add_argument("--duration", default="30m", help="Owned peer lifetime: Go duration from 1m to 4h")
     options = parser.parse_args()
     state_dir = options.state_dir
     if state_dir is None:
@@ -108,7 +111,7 @@ def main():
         raw_report = (state_dir / "raw-proof.json").resolve()
         raw_report.unlink(missing_ok=True)
         child = subprocess.Popen([str(binary), "--android-server", "--android-port", str(options.port),
-                                  "--android-report", str(raw_report)], stdin=subprocess.DEVNULL,
+                                  "--android-report", str(raw_report), "--android-duration", options.duration], stdin=subprocess.DEVNULL,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         identity = process_identity(child.pid)
         if identity is None or identity["binary"] != str(binary):

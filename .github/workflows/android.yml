@@ -78,6 +78,17 @@ jobs:
             android/app/build/outputs/mapping/release/
             out/android/*.json
           retention-days: 14
+      - name: Upload optimized release acceptance inputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: waarp-android-release-inputs
+          path: |
+            out/android/*-x86_64-release-unsigned.apk
+            out/android/waarp-android-release-acceptance.apk
+            out/android/artifacts.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
 
   instrumented:
     name: Native VPN API ${{ matrix.api }} / ${{ matrix.page-size }}B
@@ -173,5 +184,145 @@ jobs:
         with:
           name: waarp-android-api-${{ matrix.api }}-${{ matrix.page-size }}-runtime
           path: out/android/device-tests/
+          if-no-files-found: error
+          retention-days: 14
+
+  release_journeys:
+    name: Optimized release API ${{ matrix.api }} / ${{ matrix.page-size }}B
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 29
+            target: google_apis
+            page-size: 4096
+            ram: 2048M
+          - api: 35
+            target: google_apis
+            page-size: 4096
+            ram: 4096M
+          - api: 36
+            target: google_apis_ps16k
+            page-size: 16384
+            ram: 4096M
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17.0.21+9'
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.26.11'
+          cache-dependency-path: test/userspace-awg/go.sum
+      - name: Build the pinned authenticated AWG2 DNS and HTTP peer
+        working-directory: test/userspace-awg
+        run: go build -trimpath -buildvcs=false -o "$RUNNER_TEMP/awg-android-fixture" .
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: waarp-android-release-inputs
+          path: out/android
+      - name: Install verification tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'build-tools;35.0.0' 'platform-tools'
+      - name: Enable KVM on the disposable GitHub runner
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Exercise optimized release journeys with real encrypted traffic
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: ${{ matrix.target }}
+          arch: x86_64
+          profile: pixel_6
+          ram-size: ${{ matrix.ram }}
+          heap-size: 512M
+          disable-animations: true
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+          script: |
+            python3 scripts/android-awg-control.py start --binary "$RUNNER_TEMP/awg-android-fixture" --duration 30m --report out/android/release-journeys/awg-proof.json
+            python3 scripts/android-release-run.py --mode journeys --expect-page-size ${{ matrix.page-size }} --output out/android/release-journeys --duration-seconds 7200 --interval-seconds 15 --disposable-emulator
+      - name: Stop the owned AWG peer and verify authenticated traffic
+        if: always()
+        run: python3 scripts/android-awg-control.py stop --require-passed
+      - name: Reconcile device journeys, raw metrics and independent encrypted peer proof
+        if: always()
+        run: python3 scripts/android-release-proof.py --directory out/android/release-journeys
+      - name: Preserve optimized release evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: waarp-android-release-api-${{ matrix.api }}-${{ matrix.page-size }}-runtime
+          path: out/android/release-journeys/
+          if-no-files-found: error
+          retention-days: 14
+
+  release_soak:
+    name: Optimized release 2h AWG2 soak / API 36 / 16KB
+    needs: [instrumented, release_journeys]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 165
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17.0.21+9'
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.26.11'
+          cache-dependency-path: test/userspace-awg/go.sum
+      - name: Build the pinned authenticated AWG2 DNS and HTTP peer
+        working-directory: test/userspace-awg
+        run: go build -trimpath -buildvcs=false -o "$RUNNER_TEMP/awg-android-fixture" .
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: waarp-android-release-inputs
+          path: out/android
+      - name: Install verification tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'build-tools;35.0.0' 'platform-tools'
+      - name: Enable KVM on the disposable GitHub runner
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Exercise optimized release soak with real encrypted traffic
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 36
+          target: google_apis_ps16k
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 4096M
+          heap-size: 512M
+          disable-animations: true
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+          script: |
+            python3 scripts/android-awg-control.py start --binary "$RUNNER_TEMP/awg-android-fixture" --duration 3h --report out/android/release-soak/awg-proof.json
+            python3 scripts/android-release-run.py --mode soak --expect-page-size 16384 --output out/android/release-soak --duration-seconds 7200 --interval-seconds 15 --disposable-emulator
+      - name: Stop the owned AWG peer and verify authenticated traffic
+        if: always()
+        run: python3 scripts/android-awg-control.py stop --require-passed
+      - name: Reconcile device journeys, raw metrics and independent encrypted peer proof
+        if: always()
+        run: python3 scripts/android-release-proof.py --directory out/android/release-soak
+      - name: Preserve optimized release evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: waarp-android-release-2h-soak
+          path: out/android/release-soak/
           if-no-files-found: error
           retention-days: 14

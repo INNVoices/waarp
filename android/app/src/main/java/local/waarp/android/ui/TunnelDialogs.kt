@@ -36,15 +36,15 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 internal fun ImportSheet(actions: MobileActions, onDismiss: () -> Unit, externalMessage: UiMessage? = null) {
-    val operation = rememberUiOperation()
+    val operation = rememberModalOperation(onDismiss)
     var mode by rememberSaveable { mutableStateOf("text") }
     var name by rememberSaveable { mutableStateOf("") }
     // Credentials must never enter Android's saved instance state or persistent screen DTOs.
-    var text by remember { mutableStateOf("") }
+    var text by rememberModalText("configuration")
     var visible by remember { mutableStateOf(false) }
-    var address by remember { mutableStateOf("") }
-    var endpoint by remember { mutableStateOf("") }
-    var publicKey by remember { mutableStateOf("") }
+    var address by rememberModalText("address")
+    var endpoint by rememberModalText("endpoint")
+    var publicKey by rememberModalText("public-key")
     val initialMessage = remember { externalMessage?.id }
     var externalFeedback by remember { mutableStateOf<UiMessage?>(null) }
     LaunchedEffect(externalMessage?.id) {
@@ -85,8 +85,8 @@ internal fun ImportSheet(actions: MobileActions, onDismiss: () -> Unit, external
         ActionButton(if (mode == "wireguard") "Создать WireGuard" else "Импортировать", operation.busy,
             enabled = if (mode == "wireguard") name.isNotBlank() && address.isNotBlank() && endpoint.isNotBlank() && publicKey.isNotBlank() else text.isNotBlank(),
             onClick = {
-                operation.run({ if (mode == "wireguard") actions.createWireGuard(WireGuardDraft(name.trim(), address.trim(), endpoint.trim(), publicKey.trim()))
-                    else actions.importText(text.trim(), name.trim()) }, { text = ""; publicKey = ""; onDismiss() })
+                operation.submit({ if (mode == "wireguard") actions.createWireGuard(WireGuardDraft(name.trim(), address.trim(), endpoint.trim(), publicKey.trim()))
+                    else actions.importText(text.trim(), name.trim()) })
             }, modifier = Modifier.fillMaxWidth())
     }
 }
@@ -94,7 +94,7 @@ internal fun ImportSheet(actions: MobileActions, onDismiss: () -> Unit, external
 @Composable
 internal fun TunnelDetailsSheet(profile: TunnelUi, state: MobileState, actions: MobileActions, onDismiss: () -> Unit,
     onRename: () -> Unit, onReplace: () -> Unit, onDelete: () -> Unit) {
-    val operation = rememberUiOperation()
+    val operation = rememberModalOperation()
     FormSheet(profile.name, operation.busy, onDismiss) {
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) { HealthLabel(profile.health, profile.latencyMs); SourceBadge(profile.source) }
         SelectionContainer {
@@ -134,20 +134,20 @@ internal fun TunnelDetailsSheet(profile: TunnelUi, state: MobileState, actions: 
 
 @Composable
 internal fun RenameTunnelSheet(profile: TunnelUi, actions: MobileActions, onDismiss: () -> Unit) {
-    val operation = rememberUiOperation()
+    val operation = rememberModalOperation(onDismiss)
     var name by rememberSaveable(profile.id) { mutableStateOf(profile.name) }
     FormSheet("Название туннеля", operation.busy, onDismiss) {
         OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Название") }, singleLine = true, enabled = !operation.busy)
         OperationFeedback(operation)
         ActionButton("Сохранить", operation.busy, name.isNotBlank() && profile.canRename,
-            onClick = { operation.run({ actions.renameTunnel(profile.id, name.trim()) }, onDismiss) }, modifier = Modifier.fillMaxWidth())
+            onClick = { operation.submit({ actions.renameTunnel(profile.id, name.trim()) }) }, modifier = Modifier.fillMaxWidth())
     }
 }
 
 @Composable
 internal fun ReplaceTunnelSheet(profile: TunnelUi, actions: MobileActions, onDismiss: () -> Unit, externalMessage: UiMessage? = null) {
-    val operation = rememberUiOperation()
-    var text by remember { mutableStateOf("") }
+    val operation = rememberModalOperation(onDismiss)
+    var text by rememberModalText("configuration")
     var visible by remember { mutableStateOf(false) }
     val initialMessage = remember { externalMessage?.id }
     var externalFeedback by remember { mutableStateOf<UiMessage?>(null) }
@@ -165,7 +165,7 @@ internal fun ReplaceTunnelSheet(profile: TunnelUi, actions: MobileActions, onDis
             trailingIcon = { IconButton(onClick = { visible = !visible }) { Icon(if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, if (visible) "Скрыть данные" else "Показать данные") } })
         OperationFeedback(operation)
         ActionButton("Проверить и заменить", operation.busy, text.isNotBlank() && profile.canReplace,
-            onClick = { operation.run({ actions.replaceTunnel(profile.id, text.trim()) }, { text = ""; onDismiss() }) }, modifier = Modifier.fillMaxWidth())
+            onClick = { operation.submit({ actions.replaceTunnel(profile.id, text.trim()) }) }, modifier = Modifier.fillMaxWidth())
     }
 }
 
@@ -173,8 +173,8 @@ internal fun ReplaceTunnelSheet(profile: TunnelUi, actions: MobileActions, onDis
 internal fun DeletePathSheet(state: MobileState, actions: MobileActions, id: String?, group: Boolean, onDismiss: () -> Unit) {
     if (id == null) { MissingItemSheet(onDismiss); return }
     val exists = if (group) state.groups.any { it.id == id && it.id != AUTO_PATH } else state.profiles.any { it.id == id && it.canDelete }
-    if (!exists) { MissingItemSheet(onDismiss); return }
-    val operation = rememberUiOperation()
+    val operation = rememberModalOperation(onDismiss)
+    if (!exists) { PendingRemovalSheet(operation, onDismiss); return }
     var replacement by rememberSaveable { mutableStateOf<String?>(null) }
     val affectedRoutes = state.routes.filter { it.viaId == id || it.fallbackViaId == id }
     val affectedGroups = if (group) emptyList() else state.groups.filter { it.id != AUTO_PATH && id in it.members }
@@ -189,22 +189,28 @@ internal fun DeletePathSheet(state: MobileState, actions: MobileActions, id: Str
             if (remaining.none { it.source != ProfileSource.PUBLIC }) add(AUTO_PATH)
         }
     }
-    val choices = listOf(PathChoice("", "Без переназначения", "Сохранить заблокированные назначения")) + pathChoices(state, excluded = excluded)
+    val choices = listOf(PathChoice("", "Без переназначения", "Сохранить заблокированные назначения")) + rememberPathChoices(state, excluded = excluded)
     FormSheet("Удалить ${if (group) "группу" else "туннель"}?", operation.busy, onDismiss) {
         Text(pathName(state, id), style = MaterialTheme.typography.titleMedium)
         if (affectedRoutes.isNotEmpty() || affectedGroups.isNotEmpty() || isDefault || isSystemDns) {
             Text("Затронутые назначения", fontWeight = FontWeight.SemiBold)
             if (isDefault) Text("• Общий путь устройства", style = MaterialTheme.typography.bodyMedium)
             if (isSystemDns) Text("• Общий DNS Android", style = MaterialTheme.typography.bodyMedium)
-            affectedRoutes.forEach { route -> Text("• ${route.name} — ${if (route.viaId == id) "основной" else "резервный"} путь", style = MaterialTheme.typography.bodyMedium) }
-            affectedGroups.forEach { item -> Text("• Группа «${item.name}»", style = MaterialTheme.typography.bodyMedium) }
+            if (affectedRoutes.isNotEmpty() || affectedGroups.isNotEmpty()) LazyColumn(Modifier.fillMaxWidth().heightIn(max = 240.dp)) {
+                items(affectedRoutes, key = { "route-${it.id}" }, contentType = { "assignment" }) { route ->
+                    Text("• ${route.name} — ${if (route.viaId == id) "основной" else "резервный"} путь", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 6.dp))
+                }
+                items(affectedGroups, key = { "group-${it.id}" }, contentType = { "assignment" }) { item ->
+                    Text("• Группа «${item.name}»", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 6.dp))
+                }
+            }
             PathField("Куда переназначить маршруты", replacement ?: "", choices, !operation.busy) { replacement = it.takeIf(String::isNotBlank) }
             if (replacement == null) InlineMessage("Маршруты, которым больше некуда подключаться, останутся заблокированы. Самостоятельного перехода напрямую не будет.")
             if (isSystemDns && replacement == null) InlineMessage("Общий DNS останется заблокирован до выбора доступного пути.")
             if (replacement == DIRECT_PATH) InlineMessage("Ты явно выбираешь прямое подключение для затронутых назначений. Эти соединения пойдут вне туннеля.")
         } else Text(if (group) "Группа не назначена маршрутам. Её туннели останутся в списке." else "Туннель не назначен маршрутам. Его можно будет добавить снова через импорт.", color = WaarpMuted)
         OperationFeedback(operation)
-        Button(onClick = { operation.run({ if (group) actions.deleteGroup(id, replacement) else actions.removeTunnel(id, replacement) }, onDismiss) },
+        Button(onClick = { operation.submit({ if (group) actions.deleteGroup(id, replacement) else actions.removeTunnel(id, replacement) }) },
             enabled = !operation.busy, modifier = Modifier.fillMaxWidth().height(50.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) {
             if (operation.busy) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }
@@ -218,13 +224,16 @@ internal fun DeletePathSheet(state: MobileState, actions: MobileActions, id: Str
 internal fun GroupEditorSheet(state: MobileState, actions: MobileActions, id: String?, onDismiss: () -> Unit, onDelete: () -> Unit) {
     if (id == AUTO_PATH) { AutoDetailsSheet(state, onDismiss); return }
     val existing = state.groups.find { it.id == id }
-    if (id != null && existing == null) { MissingItemSheet(onDismiss); return }
-    val operation = rememberUiOperation()
+    val operation = rememberModalOperation(onDismiss)
+    if (id != null && existing == null) { PendingRemovalSheet(operation, onDismiss); return }
     var name by rememberSaveable { mutableStateOf(existing?.name.orEmpty()) }
     var policy by rememberSaveable { mutableStateOf(existing?.policy?.name ?: GroupPolicy.FASTEST.name) }
     var members by rememberSaveable { mutableStateOf(existing?.members ?: emptyList()) }
     var query by rememberSaveable { mutableStateOf("") }
-    val candidates = state.profiles.filter { !it.revoked && !it.subscriptionMissing && (it.name.contains(query, true) || it.protocol.contains(query, true)) }
+    val candidates = remember(state.profiles, query) { state.profiles.filter { !it.revoked && !it.subscriptionMissing && (it.name.contains(query, true) || it.protocol.contains(query, true)) } }
+    val names = rememberPathNames(state)
+    val membership = remember(members) { members.toHashSet() }
+    val hasPublic = remember(state.profiles, membership) { state.profiles.any { it.id in membership && it.source == ProfileSource.PUBLIC } }
     FormSheet(if (id == null) "Новая группа" else "Изменить группу", operation.busy, onDismiss) {
         OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Название группы") }, singleLine = true, enabled = !operation.busy)
         Text("Как выбирать туннель", style = MaterialTheme.typography.titleSmall)
@@ -237,32 +246,36 @@ internal fun GroupEditorSheet(state: MobileState, actions: MobileActions, id: St
             else "Выбор среди доступных по измеренной задержке; порядок задаёт предпочтение при равных результатах.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
         if (members.isNotEmpty()) {
             SectionHeading("В группе · ${members.size}")
-            members.forEachIndexed { index, member ->
+            LazyColumn(Modifier.testTag("group-members").fillMaxWidth().heightIn(max = 280.dp)) {
+            items(members.size, key = { members[it] }, contentType = { "member" }) { index ->
+                val member = members[index]
+                val memberName = names[member] ?: "Недоступный путь"
                 Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("${index + 1}", Modifier.width(28.dp), color = WaarpMuted)
-                    Text(pathName(state, member), Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    IconButton(onClick = { members = members.toMutableList().apply { add(index - 1, removeAt(index)) }.toList() }, enabled = index > 0 && !operation.busy, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.ArrowUpward, "Поднять ${pathName(state, member)}") }
-                    IconButton(onClick = { members = members.toMutableList().apply { add(index + 1, removeAt(index)) }.toList() }, enabled = index < members.lastIndex && !operation.busy, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.ArrowDownward, "Опустить ${pathName(state, member)}") }
-                    IconButton(onClick = { members = members - member }, enabled = !operation.busy, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.DeleteOutline, "Убрать ${pathName(state, member)} из группы") }
+                    Text(memberName, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    IconButton(onClick = { members = members.toMutableList().apply { add(index - 1, removeAt(index)) }.toList() }, enabled = index > 0 && !operation.busy, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.ArrowUpward, "Поднять ${memberName}") }
+                    IconButton(onClick = { members = members.toMutableList().apply { add(index + 1, removeAt(index)) }.toList() }, enabled = index < members.lastIndex && !operation.busy, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.ArrowDownward, "Опустить ${memberName}") }
+                    IconButton(onClick = { members = members - member }, enabled = !operation.busy, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.DeleteOutline, "Убрать ${memberName} из группы") }
                 }
+            }
             }
         }
         SearchField(query, { query = it }, "Добавить туннели в группу")
         if (candidates.isEmpty()) Text("Доступных туннелей не найдено. Сначала добавь или восстанови профиль.", color = WaarpMuted)
         else LazyColumn(Modifier.testTag("group-candidates").fillMaxWidth().heightIn(max = 280.dp)) {
-            items(candidates, key = { it.id }) { profile ->
-                Row(Modifier.fillMaxWidth().toggleable(value = profile.id in members, enabled = !operation.busy, role = Role.Checkbox, onValueChange = { checked -> members = if (checked) members + profile.id else members - profile.id })
+            items(candidates, key = { it.id }, contentType = { "candidate" }) { profile ->
+                Row(Modifier.fillMaxWidth().toggleable(value = profile.id in membership, enabled = !operation.busy, role = Role.Checkbox, onValueChange = { checked -> members = if (checked) members + profile.id else members - profile.id })
                     .heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(profile.id in members, onCheckedChange = null, enabled = !operation.busy)
+                    Checkbox(profile.id in membership, onCheckedChange = null, enabled = !operation.busy)
                     Column(Modifier.weight(1f)) { Text(profile.name); Text(profile.protocol, style = MaterialTheme.typography.bodySmall, color = WaarpMuted); SourceBadge(profile.source) }
                     HealthLabel(profile.health, profile.latencyMs)
                 }
             }
         }
-        if (members.any { member -> state.profiles.any { it.id == member && it.source == ProfileSource.PUBLIC } }) InlineMessage("Группа содержит публичный сервер. Назначай её только маршрутам, для которых доверяешь этим владельцам.")
+        if (hasPublic) InlineMessage("Группа содержит публичный сервер. Назначай её только маршрутам, для которых доверяешь этим владельцам.")
         OperationFeedback(operation)
         ActionButton("Сохранить группу", operation.busy, name.isNotBlank() && members.isNotEmpty(),
-            onClick = { operation.run({ actions.saveGroup(GroupDraft(id, name.trim(), GroupPolicy.valueOf(policy), members)) }, onDismiss) }, modifier = Modifier.fillMaxWidth())
+            onClick = { operation.submit({ actions.saveGroup(GroupDraft(id, name.trim(), GroupPolicy.valueOf(policy), members)) }) }, modifier = Modifier.fillMaxWidth())
         if (existing != null) TextButton(onClick = onDelete, enabled = !operation.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Icon(Icons.Outlined.DeleteOutline, null); Spacer(Modifier.width(8.dp)); Text("Удалить группу") }
     }
 }
@@ -270,20 +283,38 @@ internal fun GroupEditorSheet(state: MobileState, actions: MobileActions, id: St
 @Composable
 private fun AutoDetailsSheet(state: MobileState, onDismiss: () -> Unit) {
     val automatic = state.groups.find { it.id == AUTO_PATH }
-    val eligible = state.profiles.filter { it.source != ProfileSource.PUBLIC && !it.revoked && !it.subscriptionMissing }
+    val eligible = remember(state.profiles) { state.profiles.filter { it.source != ProfileSource.PUBLIC && !it.revoked && !it.subscriptionMissing } }
     FormSheet("Автоматический путь", false, onDismiss) {
         Text("Авто выбирает рабочий путь из собственных туннелей. Публичные, отозванные и пропавшие из подписки профили исключены.", color = WaarpMuted)
         Text("Переключение опирается на проверки доступности; небольшое изменение задержки не должно вызывать постоянную смену сервера.", color = WaarpMuted, style = MaterialTheme.typography.bodySmall)
         automatic?.selectedMemberId?.let { KeyValue("Сейчас выбран", pathName(state, it)) }
         state.status.autoPoolTotal?.let { KeyValue("Рабочий пул", "${state.status.autoPoolLive ?: 0} из $it") }
         SectionHeading("Подходящие туннели", "${eligible.size} профилей")
-        eligible.forEach { profile ->
+        if (eligible.isNotEmpty()) LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
+        items(eligible, key = { it.id }, contentType = { "eligible" }) { profile ->
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(profile.name, Modifier.weight(1f)); HealthLabel(profile.health, profile.latencyMs)
             }
         }
+        }
         if (eligible.isEmpty()) InlineMessage("Добавь собственный туннель, чтобы использовать Авто.")
         InlineMessage("Когда доступных путей нет, назначенные на Авто соединения блокируются. Прямой путь выбирается отдельно.")
         Button(onClick = onDismiss, Modifier.fillMaxWidth().height(50.dp)) { Text("Понятно") }
+    }
+}
+
+@Composable
+internal fun PendingRemovalSheet(operation: UiOperation, onDismiss: () -> Unit) {
+    when {
+        operation.completions > 0 -> Unit // The retained completion closes the current form.
+        operation.busy || operation.error != null -> FormSheet("Применяем изменения", operation.busy, onDismiss) {
+            if (operation.busy) {
+                CircularProgressIndicator(Modifier.size(28.dp))
+                Text("Дожидаемся завершения сохранения и применения настроек VPN.", color = WaarpMuted)
+            }
+            OperationFeedback(operation)
+            if (!operation.busy) Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("Закрыть") }
+        }
+        else -> MissingItemSheet(onDismiss)
     }
 }

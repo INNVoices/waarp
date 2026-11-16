@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -29,14 +30,20 @@ import java.util.Date
 internal fun TunnelsScreen(state: MobileState, actions: MobileActions, onTunnel: (String) -> Unit, onGroup: (String) -> Unit,
     onAddGroup: () -> Unit, onImport: () -> Unit) {
     var section by rememberSaveable { mutableStateOf("profiles") }
-    var query by rememberSaveable { mutableStateOf("") }
+    val screens = rememberSaveableStateHolder()
+    val names = rememberPathNames(state)
     val operation = rememberUiOperation()
     Column(Modifier.fillMaxSize()) {
         FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("profiles" to "Добавленные", "groups" to "Группы", "public" to "Публичные").forEach { (key, label) ->
-                FilterChip(section == key, onClick = { section = key; query = "" }, label = { Text(label) }, modifier = Modifier.heightIn(min = 48.dp))
+                FilterChip(section == key, onClick = { section = key }, label = { Text(label) }, modifier = Modifier.heightIn(min = 48.dp))
             }
         }
+        screens.SaveableStateProvider(section) {
+        var query by rememberSaveable { mutableStateOf("") }
+        val filteredProfiles = remember(state.profiles, query) { state.profiles.filter { p ->
+            p.name.contains(query, true) || p.protocol.contains(query, true) || p.host.contains(query, true) } }
+        val filteredGroups = remember(state.groups, query) { state.groups.filter { it.id != AUTO_PATH && it.name.contains(query, true) } }
         if (section == "public") {
             PublicCatalog(state, actions)
         } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 104.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -51,14 +58,14 @@ internal fun TunnelsScreen(state: MobileState, actions: MobileActions, onTunnel:
                 OperationFeedback(operation)
             }
             if (section == "profiles") {
-                val filtered = state.profiles.filter { p -> listOf(p.name, p.protocol, p.host).any { it.contains(query, true) } }
+                val filtered = filteredProfiles
                 if (filtered.isEmpty()) item {
                     EmptyState(Icons.Outlined.Hub, if (state.profiles.isEmpty()) "Добавь первый туннель" else "Ничего не найдено",
                         if (state.profiles.isEmpty()) "Ссылка, конфигурация, QR-код или подписка. Туннели появятся здесь после успешного импорта." else "Попробуй название сервера или протокол.") {
                         if (state.profiles.isEmpty()) Button(onClick = onImport, modifier = Modifier.heightIn(min = 48.dp)) { Text("Импортировать") }
                     }
                 }
-                items(filtered, key = { it.id }) { profile ->
+                items(filtered, key = { it.id }, contentType = { "tunnel" }) { profile ->
                     Panel {
                         Row(Modifier.fillMaxWidth().clickable { onTunnel(profile.id) }.heightIn(min = 64.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Outlined.Hub, null, tint = WaarpOrange, modifier = Modifier.size(28.dp))
@@ -95,8 +102,8 @@ internal fun TunnelsScreen(state: MobileState, actions: MobileActions, onTunnel:
                         Text("Проверяет рабочий пул и меняет путь при необходимости. Публичные серверы сюда не попадают.", color = WaarpMuted, style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                val groups = state.groups.filter { it.id != AUTO_PATH && it.name.contains(query, true) }
-                items(groups, key = { it.id }) { group ->
+                val groups = filteredGroups
+                items(groups, key = { it.id }, contentType = { "group" }) { group ->
                     Panel {
                         Row(Modifier.fillMaxWidth().clickable { onGroup(group.id) }.heightIn(min = 64.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Outlined.Groups, null, tint = WaarpOrange)
@@ -107,8 +114,8 @@ internal fun TunnelsScreen(state: MobileState, actions: MobileActions, onTunnel:
                             }
                             Icon(Icons.Outlined.ChevronRight, "Изменить группу")
                         }
-                        group.selectedMemberId?.let { Text("Сейчас: ${pathName(state, it)}", style = MaterialTheme.typography.bodySmall) }
-                        Text(group.members.take(4).joinToString(" · ") { pathName(state, it) } + if (group.members.size > 4) " · ещё ${group.members.size - 4}" else "",
+                        group.selectedMemberId?.let { Text("Сейчас: ${names[it] ?: "Недоступный путь"}", style = MaterialTheme.typography.bodySmall) }
+                        Text(group.members.take(4).joinToString(" · ") { names[it] ?: "Недоступный путь" } + if (group.members.size > 4) " · ещё ${group.members.size - 4}" else "",
                             style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
                     }
                 }
@@ -119,6 +126,7 @@ internal fun TunnelsScreen(state: MobileState, actions: MobileActions, onTunnel:
                     }
                 }
             }
+        }
         }
     }
 }
@@ -138,10 +146,13 @@ private fun PublicCatalog(state: MobileState, actions: MobileActions) {
         if (country.isNotEmpty() && country !in countries) country = ""
         if (protocol.isNotEmpty() && protocol !in protocols) protocol = ""
     }
-    val nodes = remember(catalog.nodes, query, country, protocol, onlyChecked) {
-        catalog.nodes.filter { node -> (country.isBlank() || node.country == country) && (protocol.isBlank() || node.protocol == protocol) &&
-            (!onlyChecked || node.health == TunnelHealth.OK) && listOf(node.name, node.host, node.country).any { it.contains(query, true) } }
-            .sortedWith(compareBy<PublicNodeUi> { validLatency(it.latencyMs) == null }.thenBy { validLatency(it.latencyMs) ?: Double.MAX_VALUE })
+    val sortedNodes = remember(catalog.nodes) {
+        catalog.nodes.sortedWith(compareBy<PublicNodeUi> { validLatency(it.latencyMs) == null }.thenBy { validLatency(it.latencyMs) ?: Double.MAX_VALUE })
+    }
+    val nodes = remember(sortedNodes, query, country, protocol, onlyChecked) {
+        sortedNodes.filter { node -> (country.isBlank() || node.country == country) && (protocol.isBlank() || node.protocol == protocol) &&
+            (!onlyChecked || node.health == TunnelHealth.OK) &&
+            (node.name.contains(query, true) || node.host.contains(query, true) || node.country.contains(query, true)) }
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 104.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { InlineMessage("Публичные серверы принадлежат третьим лицам. Добавление сохраняет туннель, но не меняет маршруты. Используй их только там, где доверяешь владельцу.") }
@@ -186,7 +197,7 @@ private fun PublicCatalog(state: MobileState, actions: MobileActions) {
             }
             item { Text("Показано ${nodes.size} из ${catalog.nodes.size}", style = MaterialTheme.typography.labelMedium, color = WaarpMuted) }
         }
-        items(nodes, key = { it.id }) { node -> PublicNodeCard(node, actions, catalog.busy) }
+        items(nodes, key = { it.id }, contentType = { "public-node" }) { node -> PublicNodeCard(node, actions, catalog.busy) }
         if (nodes.isEmpty() && !catalog.busy) item {
             EmptyState(Icons.Outlined.Public, if (catalog.nodes.isEmpty()) "Каталог пуст" else "Серверы не найдены",
                 if (catalog.nodes.isEmpty()) "Загрузи каталог. Доступность будет показана по реальной проверке." else "Измени страну, протокол или строку поиска.")
@@ -197,7 +208,6 @@ private fun PublicCatalog(state: MobileState, actions: MobileActions) {
 @Composable
 private fun PublicNodeCard(node: PublicNodeUi, actions: MobileActions, catalogBusy: Boolean) {
     val operation = rememberUiOperation()
-    var added by remember(node.id) { mutableStateOf(false) }
     Panel {
         SectionHeading(node.name, listOf(node.protocol, node.country).filter { it.isNotBlank() }.joinToString(" · "))
         Text("${node.host}:${node.port}", style = MaterialTheme.typography.bodySmall, color = WaarpMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -206,9 +216,9 @@ private fun PublicNodeCard(node: PublicNodeUi, actions: MobileActions, catalogBu
                 HealthLabel(node.health, node.latencyMs)
                 Text(node.sourceLabel, style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
             }
-            OutlinedButton(onClick = { operation.run({ actions.addCatalogNode(node.id) }, { added = true }) }, enabled = !catalogBusy && !operation.busy && !added, modifier = Modifier.heightIn(min = 48.dp)) {
+            OutlinedButton(onClick = { operation.run({ actions.addCatalogNode(node.id) }) }, enabled = !catalogBusy && !operation.busy && !node.added, modifier = Modifier.heightIn(min = 48.dp)) {
                 if (operation.busy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                else Text(if (added) "Добавлен" else "Добавить")
+                else Text(if (node.added) "Добавлен" else "Добавить")
             }
         }
         OperationFeedback(operation)

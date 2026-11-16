@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fetchCore, repositoryRoot } from './android-core.mjs';
 
@@ -24,15 +24,19 @@ async function main() {
     // Keep lint/compiler state out of the R8 process on ordinary CI machines.
     // Each phase must pass before artifacts are collected or published.
     for (const tasks of [
-      ['testDebugUnitTest', 'lintDebug'],
-      ['assembleDebug', 'assembleDebugAndroidTest'],
-      ['assembleRelease'],
+      [':app:testDebugUnitTest', ':app:lintDebug', ':app:lintRelease'],
+      [':app:assembleDebug', ':app:assembleDebugAndroidTest'],
+      [':app:assembleRelease', ':acceptance:assembleRelease'],
     ]) {
       await run(wrapper, ['--no-daemon', '--console=plain', ...tasks], resolve(repositoryRoot, 'android'));
     }
   }
-  const output = resolve(repositoryRoot, 'out/android');
-  await mkdir(output, { recursive: true });
+  const published = resolve(repositoryRoot, 'out/android');
+  await mkdir(resolve(repositoryRoot, 'out'), { recursive: true });
+  // Validate a complete new set before replacing out/android. Previous versions,
+  // signature modes and reports must not leak into a later release artifact.
+  const output = await mkdtemp(resolve(repositoryRoot, 'out/android-stage-'));
+  try {
   const artifacts = [];
   for (const variant of ['debug', 'release']) {
     const directory = resolve(repositoryRoot, `android/app/build/outputs/apk/${variant}`);
@@ -61,8 +65,32 @@ async function main() {
   if (testMetadata.elements.length !== 1) throw new Error('Expected one debug instrumentation APK.');
   const testName = 'waarp-android-debug-instrumentation.apk';
   await copyFile(resolve(testDirectory, testMetadata.elements[0].outputFile), resolve(output, testName));
-  await writeFile(resolve(output, 'artifacts.json'), `${JSON.stringify({ schemaVersion: 1, engine: pin.version, artifacts, instrumentation: testName }, null, 2)}\n`);
-  console.log(`Validated ${artifacts.length} APKs and copied the instrumentation APK to out/android.`);
+  const acceptanceDirectory = resolve(repositoryRoot, 'android/acceptance/build/outputs/apk/release');
+  const acceptanceMetadata = JSON.parse(await readFile(resolve(acceptanceDirectory, 'output-metadata.json'), 'utf8'));
+  if (acceptanceMetadata.elements.length !== 1 || acceptanceMetadata.applicationId !== 'local.waarp.android.acceptance') {
+    throw new Error('Expected one standalone release acceptance APK.');
+  }
+  const acceptanceName = 'waarp-android-release-acceptance.apk';
+  await copyFile(resolve(acceptanceDirectory, acceptanceMetadata.elements[0].outputFile), resolve(output, acceptanceName));
+  await run(process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3'), [
+    'scripts/android-test-report.py', 'android/app/build/test-results/testDebugUnitTest', '--report', resolve(output, 'unit-tests.json'),
+  ]);
+  await writeFile(resolve(output, 'artifacts.json'), `${JSON.stringify({ schemaVersion: 2, engine: pin.version, artifacts,
+    instrumentation: testName, releaseAcceptance: acceptanceName }, null, 2)}\n`);
+  let backup;
+  if (await stat(published).catch(error => { if (error.code === 'ENOENT') return null; throw error; })) {
+    const history = resolve(repositoryRoot, 'out/android-history');
+    await mkdir(history, { recursive: true });
+    backup = resolve(history, `previous-${Date.now()}`);
+    await rename(published, backup);
+  }
+  try { await rename(output, published); }
+  catch (error) { if (backup) await rename(backup, published); throw error; }
+  console.log(`Validated ${artifacts.length} APKs and both test APKs in out/android.`);
+  } catch (error) {
+    await rm(output, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 main().catch(error => { console.error(error.message); process.exitCode = 1; });

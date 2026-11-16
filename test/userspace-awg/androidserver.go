@@ -16,8 +16,12 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
+	"regexp"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -25,26 +29,35 @@ import (
 
 	"github.com/sagernet/wireguard-go/device"
 	"golang.org/x/net/dns/dnsmessage"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
 // Both private keys remain on the side which generated them. The loopback control
 // API exchanges public keys only; no profile, private key or packet is persisted.
 type androidPeer struct {
-	dev        *device.Device
-	tun        *memoryTUN
-	bind       *udpBind
-	publicKey  string
-	port       int
-	registerMu sync.Mutex
-	clientKey  string
-	registered atomic.Bool
-	handshake  atomic.Bool
-	transport  atomic.Bool
-	padding    atomic.Bool
-	plaintext  atomic.Bool
-	stopped    atomic.Bool
-	replies    atomic.Uint64
-	errorCount atomic.Uint64
+	dev          *device.Device
+	tun          *androidNetTUN
+	bind         *udpBind
+	publicKey    string
+	port         int
+	registerMu   sync.Mutex
+	clientKey    string
+	registered   atomic.Bool
+	handshake    atomic.Bool
+	transport    atomic.Bool
+	padding      atomic.Bool
+	plaintext    atomic.Bool
+	stopped      atomic.Bool
+	replies      atomic.Uint64
+	errorCount   atomic.Uint64
+	httpStarted  atomic.Bool
+	httpRequests atomic.Uint64
+	httpBytes    atomic.Uint64
+	firstRequest atomic.Int64
+	lastRequest  atomic.Int64
+	uniqueMu     sync.Mutex
+	dnsNames     map[string]struct{}
+	httpNonces   map[string]struct{}
 }
 
 type androidProof struct {
@@ -61,10 +74,17 @@ type androidProof struct {
 	DeviceErrorEvents     uint64 `json:"device_error_events"`
 	Stopped               bool   `json:"stopped"`
 	Passed                bool   `json:"passed"`
+	HTTPStarted           bool   `json:"http_server_started"`
+	UniqueDNS             uint64 `json:"encrypted_dns_unique_queries"`
+	HTTPRequests          uint64 `json:"encrypted_http_requests"`
+	UniqueHTTP            uint64 `json:"encrypted_http_unique_requests"`
+	HTTPBytes             uint64 `json:"encrypted_http_bytes"`
+	FirstRequest          int64  `json:"first_encrypted_request_unix_ms"`
+	LastRequest           int64  `json:"last_encrypted_request_unix_ms"`
 }
 
 func (p *androidPeer) observe(packet []byte) {
-	if bytes.Contains(packet, dnsWireMarker) {
+	if bytes.Contains(packet, dnsWireMarker) || bytes.Contains(packet, []byte{4, 's', 'o', 'a', 'k', 5, 'w', 'a', 'a', 'r', 'p', 4, 't', 'e', 's', 't', 0}) {
 		p.plaintext.Store(true)
 	}
 	if len(packet) >= 84 {
@@ -91,12 +111,18 @@ func (p *androidPeer) proof() androidProof {
 	if !p.stopped.Load() && handshakeComplete(p.dev) {
 		p.handshake.Store(true)
 	}
+	p.uniqueMu.Lock()
+	uniqueDNS, uniqueHTTP := len(p.dnsNames), len(p.httpNonces)
+	p.uniqueMu.Unlock()
 	result := androidProof{
 		Mode: "android_awg2_peer", Revision: revision,
 		Registered: p.registered.Load(), Handshake: p.handshake.Load(), DNSReplies: p.replies.Load(),
 		AWGHandshakeOnWire: p.padding.Load(), AWGTransportOnWire: p.transport.Load(),
 		PlaintextAbsentOnWire: !p.plaintext.Load(), SentDatagrams: p.bind.sent.Load(),
 		ReceivedDatagrams: p.bind.received.Load(), DeviceErrorEvents: p.errorCount.Load(), Stopped: p.stopped.Load(),
+		HTTPStarted: p.httpStarted.Load(), UniqueDNS: uint64(uniqueDNS), HTTPRequests: p.httpRequests.Load(),
+		UniqueHTTP: uint64(uniqueHTTP), HTTPBytes: p.httpBytes.Load(),
+		FirstRequest: p.firstRequest.Load(), LastRequest: p.lastRequest.Load(),
 	}
 	result.Passed = result.Registered && result.Handshake && result.DNSReplies >= 2 &&
 		result.AWGHandshakeOnWire && result.AWGTransportOnWire && result.PlaintextAbsentOnWire &&
@@ -144,70 +170,104 @@ func (p *androidPeer) register(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"server_public_key": p.publicKey, "endpoint_port": p.port})
 }
 
-// The production router legitimately hijacks DNS and may add EDNS. Parse valid
-// DNS including OPT rather than requiring the byte-exact self-test query.
-func androidDNSResponse(request []byte) []byte {
-	if len(request) < 40 || request[0] != 0x45 || request[9] != 17 ||
-		!bytes.Equal(request[12:16], localClientIP.AsSlice()) || !bytes.Equal(request[16:20], localServerIP.AsSlice()) {
-		return nil
-	}
-	total := int(binary.BigEndian.Uint16(request[2:4]))
-	if total > len(request) || total < 40 || binary.BigEndian.Uint16(request[6:8])&0x3fff != 0 {
-		return nil
-	}
-	udp := request[20:total]
-	length := int(binary.BigEndian.Uint16(udp[4:6]))
-	if binary.BigEndian.Uint16(udp[2:4]) != 53 || length < 20 || length > len(udp) {
-		return nil
-	}
+// Only authenticated inner UDP reaches this listener. Unique names and TTL zero
+// prevent a resolver/cache-only loop from passing a multi-hour traffic check.
+func androidDNSPayload(request []byte) ([]byte, string, bool) {
 	var query dnsmessage.Message
-	if query.Unpack(udp[8:length]) != nil || query.Header.Response || len(query.Questions) != 1 {
-		return nil
+	if query.Unpack(request) != nil || query.Header.Response || len(query.Questions) != 1 {
+		return nil, "", false
 	}
 	question := query.Questions[0]
-	if question.Name.String() != "example.com." || question.Type != dnsmessage.TypeA || question.Class != dnsmessage.ClassINET {
-		return nil
-	}
+	name := strings.ToLower(question.Name.String())
 	answer := dnsmessage.Message{
 		Header:    dnsmessage.Header{ID: query.Header.ID, Response: true, RecursionDesired: query.Header.RecursionDesired, RecursionAvailable: true},
 		Questions: query.Questions,
-		Answers: []dnsmessage.Resource{{Header: dnsmessage.ResourceHeader{Name: question.Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: 0},
-			Body: &dnsmessage.AResource{A: [4]byte{192, 0, 2, 42}}}},
 	}
-	dns, err := answer.Pack()
+	var address [4]byte
+	valid := question.Type == dnsmessage.TypeA && question.Class == dnsmessage.ClassINET
+	switch {
+	case valid && name == "example.com.":
+		address = [4]byte{192, 0, 2, 42}
+	case valid && strings.HasSuffix(name, ".soak.waarp.test.") && len(name) <= 160:
+		address = [4]byte{10, 77, 0, 1}
+	default:
+		valid = false
+		answer.Header.RCode = dnsmessage.RCodeNameError
+	}
+	if valid {
+		answer.Answers = []dnsmessage.Resource{{Header: dnsmessage.ResourceHeader{Name: question.Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: 0}, Body: &dnsmessage.AResource{A: address}}}
+	}
+	packed, err := answer.Pack()
 	if err != nil {
-		return nil
+		return nil, "", false
 	}
-	response := make([]byte, 28+len(dns))
-	copy(response[:20], request[:20])
-	binary.BigEndian.PutUint16(response[2:4], uint16(len(response)))
-	copy(response[12:16], localServerIP.AsSlice())
-	copy(response[16:20], localClientIP.AsSlice())
-	response[10], response[11] = 0, 0
-	var checksum uint32
-	for offset := 0; offset < 20; offset += 2 {
-		checksum += uint32(binary.BigEndian.Uint16(response[offset : offset+2]))
+	return packed, name, valid
+}
+
+func (p *androidPeer) markRequest(key string, httpRequest bool) bool {
+	p.uniqueMu.Lock()
+	items := p.dnsNames
+	if httpRequest {
+		items = p.httpNonces
 	}
-	for checksum > 0xffff {
-		checksum = checksum&0xffff + checksum>>16
+	if _, known := items[key]; !known && len(items) >= 20000 {
+		p.uniqueMu.Unlock()
+		p.errorCount.Add(1)
+		return false
 	}
-	binary.BigEndian.PutUint16(response[10:12], ^uint16(checksum))
-	binary.BigEndian.PutUint16(response[20:22], 53)
-	copy(response[22:24], udp[:2])
-	binary.BigEndian.PutUint16(response[24:26], uint16(8+len(dns)))
-	copy(response[28:], dns)
-	return response
+	items[key] = struct{}{}
+	p.uniqueMu.Unlock()
+	now := time.Now().UnixMilli()
+	p.firstRequest.CompareAndSwap(0, now)
+	p.lastRequest.Store(now)
+	return true
+}
+
+var androidNoncePattern = regexp.MustCompile(`^[a-z0-9-]{8,96}$`)
+
+const androidHTTPPayloadSize = 64 * 1024
+
+func (p *androidPeer) innerHTTP(w http.ResponseWriter, r *http.Request) {
+	nonce := r.URL.Query().Get("nonce")
+	if r.Method != http.MethodGet || r.URL.Path != "/probe" || len(r.URL.Query()) != 1 || !androidNoncePattern.MatchString(nonce) {
+		http.Error(w, "request", http.StatusBadRequest)
+		return
+	}
+	// A nonce echoes the actual request, and a bounded body exercises TCP beyond
+	// the SYN/headers. Private keys, profile text and packet contents are not logs.
+	body := []byte("waarp-acceptance:" + nonce + "\n" + strings.Repeat("w", androidHTTPPayloadSize))
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	w.Header().Set("Connection", "close")
+	w.WriteHeader(http.StatusOK)
+	written, err := w.Write(body)
+	if err == nil && written == len(body) && p.markRequest(nonce, true) {
+		p.httpRequests.Add(1)
+		p.httpBytes.Add(uint64(written))
+	}
 }
 
 func executeAndroidServer(port int, reportPath string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	return executeAndroidServerFor(port, reportPath, 30*time.Minute)
+}
+
+func executeAndroidServerFor(port int, reportPath string, duration time.Duration) error {
+	if duration < time.Minute || duration > 4*time.Hour {
+		return errors.New("invalid_fixture_duration")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 	key, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
 		return errors.New("synthetic_key_generation")
 	}
-	p := &androidPeer{port: port, publicKey: base64.StdEncoding.EncodeToString(key.PublicKey().Bytes())}
-	p.tun = newMemoryTUN(1280)
+	p := &androidPeer{port: port, publicKey: base64.StdEncoding.EncodeToString(key.PublicKey().Bytes()), dnsNames: make(map[string]struct{}), httpNonces: make(map[string]struct{})}
+	stackTUN, stackNet, err := netstack.CreateNetTUN([]netip.Addr{localServerIP}, nil, 1280)
+	if err != nil {
+		return errors.New("inner_stack")
+	}
+	p.tun = adaptAndroidNetTUN(stackTUN)
 	p.bind = &udpBind{family: "udp4", listenIP: net.IPv4(127, 0, 0, 1), observe: p.observe}
 	p.dev = device.NewDevice(ctx, p.tun, p.bind,
 		&device.Logger{Verbosef: device.DiscardLogf, Errorf: func(string, ...any) { p.errorCount.Add(1) }}, 1)
@@ -231,21 +291,39 @@ func executeAndroidServer(port int, reportPath string) error {
 	if err = p.dev.Up(); err != nil {
 		return errors.New("start_device")
 	}
+	dnsListener, err := stackNet.ListenUDPAddrPort(netip.AddrPortFrom(localServerIP, 53))
+	if err != nil {
+		return errors.New("inner_dns_listen")
+	}
+	defer dnsListener.Close()
 	go func() {
+		buffer := make([]byte, 4096)
 		for {
-			select {
-			case <-ctx.Done():
+			n, address, readErr := dnsListener.ReadFrom(buffer)
+			if readErr != nil {
 				return
-			case packet := <-p.tun.inbound:
-				if response := androidDNSResponse(packet); response != nil {
-					select {
-					case <-ctx.Done():
-						return
-					case p.tun.outbound <- response:
-						p.replies.Add(1)
-					}
-				}
 			}
+			response, name, valid := androidDNSPayload(buffer[:n])
+			if response == nil {
+				continue
+			}
+			if written, writeErr := dnsListener.WriteTo(response, address); writeErr == nil && written == len(response) && valid && p.markRequest(name, false) {
+				p.replies.Add(1)
+			}
+		}
+	}()
+	innerListener, err := stackNet.ListenTCPAddrPort(netip.AddrPortFrom(localServerIP, 18080))
+	if err != nil {
+		return errors.New("inner_http_listen")
+	}
+	innerServer := &http.Server{Handler: http.HandlerFunc(p.innerHTTP), ReadHeaderTimeout: 3 * time.Second,
+		ReadTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: time.Second,
+		MaxHeaderBytes: 4096, ErrorLog: log.New(io.Discard, "", 0)}
+	defer innerServer.Close()
+	p.httpStarted.Store(true)
+	go func() {
+		if serveErr := innerServer.Serve(innerListener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			p.errorCount.Add(1)
 		}
 	}()
 	mux := http.NewServeMux()

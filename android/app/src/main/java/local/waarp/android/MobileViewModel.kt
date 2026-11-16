@@ -3,12 +3,15 @@ package local.waarp.android
 
 import android.app.Application
 import android.content.Intent
+import android.net.Uri
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -21,14 +24,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import local.waarp.android.core.RuntimePhase
-import local.waarp.android.core.RuntimeLog
 import local.waarp.android.data.*
 import local.waarp.android.ui.*
 import org.json.JSONObject
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
 import java.util.concurrent.atomic.AtomicLong
 
 sealed interface MobileEvent {
@@ -40,7 +38,7 @@ sealed interface MobileEvent {
     data object ShareDiagnostics : MobileEvent
 }
 
-class MobileViewModel(application: Application) : AndroidViewModel(application), MobileActions {
+class MobileViewModel(application: Application, private val savedState: SavedStateHandle) : AndroidViewModel(application), MobileActions {
     private val app = application as WaarpApplication
     val repository = app.repository
     private val controller = repository.controller
@@ -50,28 +48,42 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
     private val eventsChannel = Channel<MobileEvent>(Channel.BUFFERED)
     val events = eventsChannel.receiveAsFlow()
     private val updates = Channel<Unit>(Channel.CONFLATED)
+    private val mapper = MobileStateMapper()
     private val messageIds = AtomicLong()
     private var apps: List<AppUi> = emptyList()
     private var catalogProfiles: List<TunnelProfile> = emptyList()
     private var catalog = CatalogUi()
-    private val catalogHealth = mutableMapOf<String, ProbeHealth>()
+    private var catalogHealth: Map<String, ProbeHealth> = emptyMap()
     private var diagnostic: DiagnosticUi? = null
     private var message: UiMessage? = null
     private var diagnosticBusy = false
     private var appScanBusy = false
-    private var lastLogs: List<RuntimeLog>? = null
-    private var lastLogFormat: String? = null
-    private var logLines: List<String> = emptyList()
     var pendingConsentToken: Long? = null
         private set
     var pendingConsentIntent: Intent? = null
         private set
-    var pendingReplaceId: String? = null
+    // SAF can outlive our process. Restore its nonsecret purpose before the result callback;
+    // otherwise a selected replacement file would silently become a new imported profile.
+    private var pendingReplaceId: String?
+        get() = savedState["import-replace-id"]
+        set(value) { savedState["import-replace-id"] = value }
+    private var importPickerOpen: Boolean
+        get() = savedState["import-picker-open"] ?: false
+        set(value) { savedState["import-picker-open"] = value }
+    internal val imports = ImportCoordinator(viewModelScope, { uri -> readImportDocument(app, uri) },
+        { text, name, replacement -> if (replacement == null) importText(text, name) else replaceTunnel(replacement, text) }, ::notifyUser)
 
     init {
-        viewModelScope.launch { for (ignored in updates) { rebuild(); delay(40) } }
+        viewModelScope.launch {
+            for (ignored in updates) {
+                // Telemetry continues in the VPN service; UI projections sleep while no screen observes them.
+                _state.subscriptionCount.first { it > 0 }
+                rebuild()
+                delay(40)
+            }
+        }
         val streams: List<Flow<*>> = listOf(repository.data, repository.loadError, repository.requestedOpen, repository.applying,
-            repository.compiled, repository.health, repository.history, controller.status, controller.groups, controller.connections, controller.logs)
+            repository.compiled, repository.health, repository.history, controller.status, controller.groups, controller.connections, controller.logs, imports.state)
         streams.forEach { stream -> viewModelScope.launch { stream.collect { changed() } } }
         viewModelScope.launch {
             val initialIntent = repository.intentGeneration()
@@ -92,121 +104,35 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
     }
     override fun dismissMessage(id: Long) { if (message?.id == id) { message = null; changed() } }
     private fun event(event: MobileEvent) { viewModelScope.launch { eventsChannel.send(event) } }
-    private fun health(value: ProbeHealth?) = when {
-        value == null || value.checkedAt == 0L -> TunnelHealth.UNKNOWN
-        value.down -> TunnelHealth.DOWN
-        value.healthy -> TunnelHealth.OK
-        value.holding -> TunnelHealth.DEGRADED
-        else -> TunnelHealth.UNKNOWN
-    }
-    private fun rebuild() {
-        val data = repository.data.value ?: AppData()
-        val runtime = controller.status.value
-        val measured = repository.health.value
-        val nativeByTag = controller.groups.value.associateBy { it.tag }
-        val profilesById = data.profiles.associateBy { it.id }
-        val groupsById = data.groups.associateBy { it.id }
-        val appsByPackage = apps.associateBy { it.packageName }
-        fun selected(id: String): String? = nativeByTag["grp-$id"]?.selected?.removePrefix("p-")
-        fun pathName(id: String?) = when (id) { DIRECT -> "Напрямую"; AUTO -> "Авто"; null -> "Не выбран";
-            else -> profilesById[id]?.name ?: groupsById[id]?.name ?: "Недоступный путь" }
-        fun viaHealth(id: String): ProbeHealth? = measured[if (id.startsWith("g-")) selected(id) else id]
-        val available = data.profiles.filterNot { it.revoked || it.subscriptionMissing }.map { it.id }.toSet()
-        val allGroups = data.groups + TunnelGroup(AUTO, "Авто", "fastest", data.profiles.filter { it.id in available && it.source != "public" }.map { it.id })
-        val availableGroups = allGroups.filter { it.members.any(available::contains) }.mapTo(HashSet()) { it.id }
-        fun pathAvailable(id: String) = id == DIRECT || id in available || id in availableGroups
-        val systemDns = RoutingCompiler.systemDnsPolicy(data)
-        val systemDnsHint = systemDns.reason ?: when {
-            systemDns.via == DIRECT && data.settings.systemDnsVia == DIRECT -> "Системный DNS идёт напрямую: этот путь выбран явно. Правила доменов сохраняют приоритет."
-            systemDns.via == DIRECT -> "Системный DNS следует правилам доменов; остальные запросы идут напрямую. Защищённых маршрутов приложений пока нет."
-            else -> "Общий DNS-путь: «${pathName(systemDns.via)}»" +
-                (systemDns.fallback?.let { "; резерв — «${pathName(it)}»" } ?: "") +
-                ". Применяется к системным запросам, для которых Android не передал приложение."
+    private suspend fun rebuild() {
+        // Capture all inputs together on Main; mapping and formatting never block rendering.
+        val compiled = repository.compiled.value
+        val snapshot = MobileStateSnapshot(repository.data.value, controller.status.value, repository.health.value,
+            controller.groups.value, controller.connections.value, controller.logs.value, apps,
+            repository.requestedOpen.value, repository.applying.value, repository.loadError.value,
+            compiled?.groups?.find { it.id == AUTO }?.members?.size ?: 0,
+            repository.history.value, catalogProfiles, catalog, catalogHealth, diagnostic, message, BuildConfig.VERSION_NAME, imports.state.value.taskLabel, compiled?.routes.orEmpty(), compiled?.blockedPaths.orEmpty())
+        val projected = withContext(Dispatchers.Default) { mapper.map(snapshot) }
+        val current = controller.status.value
+        if (snapshot.data !== repository.data.value || snapshot.requestedOpen != repository.requestedOpen.value ||
+            snapshot.runtime.phase != current.phase || snapshot.runtime.startedAt != current.startedAt || snapshot.message !== message) {
+            // A save, OFF, or a new session supersedes an in-flight projection. Telemetry-only changes can coalesce.
+            changed()
+            return
         }
-        val routeUi = data.routes.map { route ->
-            val fallbackNative = nativeByTag["fb-${route.id}"]?.selected
-            val fallback = route.fallback?.takeIf { "p-$it" == fallbackNative || "grp-$it" == fallbackNative }
-            val effective = fallback ?: route.via
-            val routeHealth = viaHealth(effective)
-            val status = when {
-                !route.enabled -> RouteState.OFF
-                !pathAvailable(route.via) -> RouteState.BLOCKED
-                runtime.phase in setOf(RuntimePhase.STARTING, RuntimePhase.STOPPING) -> RouteState.RETRYING
-                runtime.phase != RuntimePhase.ON -> RouteState.IDLE
-                effective == DIRECT -> RouteState.DIRECT
-                fallback != null -> RouteState.FALLBACK
-                routeHealth?.down == true -> RouteState.BLOCKED
-                routeHealth?.healthy == true -> RouteState.OK
-                routeHealth?.holding == true -> RouteState.RETRYING
-                else -> RouteState.IDLE
-            }
-            RouteUi(route.id, when (route.kind) { "app" -> RouteKind.APP; "preset" -> RouteKind.SERVICE; else -> RouteKind.CUSTOM },
-                route.name, route.via, route.fallback, route.enabled, route.match.takeIf { route.kind == "app" },
-                route.match.takeIf { route.kind == "preset" }, route.match.takeIf { route.kind == "custom" }, status,
-                effectiveViaId = effective, reason = when {
-                    !pathAvailable(route.via) -> "Путь удалён или недоступен. Назначьте другой; напрямую трафик не перенаправляется."
-                    routeHealth?.down == true -> "Удалённый путь не прошёл две последовательные проверки"
-                    runtime.phase == RuntimePhase.ON && effective != DIRECT && routeHealth == null -> "Маршрут установлен; удалённый путь ещё не проверен"
-                    else -> null
-                })
-        }
-        val flows = controller.connections.value.filter { it.active }.map { connection ->
-            val packageName = connection.packages.firstOrNull().orEmpty()
-            val host = connection.domain.ifEmpty { connection.destination.substringBeforeLast(':').removePrefix("[").removeSuffix("]") }
-            val port = connection.destination.substringAfterLast(':').toIntOrNull() ?: 0
-            val outbound = connection.outbound.removePrefix("p-").removePrefix("grp-")
-            FlowUi(connection.id, appsByPackage[packageName]?.name ?: packageName,
-                packageName, host, port, connection.network, pathName(outbound), connection.rule, connection.downloadBytes, connection.uploadBytes)
-        }
-        val notices = buildList {
-            repository.loadError.value?.let { add(NoticeUi("store", NoticeLevel.BLOCK, "Хранилище недоступно", it)) }
-            if (!pathAvailable(data.settings.defaultVia)) add(NoticeUi("global-missing", NoticeLevel.BLOCK, "Общий маршрут недоступен", "Трафик без отдельного правила блокируется до выбора доступного пути."))
-            if (systemDns.blocked) add(NoticeUi("system-dns", NoticeLevel.WARNING, "Общий DNS требует выбора", systemDnsHint))
-            if (routeUi.any { it.state == RouteState.BLOCKED }) add(NoticeUi("blocked-routes", NoticeLevel.WARNING, "Есть недоступные маршруты", "Откройте «Маршруты» и проверьте назначенные туннели."))
-            if (data.profiles.any { it.source == "public" }) add(NoticeUi("public", NoticeLevel.WARNING, "Добавлены публичные узлы", "Их владельцы неизвестны. Они не входят в Авто и используются только при вашем выборе."))
-            if (runtime.phase == RuntimePhase.ON && !runtime.lockdown) add(NoticeUi("lockdown", NoticeLevel.INFO, "Постоянная блокировка не включена", "При остановке VPN Android может направить трафик напрямую. Системная настройка «Блокировать соединения без VPN» доступна в настройках."))
-            val appRoutes = data.routes.filter { it.enabled && it.kind == "app" }.groupBy { route -> appsByPackage[route.match]?.uid }
-            if (appRoutes.any { (uid, routes) -> uid != null && routes.map { it.via }.distinct().size > 1 }) add(NoticeUi("shared-uid", NoticeLevel.WARNING,
-                "Приложения разделяют UID", "Android не различает их сетевые сокеты. Для общего UID действует первое подходящее правило."))
-        }
-        val rawLogs = controller.logs.value
-        val format = Locale.getDefault().toLanguageTag() + "|" + TimeZone.getDefault().id
-        if (rawLogs !== lastLogs || format != lastLogFormat) {
-            val clock = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-            logLines = rawLogs.map { "${clock.format(Date(it.timestamp))} [${it.level}] ${it.message}" }
-            lastLogs = rawLogs; lastLogFormat = format
-        }
-        _state.value = MobileState(
-            initialized = repository.data.value != null,
-            status = ConnectionUi(ConnectionPhase.valueOf(runtime.phase.name), repository.requestedOpen.value,
-                recovering = repository.applying.value, recoveryFailed = repository.loadError.value != null, error = runtime.message,
-                connectedSinceMillis = runtime.startedAt.takeIf { it > 0 }, downloadBytesPerSecond = runtime.downloadBps,
-                uploadBytesPerSecond = runtime.uploadBps, downloadedBytes = runtime.downloadBytes, uploadedBytes = runtime.uploadBytes,
-                selectedPathLabel = pathName(data.settings.defaultVia), autoPoolLive = repository.compiled.value?.groups?.find { it.id == AUTO }?.members?.size ?: 0,
-                autoPoolTotal = allGroups.last().members.size),
-            profiles = data.profiles.map { profile -> TunnelUi(profile.id, profile.name, profile.protocol, profile.host, profile.port,
-                profile.addresses, when (profile.source) { "public" -> ProfileSource.PUBLIC; "managed" -> ProfileSource.MANAGED; "warp" -> ProfileSource.WARP; else -> ProfileSource.PERSONAL },
-                health(measured[profile.id]), measured[profile.id]?.latencyMs?.toDouble(), profile.country.takeIf(String::isNotBlank),
-                profile.revoked, profile.subscription != null, profile.subscriptionMissing, profile.clientPublicKey,
-                canRename = profile.source !in setOf("managed", "public"), canReplace = profile.source !in setOf("managed", "public", "warp"), canDelete = profile.source != "managed") },
-            groups = allGroups.map { group -> GroupUi(group.id, group.name, if (group.policy == "first") GroupPolicy.FIRST else GroupPolicy.FASTEST,
-                group.members, selected(group.id), health(viaHealth(group.id)), viaHealth(group.id)?.latencyMs?.toDouble()) },
-            routes = routeUi, apps = apps, presets = Presets.all.map { PresetUi(it.id, it.name, it.hint, it.domains + it.cidrs) },
-            settings = SettingsUi(data.settings.defaultVia, data.settings.lastWholeDeviceVia, data.settings.lanDirect, data.settings.ruDirect,
-                data.settings.autoConnect, data.settings.notifications, runtime.alwaysOn.takeIf { runtime.phase == RuntimePhase.ON }, runtime.lockdown.takeIf { runtime.phase == RuntimePhase.ON },
-                data.settings.systemDnsVia, systemDnsHint, systemDns.blocked),
-            catalog = catalog.copy(nodes = catalogProfiles.map { node -> PublicNodeUi(node.id, node.name, node.protocol, node.host, node.port, node.country,
-                latencyMs = catalogHealth[node.id]?.latencyMs?.toDouble(), health = health(catalogHealth[node.id])) }),
-            flows = flows, latencyHistory = repository.history.value.mapNotNull { (id, samples) -> profilesById[id]?.let { LatencySeriesUi(id, it.name, samples) } },
-            diagnostic = diagnostic, logs = logLines,
-            notices = notices, error = repository.loadError.value, message = message, appVersion = BuildConfig.VERSION_NAME, engineVersion = runtime.coreVersion,
-        )
+        _state.value = projected
     }
 
     private suspend fun action(block: suspend () -> String?): UiResult = try {
         val message = block(); changed(); UiResult(true, message)
     } catch (cancelled: CancellationException) { throw cancelled }
     catch (error: Exception) { changed(); UiResult(false, friendly(error)) }
+    // A row can leave composition during native validation, before Repository's atomic
+    // commit begins. Once accepted, its mutation belongs to this ViewModel, not that row.
+    // Failures remain visible even when the originating card/settings screen has gone.
+    private suspend fun mutation(block: suspend () -> String?): UiResult = viewModelScope.async {
+        action(block).also { result -> if (!result.ok) notifyUser(result.message ?: "Изменения не сохранены", true) }
+    }.await()
     private fun friendly(error: Throwable): String {
         val text = error.message.orEmpty()
         return if (text.any { it in 'А'..'я' || it == 'ё' } && !Regex("://|[A-Za-z0-9+/]{32,}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-").containsMatchIn(text)) text.take(300)
@@ -216,7 +142,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
         }
     }
     override fun connect() {
-        if (repository.requestedOpen.value && controller.status.value.phase in setOf(RuntimePhase.ON, RuntimePhase.STARTING)) return
+        if (repository.requestedOpen.value && (pendingConsentToken != null || controller.status.value.phase in setOf(RuntimePhase.ON, RuntimePhase.STARTING))) return
         val token = repository.requestConnect()
         viewModelScope.launch {
             try {
@@ -234,8 +160,28 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
         viewModelScope.launch { val result = action { repository.completeConnect(token); null }; if (!result.ok) notifyUser(result.message.orEmpty(), true) }
     }
     override fun disconnect() { pendingConsentToken = null; pendingConsentIntent = null; repository.disconnect() }
-    override fun requestFileImport(replaceProfileId: String?) { pendingReplaceId = replaceProfileId; event(MobileEvent.FileImport(replaceProfileId)) }
-    override fun requestQrImport() = event(MobileEvent.QrImport)
+    override fun requestFileImport(replaceProfileId: String?) {
+        if (importPickerOpen || imports.state.value.busy) return
+        importPickerOpen = true; pendingReplaceId = replaceProfileId; event(MobileEvent.FileImport(replaceProfileId))
+    }
+    override fun requestQrImport() {
+        if (importPickerOpen || imports.state.value.busy) return
+        importPickerOpen = true; event(MobileEvent.QrImport)
+    }
+    fun onDocumentsPicked(uris: List<Uri>) {
+        val replacement = pendingReplaceId
+        cancelImportPicker()
+        imports.importDocuments(uris.toList(), replacement)
+    }
+    fun onQrResult(text: String?) { cancelImportPicker(); text?.let(imports::importText) }
+    fun cancelImportPicker() { importPickerOpen = false; pendingReplaceId = null }
+    fun isCurrentConsent(token: Long) = pendingConsentToken == token && repository.requestedOpen.value && repository.intentGeneration() == token
+    fun currentConsentIntent(): Intent? = pendingConsentToken?.takeIf(::isCurrentConsent)?.let { pendingConsentIntent }
+    fun onForeground() {
+        viewModelScope.launch { controller.refreshSystemStatus() }
+        changed()
+    }
+    override fun onCleared() { imports.clearSensitiveInput(); super.onCleared() }
     override fun requestClipboardImport() = event(MobileEvent.ClipboardImport)
     override fun openSystemVpnSettings() = event(MobileEvent.SystemVpnSettings)
     override fun shareDiagnostics() = event(MobileEvent.ShareDiagnostics)
@@ -250,20 +196,20 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
                     val ai = info.applicationInfo ?: return@mapNotNull null
                     if (info.packageName == app.packageName) return@mapNotNull null
                     AppUi(info.packageName, pm.getApplicationLabel(ai).toString(), ai.uid, ai.flags and ApplicationInfo.FLAG_SYSTEM != 0,
-                        runCatching { pm.getApplicationIcon(ai) }.getOrNull())
+                        versionCode = info.longVersionCode)
                 }.sortedWith(compareBy<AppUi> { it.system }.thenBy { it.name.lowercase() })
             }; "Приложений: ${apps.size}"
         } finally { appScanBusy = false }
     }
     private fun validPath(data: AppData, id: String): Boolean = id == DIRECT || (id == AUTO && data.profiles.any { !it.revoked && !it.subscriptionMissing && it.source != "public" }) ||
         data.profiles.any { it.id == id && !it.revoked && !it.subscriptionMissing } || data.groups.any { group -> group.id == id && group.members.any { member -> data.profiles.any { it.id == member && !it.revoked && !it.subscriptionMissing } } }
-    override suspend fun setDefaultRoute(viaId: String) = action {
+    override suspend fun setDefaultRoute(viaId: String) = mutation {
         repository.edit { value ->
             require(validPath(value, viaId)) { "Выбранный путь недоступен" }
             value.copy(settings = value.settings.copy(defaultVia = viaId, lastWholeDeviceVia = if (viaId == DIRECT) value.settings.lastWholeDeviceVia else viaId))
         }; "Общий маршрут сохранён"
     }
-    override suspend fun saveRoute(route: RouteDraft) = action {
+    override suspend fun saveRoute(route: RouteDraft) = mutation {
         repository.edit { value ->
             require(route.name.isNotBlank() && route.name.length <= 80) { "Укажите название до 80 символов" }
             require(validPath(value, route.viaId)) { "Выбранный путь недоступен" }
@@ -281,11 +227,11 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
             value.copy(routes = if (route.id == null) value.routes + next else value.routes.map { if (it.id == id) next else it })
         }; "Маршрут сохранён"
     }
-    override suspend fun setRouteEnabled(id: String, enabled: Boolean) = action {
+    override suspend fun setRouteEnabled(id: String, enabled: Boolean) = mutation {
         repository.edit { value -> require(value.routes.any { it.id == id }); value.copy(routes = value.routes.map { if (it.id == id) it.copy(enabled = enabled) else it }) }; null
     }
-    override suspend fun deleteRoute(id: String) = action { repository.edit { it.copy(routes = it.routes.filterNot { route -> route.id == id }) }; "Маршрут удалён" }
-    override suspend fun importText(text: String, name: String) = action {
+    override suspend fun deleteRoute(id: String) = mutation { repository.edit { it.copy(routes = it.routes.filterNot { route -> route.id == id }) }; "Маршрут удалён" }
+    override suspend fun importText(text: String, name: String) = mutation {
         require(text.toByteArray(Charsets.UTF_8).size <= MAX_IMPORT_BYTES) { "Конфиг слишком большой: максимум 1 МБ" }
         val subscription = text.trim().takeIf(ProfileImporter::isSubscription)
         val body = if (subscription != null) network.fetch(subscription) else text
@@ -305,7 +251,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
             }
         }; "Сохранено профилей: $added${if (imported.skipped > 0) "; пропущено: ${imported.skipped}" else ""}"
     }
-    override suspend fun createWireGuard(draft: WireGuardDraft) = action {
+    override suspend fun createWireGuard(draft: WireGuardDraft) = mutation {
         require(listOf(draft.name, draft.address, draft.endpoint, draft.serverPublicKey).all { it.isNotBlank() && it.length <= 256 && !it.contains(Regex("[\\r\\n]")) }) { "Заполните данные сервера без переносов строк" }
         val keys = controller.generateWireGuardKeyPair()
         val config = "[Interface]\nPrivateKey = ${keys.privateKey}\nAddress = ${draft.address.trim()}\n[Peer]\nPublicKey = ${draft.serverPublicKey.trim()}\nEndpoint = ${draft.endpoint.trim()}\nAllowedIPs = 0.0.0.0/0, ::/0\nPersistentKeepalive = 25\n"
@@ -313,7 +259,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
         repository.validateProfiles(listOf(profile)); repository.edit { it.copy(profiles = it.profiles + profile) }
         "Профиль создан. Добавьте публичный ключ клиента в настройки вашего сервера."
     }
-    override suspend fun renameTunnel(id: String, name: String) = action {
+    override suspend fun renameTunnel(id: String, name: String) = mutation {
         require(name.isNotBlank() && name.length <= 80) { "Укажите название до 80 символов" }
         repository.edit { value ->
             val old = value.profiles.find { it.id == id } ?: error("Туннель уже удалён")
@@ -321,7 +267,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
             value.copy(profiles = value.profiles.map { if (it.id == id) it.copy(name = ProfileImporter.name(name)) else it })
         }; "Название сохранено"
     }
-    override suspend fun replaceTunnel(id: String, text: String) = action {
+    override suspend fun replaceTunnel(id: String, text: String) = mutation {
         val result = withContext(Dispatchers.Default) { ProfileImporter.parse(text) }
         require(result.profiles.size == 1 && result.skipped == 0) { "Для замены нужен ровно один профиль" }
         val profile = result.profiles.single(); repository.validateProfiles(listOf(profile))
@@ -343,7 +289,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
                 lastWholeDeviceVia = if (data.settings.lastWholeDeviceVia == removed) replacement else data.settings.lastWholeDeviceVia,
                 systemDnsVia = if (data.settings.systemDnsVia == removed) replacement else data.settings.systemDnsVia))
     }
-    override suspend fun removeTunnel(id: String, replacementId: String?) = action {
+    override suspend fun removeTunnel(id: String, replacementId: String?) = mutation {
         repository.edit { value ->
             val old = value.profiles.find { it.id == id } ?: error("Туннель уже удалён")
             require(old.source != "managed") { "Туннелем управляет команда" }
@@ -370,7 +316,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
             value.copy(profiles = merged.profiles)
         }; summary
     }
-    override suspend fun saveGroup(group: GroupDraft) = action {
+    override suspend fun saveGroup(group: GroupDraft) = mutation {
         repository.edit { value ->
             require(group.name.isNotBlank() && group.name.length <= 80 && group.members.isNotEmpty()) { "Укажите название и участников" }
             require(group.members.distinct().size == group.members.size && group.members.all { id -> value.profiles.any { it.id == id && !it.revoked && !it.subscriptionMissing } }) { "В группе есть недоступный участник" }
@@ -381,7 +327,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
             value.copy(groups = if (group.id == null) value.groups + next else value.groups.map { if (it.id == id) next else it })
         }; "Группа сохранена"
     }
-    override suspend fun deleteGroup(id: String, replacementId: String?) = action {
+    override suspend fun deleteGroup(id: String, replacementId: String?) = mutation {
         require(id != AUTO) { "Авто нельзя удалить" }
         repository.edit { value -> require(value.groups.any { it.id == id }); reassign(value, id, replacementId).let { it.copy(groups = it.groups.filterNot { group -> group.id == id }) } }
         "Группа удалена"
@@ -392,12 +338,13 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
             val result = network.catalog()
             if (result.profiles.isEmpty()) { catalog = catalog.copy(sources = result.sources, error = "Источники недоступны; предыдущий каталог сохранён"); error("Не удалось обновить публичные источники") }
             catalogProfiles = result.profiles
-            catalogHealth.keys.retainAll(catalogProfiles.map { it.id }.toSet())
+            val currentIds = catalogProfiles.mapTo(HashSet()) { it.id }
+            catalogHealth = catalogHealth.filterKeys { it in currentIds }
             catalog = catalog.copy(sources = result.sources, total = result.profiles.size, updatedAtMillis = System.currentTimeMillis(), checked = 0, planned = 0)
             "Публичных узлов: ${result.profiles.size}. Работоспособность ещё не проверена."
         } finally { catalog = catalog.copy(busy = false); changed() }
     }
-    override suspend fun addCatalogNode(id: String) = action {
+    override suspend fun addCatalogNode(id: String) = mutation {
         val profile = catalogProfiles.find { it.id == id } ?: error("Обновите каталог")
         repository.validateProfiles(listOf(profile))
         repository.edit { value ->
@@ -405,14 +352,16 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
             value.copy(profiles = value.profiles + profile.copy(source = "public"))
         }; "Публичный узел добавлен. Назначьте его маршруту явно."
     }
-    override suspend fun addBestPublicGroup() = action {
+    override suspend fun addBestPublicGroup() = mutation {
         check(!catalog.busy) { "Дождитесь завершения операции с каталогом" }
         require(controller.status.value.phase !in setOf(RuntimePhase.ON, RuntimePhase.STARTING, RuntimePhase.STOPPING)) { "Для проверки новых публичных узлов сначала выключите VPN" }
         require(catalogProfiles.isNotEmpty()) { "Сначала обновите каталог" }
         catalog = catalog.copy(busy = true, checked = 0, planned = minOf(8, catalogProfiles.size)); changed()
         try {
             val results = repository.probe(extra = catalogProfiles)
-            results.forEach { sample -> val id = sample.tag.removePrefix("p-"); catalogHealth[id] = (catalogHealth[id] ?: ProbeHealth()).measured(sample.delayMs, sample.checkedAt) }
+            catalogHealth = catalogHealth.toMutableMap().apply {
+                results.forEach { sample -> val id = sample.tag.removePrefix("p-"); this[id] = (this[id] ?: ProbeHealth()).measured(sample.delayMs, sample.checkedAt) }
+            }
             catalog = catalog.copy(checked = results.size)
             val good = results.filter { it.delayMs != null }.sortedBy { it.delayMs }.take(5).mapNotNull { sample -> catalogProfiles.find { "p-${it.id}" == sample.tag } }
             require(good.isNotEmpty()) { "В проверенной выборке нет работающих узлов. Повторная проверка возьмёт следующие." }
@@ -454,12 +403,12 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
         disconnect(); withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.OFF || it.phase == RuntimePhase.ERROR } }
         repository.reload(); repository.ready(); "Служба остановлена, защищённое хранилище прочитано. Можно подключаться снова."
     }
-    override suspend fun saveSettings(patch: SettingsPatch) = action {
+    override suspend fun saveSettings(patch: SettingsPatch) = mutation {
         repository.edit { value -> value.copy(settings = value.settings.copy(lanDirect = patch.lanDirect ?: value.settings.lanDirect,
             ruDirect = patch.ruDirect ?: value.settings.ruDirect, autoConnect = patch.autoConnect ?: value.settings.autoConnect,
             notifications = patch.notifications ?: value.settings.notifications)) }; "Настройки сохранены"
     }
-    override suspend fun setSystemDnsPath(viaId: String?) = action {
+    override suspend fun setSystemDnsPath(viaId: String?) = mutation {
         repository.edit { value ->
             require(viaId == null || validPath(value, viaId)) { "Выберите доступный путь для общего DNS" }
             value.copy(settings = value.settings.copy(systemDnsVia = viaId))

@@ -21,6 +21,8 @@ import io.nekohasekai.libbox.StatusMessage
 import io.nekohasekai.libbox.StringIterator
 import io.nekohasekai.libbox.SystemProxyStatus
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.Closeable
 import java.io.IOException
 import java.net.URI
@@ -48,7 +50,7 @@ internal class LibboxBackend(
     private val client = AtomicReference<CommandClient?>()
     private val server = AtomicReference<CommandServer?>()
     private val probes = ConcurrentHashMap.newKeySet<CommandClient>()
-    private val reconnecting = AtomicBoolean()
+    private val recovery = StreamRecoveryGate()
     private val reconnect = Executors.newSingleThreadScheduledExecutor { task -> Thread(task, "waarp-control").apply { isDaemon = true } }
     private val cancellation = Executors.newSingleThreadExecutor { task -> Thread(task, "waarp-cancel").apply { isDaemon = true } }
     private val platform = AndroidPlatform(vpn, vpn, ::current,
@@ -60,7 +62,7 @@ internal class LibboxBackend(
     /** Convert JNI iterators first; only the immutable result is published under this gate. */
     private fun publish(epoch: Long? = null, action: () -> Unit) {
         RuntimeState.whenCurrent(generation) {
-            if (!closed.get() && (epoch == null || epoch == streamEpoch.get())) action()
+            if (!closed.get() && (epoch == null || epoch == streamEpoch.get() && !recovery.hasFailed(epoch))) action()
         }
     }
 
@@ -84,14 +86,15 @@ internal class LibboxBackend(
         finally { LibboxRuntime.removeConfigurationSnapshot(strict = true) }
         check(current()) { "Запуск отменён" }
         check(platform.hasTun && native.ready()) { "Ядро не подтвердило готовность VPN" }
-        connectClient()
+        recovery.begin()
+        connectWithRetries()
         check(current()) { "Запуск отменён" }
         started.set(true)
         val startedAt = client.get()?.startedAt ?: System.currentTimeMillis()
         RuntimeState.updateIfCurrent(generation) {
             it.copy(
-                phase = if (reconnecting.get()) RuntimePhase.STARTING else RuntimePhase.ON,
-                message = if (reconnecting.get()) "Восстанавливается связь с VPN-ядром" else null, startedAt = startedAt,
+                phase = if (recovery.recovering) RuntimePhase.STARTING else RuntimePhase.ON,
+                message = if (recovery.recovering) "Восстанавливается связь с VPN-ядром" else null, startedAt = startedAt,
                 coreVersion = Libbox.version(), alwaysOn = vpn.isAlwaysOn,
                 lockdown = vpn.isLockdownEnabled,
             )
@@ -99,9 +102,10 @@ internal class LibboxBackend(
         publish { RuntimeState.appendLog(1, "VPN-ядро ${Libbox.version()} запущено; доступность сервера проверяется отдельно") }
     }
 
-    private fun connectClient() {
+    private fun connectClient(): Long {
         val epoch = synchronized(RuntimeState) {
             check(current()) { "Запуск отменён" }
+            RuntimeState.activeFlowTags.value = null
             streamEpoch.incrementAndGet()
         }
         client.getAndSet(null)?.let { runCatching { it.disconnect() } }
@@ -121,31 +125,51 @@ internal class LibboxBackend(
         if (!current()) { connection.disconnect(); throw IOException("Запуск отменён") }
         updateGroups(connection.groups, epoch)
         updateOutbounds(connection.outbounds, epoch)
+        return epoch
     }
 
     private fun disconnected(epoch: Long, message: String) {
-        if (!current() || epoch != streamEpoch.get() || !reconnecting.compareAndSet(false, true)) return
-        RuntimeState.updateIfCurrent(generation) {
-            it.copy(phase = RuntimePhase.STARTING, message = "Восстанавливается связь с VPN-ядром", telemetryAvailable = false)
-        }
-        publish(epoch) { RuntimeState.appendLog(2, message) }
-        reconnect.execute {
-            var last: Throwable? = null
-            for (attempt in 0..2) {
-                if (!current()) break
-                try {
-                    if (attempt > 0) TimeUnit.MILLISECONDS.sleep(250L shl attempt)
-                    connectClient()
-                    if (current() && started.get()) RuntimeState.updateIfCurrent(generation) {
-                        it.copy(phase = RuntimePhase.ON, message = null)
-                    }
-                    last = null
-                    break
-                } catch (error: Exception) { last = error }
+        val launchRecovery = synchronized(RuntimeState) {
+            if (!current() || epoch != streamEpoch.get()) return
+            RuntimeState.activeFlowTags.value = null
+            RuntimeState.status.update {
+                it.copy(phase = RuntimePhase.STARTING, message = "Восстанавливается связь с VPN-ядром", telemetryAvailable = false)
             }
-            reconnecting.set(false)
-            if (last != null && current()) onFailure(IOException("Потеряна связь с VPN-ядром", last))
+            // Always remember the failure, including while a new Connect is in flight.
+            recovery.failed(epoch)
         }
+        publish { RuntimeState.appendLog(2, message) }
+        if (!launchRecovery) return
+        runCatching {
+            reconnect.execute {
+                try { connectWithRetries() }
+                catch (error: Exception) { if (current()) onFailure(IOException("Потеряна связь с VPN-ядром", error)) }
+            }
+        }.onFailure { if (current()) onFailure(it) }
+    }
+
+    private fun connectWithRetries() {
+        var last: Throwable? = null
+        for (attempt in 0..2) {
+            check(current()) { "Запуск отменён" }
+            try {
+                if (attempt > 0) TimeUnit.MILLISECONDS.sleep(250L shl attempt)
+                check(current()) { "Запуск отменён" }
+                val epoch = connectClient()
+                val ready = synchronized(RuntimeState) {
+                    if (!current() || epoch != streamEpoch.get()) false
+                    else if (!recovery.connected(epoch)) false
+                    else {
+                        if (started.get()) RuntimeState.status.update { it.copy(phase = RuntimePhase.ON, message = null) }
+                        true
+                    }
+                }
+                if (ready) return
+                last = IOException("Подписка ядра завершилась во время подключения")
+            } catch (error: Exception) { last = error }
+        }
+        recovery.exhausted()
+        throw IOException("Не удалось восстановить подписки ядра", last)
     }
 
     fun selectOutbound(group: String, outbound: String) {
@@ -156,7 +180,7 @@ internal class LibboxBackend(
         updateGroups(control.groups, epoch)
     }
 
-    fun urlTest(outbound: String, url: String, timeoutMs: Int): Long {
+    suspend fun urlTest(outbound: String, url: String, timeoutMs: Int): Long = withContext(Dispatchers.IO) {
         require(outbound.isNotBlank())
         val endpoint = URI(url)
         require(endpoint.scheme in setOf("https", "http") && !endpoint.host.isNullOrEmpty()) { "Для проверки нужен HTTP(S)-адрес" }
@@ -165,9 +189,12 @@ internal class LibboxBackend(
         // A separate control connection cancels its own request; it reuses the active core's outbound.
         val probe = Libbox.newStandaloneCommandClient()
         probes += probe
-        return try {
+        try {
             if (!current()) throw IOException("VPN остановлен")
-            val result = probe.urlTestOutbound(outbound, url, timeoutMs)
+            val result = cancellableResourceCall(
+                cancel = { runCatching { cancellation.execute { runCatching { probe.disconnect() } } } },
+                operation = { probe.urlTestOutbound(outbound, url, timeoutMs) },
+            )
             if (result.error.isNotBlank()) throw IOException(RuntimeRedaction.redact(result.error))
             check(current()) { "Проверка отменена" }
             result.delay.toLong()
@@ -257,7 +284,7 @@ internal class LibboxBackend(
 
     private inner class Handler(private val epoch: Long) : CommandClientHandler {
         private val accumulator = Connections()
-        private fun accept(): Boolean = current() && epoch == streamEpoch.get()
+        private fun accept(): Boolean = current() && epoch == streamEpoch.get() && !recovery.hasFailed(epoch)
         // These Go interfaces have no error result. A thrown exception would abort ART/JNI.
         private inline fun callback(block: () -> Unit) {
             if (accept()) runCatching(block).onFailure { error ->
@@ -304,6 +331,7 @@ internal class LibboxBackend(
         override fun writeConnectionEvents(events: ConnectionEvents?) = callback {
             if (events == null) return@callback
             accumulator.applyEvents(events)
+            accumulator.filterState(Libbox.ConnectionStateAll.toInt())
             accumulator.sortByDate()
             val iterator = accumulator.iterator()
             val result = mutableListOf<RuntimeConnection>()
@@ -315,7 +343,20 @@ internal class LibboxBackend(
                     item.uplinkTotal, item.downlinkTotal,
                 )
             }
-            publish(epoch) { RuntimeState.connections.value = result }
+            // The display cap must not hide an older live connection from Auto.
+            // Read all active tags without materialising every closed flow in Kotlin.
+            accumulator.filterState(Libbox.ConnectionStateActive.toInt())
+            val active = accumulator.iterator()
+            val activeTags = linkedSetOf<String>()
+            while (active.hasNext()) active.next().let { item ->
+                activeTags += item.outbound
+                activeTags += item.chain().toStrings()
+                activeTags += item.detour().toStrings()
+            }
+            publish(epoch) {
+                RuntimeState.connections.value = result
+                RuntimeState.activeFlowTags.value = activeTags
+            }
         }
         override fun writeDNSQuery(query: DnsQuery?) = callback {
             if (query != null) {

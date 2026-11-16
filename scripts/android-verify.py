@@ -153,7 +153,12 @@ def verify(path: Path, expected: str) -> dict:
 
     alignment = command([tool("zipalign"), "-c", "-P", "16", "-v", "4", str(path)])
     require(alignment.returncode == 0, f"zipalign 16 KB verification failed: {alignment.stdout[-3000:]}")
-    signature = command([tool("apksigner"), "verify", "--verbose", "--print-certs", str(path)])
+    # API29+ selects v3 and may report v2=false without even checking v2.
+    # Explicitly include API24 in signature verification to require both the
+    # fallback v2 block and modern v3 block; the manifest still must declare min29.
+    signature = command([tool("apksigner"), "verify", "--min-sdk-version", "24", "--verbose", "--print-certs", str(path)])
+    signature_schemes = {version: f"Verified using {version} scheme (APK Signature Scheme {version}): true" in signature.stdout
+                         for version in ("v2", "v3")}
     if expected == "release-unsigned":
         require(not signature_present and signature.returncode != 0, "Expected an unsigned release APK, but signing data is present.")
         certificate = None
@@ -165,8 +170,13 @@ def verify(path: Path, expected: str) -> dict:
         require(certificate_match is not None, "Signing certificate digest is missing.")
         certificate = certificate_match.group(1).lower()
         signed = True
-        if expected == "release":
+        if expected in ("release", "release-ci"):
             require("CN=Android Debug" not in signature.stdout, "A debug certificate cannot be used for a release APK.")
+            require(signature_schemes["v3"], "Release APK must also have a valid v3 signature.")
+        if expected == "release":
+            signing_pin = json.loads((ROOT / "android/release-signing.json").read_text())
+            require(signing_pin["applicationId"] == package_id and signing_pin["signerCertificateSha256"] == certificate,
+                    "Release APK is not signed by the retained update identity.")
 
     sha = hashlib.sha256()
     with path.open("rb") as stream:
@@ -177,6 +187,7 @@ def verify(path: Path, expected: str) -> dict:
         "artifact": path.name, "sha256": sha.hexdigest(), "bytes": path.stat().st_size,
         "variant": expected, "applicationId": package_id, "versionCode": int(version_code), "versionName": version_name,
         "minSdk": 29, "targetSdk": 36, "abi": abi, "signed": signed, "signerCertificateSha256": certificate,
+        "signatureSchemes": signature_schemes,
         "engineVersion": pin["version"], "engineSourceCommit": pin["sourceCommit"],
         "zipalign16k": True, "nativeLibraries": native,
         "scope": "Static APK packaging and signature checks; runtime VPN tests are reported separately.",
@@ -186,7 +197,7 @@ def verify(path: Path, expected: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("apk", type=Path)
-    parser.add_argument("--expect", choices=("debug", "release", "release-unsigned"), required=True)
+    parser.add_argument("--expect", choices=("debug", "release", "release-unsigned", "release-ci"), required=True)
     parser.add_argument("--report", type=Path)
     options = parser.parse_args()
     try:

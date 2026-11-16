@@ -23,6 +23,7 @@ import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -38,16 +39,19 @@ import java.net.URI
 @Composable
 internal fun DiagnosticsScreen(state: MobileState, actions: MobileActions, onCreateRoute: (String, String) -> Unit) {
     var section by rememberSaveable { mutableStateOf("check") }
+    val screens = rememberSaveableStateHolder()
     Column(Modifier.fillMaxSize()) {
         FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("check" to "Проверка", "flows" to "Соединения", "logs" to "Журнал").forEach { (key, label) ->
                 FilterChip(section == key, onClick = { section = key }, label = { Text(label) }, modifier = Modifier.heightIn(min = 48.dp))
             }
         }
+        screens.SaveableStateProvider(section) {
         when (section) {
             "flows" -> FlowsScreen(state)
             "logs" -> LogsScreen(state, actions)
             else -> ChecksScreen(state, actions, onCreateRoute)
+        }
         }
     }
 }
@@ -118,7 +122,7 @@ private fun ChecksScreen(state: MobileState, actions: MobileActions, onCreateRou
             })
         }
         if (state.latencyHistory.isEmpty()) item { Text("Пока нет измерений. Запусти проверку туннелей.", style = MaterialTheme.typography.bodyMedium, color = WaarpMuted) }
-        items(state.latencyHistory, key = { it.id }) { history -> LatencyChart(history) }
+        items(state.latencyHistory, key = { it.id }, contentType = { "history" }) { history -> LatencyChart(history) }
     }
 }
 
@@ -191,7 +195,7 @@ private fun FlowsScreen(state: MobileState) {
             EmptyState(Icons.Outlined.Wifi, "Нет наблюдаемых соединений", if (state.status.phase == ConnectionPhase.ON) "Открой приложение с включённым маршрутом. Его соединения появятся здесь."
                 else "Включи VPN и открой приложение, чтобы увидеть реальные соединения.")
         }
-        items(flows, key = { it.id }) { flow ->
+        items(flows, key = { it.id }, contentType = { "flow" }) { flow ->
             Panel {
                 Column(Modifier.fillMaxWidth().clickable { selected = if (selected == flow.id) null else flow.id }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -221,7 +225,7 @@ private fun LogsScreen(state: MobileState, actions: MobileActions) {
     val operation = rememberUiOperation()
     var query by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(Unit) { operation.run({ actions.readLogs() }) }
-    val lines = remember(state.logs, query) { state.logs.filter { it.contains(query, true) }.takeLast(400) }
+    val lines = remember(state.logs, query) { state.logs.filter { it.text.contains(query, true) }.takeLast(400) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -233,10 +237,10 @@ private fun LogsScreen(state: MobileState, actions: MobileActions) {
         item { SearchField(query, { query = it }, "Найти в журнале") }
         item { Text("Последние ${lines.size} строк. Отчёт подготавливается без приватных ключей и ссылок подписок.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted) }
         if (lines.isEmpty()) item { EmptyState(Icons.Outlined.Description, "Журнал пуст", "События работы движка появятся после запуска. Для свежих данных нажми «Обновить».") }
-        items(lines.size) { index ->
+        items(lines, key = { it.id }, contentType = { "log" }) { line ->
             SelectionContainer {
-                Text(lines[index], style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
-                    color = if (lines[index].contains("error", true) || lines[index].contains("ошибка", true)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                Text(line.text, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
+                    color = if (line.text.contains("error", true) || line.text.contains("ошибка", true)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
             }
         }
@@ -267,7 +271,7 @@ internal fun SettingsScreen(state: MobileState, actions: MobileActions) {
                 Text("Android иногда не передаёт приложение DNS-запроса, особенно в версиях 10 и 11; для таких запросов используется общий путь.",
                     style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
                 val choices = listOf(PathChoice(SYSTEM_DNS_AUTOMATIC, "Автоматически по маршрутам", "Общий путь определяется по включённым маршрутам")) +
-                    pathChoices(state).map { if (it.id == AUTO_PATH) it.copy(name = "Авто: свои туннели") else it }
+                    rememberPathChoices(state).map { if (it.id == AUTO_PATH) it.copy(name = "Авто: свои туннели") else it }
                 PathField("Путь общего DNS", state.settings.systemDnsViaId ?: SYSTEM_DNS_AUTOMATIC,
                     choices, enabled = !operation.busy) { chosen ->
                     operation.run({ actions.setSystemDnsPath(chosen.takeUnless { it == SYSTEM_DNS_AUTOMATIC }) })

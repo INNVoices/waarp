@@ -9,8 +9,11 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +24,7 @@ import (
 
 	"github.com/sagernet/wireguard-go/device"
 	"golang.org/x/net/dns/dnsmessage"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
 func TestAndroidFixtureChild(t *testing.T) {
@@ -99,9 +103,12 @@ func TestAndroidServerEncryptedEDNSAndClientRecreation(t *testing.T) {
 		func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			tun := newMemoryTUN(1280)
+			stackTUN, stackNet, stackErr := netstack.CreateNetTUN([]netip.Addr{localClientIP}, nil, 1280)
+			if stackErr != nil {
+				t.Fatal("client_netstack")
+			}
 			bind := &udpBind{family: "udp4", listenIP: net.IPv4(127, 0, 0, 1)}
-			dev := device.NewDevice(ctx, tun, bind, &device.Logger{Verbosef: device.DiscardLogf, Errorf: device.DiscardLogf}, 1)
+			dev := device.NewDevice(ctx, adaptAndroidNetTUN(stackTUN), bind, &device.Logger{Verbosef: device.DiscardLogf, Errorf: device.DiscardLogf}, 1)
 			defer dev.Close()
 			uapi := "private_key=" + hex.EncodeToString(privateKey.Bytes()) + "\n" + localAWG +
 				"replace_peers=true\npublic_key=" + hex.EncodeToString(publicKey) +
@@ -109,45 +116,64 @@ func TestAndroidServerEncryptedEDNSAndClientRecreation(t *testing.T) {
 			if dev.IpcSet(uapi) != nil || dev.Up() != nil {
 				t.Fatal("start_client")
 			}
-			configuration := &config{source: localClientIP, dns: localServerIP}
-			packet, id, sourcePort, packetErr := dnsPacket(configuration)
-			if packetErr != nil {
-				t.Fatal("create_dns_request")
-			}
-			// Add a valid EDNS OPT to exercise the production native resolver's query shape.
-			var dns dnsmessage.Message
-			dns.Unpack(packet[28:])
-			dns.Additionals = []dnsmessage.Resource{{Header: dnsmessage.ResourceHeader{
-				Name: dnsmessage.MustNewName("."), Type: dnsmessage.TypeOPT, Class: dnsmessage.Class(1232)}, Body: &dnsmessage.OPTResource{}}}
-			payload, packErr := dns.Pack()
-			if packErr != nil {
-				t.Fatal("encode_edns")
-			}
-			packet = replaceDNSPayload(packet, payload)
-			tun.outbound <- packet
-			deadline := time.NewTimer(8 * time.Second)
-			defer deadline.Stop()
-			retry := time.NewTicker(250 * time.Millisecond)
-			defer retry.Stop()
-			for {
-				select {
-				case incoming := <-tun.inbound:
-					if matches, code, answers := dnsResponse(incoming, configuration, id, sourcePort); matches && code == 0 && answers == 1 {
-						if !handshakeComplete(dev) {
-							t.Fatal("missing_authenticated_handshake")
-						}
-						return
-					}
-				case <-retry.C:
-					tun.outbound <- packet
-				case <-deadline.C:
-					var snapshot androidProof
-					if state, stateErr := client.Get(base + "/proof"); stateErr == nil {
-						json.NewDecoder(state.Body).Decode(&snapshot)
-						state.Body.Close()
-					}
-					t.Fatalf("encrypted_edns_timeout_cycle_%d: %+v", cycle, snapshot)
+			nonce := fmt.Sprintf("host-fixture-cycle-%d", cycle)
+			for _, domain := range []string{"example.com.", nonce + ".soak.waarp.test."} {
+				query := dnsmessage.Message{
+					Header:      dnsmessage.Header{ID: uint16(100 + cycle), RecursionDesired: true},
+					Questions:   []dnsmessage.Question{{Name: dnsmessage.MustNewName(domain), Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET}},
+					Additionals: []dnsmessage.Resource{{Header: dnsmessage.ResourceHeader{Name: dnsmessage.MustNewName("."), Type: dnsmessage.TypeOPT, Class: dnsmessage.Class(1232)}, Body: &dnsmessage.OPTResource{}}},
 				}
+				payload, packErr := query.Pack()
+				if packErr != nil {
+					t.Fatal("encode_edns")
+				}
+				connection, dialErr := stackNet.DialUDPAddrPort(netip.AddrPortFrom(localClientIP, 0), netip.AddrPortFrom(localServerIP, 53))
+				if dialErr != nil {
+					t.Fatal("dial_inner_dns")
+				}
+				answer := make([]byte, 4096)
+				matched := false
+				for until := time.Now().Add(8 * time.Second); time.Now().Before(until); {
+					connection.SetDeadline(time.Now().Add(250 * time.Millisecond))
+					if _, writeErr := connection.Write(payload); writeErr != nil {
+						t.Fatal("write_inner_dns")
+					}
+					n, readErr := connection.Read(answer)
+					if readErr != nil {
+						continue
+					}
+					var decoded dnsmessage.Message
+					if decoded.Unpack(answer[:n]) != nil || decoded.Header.ID != query.Header.ID || decoded.Header.RCode != 0 || len(decoded.Answers) != 1 {
+						t.Fatal("inner_dns_response")
+					}
+					address, ok := decoded.Answers[0].Body.(*dnsmessage.AResource)
+					wanted := [4]byte{10, 77, 0, 1}
+					if domain == "example.com." {
+						wanted = [4]byte{192, 0, 2, 42}
+					}
+					if !ok || address.A != wanted || decoded.Answers[0].Header.TTL != 0 {
+						t.Fatal("inner_dns_address")
+					}
+					matched = true
+					break
+				}
+				connection.Close()
+				if !matched || !handshakeComplete(dev) {
+					t.Fatal("encrypted_dns_timeout_or_no_handshake")
+				}
+			}
+			transport := &http.Transport{DialContext: stackNet.DialContext, DisableKeepAlives: true}
+			defer transport.CloseIdleConnections()
+			innerClient := &http.Client{Transport: transport, Timeout: 8 * time.Second}
+			response, requestErr := innerClient.Get("http://10.77.0.1:18080/probe?nonce=" + nonce)
+			if requestErr != nil {
+				t.Fatal("encrypted_http_request")
+			}
+			body, bodyErr := io.ReadAll(io.LimitReader(response.Body, androidHTTPPayloadSize+256))
+			response.Body.Close()
+			prefix := []byte("waarp-acceptance:" + nonce + "\n")
+			if bodyErr != nil || response.StatusCode != http.StatusOK || len(body) != len(prefix)+androidHTTPPayloadSize || !bytes.HasPrefix(body, prefix) || !bytes.Equal(body[len(prefix):], bytes.Repeat([]byte{'w'}, androidHTTPPayloadSize)) {
+				t.Fatal("encrypted_http_body")
 			}
 		}()
 	}
@@ -167,24 +193,7 @@ func TestAndroidServerEncryptedEDNSAndClientRecreation(t *testing.T) {
 	}
 	defer file.Close()
 	var proof androidProof
-	if json.NewDecoder(file).Decode(&proof) != nil || !proof.Passed {
+	if json.NewDecoder(file).Decode(&proof) != nil || !proof.Passed || !proof.HTTPStarted || proof.HTTPRequests != 2 || proof.UniqueHTTP != 2 || proof.UniqueDNS != 3 || proof.HTTPBytes < 2*androidHTTPPayloadSize || proof.FirstRequest <= 0 || proof.LastRequest < proof.FirstRequest {
 		t.Fatalf("fixture_proof_failed: %+v", proof)
 	}
-}
-
-func replaceDNSPayload(packet, payload []byte) []byte {
-	result := append(append([]byte(nil), packet[:28]...), payload...)
-	result[2], result[3] = byte(len(result)>>8), byte(len(result))
-	result[24], result[25] = byte((8+len(payload))>>8), byte(8+len(payload))
-	result[10], result[11] = 0, 0
-	var checksum uint32
-	for index := 0; index < 20; index += 2 {
-		checksum += uint32(result[index])<<8 | uint32(result[index+1])
-	}
-	for checksum > 0xffff {
-		checksum = (checksum & 0xffff) + (checksum >> 16)
-	}
-	checksum = ^checksum
-	result[10], result[11] = byte(checksum>>8), byte(checksum)
-	return result
 }

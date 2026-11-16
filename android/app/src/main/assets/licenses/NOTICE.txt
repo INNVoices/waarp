@@ -1,4 +1,4 @@
-Waarp for Android 0.5.0-alpha.1
+Waarp for Android 0.5.0-rc.1
 
 The Android application is licensed under the GNU General Public License,
 version 3 or, at your option, any later version (GPL-3.0-or-later).
@@ -54,6 +54,11 @@ ZXing Android Embedded 4.3.0: Apache-2.0, Journey Mobile and contributors.
 https://github.com/journeyapps/zxing-android-embedded/tree/v4.3.0
 ZXing Core 3.5.3: Apache-2.0, ZXing authors.
 https://github.com/zxing/zxing/tree/zxing-3.5.3
+
+OkHttp 5.3.2 and Okio: Apache-2.0, Square, Inc. and contributors.
+https://github.com/lysine-dev/okhttp
+https://github.com/lysine-dev/okio
+The resolved Okio version is recorded in Maven-runtime-components.json.
 
 The full Apache License 2.0 is included in Apache-2.0.txt.
 Maven-runtime-components.json contains the exact resolved Maven component

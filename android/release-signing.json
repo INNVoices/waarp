@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "applicationId": "local.waarp.android",
+  "keyAlgorithm": "RSA-4096",
+  "signerCertificateSha256": "e43f3e7e480b6073f6da0c061edde0f1ebd891d410fe48a57912fa35263a441e",
+  "createdAtUtc": "2026-11-16T19:48:08.600142+00:00",
+  "validityDays": 10950,
+  "scope": "Public APK update identity only. The private key and passwords are retained outside Git and CI."
+}

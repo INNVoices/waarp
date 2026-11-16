@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <queries><package android:name="local.waarp.android" /></queries>
+    <application android:label="Waarp Acceptance Probe" android:usesCleartextTraffic="true"
+        android:allowBackup="false" android:supportsRtl="true">
+        <!-- A launcher entry lets the real app picker discover our independent
+             UID. This activity is in the test APK, never the production app. -->
+        <activity android:name=".ProbeActivity" android:exported="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

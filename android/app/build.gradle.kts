@@ -38,8 +38,8 @@ android {
         applicationId = "local.waarp.android"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.5.0-alpha.1"
+        versionCode = 2
+        versionName = "0.5.0-rc.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["clearPackageData"] = "true"
         buildConfigField("String", "ENGINE_VERSION", "\"${enginePin["version"]}\"")
@@ -182,6 +182,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    // 5.5.x requires compileSdk 37; retain the validated API36/AGP8 toolchain.
+    implementation("com.squareup.okhttp3:okhttp:5.3.2")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.google.zxing:core:3.5.3")
     debugImplementation("androidx.compose.ui:ui-tooling")

@@ -49,7 +49,7 @@ internal class AndroidPlatform(
     private val cancelNotification: (String, Int) -> Unit,
 ) : PlatformInterface, Closeable {
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
-    private val monitor = PhysicalNetworkMonitor(connectivity)
+    private val monitor = PhysicalNetworkMonitor(connectivity, current)
     private val resolver = AndroidDnsResolver { monitor.network }
     private val tun = AtomicReference<ParcelFileDescriptor?>()
     @Volatile var httpProxyEnabled: Boolean = false
@@ -166,20 +166,19 @@ internal class AndroidPlatform(
 
     override fun getInterfaces(): NetworkInterfaceIterator {
         val result = mutableListOf<BoxNetworkInterface>()
-        for (network in connectivity.allNetworks) {
+        for (snapshot in monitor.snapshots()) {
             runCatching {
-                val link = connectivity.getLinkProperties(network) ?: return@runCatching
-                val caps = connectivity.getNetworkCapabilities(network) ?: return@runCatching
-                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return@runCatching
+                val link = snapshot.link
+                val caps = snapshot.capabilities
                 val name = link.interfaceName ?: return@runCatching
                 val native = JavaNetworkInterface.getByName(name) ?: return@runCatching
                 result += BoxNetworkInterface().apply {
                     index = native.index
                     this.name = native.name
                     mtu = native.mtu
-                    addresses = BoxStrings(link.linkAddresses.map { "${it.address.hostAddress}/${it.prefixLength}" })
-                    setDNSServer(BoxStrings(link.dnsServers.mapNotNull { it.hostAddress }))
-                    gateway = BoxStrings(link.routes.filter { it.hasGateway() }.mapNotNull { it.gateway?.hostAddress }.distinct())
+                    addresses = BoxStrings(link.addresses)
+                    setDNSServer(BoxStrings(link.dnsServers))
+                    gateway = BoxStrings(link.gateways)
                     metered = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
                     type = when {
                         caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> Libbox.InterfaceTypeWIFI
@@ -244,69 +243,153 @@ private fun RoutePrefixIterator.toPrefixes(): List<Pair<String, Int>> {
 }
 
 /** Never report our own VPN as the physical network (that would recurse DNS into TUN). */
-private class PhysicalNetworkMonitor(private val connectivity: ConnectivityManager) : Closeable {
+private class PhysicalNetworkMonitor(
+    private val connectivity: ConnectivityManager,
+    private val current: () -> Boolean,
+) : Closeable {
+    data class Snapshot(val network: Network, val capabilities: NetworkCapabilities, val link: LinkSnapshot)
+    // LinkProperties has no public copy constructor. Copy only public values
+    // into our own snapshot instead of retaining the callback's mutable object.
+    data class LinkSnapshot(
+        val interfaceName: String?, val addresses: List<String>, val dnsServers: List<String>,
+        val gateways: List<String>, val mtu: Int,
+    ) {
+        companion object {
+            fun from(properties: LinkProperties) = LinkSnapshot(
+                properties.interfaceName,
+                properties.linkAddresses.map { "${it.address.hostAddress}/${it.prefixLength}" },
+                properties.dnsServers.mapNotNull { it.hostAddress },
+                properties.routes.filter { it.hasGateway() }.mapNotNull { it.gateway?.hostAddress }.distinct(),
+                properties.mtu,
+            )
+        }
+    }
+    private data class Record(var capabilities: NetworkCapabilities? = null, var link: LinkSnapshot? = null, var blocked: Boolean = false)
+    private data class InterfaceState(
+        val network: Network, val name: String, val index: Int, val addresses: List<String>,
+        val dns: List<String>, val mtu: Int, val metered: Boolean,
+    )
+
     private val thread = HandlerThread("waarp-network")
     private lateinit var handler: Handler
-    @Volatile var network: Network? = null
-        private set
+    private val stateLock = Any()
+    // libbox can call getInterfaces from another Go thread while updating the
+    // default interface. Never hold stateLock across that JNI call.
+    private val notificationLock = Any()
+    private val records = linkedMapOf<Network, Record>()
+    @Volatile private var selected: Snapshot? = null
+    val network: Network? get() = selected?.network
     @Volatile private var listener: InterfaceUpdateListener? = null
     @Volatile private var closed = false
     private var registered = false
+    private var lastNotified: InterfaceState? = null
     private val callback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) = refresh()
-        override fun onLost(network: Network) = refresh()
-        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = refresh()
-        override fun onLinkPropertiesChanged(network: Network, link: LinkProperties) = refresh()
+        override fun onAvailable(network: Network) = update { records.getOrPut(network) { Record() } }
+        override fun onLost(network: Network) = update { records.remove(network) }
+        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = update {
+            records[network]?.capabilities = NetworkCapabilities(caps)
+        }
+        override fun onLinkPropertiesChanged(network: Network, link: LinkProperties) = update {
+            records[network]?.link = LinkSnapshot.from(link)
+        }
+        override fun onBlockedStatusChanged(network: Network, blocked: Boolean) = update {
+            records[network]?.blocked = blocked
+        }
     }
 
     fun start() {
         thread.start()
         handler = Handler(thread.looper)
-        refresh()
-        connectivity.registerNetworkCallback(
-            NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(), callback, handler,
-        )
-        registered = true
-    }
-
-    private fun physical(candidate: Network?): Boolean = candidate != null &&
-        connectivity.getNetworkCapabilities(candidate)?.let {
-            it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) && !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-        } == true
-
-    private fun refresh() {
-        if (closed) return
-        runCatching {
-            val active = connectivity.activeNetwork?.takeIf(::physical)
-            network = active ?: connectivity.allNetworks.filter(::physical).maxByOrNull {
-                val caps = connectivity.getNetworkCapabilities(it)
-                (if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true) 4 else 0) +
-                    (if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) 2 else 0) +
-                    (if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true) 3 else 0)
+        synchronized(stateLock) {
+            // Register before taking the one initial snapshot. Callbacks wait for
+            // the seed and then apply in order, so a loss cannot be missed here.
+            connectivity.registerNetworkCallback(
+                NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(), callback, handler,
+            )
+            registered = true
+            for (candidate in connectivity.allNetworks) {
+                runCatching {
+                    val caps = connectivity.getNetworkCapabilities(candidate) ?: return@runCatching
+                    val link = connectivity.getLinkProperties(candidate) ?: return@runCatching
+                    if (physical(caps)) records[candidate] = Record(NetworkCapabilities(caps), LinkSnapshot.from(link))
+                }
             }
-            notifyListener()
-        }.onFailure {
-            network = null
-            runCatching { listener?.updateDefaultInterface("", -1, false, false) }
+            selectNetwork()
         }
     }
 
-    private fun notifyListener() {
-        val target = listener ?: return
-        val current = network
-        val link = current?.let(connectivity::getLinkProperties)
-        val name = link?.interfaceName
+    private fun physical(caps: NetworkCapabilities): Boolean =
+        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) && !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+
+    fun snapshots(): List<Snapshot> = synchronized(stateLock) {
+        records.mapNotNull { (candidate, record) ->
+            val caps = record.capabilities ?: return@mapNotNull null
+            val link = record.link ?: return@mapNotNull null
+            if (record.blocked || !physical(caps) || link.interfaceName.isNullOrBlank()) null
+            else Snapshot(candidate, caps, link)
+        }
+    }
+
+    private fun selectNetwork() {
+        val previous = selected?.network
+        selected = snapshots().maxWithOrNull(compareBy<Snapshot> {
+            val caps = it.capabilities
+            (if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) 4 else 0) +
+                (if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) 2 else 0) +
+                (if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) 3 else 0)
+        }.thenBy { if (it.network == previous) 1 else 0 })
+    }
+
+    private fun update(change: () -> Unit) {
+        synchronized(stateLock) {
+            if (closed) return
+            // NetworkCallback arguments are authoritative. Synchronous
+            // ConnectivityManager getters here can return older or null state.
+            change()
+            selectNetwork()
+        }
+        runCatching { notifyListener() }.onFailure { invalidateListener() }
+    }
+
+    private fun notifyListener(force: Boolean = false) = synchronized(notificationLock) {
+        if (closed || !current()) return@synchronized
+        val target = listener ?: return@synchronized
+        val snapshot = selected
+        val name = snapshot?.link?.interfaceName
         val native = name?.let(JavaNetworkInterface::getByName)
-        if (name == null || native == null) target.updateDefaultInterface("", -1, false, false)
-        else target.updateDefaultInterface(name, native.index,
-            connectivity.getNetworkCapabilities(current)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false, false)
+        val state = if (snapshot == null || name == null || native == null) null else InterfaceState(
+            snapshot.network, name, native.index,
+            snapshot.link.addresses.sorted(),
+            snapshot.link.dnsServers, snapshot.link.mtu,
+            !snapshot.capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED),
+        )
+        val previous = lastNotified
+        if (!force && state == previous) return@synchronized
+        if (state == null) target.updateDefaultInterface("", -1, false, false)
+        else {
+            // The pinned native monitor compares only interface name/index/DNS.
+            // A new Android Network or lost local address on the same wlan0 also
+            // invalidates old bound sockets, and must produce a native handover.
+            if (previous != null && previous.name == state.name && previous.index == state.index &&
+                (previous.network != state.network || previous.addresses.any { it !in state.addresses })) {
+                target.updateDefaultInterface("", -1, false, false)
+            }
+            target.updateDefaultInterface(state.name, state.index, state.metered, false)
+        }
+        lastNotified = state
+    }
+
+    private fun invalidateListener() = synchronized(notificationLock) {
+        lastNotified = null
+        if (!closed && current()) runCatching { listener?.updateDefaultInterface("", -1, false, false) }
+        Unit
     }
 
     fun attach(value: InterfaceUpdateListener) {
         listener = value
         // libbox needs the initial interface synchronously while starting.
-        runCatching { notifyListener() }.onFailure { runCatching { value.updateDefaultInterface("", -1, false, false) } }
+        runCatching { notifyListener(force = true) }.onFailure { invalidateListener() }
     }
 
     fun detach(value: InterfaceUpdateListener) {
@@ -318,7 +401,7 @@ private class PhysicalNetworkMonitor(private val connectivity: ConnectivityManag
         listener = null
         if (registered) runCatching { connectivity.unregisterNetworkCallback(callback) }
         registered = false
-        network = null
+        synchronized(stateLock) { records.clear(); selected = null }
         thread.quitSafely()
     }
 }

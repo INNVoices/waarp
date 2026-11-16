@@ -1,6 +1,9 @@
 package local.waarp.android.ui
 
 import android.widget.ImageView
+import android.content.Context
+import android.graphics.drawable.Drawable
+import android.util.LruCache
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,10 +43,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -58,6 +63,8 @@ import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 internal class UiOperation(private val scope: CoroutineScope) {
     var busy by mutableStateOf(false)
@@ -66,10 +73,15 @@ internal class UiOperation(private val scope: CoroutineScope) {
         private set
     var message by mutableStateOf<String?>(null)
         private set
+    var completions by mutableStateOf(0L)
+        private set
 
     fun clearError() { error = null }
 
-    fun run(work: suspend () -> UiResult, success: () -> Unit = {}) {
+    fun run(work: suspend () -> UiResult) = start(work, completeForm = false)
+    fun submit(work: suspend () -> UiResult) = start(work, completeForm = true)
+
+    private fun start(work: suspend () -> UiResult, completeForm: Boolean) {
         if (busy) return
         busy = true
         error = null
@@ -79,7 +91,7 @@ internal class UiOperation(private val scope: CoroutineScope) {
                 val result = work()
                 if (result.ok) {
                     message = result.message
-                    success()
+                    if (completeForm) completions++
                 } else error = result.message ?: "Не удалось выполнить действие. Повтори попытку."
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -204,14 +216,31 @@ internal fun SourceBadge(source: ProfileSource) {
 
 @Composable
 internal fun AppIcon(app: AppUi?, name: String, modifier: Modifier = Modifier) {
-    val drawable = app?.icon
+    val context = LocalContext.current.applicationContext
+    val density = context.resources.displayMetrics.densityDpi
+    val loaded by produceState<Drawable?>(null, app?.packageName, app?.versionCode, density) {
+        value = null
+        value = app?.let { AppIconCache.load(context, it.packageName, it.versionCode, density) }
+    }
+    val drawable = loaded
     if (drawable != null) {
+        val icon = remember(drawable) { drawable.constantState?.newDrawable()?.mutate() ?: drawable }
         AndroidView(factory = { context -> ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER; importantForAccessibility = ImageView.IMPORTANT_FOR_ACCESSIBILITY_NO } },
-            update = { it.setImageDrawable(drawable) }, modifier = modifier.size(36.dp))
+            onReset = { it.setImageDrawable(null) },
+            update = { if (it.drawable !== icon) it.setImageDrawable(icon) }, modifier = modifier.size(36.dp))
     } else {
         Box(modifier.size(36.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
             Text(name.take(1).uppercase(Locale.ROOT), fontWeight = FontWeight.Bold, color = WaarpOrange)
         }
+    }
+}
+
+/** Only visible rows request icons; a large installed-app list cannot retain every drawable. */
+private object AppIconCache {
+    private val cache = LruCache<String, Drawable>(48)
+    suspend fun load(context: Context, packageName: String, version: Long, density: Int): Drawable? = withContext(Dispatchers.IO) {
+        val key = "$packageName:$version:$density"
+        cache.get(key) ?: runCatching { context.packageManager.getApplicationIcon(packageName) }.getOrNull()?.also { cache.put(key, it) }
     }
 }
 
@@ -232,6 +261,19 @@ internal fun pathChoices(state: MobileState, allowDirect: Boolean = true, exclud
         add(PathChoice(profile.id, profile.name, profile.protocol + trust + unavailable, !profile.revoked && !profile.subscriptionMissing))
     }
     }.filterNot { it.id in excluded }
+}
+
+@Composable
+internal fun rememberPathChoices(state: MobileState, allowDirect: Boolean = true, excluded: Set<String> = emptySet()): List<PathChoice> =
+    remember(state.profiles, state.groups, allowDirect, excluded) { pathChoices(state, allowDirect, excluded) }
+
+@Composable
+internal fun rememberPathNames(state: MobileState): Map<String, String> = remember(state.profiles, state.groups) {
+    buildMap {
+        put(DIRECT_PATH, "Напрямую"); put(AUTO_PATH, "Авто")
+        state.groups.forEach { put(it.id, it.name) }
+        state.profiles.forEach { put(it.id, it.name) }
+    }
 }
 
 internal fun pathName(state: MobileState, id: String?): String = when (id) {
@@ -261,7 +303,7 @@ internal fun PathField(label: String, value: String?, choices: List<PathChoice>,
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (choices.size > 6) SearchField(query, { query = it })
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
-                    items(filtered, key = { it.id }) { option ->
+                    items(filtered, key = { it.id }, contentType = { "choice" }) { option ->
                         Row(Modifier.fillMaxWidth().clickable(enabled = option.enabled) { expanded = false; selected(option.id) }
                             .heightIn(min = 56.dp).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)) {

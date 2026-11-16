@@ -18,6 +18,9 @@ object SelectionPolicy {
         activeConnections: Boolean = false, measuredThisRound: Set<String> = health.keys): SelectionDecision {
         val alive = group.members.filter { health[it]?.healthy == true && it in measuredThisRound }
         val best = if (group.policy == "first") alive.firstOrNull() else alive.minByOrNull { health[it]?.latencyMs ?: Long.MAX_VALUE }
+        // Unknown or one failed first measurement is not a confirmed outage.
+        // This also covers an interrupted/unavailable connections stream.
+        if (activeConnections && current in group.members && health[current]?.down != true) return SelectionDecision(current)
         val holding = current in group.members && health[current]?.holding == true
         if (!holding) return SelectionDecision(best ?: current)
         if (group.policy == "first" || activeConnections || best == null || best == current) return SelectionDecision(current)

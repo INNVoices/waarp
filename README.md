@@ -41,11 +41,11 @@ The current source is **0.4.1-rc.1**, a validation candidate. Stable approval is
 
 ### Android APK
 
-The same repository now includes a native Kotlin/Compose Android client, **0.5.0-alpha.1**, under `android/`.
+The same repository now includes a native Kotlin/Compose Android client, **0.5.0-rc.1**, under `android/`.
 Build with `npm run android:build`; verified per-ABI APKs are written to **`out/android/`**. Android 10 (API 29) or later is required.
 The client uses Android `VpnService` and a pinned sing-box-lx Android AAR. App routing uses Android package names.
 See [Android features, architecture, build and validation](docs/ANDROID.md) for platform differences and signing instructions.
-Android is a new validation candidate; an unsigned release APK is a signing input, while debug APKs are installable test builds.
+Android approval includes optimized-release UI journeys and a two-hour encrypted AWG2 soak. Signed release APKs use a retained update identity; explicitly unsigned APKs are signing inputs, and debug APKs are separate test builds. See [the build and release acceptance contract](docs/ANDROID.md).
 
 **Found a bug?** Open an issue. **Know how to fix it?** Send a pull request — small, focused fixes are very welcome.
 

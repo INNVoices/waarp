@@ -91,6 +91,28 @@ class RuntimeRegressionTest {
         assertFalse(RuntimeState.isSessionGeneration(reloaded.generation))
     }
 
+    @Test fun finishingAnEditCannotReconnectAfterAnExplicitNotificationOff() {
+        val initial = RuntimeState.requestStart("before edit")
+        val paused = RuntimeState.cancelIfCurrent(initial.generation)!!
+        assertTrue(RuntimeState.finishStop(paused))
+        val userOff = RuntimeState.requestStop()
+        assertTrue(RuntimeState.finishStop(userOff))
+        assertNull(RuntimeState.startIfIdle(paused, "after edit"))
+        assertFalse(RuntimeState.wanted())
+        assertEquals(RuntimePhase.OFF, RuntimeState.status.value.phase)
+    }
+
+    @Test fun completedOrAbandonedEditCannotOverrideAReplacementSession() {
+        val initial = RuntimeState.requestStart("before edit")
+        val paused = RuntimeState.cancelIfCurrent(initial.generation)!!
+        assertTrue(RuntimeState.finishStop(paused))
+        val resumed = RuntimeState.startIfIdle(paused, "after edit")!!
+        assertTrue(RuntimeState.isCurrent(resumed.generation))
+        assertNull(RuntimeState.startIfIdle(paused, "late edit"))
+        assertNull(RuntimeState.stopIfIdle(paused))
+        assertTrue(RuntimeState.isCurrent(resumed.generation))
+    }
+
     @Test fun aNativeCloseFailureStillReleasesEveryOtherResourceAndIsReported() {
         val closed = mutableListOf<String>()
         val nativeFailure = IllegalStateException("native close failed")

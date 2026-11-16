@@ -36,16 +36,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 
 @Composable
 internal fun HomeScreen(state: MobileState, actions: MobileActions, onRoutes: () -> Unit, onAddTunnel: () -> Unit, onWholeDevice: () -> Unit) {
     val operation = rememberUiOperation()
     val status = state.status
     val isWhole = state.settings.defaultViaId != DIRECT_PATH
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(status.phase, status.connectedSinceMillis) {
-        while (status.phase == ConnectionPhase.ON) { now = System.currentTimeMillis(); delay(1000) }
-    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             Panel {
@@ -76,7 +75,7 @@ internal fun HomeScreen(state: MobileState, actions: MobileActions, onRoutes: ()
                             status.phase == ConnectionPhase.ERROR -> "Причина и восстановление ниже"
                             else -> "Маршруты применятся при включении"
                         }, style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
-                        if (active && status.connectedSinceMillis != null) Text(formatDuration(now - status.connectedSinceMillis), style = MaterialTheme.typography.labelMedium)
+                        if (active && status.connectedSinceMillis != null) ConnectionUptime(status.connectedSinceMillis)
                     }
                 }
                 val shouldStop = active || pending || status.requestedOpen
@@ -155,6 +154,18 @@ internal fun HomeScreen(state: MobileState, actions: MobileActions, onRoutes: ()
 }
 
 @Composable
+private fun ConnectionUptime(startedAt: Long) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(lifecycle, startedAt) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) { now = System.currentTimeMillis(); delay(1000) }
+        }
+    }
+    Text(formatDuration(now - startedAt), style = MaterialTheme.typography.labelMedium)
+}
+
+@Composable
 private fun TrafficMetric(label: String, speed: Long, total: Long, down: Boolean, modifier: Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -168,15 +179,15 @@ private fun TrafficMetric(label: String, speed: Long, total: Long, down: Boolean
 
 @Composable
 internal fun WholeDeviceSheet(state: MobileState, actions: MobileActions, onDismiss: () -> Unit) {
-    val operation = rememberUiOperation()
+    val operation = rememberModalOperation(onDismiss)
     var path by rememberSaveable { mutableStateOf(state.settings.defaultViaId.takeIf { it != DIRECT_PATH } ?: state.settings.lastWholeDeviceViaId) }
-    val choices = pathChoices(state, allowDirect = false)
+    val choices = rememberPathChoices(state, allowDirect = false)
     FormSheet("Путь для устройства", operation.busy, onDismiss) {
         Text("Приложения и адреса с собственными маршрутами сохранят выбранные пути.", color = WaarpMuted)
         PathField("Общий путь", path, choices, enabled = !operation.busy, selected = { path = it })
         OperationFeedback(operation)
         ActionButton("Применить", operation.busy, enabled = choices.any { it.id == path && it.enabled },
-            onClick = { path?.let { operation.run({ actions.setDefaultRoute(it) }, onDismiss) } }, modifier = Modifier.fillMaxWidth())
+            onClick = { path?.let { operation.submit({ actions.setDefaultRoute(it) }) } }, modifier = Modifier.fillMaxWidth())
     }
 }
 
@@ -184,6 +195,8 @@ internal fun WholeDeviceSheet(state: MobileState, actions: MobileActions, onDism
 internal fun RoutesScreen(state: MobileState, actions: MobileActions, onEdit: (String) -> Unit, onAdd: () -> Unit) {
     var search by rememberSaveable { mutableStateOf("") }
     var kind by rememberSaveable { mutableStateOf("all") }
+    val names = rememberPathNames(state)
+    val apps = remember(state.apps) { state.apps.associateBy { it.packageName } }
     val filtered = remember(state.routes, search, kind) {
         state.routes.filter { route -> (kind == "all" || route.kind.name == kind) &&
             listOf(route.name, route.packageName.orEmpty(), route.selector.orEmpty()).any { it.contains(search, ignoreCase = true) } }
@@ -204,17 +217,20 @@ internal fun RoutesScreen(state: MobileState, actions: MobileActions, onEdit: (S
                 if (state.routes.isEmpty()) Button(onClick = onAdd, Modifier.heightIn(min = 48.dp)) { Text("Добавить маршрут") }
             }
         }
-        items(filtered, key = { it.id }) { route -> RouteCard(route, state, actions, { onEdit(route.id) }) }
+        items(filtered, key = { it.id }, contentType = { "route" }) { route ->
+            RouteCard(route, apps[route.packageName], names[route.viaId] ?: "Недоступный путь",
+                route.fallbackViaId?.let { names[it] ?: "Недоступный путь" }, state.status.phase == ConnectionPhase.ON, actions, { onEdit(route.id) })
+        }
         item { InlineMessage("Порядок важен: маршрут приложения применяется ко всем его соединениям; сервисы и адреса уточняют остальной трафик. Резервный путь выбирается только по твоей настройке.") }
     }
 }
 
 @Composable
-private fun RouteCard(route: RouteUi, state: MobileState, actions: MobileActions, onEdit: () -> Unit) {
+private fun RouteCard(route: RouteUi, app: AppUi?, primaryName: String, fallbackName: String?, running: Boolean, actions: MobileActions, onEdit: () -> Unit) {
     val operation = rememberUiOperation()
     Panel {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            AppIcon(state.apps.find { it.packageName == route.packageName }, route.name)
+            AppIcon(app, route.name)
             Column(Modifier.weight(1f).clickable(onClick = onEdit).padding(vertical = 8.dp)) {
                 Text(route.name, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(when (route.kind) { RouteKind.APP -> route.packageName.orEmpty(); RouteKind.SERVICE -> "Сервис"; RouteKind.CUSTOM -> route.selector.orEmpty() },
@@ -225,9 +241,9 @@ private fun RouteCard(route: RouteUi, state: MobileState, actions: MobileActions
         }
         Row(Modifier.fillMaxWidth().clickable(onClick = onEdit).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(pathName(state, route.viaId), style = MaterialTheme.typography.bodyMedium)
-                route.fallbackViaId?.let { Text("Резерв: ${pathName(state, it)}", style = MaterialTheme.typography.bodySmall, color = WaarpMuted) }
-                RouteStateLabel(route, state.status.phase == ConnectionPhase.ON)
+                Text(primaryName, style = MaterialTheme.typography.bodyMedium)
+                fallbackName?.let { Text("Резерв: $it", style = MaterialTheme.typography.bodySmall, color = WaarpMuted) }
+                RouteStateLabel(route, running)
             }
             Icon(Icons.Outlined.ChevronRight, "Изменить маршрут")
         }
@@ -259,8 +275,8 @@ internal fun RouteStateLabel(route: RouteUi, running: Boolean = false) {
 @Composable
 internal fun RouteEditorSheet(state: MobileState, actions: MobileActions, id: String?, suggestedTarget: String?, suggestedVia: String?, onDismiss: () -> Unit) {
     val existing = state.routes.find { it.id == id }
-    if (id != null && existing == null) { MissingItemSheet(onDismiss); return }
-    val operation = rememberUiOperation()
+    val operation = rememberModalOperation(onDismiss)
+    if (id != null && existing == null) { PendingRemovalSheet(operation, onDismiss); return }
     var kind by rememberSaveable { mutableStateOf(existing?.kind?.name ?: if (suggestedTarget != null) "CUSTOM" else "APP") }
     var name by rememberSaveable { mutableStateOf(existing?.name.orEmpty()) }
     var packageName by rememberSaveable { mutableStateOf(existing?.packageName) }
@@ -272,11 +288,11 @@ internal fun RouteEditorSheet(state: MobileState, actions: MobileActions, id: St
     var query by rememberSaveable { mutableStateOf("") }
     var showSystem by rememberSaveable { mutableStateOf(false) }
     var deleting by rememberSaveable { mutableStateOf(false) }
-    val choices = pathChoices(state)
+    val choices = rememberPathChoices(state)
     val fallbackChoices = listOf(PathChoice("", "Без резерва", "Если путь недоступен — блокировать соединения")) + choices.filter { it.id != via && it.id != DIRECT_PATH }
     val selectedKind = RouteKind.valueOf(kind)
     val eligibleApps = remember(state.apps, query, showSystem, packageName) { state.apps.filter { (!it.system || showSystem || it.packageName == packageName) &&
-        (it.name.contains(query, true) || it.packageName.contains(query, true)) }.sortedBy { it.name.lowercase() } }
+        (it.name.contains(query, true) || it.packageName.contains(query, true)) } }
     FormSheet(if (existing == null) "Новый маршрут" else "Изменить маршрут", operation.busy, onDismiss) {
         if (existing == null) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(RouteKind.APP to "Приложение", RouteKind.SERVICE to "Сервис", RouteKind.CUSTOM to "Адрес").forEach { (type, label) ->
@@ -295,7 +311,7 @@ internal fun RouteEditorSheet(state: MobileState, actions: MobileActions, id: St
                 }
                 if (eligibleApps.isEmpty()) Text("Приложения не найдены. Обнови список или измени поиск.", color = WaarpMuted, style = MaterialTheme.typography.bodySmall)
                 else LazyColumn(Modifier.fillMaxWidth().heightIn(max = 240.dp)) {
-                    items(eligibleApps, key = { it.packageName }) { app ->
+                    items(eligibleApps, key = { it.packageName }, contentType = { "app" }) { app ->
                         Row(Modifier.fillMaxWidth().selectable(selected = packageName == app.packageName, enabled = !operation.busy, role = Role.RadioButton) {
                             packageName = app.packageName; if (name.isBlank() || existing == null) name = app.name
                         }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -332,15 +348,15 @@ internal fun RouteEditorSheet(state: MobileState, actions: MobileActions, id: St
         OperationFeedback(operation)
         val hasTarget = when (selectedKind) { RouteKind.APP -> packageName != null; RouteKind.SERVICE -> presetId != null; RouteKind.CUSTOM -> selector.isNotBlank() }
         ActionButton("Сохранить маршрут", operation.busy, enabled = hasTarget && (name.isNotBlank() || selectedKind == RouteKind.CUSTOM) && choices.any { it.id == via && it.enabled },
-            onClick = { operation.run({ actions.saveRoute(RouteDraft(id, selectedKind, name.trim().ifBlank { selector.trim() }, via, fallback.takeIf { via != DIRECT_PATH && it != DIRECT_PATH }, enabled,
+            onClick = { operation.submit({ actions.saveRoute(RouteDraft(id, selectedKind, name.trim().ifBlank { selector.trim() }, via, fallback.takeIf { via != DIRECT_PATH && it != DIRECT_PATH }, enabled,
                 packageName = packageName.takeIf { selectedKind == RouteKind.APP }, presetId = presetId.takeIf { selectedKind == RouteKind.SERVICE },
-                selector = selector.trim().takeIf { selectedKind == RouteKind.CUSTOM })) }, onDismiss) }, modifier = Modifier.fillMaxWidth())
+                selector = selector.trim().takeIf { selectedKind == RouteKind.CUSTOM })) }) }, modifier = Modifier.fillMaxWidth())
         if (id != null) {
             if (deleting) {
                 InlineMessage("После удаления соединения будут следовать общему пути устройства.")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { deleting = false }, enabled = !operation.busy, modifier = Modifier.weight(1f).height(48.dp)) { Text("Отмена") }
-                    Button(onClick = { operation.run({ actions.deleteRoute(id) }, onDismiss) }, enabled = !operation.busy, modifier = Modifier.weight(1f).height(48.dp),
+                    Button(onClick = { operation.submit({ actions.deleteRoute(id) }) }, enabled = !operation.busy, modifier = Modifier.weight(1f).height(48.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) { Text("Удалить") }
                 }
             } else TextButton(onClick = { deleting = true }, enabled = !operation.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {

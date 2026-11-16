@@ -39,6 +39,15 @@ class SelectionPolicyTest {
         assertEquals("challenger", SelectionPolicy.select(group, "current", health + ("current" to failed), activeConnections = true).next)
     }
 
+    @Test fun aBusyUnmeasuredPathSurvivesTheFirstProbeFailureButCanFailOverAfterTheSecond() {
+        val measured = mapOf("challenger" to health.getValue("challenger"))
+        assertEquals("current", SelectionPolicy.select(group, "current", measured, activeConnections = true).next)
+        val firstFailure = ProbeHealth().measured(null, 200)
+        assertEquals("current", SelectionPolicy.select(group, "current", measured + ("current" to firstFailure), activeConnections = true).next)
+        val confirmedDown = firstFailure.measured(null, 300)
+        assertEquals("challenger", SelectionPolicy.select(group, "current", measured + ("current" to confirmedDown), activeConnections = true).next)
+    }
+
     @Test fun unmeasuredRoundsCannotAdvanceSpeedStreakOrSelectAnUnmeasuredChallenger() {
         val memory = SelectionMemory("challenger", 4)
         val currentNotMeasured = SelectionPolicy.select(group, "current", health, memory, measuredThisRound = setOf("challenger"))

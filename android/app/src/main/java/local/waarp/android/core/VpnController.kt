@@ -24,6 +24,8 @@ class VpnController(context: Context) {
     val groups: StateFlow<List<RuntimeGroup>> = RuntimeState.groups.asStateFlow()
     val outbounds: StateFlow<List<RuntimeOutbound>> = RuntimeState.outbounds.asStateFlow()
     val connections: StateFlow<List<RuntimeConnection>> = RuntimeState.connections.asStateFlow()
+    /** null means the stream is not yet authoritative; never infer an idle group from that. */
+    internal val activeFlowTags: StateFlow<Set<String>?> = RuntimeState.activeFlowTags.asStateFlow()
     val logs: StateFlow<List<RuntimeLog>> = RuntimeState.logs.asStateFlow()
     val dnsQueries: StateFlow<List<RuntimeDnsQuery>> = RuntimeState.dnsQueries.asStateFlow()
 
@@ -40,6 +42,13 @@ class VpnController(context: Context) {
 
     /** Foreground VPN notification is mandatory; this controls optional native events. */
     fun setEventNotificationsEnabled(enabled: Boolean) { RuntimeState.eventNotificationsEnabled = enabled }
+
+    suspend fun refreshSystemStatus() = withContext(Dispatchers.IO) {
+        val service = RuntimeState.service.get() ?: return@withContext
+        val alwaysOn = service.isAlwaysOn
+        val lockdown = service.isLockdownEnabled
+        if (RuntimeState.service.get() === service) RuntimeState.status.update { it.copy(alwaysOn = alwaysOn, lockdown = lockdown) }
+    }
 
     suspend fun validateConfig(config: String, requireTun: Boolean = true) = withContext(Dispatchers.IO) {
         LibboxRuntime.initialize(context)
@@ -92,7 +101,10 @@ class VpnController(context: Context) {
     fun start(config: String) {
         require(config.isNotBlank()) { "Конфигурация VPN пуста" }
         check(prepare() == null) { "Сначала разрешите VPN в системном диалоге Android" }
-        val request = RuntimeState.requestStart(config)
+        launchStart(RuntimeState.requestStart(config))
+    }
+
+    private fun launchStart(request: StartRequest) {
         RuntimeState.whenCurrent(request.generation) {
             context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
                 .edit().putBoolean(WANTED, true).apply()
@@ -114,13 +126,33 @@ class VpnController(context: Context) {
     /** Invalidates in-flight starts immediately; cleanup runs on the service's native lane. */
     fun stop() = stopToken(RuntimeState.requestStop())
 
-    /** A late native stop callback must never stop a replacement generation. */
-    internal fun stopIfCurrent(generation: Long) {
-        RuntimeState.cancelIfCurrent(generation)?.let(::stopToken)
+    /** A data update pauses the runtime without changing the user's persisted ON intent. */
+    internal fun pauseForUpdate(expectedGeneration: Long): Long? = RuntimeState.cancelIfCurrent(expectedGeneration)?.also {
+        stopToken(it, clearWanted = false)
     }
 
-    private fun stopToken(token: Long) {
-        RuntimeState.whenStopped(token) {
+    internal fun resumeAfterUpdate(config: String, expectedIdleGeneration: Long): Boolean {
+        require(config.isNotBlank())
+        if (!RuntimeState.isIdleGeneration(expectedIdleGeneration)) return false
+        check(prepare() == null) { "Разрешение VPN отозвано" }
+        val request = RuntimeState.startIfIdle(expectedIdleGeneration, config) ?: return false
+        launchStart(request)
+        return true
+    }
+
+    internal fun abandonUpdate(expectedIdleGeneration: Long) {
+        RuntimeState.stopIfIdle(expectedIdleGeneration)?.let { stopToken(it) }
+    }
+
+    internal fun hasStartRequest(): Boolean = RuntimeState.wanted()
+
+    /** A late native stop callback must never stop a replacement generation. */
+    internal fun stopIfCurrent(generation: Long) {
+        RuntimeState.cancelIfCurrent(generation)?.let { stopToken(it) }
+    }
+
+    private fun stopToken(token: Long, clearWanted: Boolean = true) {
+        if (clearWanted) RuntimeState.whenStopped(token) {
             context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
                 .edit().putBoolean(WANTED, false).apply()
         }
@@ -154,7 +186,7 @@ class VpnController(context: Context) {
         RuntimeState.logs.value = emptyList()
     }
 
-    private suspend fun <T> withBackend(expectedGeneration: Long = sessionGeneration(), action: (LibboxBackend) -> T): T {
+    private suspend fun <T> withBackend(expectedGeneration: Long = sessionGeneration(), action: suspend (LibboxBackend) -> T): T {
         // Capture before dispatch: a queued command must never select a replacement
         // backend just because both old and new sessions report ON.
         val backend = RuntimeState.commandBackend(expectedGeneration)
@@ -183,6 +215,7 @@ internal object RuntimeState {
     val groups = MutableStateFlow<List<RuntimeGroup>>(emptyList())
     val outbounds = MutableStateFlow<List<RuntimeOutbound>>(emptyList())
     val connections = MutableStateFlow<List<RuntimeConnection>>(emptyList())
+    val activeFlowTags = MutableStateFlow<Set<String>?>(null)
     val logs = MutableStateFlow<List<RuntimeLog>>(emptyList())
     val dnsQueries = MutableStateFlow<List<RuntimeDnsQuery>>(emptyList())
     val service = AtomicReference<WaarpVpnService?>()
@@ -233,6 +266,12 @@ internal object RuntimeState {
     @Synchronized fun idleGeneration(): Long? = counter.get().takeIf { !wanted() }
     @Synchronized fun isIdleGeneration(token: Long): Boolean = counter.get() == token && !wanted()
 
+    @Synchronized fun startIfIdle(expected: Long, config: String): StartRequest? =
+        if (isIdleGeneration(expected)) requestStart(config) else null
+
+    @Synchronized fun stopIfIdle(expected: Long): Long? =
+        if (isIdleGeneration(expected)) requestStop() else null
+
     @Synchronized fun reloadIfCurrent(generation: Long): StartRequest? =
         if (isCurrent(generation)) requestStart() else null
 
@@ -272,6 +311,7 @@ internal object RuntimeState {
         groups.value = emptyList()
         outbounds.value = emptyList()
         connections.value = emptyList()
+        activeFlowTags.value = null
         dnsQueries.value = emptyList()
         status.update {
             it.copy(uploadBps = 0, downloadBps = 0, connectionCount = 0, telemetryAvailable = false)

@@ -13,9 +13,12 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -37,6 +40,7 @@ class WaarpVpnService : VpnService() {
     private val main = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val backend = AtomicReference<LibboxBackend?>()
+    private val configurationLoad = AtomicReference<Job?>()
     private val destroyed = AtomicBoolean()
     private var foreground = false
     @Volatile private var latestStartId = 0
@@ -118,10 +122,17 @@ class WaarpVpnService : VpnService() {
             closeBackend()
             if (destroyed.get() || !RuntimeState.isCurrent(request.generation)) return
             val config = request.config ?: runBlocking {
-                withTimeout(20_000) {
-                    val provider = RuntimeState.configurationProvider
-                        ?: throw IOException("Хранилище конфигурации ещё не готово")
-                    provider()
+                val loading = currentCoroutineContext()[Job]!!
+                configurationLoad.set(loading)
+                try {
+                    if (destroyed.get() || !RuntimeState.isCurrent(request.generation)) throw CancellationException("Запуск отменён")
+                    withTimeout(20_000) {
+                        val provider = RuntimeState.configurationProvider
+                            ?: throw IOException("Хранилище конфигурации ещё не готово")
+                        provider()
+                    }
+                } finally {
+                    configurationLoad.compareAndSet(loading, null)
                 }
             }
             if (destroyed.get() || !RuntimeState.isCurrent(request.generation)) return
@@ -156,6 +167,9 @@ class WaarpVpnService : VpnService() {
     internal fun requestStop(token: Long, error: Throwable? = null) {
         var captured: LibboxBackend? = null
         if (!RuntimeState.whenStopped(token) {
+                // The provider may be waiting for a repository edit which is
+                // itself awaiting OFF. Release that wait before queuing cleanup.
+                configurationLoad.get()?.cancel()
                 captured = backend.get()
                 captured?.cancel()
             }) return
@@ -187,6 +201,7 @@ class WaarpVpnService : VpnService() {
 
     override fun onDestroy() {
         destroyed.set(true)
+        configurationLoad.get()?.cancel()
         val current = backend.getAndSet(null)
         current?.cancel()
         if (RuntimeState.service.get() === this) {

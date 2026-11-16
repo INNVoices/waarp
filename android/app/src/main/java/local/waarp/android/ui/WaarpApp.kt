@@ -15,11 +15,14 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import java.util.UUID
 
 private data class Destination(val title: String, val icon: ImageVector)
 private val destinations = listOf(
@@ -36,12 +39,15 @@ fun WaarpApp(state: MobileState, actions: MobileActions) {
         var tab by rememberSaveable { mutableIntStateOf(0) }
         var settings by rememberSaveable { mutableStateOf(false) }
         var sheet by rememberSaveable { mutableStateOf<String?>(null) }
+        var modalId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
+        val modalSessions: ModalSessions = viewModel()
         var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
         var suggestedTarget by rememberSaveable { mutableStateOf<String?>(null) }
         var suggestedVia by rememberSaveable { mutableStateOf<String?>(null) }
         val snackbar = remember { SnackbarHostState() }
-        val open: (String, String?) -> Unit = { kind, id -> sheet = kind; selectedId = id }
-        val close: () -> Unit = { sheet = null; selectedId = null; suggestedTarget = null; suggestedVia = null }
+        val screens = rememberSaveableStateHolder()
+        val open: (String, String?) -> Unit = { kind, id -> modalSessions.clear(modalId); modalId = UUID.randomUUID().toString(); sheet = kind; selectedId = id }
+        val close: () -> Unit = { modalSessions.clear(modalId); sheet = null; selectedId = null; suggestedTarget = null; suggestedVia = null }
 
         LaunchedEffect(state.message?.id) {
             state.message?.let {
@@ -97,7 +103,17 @@ fun WaarpApp(state: MobileState, actions: MobileActions) {
                         }
                     }
                     Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
-                        Box(Modifier.widthIn(max = 1000.dp).fillMaxSize()) {
+                        Column(Modifier.widthIn(max = 1000.dp).fillMaxSize()) {
+                            state.backgroundTask?.let { InlineMessage(it, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+                            if (state.initialized && (settings || tab != 0)) {
+                                if (state.status.recovering && state.status.requestedOpen) InlineMessage(
+                                    "Применяем маршруты и переподключаем VPN…", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                                else if (state.status.phase == ConnectionPhase.ERROR) InlineMessage(
+                                    state.status.error ?: "VPN остановился с ошибкой. Открой главную для восстановления.", error = true,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                            }
+                            Box(Modifier.weight(1f).fillMaxWidth()) {
+                            screens.SaveableStateProvider(if (!state.initialized) "loading" else if (settings) "settings" else "tab-$tab") {
                             when {
                                 !state.initialized -> LoadingState(state, actions)
                                 settings -> SettingsScreen(state, actions)
@@ -112,12 +128,15 @@ fun WaarpApp(state: MobileState, actions: MobileActions) {
                                     suggestedTarget = target; suggestedVia = via; open("route", null)
                                 })
                             }
+                            }
+                            }
                         }
                     }
                 }
             }
         }
-        key(sheet, selectedId) {
+        if (sheet != null) key(modalId) {
+            CompositionLocalProvider(LocalModalSession provides modalSessions.obtain(modalId)) {
             when (sheet) {
                 "whole" -> WholeDeviceSheet(state, actions, close)
                 "route" -> RouteEditorSheet(state, actions, selectedId, suggestedTarget, suggestedVia, close)
@@ -132,6 +151,7 @@ fun WaarpApp(state: MobileState, actions: MobileActions) {
                 "rename" -> state.profiles.find { it.id == selectedId }?.let { RenameTunnelSheet(it, actions, close) } ?: MissingItemSheet(close)
                 "replace" -> state.profiles.find { it.id == selectedId }?.let { ReplaceTunnelSheet(it, actions, close, state.message) } ?: MissingItemSheet(close)
                 "deleteTunnel" -> DeletePathSheet(state, actions, selectedId, group = false, onDismiss = close)
+            }
             }
         }
     }

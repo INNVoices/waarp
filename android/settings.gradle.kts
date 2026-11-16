@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "WaarpAndroid"
-include(":app")
+include(":app", ":acceptance")

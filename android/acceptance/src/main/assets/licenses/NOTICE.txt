@@ -1,0 +1,7 @@
+Waarp Android external release acceptance harness.
+The harness is part of the Android GPL-3.0-or-later module.
+Curve25519.java is shared from the single attributed application source, originally
+WireGuard Android, Apache-2.0, commit e7b3a3c118836e112620b1302a8ba1873ad4daac.
+It is a scalar multiplication utility, not application control logic or a VPN hook.
+The test APK uses AndroidX Test/UIAutomator and JUnit under their upstream licenses.
+No libbox native library or production application classes are packaged here.
