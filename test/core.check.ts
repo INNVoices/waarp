@@ -248,10 +248,15 @@ eq(conflicts([p], [{ name: 'WAARP', desc: 'WireGuard', ipv4: ['10.8.0.7'], fullR
   ok(!found.some(x => x.source.includes('oversize')), 'discovery ignores oversized files')
   ok(!JSON.stringify(found).includes(PK) && !!discover.profile(found[0]?.id), 'discovery preview omits private key while main retains candidate')
   const { RuntimeJournal } = await import('../src/main/runtime-journal')
-  const journal = new RuntimeJournal(dir, 'F:\\fake\\sing-box.exe', 'run.json')
+  // Use a genuinely running executable name. A malformed lease for an absent
+  // fake executable is safely clearable after the new all-path absence check;
+  // this fixture instead proves an unowned live process is never guessed away.
+  const journal = new RuntimeJournal(dir, process.execPath, 'run.json')
   eq(await journal.recover(), true, 'runtime recovery without a lease leaves all processes alone')
-  writeFileSync(join(dir, 'run.json.owner'), JSON.stringify({ version: 1, runId: 'bad', pid: 42, path: 'F:\\fake\\sing-box.exe', started: '2026-01-01T00:00:00Z' }))
+  const malformed = JSON.stringify({ version: 1, runId: 'bad', pid: 42, path: process.execPath, started: '2026-01-01T00:00:00Z' })
+  writeFileSync(join(dir, 'run.json.owner'), malformed)
   eq(await journal.recover(), false, 'runtime recovery rejects an unowned or malformed lease')
+  eq(readFileSync(join(dir, 'run.json.owner'), 'utf8'), malformed, 'unowned live process retains its unresolved lease evidence')
   const pipe = process.platform === 'win32' ? '\\\\.\\pipe\\waarp-test-' + process.pid : join(dir, 'bridge.sock')
   const srv = startBridge(dir, { version: 't', status: () => ({ phase: 'off' }) }, pipe)
   const { localIpcReady } = await import('./local-ipc')
