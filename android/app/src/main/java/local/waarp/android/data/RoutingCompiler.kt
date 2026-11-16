@@ -3,6 +3,9 @@ package local.waarp.android.data
 import org.json.JSONObject
 
 data class CompiledRoute(val routeId: String, val requested: String, val targetTag: String?, val fallbackTag: String? = null)
+data class SystemDnsPolicy(val via: String?, val fallback: String? = null, val routeId: String? = null, val reason: String? = null) {
+    val blocked: Boolean get() = reason != null
+}
 data class CompiledConfiguration(val json: String, val loadedProfiles: List<String>, val groups: List<TunnelGroup>,
     val routes: List<CompiledRoute>, val blockedPaths: Set<String>, val selectorTargets: Map<String, Pair<String, String>>) {
     fun profileTag(id: String) = "p-$id"
@@ -16,11 +19,35 @@ object RoutingCompiler {
     private const val BLOCK = "__block"
     private val ruDomains = listOf("ru", "su", "xn--p1ai")
 
+    /** Android 10/11 may attribute system resolver sockets to netd, not their requesting app.
+     * Never guess an app UID or silently let its DNS escape through the physical resolver. */
+    fun systemDnsPolicy(data: AppData): SystemDnsPolicy {
+        val available = data.profiles.filterNot { it.revoked || it.subscriptionMissing }.associateBy { it.id }
+        fun valid(path: String): Boolean = path == DIRECT || path in available ||
+            (path == AUTO && available.values.any { it.source != "public" }) ||
+            data.groups.any { it.id == path && it.members.any(available::containsKey) }
+        fun chosen(path: String) = if (valid(path)) SystemDnsPolicy(path) else SystemDnsPolicy(path,
+            reason = "Общий DNS-путь недоступен. Выберите доступный туннель в настройках; системные DNS-запросы блокируются.")
+        data.settings.systemDnsVia?.let { return chosen(it) }
+        if (data.settings.defaultVia != DIRECT) return chosen(data.settings.defaultVia)
+        val appPaths = data.routes.filter { it.enabled && it.kind == "app" && it.via != DIRECT }
+        if (appPaths.isEmpty()) return SystemDnsPolicy(DIRECT)
+        if (appPaths.any { !valid(it.via) }) return SystemDnsPolicy(null,
+            reason = "DNS-путь одного из приложений недоступен. Выберите общий DNS в настройках; системные DNS-запросы блокируются.")
+        val distinct = appPaths.map { route -> route to route.fallback?.takeIf { it != DIRECT && it != route.via && valid(it) } }
+            .distinctBy { (route, fallback) -> route.via to fallback }
+        if (distinct.size != 1) return SystemDnsPolicy(null,
+            reason = "Приложения используют разные DNS-пути. Выберите общий DNS в настройках для запросов, чей отправитель неизвестен Android.")
+        val (route, fallback) = distinct.single()
+        return SystemDnsPolicy(route.via, fallback, route.id.takeIf { fallback != null })
+    }
+
     fun compile(data: AppData, selfPackage: String = "local.waarp.android", previousAuto: String? = null,
         checkerProfiles: List<TunnelProfile>? = null): CompiledConfiguration {
         data.checked()
         val available = data.profiles.filterNot { it.revoked || it.subscriptionMissing }.associateBy { it.id }
-        val references = (listOf(data.settings.defaultVia) + data.routes.filter { it.enabled }.flatMap { listOfNotNull(it.via, it.fallback) }).toSet()
+        val references = (listOfNotNull(data.settings.defaultVia, data.settings.systemDnsVia) +
+            data.routes.filter { it.enabled }.flatMap { listOfNotNull(it.via, it.fallback) }).toSet()
         val explicit = linkedSetOf<String>()
         val groups = data.groups.filter { it.id in references }.map { it.copy(members = it.members.filter(available::containsKey)) }.filter { it.members.isNotEmpty() }
         references.filter(available::containsKey).forEach(explicit::add)
@@ -144,6 +171,18 @@ object RoutingCompiler {
             routePlans.add(CompiledRoute(route.id, route.via, target.takeUnless { it == BLOCK }, fallback))
         }
         val rest = tag(data.settings.defaultVia)
+        val systemDns = systemDnsPolicy(data)
+        val systemDnsTarget = systemDns.via?.let(::tag)
+        // AID_DNS is the real OS-reported owner; package attribution above is left intact.
+        // Domain rules retain priority. This shared policy only handles netd's DNS requests.
+        dnsRules.add(obj("user_id" to listOf(1051)).apply {
+            if (systemDns.blocked || systemDnsTarget == BLOCK) put("action", "reject")
+            else put("server", when {
+                systemDns.via == DIRECT -> "local"
+                systemDns.routeId != null && "fb-${systemDns.routeId}" in selectorTargets -> "dns-fb-${systemDns.routeId}"
+                else -> "dns-${systemDns.via}"
+            })
+        })
         if (rest == BLOCK) { rules.add(obj("action" to "reject")); dnsRules.add(obj("action" to "reject")) }
         else if (!v6(data.settings.defaultVia)) rules.add(obj("ip_version" to 6, "action" to "reject"))
         val config = obj("log" to obj("level" to "warn", "timestamp" to false),

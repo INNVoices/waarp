@@ -263,6 +263,24 @@ internal fun SettingsScreen(state: MobileState, actions: MobileActions) {
         }
         item {
             Panel {
+                SectionHeading("Общий DNS Android")
+                Text("Android 10/11 может не передать приложение DNS-запроса; для таких запросов используется общий путь.",
+                    style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+                val choices = listOf(PathChoice(SYSTEM_DNS_AUTOMATIC, "Автоматически по маршрутам", "Общий путь определяется по включённым маршрутам")) +
+                    pathChoices(state).map { if (it.id == AUTO_PATH) it.copy(name = "Авто: свои туннели") else it }
+                PathField("Путь общего DNS", state.settings.systemDnsViaId ?: SYSTEM_DNS_AUTOMATIC,
+                    choices, enabled = !operation.busy) { chosen ->
+                    operation.run({ actions.setSystemDnsPath(chosen.takeUnless { it == SYSTEM_DNS_AUTOMATIC }) })
+                }
+                val dnsHint = state.settings.systemDnsHint
+                if (!dnsHint.isNullOrBlank()) InlineMessage(dnsHint, error = state.settings.systemDnsBlocked)
+                else if (state.settings.systemDnsBlocked) {
+                    InlineMessage("Общий DNS заблокирован: у приложений разные пути. Выбери туннель или группу для общих DNS-запросов.", error = true)
+                }
+            }
+        }
+        item {
+            Panel {
                 SectionHeading("Запуск и уведомления")
                 SettingsToggle("Подключаться при запуске", "Включать сохранённые маршруты при открытии Waarp", state.settings.autoConnect, !operation.busy) {
                     operation.run({ actions.saveSettings(SettingsPatch(autoConnect = it)) })
@@ -318,3 +336,7 @@ private fun SettingsToggle(title: String, detail: String, value: Boolean, enable
 }
 
 private fun booleanStatus(value: Boolean?) = when (value) { true -> "Включено"; false -> "Выключено"; null -> "Пока неизвестно" }
+
+// Screen-only option. It must be converted to null before calling the backend;
+// AUTO_PATH selects the actual automatic tunnel group and has different semantics.
+private const val SYSTEM_DNS_AUTOMATIC = "system-dns:automatic"

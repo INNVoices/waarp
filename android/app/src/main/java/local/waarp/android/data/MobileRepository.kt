@@ -170,10 +170,16 @@ class MobileRepository(private val context: Context, val controller: VpnControll
 
     suspend fun validateProfiles(profiles: List<TunnelProfile>) {
         require(profiles.isNotEmpty()) { "Нет профилей для импорта" }
-        val checker = withContext(Dispatchers.Default) {
-            RoutingCompiler.compile(AppData(profiles = profiles), context.packageName, checkerProfiles = profiles)
+        // libbox CheckConfig constructs and closes a real box. WireGuard's
+        // constructor allocates a gVisor stack even before Start, so a large
+        // subscription must not instantiate its entire library in one box.
+        // Every batch succeeds before the caller can commit any imported data.
+        for (batch in profiles.chunked(8)) {
+            val checker = withContext(Dispatchers.Default) {
+                RoutingCompiler.compile(AppData(profiles = batch), context.packageName, checkerProfiles = batch)
+            }
+            controller.validateConfig(checker.json, requireTun = false)
         }
-        controller.validateConfig(checker.json, requireTun = false)
     }
 
     suspend fun probe(extra: List<TunnelProfile>? = null, url: String = "https://www.gstatic.com/generate_204"): List<RuntimeProbeResult> = probes.withLock {

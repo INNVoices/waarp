@@ -62,11 +62,12 @@ data class TrafficRoute(val id: String = newId("r-"), val name: String, val kind
 }
 data class AppSettings(val defaultVia: String = DIRECT, val lastWholeDeviceVia: String = AUTO,
     val lanDirect: Boolean = true, val ruDirect: Boolean = false, val autoConnect: Boolean = false,
-    val notifications: Boolean = true) {
+    val notifications: Boolean = true, val systemDnsVia: String? = null) {
     fun json() = obj("defaultVia" to defaultVia, "lastWholeDeviceVia" to lastWholeDeviceVia, "lanDirect" to lanDirect,
-        "ruDirect" to ruDirect, "autoConnect" to autoConnect, "notifications" to notifications)
+        "ruDirect" to ruDirect, "autoConnect" to autoConnect, "notifications" to notifications, "systemDnsVia" to systemDnsVia)
     companion object { fun fromJson(j: JSONObject) = AppSettings(j.optString("defaultVia", DIRECT), j.optString("lastWholeDeviceVia", AUTO),
-        j.optBoolean("lanDirect", true), j.optBoolean("ruDirect"), j.optBoolean("autoConnect"), j.optBoolean("notifications", true)) }
+        j.optBoolean("lanDirect", true), j.optBoolean("ruDirect"), j.optBoolean("autoConnect"), j.optBoolean("notifications", true),
+        j.optionalString("systemDnsVia")) }
 }
 data class AppData(val profiles: List<TunnelProfile> = emptyList(), val groups: List<TunnelGroup> = emptyList(),
     val routes: List<TrafficRoute> = emptyList(), val settings: AppSettings = AppSettings(), val revision: Long = 0) {

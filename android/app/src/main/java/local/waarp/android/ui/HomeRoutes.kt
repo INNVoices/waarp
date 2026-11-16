@@ -28,6 +28,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -351,7 +352,7 @@ internal fun FormSheet(title: String, busy: Boolean, onDismiss: () -> Unit, cont
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true, confirmValueChange = { next -> !busyNow || next != SheetValue.Hidden })
     ModalBottomSheet(onDismissRequest = { if (!busy) onDismiss() }, sheetState = sheetState,
         sheetMaxWidth = 680.dp) {
-        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
+        Column(Modifier.testTag("waarp-form-sheet").fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
             content()

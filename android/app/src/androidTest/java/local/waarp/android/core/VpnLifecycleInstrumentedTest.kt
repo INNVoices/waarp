@@ -90,6 +90,10 @@ class VpnLifecycleInstrumentedTest {
         val filter = IntentFilter("local.waarp.android.TEST_HTTP_RESULT")
         ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
         try {
+            val host = controller.checkOutbounds(
+                """{"outbounds":[{"type":"direct","tag":"host-direct"}],"route":{"final":"host-direct","auto_detect_interface":true}}""",
+                listOf("host-direct"), "http://10.0.2.2:18080/generate_204", 5000)
+            assertEquals("Host HTTP fixture must be reachable before creating TUN", null, host.single().error)
             controller.start(tunConfiguration())
             withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.ON || it.phase == RuntimePhase.ERROR } }
             assertEquals(controller.status.value.message, RuntimePhase.ON, controller.status.value.phase)
@@ -101,10 +105,12 @@ class VpnLifecycleInstrumentedTest {
                 .putExtra("destination", context.packageName))
             assertTrue("The separate app did not complete its real HTTP request", answer.await(15, TimeUnit.SECONDS))
             assertEquals("HTTP fixture: ${probeError.get()}; DNS=${controller.dnsQueries.value}; " +
-                "native=${controller.logs.value.takeLast(15).map { it.message }}", 204, statusCode.get())
+                "flows=${controller.connections.value.filter { testPackage in it.packages }}; " +
+                "native=${fixtureLogs("fixture.waarp.test", "18080")}", 204, statusCode.get())
             val flow = withTimeout(10_000) {
-                controller.connections.first { list -> list.any { testPackage in it.packages && it.outbound == "per-app-route" } }
-            }.first { testPackage in it.packages && it.outbound == "per-app-route" }
+                controller.connections.first { list -> list.any { testPackage in it.packages && it.outbound == "per-app-route" &&
+                    (it.uploadBytes > 0 || it.downloadBytes > 0) } }
+            }.first { testPackage in it.packages && it.outbound == "per-app-route" && (it.uploadBytes > 0 || it.downloadBytes > 0) }
             assertTrue(flow.uploadBytes > 0 || flow.downloadBytes > 0)
             withTimeout(10_000) {
                 controller.dnsQueries.first { list -> list.any { it.domain.startsWith("fixture.waarp.test") && it.server == "fixture-dns" && !it.failed } }
@@ -156,12 +162,16 @@ class VpnLifecycleInstrumentedTest {
         assertEquals("AWG2", profile.protocol)
         val data = AppData(profiles = listOf(profile), settings = AppSettings(lanDirect = false),
             routes = listOf(TrafficRoute(name = "Encrypted DNS acceptance", kind = "app", match = testPackage, via = profile.id)))
-        val configuration = RoutingCompiler.compile(data, context.packageName).json
+        val configuration = JSONObject(RoutingCompiler.compile(data, context.packageName).json).apply {
+            getJSONObject("log").put("level", "debug") // Diagnostics only; retain the production routing/DNS policy.
+        }.toString()
         controller.validateConfig(configuration)
         val statusCode = AtomicInteger(-2)
+        val probeError = AtomicReference("")
         var answer = CountDownLatch(1)
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
+                probeError.set(intent.getStringExtra("error").orEmpty())
                 statusCode.set(intent.getIntExtra("code", -3)); answer.countDown()
             }
         }
@@ -177,7 +187,9 @@ class VpnLifecycleInstrumentedTest {
                 context.startActivity(Intent().setComponent(ComponentName(testPackage, ProbeActivity::class.java.name))
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("dns", true).putExtra("destination", context.packageName))
                 assertTrue("Encrypted DNS cycle $cycle did not complete", answer.await(15, TimeUnit.SECONDS))
-                assertEquals("Synthetic inner DNS answer must traverse AWG2", 204, statusCode.get())
+                assertEquals("Synthetic inner DNS answer must traverse AWG2; cycle=$cycle; ${probeError.get()}; " +
+                    "DNS=${controller.dnsQueries.value}; host=${fixtureJson("/proof")}; " +
+                    "native=${fixtureLogs("example.com", "10.77.", "18081", profile.id)}", 204, statusCode.get())
                 withTimeout(10_000) {
                     controller.dnsQueries.first { list -> list.any { it.domain.startsWith("example.com") &&
                         it.server == "dns-${profile.id}" && !it.failed } }
@@ -256,8 +268,8 @@ class VpnLifecycleInstrumentedTest {
         {
           "log": {"level":"info"},
           "dns": {"servers":[{"type":"hosts","tag":"fixture-dns","predefined":{"fixture.waarp.test":"10.0.2.2"}}],
-            "rules":[{"package_name":["$testPackage"],"server":"fixture-dns"},{"action":"reject"}],"final":"fixture-dns","strategy":"ipv4_only"},
-          "inbounds": [{"type":"tun","tag":"tun","address":["172.23.12.1/30"],"mtu":1400,"auto_route":true,"strict_route":true,"stack":"mixed"}],
+            "rules":[{"package_name":["$testPackage"],"server":"fixture-dns"},{"user_id":[1051],"server":"fixture-dns"},{"action":"reject"}],"final":"fixture-dns","strategy":"ipv4_only"},
+          "inbounds": [{"type":"tun","tag":"tun","address":["172.23.12.1/30"],"mtu":1400,"auto_route":true,"strict_route":true,"stack":"mixed","include_package":["$testPackage"]}],
           "outbounds": [{"type":"direct","tag":"per-app-route"}],
           "route": {"auto_detect_interface":true,"find_process":true,"default_domain_resolver":"fixture-dns",
             "rules":[{"action":"sniff"},{"protocol":"dns","action":"hijack-dns"},{"package_name":["$testPackage"],"outbound":"per-app-route"},{"action":"reject"}]}
@@ -270,6 +282,10 @@ class VpnLifecycleInstrumentedTest {
         // application-context launch has no caller and can dismiss itself immediately.
         checkNotNull(activity).onActivity { it.startActivityForResult(request, 702) }
     }
+
+    private fun fixtureLogs(vararg markers: String): List<String> = controller.logs.value.map { it.message }.filter { line ->
+        line.contains(testPackage) || markers.any(line::contains) || line.contains("error", true) || line.contains("failed", true)
+    }.takeLast(80)
 
     /** Test-only localhost control exchanges public keys/counters, never a private key or profile. */
     private fun fixtureJson(path: String, body: String? = null): JSONObject = Socket().use { socket ->

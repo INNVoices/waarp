@@ -26,6 +26,7 @@ Android is implemented in this repository under `android/`. Build products go to
 | Subscriptions | Manual refresh, stable unique identities across endpoint rotation/local rename, missing and ambiguous entries handled without stealing another route's ID |
 | Groups and Auto | Ordered first-working and sticky-fastest policies; public/revoked/missing profiles excluded from Auto, at most 16 extra Auto-only live profiles |
 | Backup paths | Explicit tunnel/group fallback; missing primary paths compile to rejection; no automatic Direct fallback |
+| Shared Android DNS | An explicit common DNS path for OS resolver requests without app attribution; automatic selection uses the protected default or a single common protected app path |
 | Public catalog | Six desktop sources, refreshed explicitly; up to eight real native probes per operation; a group contains up to five successful nodes from the measured sample |
 | Diagnosis | Actual physical-network DNS, DoH, TCP, certificate-verified TLS and HTTP observations plus separate native outbound URL tests |
 | Connections/history/log | Native records with package/outbound evidence, bounded real latency history and redacted bounded engine logs |
@@ -44,9 +45,13 @@ OFF invalidates in-flight work immediately. Native lifecycle operations and the 
 
 Android additionally caps one active configuration at 64 loaded profiles and 16 WireGuard/AmneziaWG/OpenVPN endpoints. Auto fits within the remaining budget. These are conservative mobile resource limits, separate from the 2,000-profile library. Exceeding an explicit active-group budget is reported before saving/starting; profiles are not silently omitted from explicit routes.
 
+Imports undergo native validation in batches of at most eight profiles before any data is committed. The native check constructs real endpoint objects, including a WireGuard netstack; it must not allocate all 2,000 possible library entries in one check-only instance.
+
 Writes are serialized and natively validated. When a running configuration changes, the old core is stopped before the atomic encrypted write and restart. Concurrent user OFF cancels the restart. A changed endpoint invalidates its old measurements. Deleting without reassignment leaves blocked intent; reassignment is checked against the final state, including empty replacement groups.
 
 App rules precede custom-host and preset rules. LAN and optional `.ru`/`.su`/`.рф` Direct exceptions are explicit. IPv4-only WireGuard/OpenVPN paths reject unsupported IPv6. ON confirms a local Android/native VPN, not reachability of every remote server. Without Android lockdown, loss/stopping of VPN can allow normal direct networking; this is not labelled a persistent kill switch.
+
+Android 10/11 can report the system resolver's UID (`1051`, `netd`) instead of the requesting app. The compiler preserves that real ownership. Its dedicated shared-DNS rule follows package/domain rules and uses `settings.systemDnsVia` when explicitly selected. In automatic mode it uses the protected whole-device path, or the single common protected app path including its configured fallback. Conflicting app paths or a missing selected DNS path reject these unattributed requests; the UI explains how to select a common tunnel/group. Direct is used only when explicitly selected or when no protected app/default path exists. Deletion without reassignment preserves the blocked DNS intent. This limitation and the distinction from per-app traffic routing are also documented by [Rethink's Android implementation](https://github.com/celzero/rethink-app#network-monitor).
 
 ## Storage
 
@@ -71,12 +76,14 @@ The build fetches/verifies the AAR, runs JVM tests and lint, builds debug/releas
 npm run android:core:fetch
 npm run android:core:verify
 cd android
-./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug assembleRelease assembleDebugAndroidTest
+./gradlew --no-daemon testDebugUnitTest lintDebug
+./gradlew --no-daemon assembleDebug assembleDebugAndroidTest
+./gradlew --no-daemon assembleRelease
 cd ..
 npm run android:collect
 ```
 
-APK verification checks package/version/ABI, signature mode, manifest properties, license assets, exact native bytes, ELF and actual ZIP 16 KB alignment.
+APK verification records the actual version from the APK and checks package/ABI/SDK, signature mode, manifest properties, license assets, exact native bytes, ELF and actual ZIP 16 KB alignment. Build phases run in separate Gradle processes so lint/compiler state does not increase R8's peak memory use.
 
 ### Signing
 
@@ -94,6 +101,10 @@ Keep the production keystore/credentials outside Git and retain the key for subs
 ## Executable acceptance
 
 GitHub Actions builds once and runs the same actual instrumentation APK on API 29, API 35 and API 36 `google_apis_ps16k`. The runner verifies actual `PAGE_SIZE`, and rejects empty suites, failures, crashes, timeouts and skips.
+
+The API 29 emulator has 2,048 MiB RAM; API 35 and API 36 with 16 KB pages have 4,096 MiB. All retain a 512 MiB ART heap setting. This corrects observed test-device resource failures: [run 43921779954](https://github.com/INNVoices/waarp/actions/runs/43921779954), API 36 at 2,048 MiB, recorded `ApplicationExitInfo reason=3 (LOW_MEMORY)`, app RSS `313MB`, and LMKD `min watermark is breached even after kill` while also killing Google/system processes and the launcher. Android and redirected Go crash buffers were empty. API 35 screenshots from the same run were obscured by the system **Pixel Launcher isn't responding** dialog. The memory change does not relax the native/configuration, traffic, UI or actual 16,384-byte page-size gates, and is not evidence of success until those gates run again.
+
+Before instrumentation, the runner waits up to 30 seconds for Android's framework broadcast queues to become idle and records guest `/proc/meminfo`, a guest process-memory summary, and host `/proc/meminfo`. A broadcast-idle timeout remains a failed preflight even though the test suite still runs to collect evidence. This does not claim that every background process is idle; system dialogs and crash history are preserved for diagnosis.
 
 1. JVM parsers, security constraints, subscription reconciliation, route priority/rejection, IPv6 and bounded Auto.
 2. Actual native build information and native config acceptance for every supported family.

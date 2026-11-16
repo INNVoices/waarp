@@ -115,6 +115,14 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
         val allGroups = data.groups + TunnelGroup(AUTO, "Авто", "fastest", data.profiles.filter { it.id in available && it.source != "public" }.map { it.id })
         val availableGroups = allGroups.filter { it.members.any(available::contains) }.mapTo(HashSet()) { it.id }
         fun pathAvailable(id: String) = id == DIRECT || id in available || id in availableGroups
+        val systemDns = RoutingCompiler.systemDnsPolicy(data)
+        val systemDnsHint = systemDns.reason ?: when {
+            systemDns.via == DIRECT && data.settings.systemDnsVia == DIRECT -> "Системный DNS идёт напрямую: этот путь выбран явно. Правила доменов сохраняют приоритет."
+            systemDns.via == DIRECT -> "Системный DNS следует правилам доменов; остальные запросы идут напрямую. Защищённых маршрутов приложений пока нет."
+            else -> "Общий DNS-путь: «${pathName(systemDns.via)}»" +
+                (systemDns.fallback?.let { "; резерв — «${pathName(it)}»" } ?: "") +
+                ". Применяется к системным запросам, для которых Android не передал приложение."
+        }
         val routeUi = data.routes.map { route ->
             val fallbackNative = nativeByTag["fb-${route.id}"]?.selected
             val fallback = route.fallback?.takeIf { "p-$it" == fallbackNative || "grp-$it" == fallbackNative }
@@ -153,6 +161,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
         val notices = buildList {
             repository.loadError.value?.let { add(NoticeUi("store", NoticeLevel.BLOCK, "Хранилище недоступно", it)) }
             if (!pathAvailable(data.settings.defaultVia)) add(NoticeUi("global-missing", NoticeLevel.BLOCK, "Общий маршрут недоступен", "Трафик без отдельного правила блокируется до выбора доступного пути."))
+            if (systemDns.blocked) add(NoticeUi("system-dns", NoticeLevel.WARNING, "Общий DNS требует выбора", systemDnsHint))
             if (routeUi.any { it.state == RouteState.BLOCKED }) add(NoticeUi("blocked-routes", NoticeLevel.WARNING, "Есть недоступные маршруты", "Откройте «Маршруты» и проверьте назначенные туннели."))
             if (data.profiles.any { it.source == "public" }) add(NoticeUi("public", NoticeLevel.WARNING, "Добавлены публичные узлы", "Их владельцы неизвестны. Они не входят в Авто и используются только при вашем выборе."))
             if (runtime.phase == RuntimePhase.ON && !runtime.lockdown) add(NoticeUi("lockdown", NoticeLevel.INFO, "Постоянная блокировка не включена", "При остановке VPN Android может направить трафик напрямую. Системная настройка «Блокировать соединения без VPN» доступна в настройках."))
@@ -184,7 +193,8 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
                 group.members, selected(group.id), health(viaHealth(group.id)), viaHealth(group.id)?.latencyMs?.toDouble()) },
             routes = routeUi, apps = apps, presets = Presets.all.map { PresetUi(it.id, it.name, it.hint, it.domains + it.cidrs) },
             settings = SettingsUi(data.settings.defaultVia, data.settings.lastWholeDeviceVia, data.settings.lanDirect, data.settings.ruDirect,
-                data.settings.autoConnect, data.settings.notifications, runtime.alwaysOn.takeIf { runtime.phase == RuntimePhase.ON }, runtime.lockdown.takeIf { runtime.phase == RuntimePhase.ON }),
+                data.settings.autoConnect, data.settings.notifications, runtime.alwaysOn.takeIf { runtime.phase == RuntimePhase.ON }, runtime.lockdown.takeIf { runtime.phase == RuntimePhase.ON },
+                data.settings.systemDnsVia, systemDnsHint, systemDns.blocked),
             catalog = catalog.copy(nodes = catalogProfiles.map { node -> PublicNodeUi(node.id, node.name, node.protocol, node.host, node.port, node.country,
                 latencyMs = catalogHealth[node.id]?.latencyMs?.toDouble(), health = health(catalogHealth[node.id])) }),
             flows = flows, latencyHistory = repository.history.value.mapNotNull { (id, samples) -> profilesById[id]?.let { LatencySeriesUi(id, it.name, samples) } },
@@ -330,7 +340,8 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
             it.copy(via = via, fallback = fallback?.takeUnless { path -> via == DIRECT || path == DIRECT || path == via })
         },
             settings = data.settings.copy(defaultVia = if (data.settings.defaultVia == removed) replacement else data.settings.defaultVia,
-                lastWholeDeviceVia = if (data.settings.lastWholeDeviceVia == removed) replacement else data.settings.lastWholeDeviceVia))
+                lastWholeDeviceVia = if (data.settings.lastWholeDeviceVia == removed) replacement else data.settings.lastWholeDeviceVia,
+                systemDnsVia = if (data.settings.systemDnsVia == removed) replacement else data.settings.systemDnsVia))
     }
     override suspend fun removeTunnel(id: String, replacementId: String?) = action {
         repository.edit { value ->
@@ -447,6 +458,13 @@ class MobileViewModel(application: Application) : AndroidViewModel(application),
         repository.edit { value -> value.copy(settings = value.settings.copy(lanDirect = patch.lanDirect ?: value.settings.lanDirect,
             ruDirect = patch.ruDirect ?: value.settings.ruDirect, autoConnect = patch.autoConnect ?: value.settings.autoConnect,
             notifications = patch.notifications ?: value.settings.notifications)) }; "Настройки сохранены"
+    }
+    override suspend fun setSystemDnsPath(viaId: String?) = action {
+        repository.edit { value ->
+            require(viaId == null || validPath(value, viaId)) { "Выберите доступный путь для общего DNS" }
+            value.copy(settings = value.settings.copy(systemDnsVia = viaId))
+        }
+        "Общий DNS сохранён"
     }
 
     /** Share only coarse counts, versions and redacted diagnostic outcomes; profiles/endpoints/keys never leave here. */

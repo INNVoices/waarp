@@ -69,6 +69,14 @@ class MobileUiInstrumentedTest {
         compose.onNodeWithText("Маршрутизация").assertIsDisplayed()
         compose.onNodeWithText("Локальная сеть напрямую").assertIsDisplayed()
         screenshot("02-settings")
+        compose.onNode(hasText("Путь общего DNS") and hasClickAction()).performScrollTo().performClick()
+        compose.onNode(hasText("Напрямую") and hasClickAction() and hasAnyAncestor(isDialog())).performClick()
+        awaitData { it.settings.systemDnsVia == DIRECT_PATH }
+        assertEquals(DIRECT_PATH, runBlocking { ProfileStore(context).read() }.settings.systemDnsVia)
+        compose.onNode(hasText("Путь общего DNS") and hasClickAction()).performScrollTo().performClick()
+        compose.onNode(hasText("Автоматически по маршрутам") and hasClickAction() and hasAnyAncestor(isDialog())).performClick()
+        awaitData { it.settings.systemDnsVia == null }
+        assertNull(runBlocking { ProfileStore(context).read() }.settings.systemDnsVia)
         compose.onNodeWithContentDescription("Назад").performClick()
         tab("Главная")
         assertEquals(RuntimePhase.OFF, repository.controller.status.value.phase)
@@ -83,7 +91,7 @@ class MobileUiInstrumentedTest {
         modalButton("Импортировать")
         awaitText("Формат не распознан", substring = true)
         field("Название (необязательно)").assertTextContains("UI imported tunnel")
-        compose.onNodeWithText("Добавить туннель").assertIsDisplayed()
+        compose.onNodeWithTag("waarp-form-sheet").assertExists()
         assertTrue(repository.data.value!!.profiles.isEmpty())
         field("Конфигурация или ссылка").performScrollTo().performTextReplacement("trojan://synthetic-ui-password@192.0.2.10:443#Synthetic")
         modalButton("Импортировать")
@@ -128,8 +136,8 @@ class MobileUiInstrumentedTest {
         field("Название группы").performTextInput("UI ordered group")
         compose.onNode(hasText("Первый доступный") and hasClickAction()).performClick()
         val checkbox = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Checkbox)
-        compose.onNode(hasText("UI Alpha") and checkbox).performScrollTo().performClick()
-        compose.onNode(hasText("UI Beta") and checkbox).performScrollTo().performClick()
+        selectGroupMember("UI Alpha", checkbox)
+        selectGroupMember("UI Beta", checkbox)
         compose.onNodeWithContentDescription("Поднять UI Beta").performScrollTo().performClick()
         modalButton("Сохранить группу")
         awaitData { it.groups.singleOrNull()?.members == listOf(beta.id, alpha.id) }
@@ -155,8 +163,19 @@ class MobileUiInstrumentedTest {
     }
     private fun field(label: String) = compose.onNode(hasText(label) and hasSetTextAction())
     private fun modalButton(label: String) {
-        compose.onNode(hasText(label) and hasClickAction()).performScrollTo().performClick()
+        // Background content remains in the semantics tree while the sheet is open.
+        compose.onNode(hasText(label) and hasClickAction() and hasAnyAncestor(hasTestTag("waarp-form-sheet")))
+            .performScrollTo().assertIsDisplayed().performClick()
         compose.waitForIdle()
+    }
+    private fun selectGroupMember(name: String, checkbox: SemanticsMatcher) {
+        // The list scrolls inside the form. Bring its viewport into the outer scroll
+        // container first, including after a selected row changes the form's height.
+        compose.onNodeWithTag("group-candidates").performScrollTo()
+        val member = hasText(name) and checkbox
+        compose.onNode(member).performScrollTo().assertIsDisplayed().performClick()
+        compose.waitUntil(15_000) { compose.onAllNodes(member and isOn()).fetchSemanticsNodes().size == 1 }
+        compose.onNode(member).assertIsOn()
     }
     private fun awaitData(predicate: (AppData) -> Boolean) {
         compose.waitUntil(15_000) { repository.data.value?.let(predicate) == true }
@@ -169,6 +188,11 @@ class MobileUiInstrumentedTest {
     private fun screenshot(name: String) {
         compose.waitForIdle()
         val directory = File(context.getExternalFilesDir(null), "ui-screenshots").apply { mkdirs() }
-        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).takeScreenshot(File(directory, "$name.png"))
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        device.waitForIdle()
+        assertTrue("Screenshot capture failed", device.takeScreenshot(File(directory, "$name.png")))
+        // Compose can still execute semantics actions behind a foreign ANR dialog.
+        // Such a screenshot is evidence of a blocked device, not a passing UI review.
+        assertEquals("A system or another app's window obscures the UI screenshot", context.packageName, device.currentPackageName)
     }
 }

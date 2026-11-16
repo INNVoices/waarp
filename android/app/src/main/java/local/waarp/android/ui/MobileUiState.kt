@@ -118,6 +118,9 @@ data class SettingsUi(
     val notifications: Boolean = true,
     val systemAlwaysOn: Boolean? = null,
     val systemLockdown: Boolean? = null,
+    val systemDnsViaId: String? = null,
+    val systemDnsHint: String? = null,
+    val systemDnsBlocked: Boolean = false,
 )
 
 data class SettingsPatch(
@@ -209,6 +212,7 @@ interface MobileActions {
     suspend fun refresh(): UiResult
     suspend fun refreshApps(): UiResult
     suspend fun setDefaultRoute(viaId: String): UiResult
+    suspend fun setSystemDnsPath(viaId: String?): UiResult
     suspend fun saveRoute(route: RouteDraft): UiResult
     suspend fun setRouteEnabled(id: String, enabled: Boolean): UiResult
     suspend fun deleteRoute(id: String): UiResult

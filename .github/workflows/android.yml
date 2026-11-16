@@ -91,12 +91,15 @@ jobs:
           - api: 29
             target: google_apis
             page-size: 4096
+            ram: 2048M
           - api: 35
             target: google_apis
             page-size: 4096
+            ram: 4096M
           - api: 36
             target: google_apis_ps16k
             page-size: 16384
+            ram: 4096M
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -149,7 +152,7 @@ jobs:
           target: ${{ matrix.target }}
           arch: x86_64
           profile: pixel_6
-          ram-size: 2048M
+          ram-size: ${{ matrix.ram }}
           heap-size: 512M
           disable-animations: true
           emulator-boot-timeout: 600
@@ -161,6 +164,9 @@ jobs:
       - name: Stop the owned AWG peer and require its encrypted traffic proof
         if: always()
         run: python3 scripts/android-awg-control.py stop --require-passed
+      - name: Preserve local HTTP fixture request counters
+        if: always()
+        run: python3 scripts/android-http-fixture.py --stats-report out/android/device-tests/http-fixture-stats.json
       - name: Upload runtime evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

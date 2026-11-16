@@ -25,6 +25,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -109,7 +110,13 @@ internal fun TunnelDetailsSheet(profile: TunnelUi, state: MobileState, actions: 
         if (profile.source == ProfileSource.PUBLIC) InlineMessage("Это публичный сервер третьей стороны. Он не включается в Авто; назначение маршрутам всегда явное.")
         val routes = state.routes.filter { it.viaId == profile.id || it.fallbackViaId == profile.id }
         val groups = state.groups.filter { profile.id in it.members }
-        Text("Используется: ${routes.size} маршрутов · ${groups.count { it.id != AUTO_PATH }} групп" + if (state.settings.defaultViaId == profile.id) " · общий путь устройства" else "",
+        val usage = buildList {
+            add("${routes.size} маршрутов")
+            add("${groups.count { it.id != AUTO_PATH }} групп")
+            if (state.settings.defaultViaId == profile.id) add("общий путь устройства")
+            if (state.settings.systemDnsViaId == profile.id) add("Общий DNS Android")
+        }
+        Text("Используется: ${usage.joinToString(" · ")}",
             color = WaarpMuted, style = MaterialTheme.typography.bodySmall)
         if (profile.subscription) {
             OutlinedButton(onClick = { operation.run({ actions.refreshSubscription(profile.id) }) }, enabled = !operation.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) {
@@ -172,6 +179,7 @@ internal fun DeletePathSheet(state: MobileState, actions: MobileActions, id: Str
     val affectedRoutes = state.routes.filter { it.viaId == id || it.fallbackViaId == id }
     val affectedGroups = if (group) emptyList() else state.groups.filter { it.id != AUTO_PATH && id in it.members }
     val isDefault = state.settings.defaultViaId == id
+    val isSystemDns = state.settings.systemDnsViaId == id
     val remaining = state.profiles.filter { it.id != id && !it.revoked && !it.subscriptionMissing }
     val remainingIds = remaining.mapTo(HashSet()) { it.id }
     val excluded = buildSet {
@@ -181,16 +189,18 @@ internal fun DeletePathSheet(state: MobileState, actions: MobileActions, id: Str
             if (remaining.none { it.source != ProfileSource.PUBLIC }) add(AUTO_PATH)
         }
     }
-    val choices = listOf(PathChoice("", "Без переназначения", "Сохранить заблокированные маршруты")) + pathChoices(state, excluded = excluded)
+    val choices = listOf(PathChoice("", "Без переназначения", "Сохранить заблокированные назначения")) + pathChoices(state, excluded = excluded)
     FormSheet("Удалить ${if (group) "группу" else "туннель"}?", operation.busy, onDismiss) {
         Text(pathName(state, id), style = MaterialTheme.typography.titleMedium)
-        if (affectedRoutes.isNotEmpty() || affectedGroups.isNotEmpty() || isDefault) {
+        if (affectedRoutes.isNotEmpty() || affectedGroups.isNotEmpty() || isDefault || isSystemDns) {
             Text("Затронутые назначения", fontWeight = FontWeight.SemiBold)
             if (isDefault) Text("• Общий путь устройства", style = MaterialTheme.typography.bodyMedium)
+            if (isSystemDns) Text("• Общий DNS Android", style = MaterialTheme.typography.bodyMedium)
             affectedRoutes.forEach { route -> Text("• ${route.name} — ${if (route.viaId == id) "основной" else "резервный"} путь", style = MaterialTheme.typography.bodyMedium) }
             affectedGroups.forEach { item -> Text("• Группа «${item.name}»", style = MaterialTheme.typography.bodyMedium) }
             PathField("Куда переназначить маршруты", replacement ?: "", choices, !operation.busy) { replacement = it.takeIf(String::isNotBlank) }
             if (replacement == null) InlineMessage("Маршруты, которым больше некуда подключаться, останутся заблокированы. Самостоятельного перехода напрямую не будет.")
+            if (isSystemDns && replacement == null) InlineMessage("Общий DNS останется заблокирован до выбора доступного пути.")
             if (replacement == DIRECT_PATH) InlineMessage("Ты явно выбираешь прямое подключение для затронутых назначений. Эти соединения пойдут вне туннеля.")
         } else Text(if (group) "Группа не назначена маршрутам. Её туннели останутся в списке." else "Туннель не назначен маршрутам. Его можно будет добавить снова через импорт.", color = WaarpMuted)
         OperationFeedback(operation)
@@ -239,7 +249,7 @@ internal fun GroupEditorSheet(state: MobileState, actions: MobileActions, id: St
         }
         SearchField(query, { query = it }, "Добавить туннели в группу")
         if (candidates.isEmpty()) Text("Доступных туннелей не найдено. Сначала добавь или восстанови профиль.", color = WaarpMuted)
-        else LazyColumn(Modifier.fillMaxWidth().heightIn(max = 280.dp)) {
+        else LazyColumn(Modifier.testTag("group-candidates").fillMaxWidth().heightIn(max = 280.dp)) {
             items(candidates, key = { it.id }) { profile ->
                 Row(Modifier.fillMaxWidth().toggleable(value = profile.id in members, enabled = !operation.busy, role = Role.Checkbox, onValueChange = { checked -> members = if (checked) members + profile.id else members - profile.id })
                     .heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {

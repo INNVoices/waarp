@@ -17,6 +17,7 @@ import java.security.SecureRandom;
  * Kotlin are deduplicated into the target APK, which this separate process cannot load.
  */
 public final class ProbeActivity extends Activity {
+    private String dnsFailure = "";
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -31,7 +32,7 @@ public final class ProbeActivity extends Activity {
             if (dns) {
                 int code = dnsThroughTun() ? 204 : -1;
                 sendBroadcast(new Intent("local.waarp.android.TEST_DNS_RESULT")
-                        .setPackage(destination).putExtra("code", code));
+                        .setPackage(destination).putExtra("code", code).putExtra("error", dnsFailure));
                 runOnUiThread(this::finish);
                 return;
             }
@@ -71,8 +72,11 @@ public final class ProbeActivity extends Activity {
             DatagramPacket packet = new DatagramPacket(answer, answer.length);
             socket.receive(packet);
             int size = packet.getLength();
-            return hasSyntheticAnswer(answer, size, query);
-        } catch (Exception ignored) {
+            boolean matched = hasSyntheticAnswer(answer, size, query);
+            if (!matched) dnsFailure = "UnexpectedDnsAnswer";
+            return matched;
+        } catch (Exception error) {
+            dnsFailure = error.getClass().getSimpleName();
             return false;
         }
     }

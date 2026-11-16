@@ -17,6 +17,43 @@ import sys
 import time
 
 
+def capture_preflight(prefix, output):
+    """Drain boot broadcasts and record actual guest/host memory before tests."""
+    commands = [
+        ("broadcast-idle.txt", ["shell", "am", "wait-for-broadcast-idle"], 30),
+        ("device-meminfo-before.txt", ["shell", "cat", "/proc/meminfo"], 10),
+        ("device-process-memory-before.txt", ["shell", "dumpsys", "meminfo"], 15),
+    ]
+    statuses = {}
+    for filename, arguments, timeout in commands:
+        started = time.monotonic()
+        try:
+            result = subprocess.run(prefix + arguments, capture_output=True, text=True, errors="replace", timeout=timeout)
+            content = result.stdout + result.stderr
+            status = {"exitCode": result.returncode, "timedOut": False}
+        except subprocess.TimeoutExpired as error:
+            chunks = (error.stdout or "", error.stderr or "")
+            content = "".join(chunk.decode("utf8", errors="replace") if isinstance(chunk, bytes) else chunk for chunk in chunks)
+            content += f"\nDiagnostic command exceeded {timeout} seconds.\n"
+            status = {"exitCode": None, "timedOut": True}
+        except OSError as error:
+            content = f"Preflight collection failed: {type(error).__name__}\n"
+            status = {"exitCode": None, "timedOut": False}
+        status["seconds"] = round(time.monotonic() - started, 3)
+        statuses[filename] = status
+        (output / filename).write_text(content[-2 * 1024 * 1024:])
+    try:
+        host_memory = Path("/proc/meminfo").read_text()
+    except OSError:
+        host_memory = "Host /proc/meminfo is unavailable on this platform.\n"
+    (output / "host-meminfo-before.txt").write_text(host_memory[:64 * 1024])
+    report = {"hostCpuCount": os.cpu_count(), "commands": statuses,
+              "broadcastQueuesIdle": statuses["broadcast-idle.txt"]["exitCode"] == 0,
+              "scope": "Framework broadcast-queue idle and memory snapshots; no dialogs dismissed, crash records cleared, or tests skipped."}
+    (output / "preflight.json").write_text(json.dumps(report, indent=2) + "\n")
+    return report
+
+
 def capture_logs(prefix, output, failed):
     """Preserve JNI/Java crash evidence before the disposable emulator exits."""
     requests = [("crash-buffer.txt", ["-b", "crash", "-d", "-v", "threadtime"])]
@@ -79,6 +116,7 @@ def main():
         raise ValueError(f"Expected {options.expect_page_size}-byte pages, device reports {page_size}.")
     device = {"sdk": shell("getprop", "ro.build.version.sdk"), "release": shell("getprop", "ro.build.version.release"), "abi": shell("getprop", "ro.product.cpu.abi"), "pageSize": page_size}
     options.output.mkdir(parents=True, exist_ok=True)
+    preflight = capture_preflight(prefix, options.output)
     started = time.monotonic()
     timed_out = False
     try:
@@ -114,8 +152,8 @@ def main():
             bundle[active_field] += "\n" + line
     final_codes = re.findall(r"^INSTRUMENTATION_CODE: (-?\d+)\s*$", output, re.M)
     totals = {status: sum(case["status"] == status for case in cases) for status in ("passed", "failed", "skipped")}
-    success = exit_code == 0 and not timed_out and final_codes == ["-1"] and len(cases) > 0 and len(cases) == expected_tests and not totals["failed"] and not totals["skipped"]
-    report = {"schemaVersion": 1, "checkedAtUtc": datetime.now(timezone.utc).isoformat(), "device": device, "wallSeconds": elapsed, "tests": len(cases), "expectedTests": expected_tests, **totals, "timedOut": timed_out, "passedGate": success, "cases": cases}
+    success = preflight["broadcastQueuesIdle"] and exit_code == 0 and not timed_out and final_codes == ["-1"] and len(cases) > 0 and len(cases) == expected_tests and not totals["failed"] and not totals["skipped"]
+    report = {"schemaVersion": 1, "checkedAtUtc": datetime.now(timezone.utc).isoformat(), "device": device, "preflight": preflight, "wallSeconds": elapsed, "tests": len(cases), "expectedTests": expected_tests, **totals, "timedOut": timed_out, "passedGate": success, "cases": cases}
     capture_logs(prefix, options.output, failed=not success)
     screenshots = options.output / "ui-screenshots"
     try:

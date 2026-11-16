@@ -3,7 +3,9 @@
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+from pathlib import Path
 import threading
+import urllib.request
 
 
 class FixtureHandler(BaseHTTPRequestHandler):
@@ -43,7 +45,24 @@ class FixtureHandler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=18080)
+    parser.add_argument("--stats-report", type=Path, help="Read only counters from an already-running local fixture and exit")
     options = parser.parse_args()
+    if options.stats_report:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(f"http://127.0.0.1:{options.port}/stats", timeout=5) as response:
+            content = response.read(65_537)
+        if len(content) > 65_536:
+            raise ValueError("The fixture counter report exceeds its limit.")
+        counts = json.loads(content)
+        if not isinstance(counts, dict) or any(type(count) is not int or count < 0 for count in counts.values()):
+            raise ValueError("Unexpected fixture counter schema.")
+        allowed = {"/health", "/generate_204", "/payload", "/stats"}
+        report = {"schemaVersion": 1, "requests": {path: counts.get(path, 0) for path in sorted(allowed)},
+                  "unknownPathRequests": sum(count for path, count in counts.items() if path not in allowed)}
+        options.stats_report.parent.mkdir(parents=True, exist_ok=True)
+        options.stats_report.write_text(json.dumps(report, indent=2) + "\n")
+        print("Saved local HTTP fixture request counters.")
+        raise SystemExit(0)
     server = ThreadingHTTPServer(("127.0.0.1", options.port), FixtureHandler)
     server.daemon_threads = True
     print(f"Android test fixture listening on 127.0.0.1:{options.port}", flush=True)
