@@ -71,6 +71,9 @@ internal class MobileStateMapper {
         val available = availableCache.get(data.profiles) { data.profiles.filterNot { it.revoked || it.subscriptionMissing }.mapTo(HashSet()) { it.id } }
         val allGroups = allGroupsCache.get(data.groups, data.profiles) { data.groups + TunnelGroup(AUTO, "Авто", "fastest", data.profiles.filter { it.id in available && it.source != "public" }.map { it.id }) }
         val availableGroups = availableGroupsCache.get(allGroups, available) { allGroups.filter { it.members.any(available::contains) }.mapTo(HashSet()) { it.id } }
+        val autoReferenced = data.settings.defaultVia == AUTO || data.settings.systemDnsVia == AUTO ||
+            data.routes.any { it.enabled && (it.via == AUTO || it.fallback == AUTO) }
+        val showAutoPool = autoReferenced && runtime.phase == RuntimePhase.ON
         fun pathAvailable(id: String) = id == DIRECT || id in available || id in availableGroups
         val systemDns = dnsPolicyCache.get(data) { RoutingCompiler.systemDnsPolicy(data) }
         val systemDnsHint = systemDns.reason ?: when {
@@ -93,7 +96,10 @@ internal class MobileStateMapper {
                 runtime.phase != RuntimePhase.ON -> RouteState.IDLE
                 compiledBlocked -> RouteState.BLOCKED
                 effective == DIRECT -> RouteState.DIRECT
-                routeHealth?.down == true -> RouteState.BLOCKED
+                // Public-site reachability is an observation. A private-prefix
+                // tunnel can keep carrying its assigned traffic when those
+                // sites are unreachable; only the compiler proves rejection.
+                routeHealth?.down == true -> RouteState.CHECK_FAILED
                 fallback != null -> RouteState.FALLBACK
                 routeHealth?.healthy == true -> RouteState.OK
                 routeHealth?.holding == true -> RouteState.RETRYING
@@ -105,7 +111,7 @@ internal class MobileStateMapper {
                 effectiveViaId = effective, reason = when {
                     !pathAvailable(route.via) -> "Путь удалён или недоступен. Назначьте другой; напрямую трафик не перенаправляется."
                     compiledBlocked -> "Путь не вошёл в текущую конфигурацию VPN. Уменьши число активных туннелей или измени назначение."
-                    routeHealth?.down == true -> "Удалённый путь не прошёл две последовательные проверки"
+                    routeHealth?.down == true -> "Две последовательные проверки внешних сайтов не прошли. Маршрут остаётся назначенным."
                     runtime.phase == RuntimePhase.ON && effective != DIRECT && routeHealth == null -> "Маршрут установлен; удалённый путь ещё не проверен"
                     else -> null
                 })
@@ -125,6 +131,8 @@ internal class MobileStateMapper {
                 "Общий путь не загружен", "Он не вошёл в текущую конфигурацию VPN. Трафик без отдельного правила заблокирован; выбери другой путь или уменьши число активных туннелей."))
             if (systemDns.blocked) add(NoticeUi("system-dns", NoticeLevel.WARNING, "Общий DNS требует выбора", systemDnsHint))
             if (routeUi.any { it.state == RouteState.BLOCKED }) add(NoticeUi("blocked-routes", NoticeLevel.WARNING, "Есть недоступные маршруты", "Откройте «Маршруты» и проверьте назначенные туннели."))
+            if (routeUi.any { it.state == RouteState.CHECK_FAILED }) add(NoticeUi("route-checks", NoticeLevel.WARNING,
+                "Есть ошибки проверки маршрутов", "Проверки внешних сайтов не прошли. Назначения сохранены; подробности — в «Маршрутах»."))
             if (data.profiles.any { it.source == "public" }) add(NoticeUi("public", NoticeLevel.WARNING, "Добавлены публичные узлы", "Их владельцы неизвестны. Они не входят в Авто и используются только при вашем выборе."))
             if (runtime.phase == RuntimePhase.ON && !runtime.lockdown) add(NoticeUi("lockdown", NoticeLevel.INFO, "Постоянная блокировка не включена", "При остановке VPN Android может направить трафик напрямую. Системная настройка «Блокировать соединения без VPN» доступна в настройках."))
             val appRoutes = data.routes.filter { it.enabled && it.kind == "app" }.groupBy { route -> appsByPackage[route.match]?.uid }
@@ -139,8 +147,10 @@ internal class MobileStateMapper {
                 recovering = input.applying, recoveryFailed = input.loadError != null, error = runtime.message,
                 connectedSinceMillis = runtime.startedAt.takeIf { it > 0 }, downloadBytesPerSecond = runtime.downloadBps,
                 uploadBytesPerSecond = runtime.uploadBps, downloadedBytes = runtime.downloadBytes, uploadedBytes = runtime.uploadBytes,
-                selectedPathLabel = pathName(data.settings.defaultVia), autoPoolLive = input.autoPoolLive,
-                autoPoolTotal = allGroups.last().members.size),
+                selectedPathLabel = if (data.settings.defaultVia == DIRECT) "Только выбранное · общий путь напрямую"
+                    else "Всё устройство · ${pathName(data.settings.defaultVia)}",
+                autoPoolLive = input.autoPoolLive.takeIf { showAutoPool },
+                autoPoolTotal = allGroups.last().members.size.takeIf { showAutoPool }),
             profiles = profilesCache.get(data.profiles, measured) { data.profiles.map { profile -> TunnelUi(profile.id, profile.name, profile.protocol, profile.host, profile.port,
                 profile.addresses, when (profile.source) { "public" -> ProfileSource.PUBLIC; "managed" -> ProfileSource.MANAGED; "warp" -> ProfileSource.WARP; else -> ProfileSource.PERSONAL },
                 health(measured[profile.id]), measured[profile.id]?.latencyMs?.toDouble(), profile.country.takeIf(String::isNotBlank),

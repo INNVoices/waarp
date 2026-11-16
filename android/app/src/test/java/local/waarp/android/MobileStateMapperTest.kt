@@ -41,8 +41,9 @@ class MobileStateMapperTest {
         val mapper = MobileStateMapper()
         assertEquals(RouteState.FALLBACK, mapper.map(input).routes.single().state)
         val failed = mapper.map(input.copy(measured = input.measured + ("two" to ProbeHealth(failures = 2, checkedAt = 400))))
-        assertEquals(RouteState.BLOCKED, failed.routes.single().state)
-        assertTrue(failed.routes.single().reason!!.contains("две последовательные"))
+        assertEquals(RouteState.CHECK_FAILED, failed.routes.single().state)
+        assertTrue(failed.routes.single().reason!!.contains("Две последовательные"))
+        assertFalse(failed.notices.any { it.id == "blocked-routes" })
         val recovered = mapper.map(input.copy(measured = input.measured + ("two" to ProbeHealth(10, 0, 500, 500))))
         assertEquals(RouteState.FALLBACK, recovered.routes.single().state)
     }
@@ -56,6 +57,56 @@ class MobileStateMapperTest {
         val blocked = input.copy(compiledRoutes = listOf(CompiledRoute("r", "one", null)))
         assertEquals(RouteState.BLOCKED, mapper.map(blocked).routes.single().state)
         assertEquals(RouteState.IDLE, mapper.map(blocked.copy(runtime = RuntimeStatus())).routes.single().state)
+    }
+
+    @Test fun failedPublicProbesDoNotBlockOrDisableAnExplicitPrivateRoute() {
+        val data = AppData(profiles = listOf(profile("one")),
+            routes = listOf(TrafficRoute("r", "Private service", "custom", "10.77.0.1/32", "one")))
+        val compiled = RoutingCompiler.compile(data)
+        val input = snapshot(data).copy(compiledRoutes = compiled.routes,
+            measured = mapOf("one" to ProbeHealth(failures = 2, checkedAt = 300)))
+        val mapper = MobileStateMapper()
+        val observed = mapper.map(input)
+        assertEquals("p-one", compiled.routes.single().targetTag)
+        assertEquals(RouteState.CHECK_FAILED, observed.routes.single().state)
+        assertEquals("one", observed.routes.single().effectiveViaId)
+        assertEquals("Private service", observed.routes.single().name)
+        assertTrue(pathChoices(observed).single { it.id == "one" }.enabled)
+        assertTrue(observed.notices.any { it.id == "route-checks" && it.level == NoticeLevel.WARNING })
+        assertFalse(observed.notices.any { it.id == "blocked-routes" })
+        val deleted = mapper.map(input.copy(data = data.copy(profiles = emptyList())))
+        assertEquals(RouteState.BLOCKED, deleted.routes.single().state)
+        assertTrue(deleted.notices.any { it.id == "blocked-routes" })
+    }
+
+    @Test fun routingScopeAndAutoPoolFollowActualAssignments() {
+        val route = TrafficRoute("r", "Selected app", "app", "test.selected.app", "one")
+        val data = AppData(profiles = listOf(profile("one")), routes = listOf(route))
+        val mapper = MobileStateMapper()
+        val input = snapshot(data)
+        val selected = mapper.map(input)
+        assertTrue(selected.status.selectedPathLabel!!.contains("Только выбранное"))
+        assertTrue(selected.status.selectedPathLabel!!.contains("общий путь напрямую"))
+        assertNull(selected.status.autoPoolLive)
+        assertNull(selected.status.autoPoolTotal)
+
+        val enabledAuto = data.copy(routes = listOf(route.copy(via = AUTO)))
+        val usingAuto = mapper.map(input.copy(data = enabledAuto, autoPoolLive = 1))
+        assertEquals(1, usingAuto.status.autoPoolLive)
+        assertEquals(1, usingAuto.status.autoPoolTotal)
+        val disabledAuto = mapper.map(input.copy(data = data.copy(routes = listOf(route.copy(via = AUTO, enabled = false))), autoPoolLive = 1))
+        assertNull(disabledAuto.status.autoPoolLive)
+        assertNull(disabledAuto.status.autoPoolTotal)
+        val fallbackAuto = mapper.map(input.copy(data = data.copy(routes = listOf(route.copy(fallback = AUTO))), autoPoolLive = 1))
+        assertEquals(1, fallbackAuto.status.autoPoolLive)
+        val dnsAuto = mapper.map(input.copy(data = data.copy(settings = data.settings.copy(systemDnsVia = AUTO)), autoPoolLive = 1))
+        assertEquals(1, dnsAuto.status.autoPoolLive)
+        val whole = mapper.map(input.copy(data = data.copy(settings = data.settings.copy(defaultVia = "one"))))
+        assertEquals("Всё устройство · Profile one", whole.status.selectedPathLabel)
+        assertNull(whole.status.autoPoolTotal)
+        val off = mapper.map(input.copy(data = enabledAuto, autoPoolLive = 1, runtime = RuntimeStatus()))
+        assertNull(off.status.autoPoolLive)
+        assertNull(off.status.autoPoolTotal)
     }
 
     @Test fun profileAndGroupRenameAndCatalogDeletionInvalidateTheirOwnProjection() {

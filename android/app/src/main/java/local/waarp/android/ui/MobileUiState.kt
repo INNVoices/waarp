@@ -30,7 +30,7 @@ enum class ConnectionPhase { OFF, STARTING, ON, STOPPING, ERROR }
 enum class TunnelHealth { UNKNOWN, OK, DEGRADED, DOWN, BUSY }
 enum class ProfileSource { PERSONAL, PUBLIC, MANAGED, WARP }
 enum class RouteKind { APP, SERVICE, CUSTOM }
-enum class RouteState { OK, FALLBACK, RETRYING, BLOCKED, DIRECT, IDLE, OFF }
+enum class RouteState { OK, FALLBACK, RETRYING, CHECK_FAILED, BLOCKED, DIRECT, IDLE, OFF }
 enum class GroupPolicy { FASTEST, FIRST }
 enum class NoticeLevel { INFO, WARNING, BLOCK }
 enum class ObservationResult { OK, FAILED, SKIPPED, UNKNOWN }

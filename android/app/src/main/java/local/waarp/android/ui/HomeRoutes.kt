@@ -98,7 +98,7 @@ internal fun HomeScreen(state: MobileState, actions: MobileActions, onRoutes: ()
                         TrafficMetric("Отправка", state.status.uploadBytesPerSecond, state.status.uploadedBytes, false, Modifier.weight(1f))
                     }
                 }
-                status.autoPoolTotal?.let { total -> Text("Авто: ${status.autoPoolLive ?: 0} из $total туннелей в рабочем пуле", style = MaterialTheme.typography.bodySmall, color = WaarpMuted) }
+                status.autoPoolTotal?.let { total -> Text("Авто: загружено ${status.autoPoolLive ?: 0} из $total туннелей", style = MaterialTheme.typography.bodySmall, color = WaarpMuted) }
             }
         }
         item {
@@ -259,6 +259,7 @@ internal fun RouteStateLabel(route: RouteUi, running: Boolean = false) {
         RouteState.OK -> "Основной путь"
         RouteState.FALLBACK -> "Работает резервный путь"
         RouteState.RETRYING -> "Повторная проверка"
+        RouteState.CHECK_FAILED -> "Проверка сайтов не прошла"
         RouteState.BLOCKED -> "Соединения заблокированы"
         RouteState.DIRECT -> "Напрямую"
         RouteState.IDLE -> if (running) "Путь ещё не проверен" else "Применится при включении"
@@ -266,6 +267,7 @@ internal fun RouteStateLabel(route: RouteUi, running: Boolean = false) {
     }
     Text(text, style = MaterialTheme.typography.labelSmall, color = when (route.state) {
         RouteState.OK -> WaarpGreen
+        RouteState.CHECK_FAILED -> WaarpWarning
         RouteState.BLOCKED -> MaterialTheme.colorScheme.error
         RouteState.FALLBACK, RouteState.RETRYING -> WaarpWarning
         else -> WaarpMuted
