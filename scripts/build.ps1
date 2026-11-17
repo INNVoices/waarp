@@ -248,7 +248,7 @@ function AarFromZip($zip, $pin = (Get-Content 'android\app\src\main\res\raw\engi
   try { $z = [IO.Compression.ZipFile]::OpenRead($zip) } catch { return $false } # still being written by the browser
   $tmp = $null
   try {
-    $entry = $z.Entries | Where-Object { $_.FullName -match '(^|/)libbox\.aar$' } | Select-Object -First 1
+    $entry = $z.Entries | Where-Object { $_.FullName -match '(^|[\\/])libbox\.aar$' } | Select-Object -First 1
     if (-not $entry -or $entry.Length -ne $pin.bytes) { return $false }
     $tmp = Join-Path $AndroidLocal "download\libbox-$([DateTimeOffset]::Now.ToUnixTimeMilliseconds()).aar"
     $null = New-Item -ItemType Directory -Force (Split-Path $tmp)
@@ -324,10 +324,18 @@ function TestAndroidArtifacts {
     $payload = Join-Path $source 'libbox.aar'
     [IO.File]::WriteAllText($payload, 'synthetic pinned engine')
     $pin = [pscustomobject]@{ bytes = (Get-Item $payload).Length; sha256 = (Get-FileHash $payload -Algorithm SHA256).Hash }
-    $zip = Join-Path $scratch 'artifact.zip'
-    [IO.Compression.ZipFile]::CreateFromDirectory((Join-Path $scratch 'source'), $zip)
     $script:AndroidAar = Join-Path $scratch 'installed/libbox.aar'; $script:AndroidLocal = $scratch
-    T ((AarFromZip $zip $pin) -and (AarMatchesPin $AndroidAar $pin)) 'Android: a pinned cached artifact is installed'
+    # .NET Framework can write legacy backslashes; exercise both layouts on every host.
+    $entries = @('out/android-core/libbox.aar', 'out\android-core\libbox.aar')
+    $installed = @()
+    for ($i = 0; $i -lt $entries.Count; $i++) {
+      $zip = Join-Path $scratch "artifact-$i.zip"
+      $archive = [IO.Compression.ZipFile]::Open($zip, 'Create')
+      try { $null = [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $payload, $entries[$i]) }
+      finally { $archive.Dispose() }
+      $installed += ((AarFromZip $zip $pin) -and (AarMatchesPin $AndroidAar $pin))
+    }
+    T ($installed.Count -eq 2 -and @($installed | Where-Object { -not $_ }).Count -eq 0) 'Android: pinned artifacts with ZIP and legacy Windows separators are installed'
     $wrongHash = [pscustomobject]@{ bytes = $pin.bytes; sha256 = ('0' * 64) }
     $wrongSize = [pscustomobject]@{ bytes = $pin.bytes + 1; sha256 = $pin.sha256 }
     T (-not (AarFromZip $zip $wrongHash) -and -not (AarFromZip $zip $wrongSize)) 'Android: stale hash and size are rejected'
