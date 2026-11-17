@@ -12,6 +12,7 @@ import { catalogLabel, roundRobin, sourceLabel } from './catalog-sample'
 import { RuntimeJournal } from './runtime-journal'
 import { parseVpnGateCsv } from './vpngate'
 import { protectPrivateFile } from './private-file'
+import { credentialKey } from './discovery'
 
 // RC2 F: only sources with a clear license/terms; inventory in docs/SOURCES.md. No license = not a default.
 export const DEFAULT_SOURCES = [
@@ -162,6 +163,7 @@ export class Catalog {
     const perSourceLimit = Math.max(1, Math.ceil(MAX_NODES / selectedSources.length))
     // Sources are independent. Fetch them concurrently so one 20-second timeout cannot
     // multiply into several minutes; parsing and deduplication remain deterministic in source order.
+    const legacyIds = new Set<string>()
     const fetched = await Promise.all(selectedSources.map(async url => {
       try { return { url, body: await fetchText(url, abort.signal) } }
       catch (error) { return { url, error: error instanceof Error ? error.message : String(error) } }
@@ -176,10 +178,13 @@ export class Catalog {
         const protocols = new Map<string, Profile[]>()
         for (const p of items) {
           if (p.kind === 'awg') continue // public sources only accept the catalog's supported proxy/OpenVPN families
-          const k = p.kind === 'vless' ? `vless|${p.vless.server}|${p.vless.port}|${p.vless.uuid}` : p.kind === 'out' ? `${p.outbound.type}|${p.host}|${p.port}|${String(p.outbound.uuid ?? p.outbound.password ?? '')}` : `openvpn|${p.host}|${p.port}|${JSON.stringify(p.endpoint)}`
+          const legacy = p.kind === 'vless' ? `vless|${p.vless.server}|${p.vless.port}|${p.vless.uuid}` : p.kind === 'out' ? `${p.outbound.type}|${p.host}|${p.port}|${String(p.outbound.uuid ?? p.outbound.password ?? '')}` : `openvpn|${p.host}|${p.port}|${JSON.stringify(p.endpoint)}`
+          const k = credentialKey(p)
           if (seen.has(k) || seen.size >= MAX_NODES) continue
           p.source = 'public'
-          p.id = 'pub-' + createHash('sha256').update(k).digest('hex').slice(0, 20)
+          // the first effective config of an endpoint keeps the id it always had, so imported nodes and card bindings stay valid
+          p.id = 'pub-' + createHash('sha256').update(legacyIds.has(legacy) ? k : legacy).digest('hex').slice(0, 20)
+          legacyIds.add(legacy)
           nodeSources.set(p.id, sourceLabel(url))
           seen.set(k, p); n++
           const family = p.kind === 'out' ? String(p.outbound.type) : p.kind
