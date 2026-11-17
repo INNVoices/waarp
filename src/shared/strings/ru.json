@@ -443,6 +443,7 @@
   "tech.padding": "паддинг",
   "tech.type": "тип",
   "tech.obfs": "обфускация",
+  "tech.ports": "порты (прыжки)",
   "tech.mtu": "MTU",
   "tech.keepalive": "keepalive, с",
   "tech.routes": "маршруты",

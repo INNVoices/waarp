@@ -1,5 +1,6 @@
 export type AwgParams = Partial<Record<'jc' | 'jmin' | 'jmax' | 's1' | 's2' | 's3' | 's4', number>> &
-  Partial<Record<'h1' | 'h2' | 'h3' | 'h4' | 'i1' | 'i2' | 'i3' | 'i4' | 'i5', string>>
+  Partial<Record<'h1' | 'h2' | 'h3' | 'h4' | 'i1' | 'i2' | 'i3' | 'i4' | 'i5', string>> &
+  { header_protection_key?: string; random_trailers?: boolean; disable_cookies?: boolean }
 
 import type { VlessProfile } from './vless-types'
 export type { VlessProfile, VlessFields } from './vless-types'

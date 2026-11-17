@@ -100,14 +100,34 @@ function ss(raw: string): OutProfile {
   return mk(name, 'Shadowsocks · ' + method, h, p, { type: 'shadowsocks', server: h, server_port: p, method, password })
 }
 
-function hy2(raw: string): OutProfile {
-  const u = new URL(raw.replace(/^hy2:/i, 'hysteria2:')); const h = host(u.hostname), p = port(u.port || 443), q = u.searchParams
+/** Hysteria2 URI port part may be a list / range (official multi-port form); new URL cannot parse that */
+export function hy2Ports(raw: string): { url: string; ports?: string[] } {
+  const m = /^([a-z0-9]+:\/\/[^@/?#]*@)(\[[^\]]+\]|[^:/?#]+):([0-9,-]+)([/?#].*)?$/i.exec(raw)
+  if (!m || /^\d+$/.test(m[3])) return { url: raw }
+  const parts = m[3].split(',').filter(Boolean)
+  const ports = parts.map(x => {
+    const r = /^(\d+)(?:-(\d+))?$/.exec(x)
+    if (!r) throw new Error('bad hysteria2 port list')
+    const a = Number(r[1]), b = Number(r[2] ?? r[1])
+    if (!a || !b || a > 65535 || b > 65535 || a > b) throw new Error('bad hysteria2 port range')
+    return `${a}:${b}`
+  })
+  if (!ports.length || ports.length > 32) throw new Error('bad hysteria2 port list')
+  return { url: m[1] + m[2] + ':' + ports[0].split(':')[0] + (m[4] ?? ''), ports }
+}
+
+function hy2(input: string): OutProfile {
+  const norm = input.replace(/^hy2:/i, 'hysteria2:')
+  const hop = hy2Ports(norm)
+  const raw = hop.url
+  const u = new URL(raw); const h = host(u.hostname), p = port(u.port || 443), q = u.searchParams
   // Hysteria userpass is a single auth string, unlike URI protocols with separate user/password fields.
   const password = decodeURIComponent(/^[a-z0-9]+:\/\/([^/?#]*)@/i.exec(raw)?.[1] ?? '')
   if (!password) throw new Error('no hysteria2 password')
   if (q.get('obfs') && (q.get('obfs') !== 'salamander' || !q.get('obfs-password'))) throw new Error('unsupported or incomplete Hysteria2 obfuscation')
   return mk(nameOf(u, h), 'Hysteria2', h, p, clean({
     type: 'hysteria2', server: h, server_port: p, password,
+    ...(hop.ports ? { server_ports: hop.ports, hop_interval: '30s' } : {}),
     obfs: q.get('obfs') ? { type: q.get('obfs'), password: q.get('obfs-password') ?? '' } : undefined, tls: tlsOf(q, h, true)
   }))
 }

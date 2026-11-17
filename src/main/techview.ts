@@ -30,6 +30,7 @@ export function techOf(p: Profile): { tech: Tech; notApplied?: string[] } {
     add('fp', str(o.tls?.utls?.fingerprint))
     add('alpn', list(o.tls?.alpn))
     add('obfs', str(o.obfs?.type))
+    add('ports', list(o.server_ports))
     return { tech: out }
   }
   if (p.kind === 'awg') {

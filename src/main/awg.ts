@@ -145,7 +145,7 @@ export function parseConf(raw: string, name = 'Сервер'): AwgProfile {
   if (!i || !p) throw new ConfError('В конфиге нет [Interface] или [Peer]')
   const commands = ['preup', 'postup', 'predown', 'postdown', 'table'].filter(k => i[k] !== undefined)
   if (commands.length) throw new ConfError(`Waarp не выполняет системные директивы из конфига: ${commands.join(', ')}`)
-  const interfaceKeys = new Set<string>(['privatekey', 'address', 'dns', 'mtu', 'listenport', ...NUM_KEYS, ...STR_KEYS])
+  const interfaceKeys = new Set<string>(['privatekey', 'address', 'dns', 'mtu', 'listenport', ...NUM_KEYS, ...STR_KEYS, 'headerprotectionkey', 'randomtrailers', 'disablecookies'])
   const peerKeys = new Set(['publickey', 'presharedkey', 'endpoint', 'allowedips', 'persistentkeepalive'])
   const unsupported = [...Object.keys(i).filter(k => !interfaceKeys.has(k)), ...Object.keys(p).filter(k => !peerKeys.has(k))]
   if (unsupported.length) throw new ConfError(`Импорт не поддерживает параметры: ${unsupported.join(', ')}. Они не были отброшены; нужен поддерживаемый конфиг WireGuard/AmneziaWG 2`)
@@ -165,6 +165,19 @@ export function parseConf(raw: string, name = 'Сервер'): AwgProfile {
     awg[k] = unsigned(i[k], k.toUpperCase(), k.startsWith('s') ? 65535 : 0xffffffff)
   }
   if ((awg.jmin ?? 0) > (awg.jmax ?? 0)) throw new ConfError('Jmin не может быть больше Jmax')
+  if (i.headerprotectionkey) {
+    if (!validKey(i.headerprotectionkey)) throw new ConfError('HeaderProtectionKey должен быть ключом 32 байта в base64, как на сервере')
+    if ((['s1', 's2', 's3', 's4'] as const).some(k => (awg[k] ?? 0) < 12)) throw new ConfError('С HeaderProtectionKey параметры S1–S4 должны быть не меньше 12')
+    awg.header_protection_key = i.headerprotectionkey
+  }
+  const flag = (v: string | undefined, name: string) => {
+    if (v === undefined) return undefined
+    if (/^(true|1|on)$/i.test(v)) return true
+    if (/^(false|0|off)$/i.test(v)) return false
+    throw new ConfError(`${name} должен быть true или false`)
+  }
+  if (flag(i.randomtrailers, 'RandomTrailers')) awg.random_trailers = true
+  if (flag(i.disablecookies, 'DisableCookies')) awg.disable_cookies = true
   for (const k of STR_KEYS) if (i[k]) awg[k] = k.startsWith('h') ? magicHeader(i[k], k.toUpperCase()) : signaturePacket(i[k], k.toUpperCase())
   const headers = (['h1', 'h2', 'h3', 'h4'] as const).map((key, index) => {
     const value = awg[key]
@@ -216,6 +229,7 @@ export function createWireGuardProfile(input: { name: string; address: string; e
 }
 
 export function detectVersion(a: AwgParams): string {
+  if (a.header_protection_key || a.random_trailers || a.disable_cookies) return 'AmneziaWG 3'
   const ranged = [a.h1, a.h2, a.h3, a.h4].some(h => h && h.includes('-'))
   if (a.s3 !== undefined || a.s4 !== undefined || [a.i1, a.i2, a.i3, a.i4, a.i5].some(Boolean) || ranged) return 'AmneziaWG 2'
   if (NUM_KEYS.some(k => a[k] !== undefined) || [a.h1, a.h2, a.h3, a.h4].some(Boolean)) return 'AmneziaWG 1'
