@@ -39,7 +39,7 @@ import { effectiveRoutes, moodOf } from '../shared/effective'
 import { bridgeStatus, companionEditsOk, companionPatchSafe, createPending, ensureIntent, listCompanion, parseTarget, routeFor, routeOf, safeVia, sameTarget } from '../shared/companion'
 import { AUTO_BUDGET, AUTO_ID, autoMembers, checkSample } from '../shared/groups'
 import { classify } from '../shared/evidence'
-import { probeLayers } from './layered'
+import { parseProbe, probeLayers } from './layered'
 import { activeIds, diagnosisSet, learn, type NetMemory } from '../shared/netmemory'
 import { loadMem, saveMem } from './netmem-store'
 import { networkFingerprint } from './netid'
@@ -799,11 +799,13 @@ function ipc() {
   /** W3.2: layered Direct evidence + own eligible paths (bounded, never public) -> a cautious finding */
   secureHandle('diagnose', async (_e, t: unknown) => {
     const target = probeTarget(t)
-    if (!target) return null
+    const parsed = target ? parseProbe(target) : undefined
+    if (!target || !parsed) return null
+    const run = ++diagnoseRun
     // "in use" = carrying traffic now (required, picked, effective), not every Auto standby candidate
     const st = withRoutes(engine.status)
     const used = activeIds(compilePlan(store.settings, store.profiles).requiredProfiles, st.picked, Object.values(st.routes ?? {}).map(e => e.effective), new Set(store.profiles.map(p => p.id)))
-    const host = target.replace(/^https?:\/\//, '').replace(/[/?#].*$/, '').toLowerCase()
+    const host = parsed.host
     const net = await networkFingerprint(netMem.salt)
     const now = Date.now()
     // memory only orders which own paths this diagnosis checks; it never touches routes or runtime Auto
@@ -816,12 +818,15 @@ function ipc() {
       try { return checker && (await checker.ensure(subset, await adapters())) ? checker.probe(target, eligible) : {} }
       catch { return {} }
     }
-    const [direct, all] = await Promise.all([probeLayers(target), viaPaths()])
+    const checked = store.profiles.filter(p => eligible.includes(p.id))
+    const deadline = new Promise<Record<string, number | null>>(r => setTimeout(() => r({}), DIAGNOSE_MS))
+    const [direct, all] = await Promise.all([probeLayers(target), Promise.race([viaPaths(), deadline])])
     const paths: Record<string, number | null> = {}
     for (const id of eligible) if (id in all) paths[id] = all[id]
     const finding = classify(direct, paths)
-    if (net) { netMem.data = learn(netMem.data, net, host, finding, autoMembers(store.profiles), now); saveNetMem() }
-    return { target, direct, paths, finding }
+    const stale = run !== diagnoseRun || checked.some(p => !store.profiles.includes(p)) || (await networkFingerprint(netMem.salt)) !== net
+    if (net && !stale) { netMem.data = learn(netMem.data, net, host, finding, autoMembers(store.profiles), now); saveNetMem() }
+    return { target: parsed.shown, host, direct, paths, finding, at: now, stale }
   })
   secureHandle('log', () => engine.log())
   secureHandle('net:reset', () => {
@@ -1031,6 +1036,8 @@ app.on('window-all-closed', () => { if (!store?.settings.tray) app.quit() })
 const COMPANION_SAFE = 'Для маршрута приложения можно выбрать только свои подключения, Авто или Напрямую'
 /** companion targets waiting for a path chosen in the picker (bridge routes.open); bounded, in memory only */
 const pendingPicks = createPending()
+let diagnoseRun = 0
+const DIAGNOSE_MS = 20_000
 /** R5: rotation cursor for tunnel-closed probes (bounded checker set) */
 let probeCursor = 0
 const viewName = (v: string): string | undefined => store.views().find(p => p.id === v)?.name ?? (v === AUTO_ID ? 'Авто' : undefined)

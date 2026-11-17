@@ -100,7 +100,7 @@ function mock(): Api {
         : cut ? { dnsSystem: { ...ok, addrs: 4 }, dnsDoh: { ...ok, addrs: 4 }, tcp: ok, tls: { result: 'fail' as const, code: 'reset' as const }, http: skip }
         : { dnsSystem: { ...ok, addrs: 2 }, dnsDoh: { ...ok, addrs: 2 }, tcp: ok, tls: ok, http: { result: 'ok' as const, status: 200 } }
       const paths = dead ? { a: null, b: null } : { a: 88, b: 140 }
-      return { target: t, direct, paths, finding: classify(direct, paths) }
+      return { target: t, host: t.replace(/^https?:\/\//, '').replace(/[/?#:].*$/, '').toLowerCase(), direct, paths, finding: classify(direct, paths), at: Date.now() }
     },
     resetNet: async () => ({ ok: true }),
     log: async () => ['+0000 INFO router: updated', '+0000 INFO inbound/tun[tun]: started at Waarp'],

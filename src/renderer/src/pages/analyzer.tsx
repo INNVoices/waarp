@@ -1,12 +1,11 @@
 import { useRef, useState } from 'react'
 import type { Snapshot, Status, Via } from '../../../shared/types'
-import type { DirectObs, Finding } from '../../../shared/evidence'
-import { AUTO_ID, autoMembers } from '../../../shared/groups'
+import { provenPath, type DirectObs, type Finding } from '../../../shared/evidence'
 import { Btn, Field, Icon } from '../ui/kit'
 import { s } from '../lib/i18n'
 import { api } from '../bridge'
 import type { SettingsPatch } from '../lib/actions'
-import { customRoute, hueOf, upsert } from '../lib/routes'
+import { customRoute, hueOf, patchRoute, upsert } from '../lib/routes'
 import { Mark, viaName } from '../parts'
 
 export function Analyzer({ snap, status, hist, patch }: { snap: Snapshot; status: Status; hist: Record<string, (number | undefined)[]>; patch: SettingsPatch }) {
@@ -58,7 +57,9 @@ function Chart({ snap, ids, hist }: { snap: Snapshot; ids: Via[]; hist: Record<s
   )
 }
 
-interface Diag { target: string; direct: DirectObs; paths: Record<string, number | null>; finding: Finding }
+interface Diag { target: string; host: string; direct: DirectObs; paths: Record<string, number | null>; finding: Finding; at: number; stale?: boolean }
+
+const FRESH_MS = 5 * 60_000
 
 /** W3.2 "Почему не открывается?": Direct layer by layer, own paths, then one observation line; never a fake cause */
 function Probe({ snap, live, patch }: { snap: Snapshot; live: boolean; patch: SettingsPatch }) {
@@ -66,18 +67,27 @@ function Probe({ snap, live, patch }: { snap: Snapshot; live: boolean; patch: Se
   const [busy, setBusy] = useState(false)
   const [res, setRes] = useState<Diag | null>()
   const checking = useRef(false)
+  const runId = useRef(0)
   const run = async () => {
     if (!t.trim() || checking.current) return
+    const id = ++runId.current
     checking.current = true; setBusy(true); setRes(undefined)
-    try { setRes(await api.diagnose(t)) } catch { setRes(null) } finally { checking.current = false; setBusy(false) }
+    try { const r = await api.diagnose(t) as Diag | null; if (id === runId.current) setRes(r && r.stale ? null : r) }
+    catch { if (id === runId.current) setRes(null) }
+    finally { if (id === runId.current) { checking.current = false; setBusy(false) } }
   }
   const f = res?.finding
-  const host = res?.target.replace(/^https?:\/\//, '').replace(/[/?#].*$/, '')
-  const routed = !!host && snap.settings.routes.some(r => r.kind === 'custom' && r.value === host)
-  const def: Via = autoMembers(snap.profiles).length ? AUTO_ID : 'direct'
+  const host = res?.host
+  const card = host ? snap.settings.routes.find(r => r.kind === 'custom' && r.value === host) : undefined
+  const best = provenPath(f, snap.profiles)
+  const apply = () => {
+    if (!res || !host || !best) return
+    if (Date.now() - res.at > FRESH_MS || !snap.profiles.some(p => p.id === best && !p.revoked)) { void run(); return }
+    void patch({ routes: card ? patchRoute(snap.settings, card.id, { via: best, on: true }) : upsert(snap.settings, customRoute(host, best)) })
+  }
   const words = (ids: string[]) => ids.slice(0, 2).map(id => viaName(snap.profiles, id)).join(', ')
   const verdict = !f ? '' : f.kind === 'restricted_direct' ? s('dg.v.layer.' + f.layer, { v: words(f.via) }) : f.kind === 'path_only' ? s('dg.v.path_only', { v: words(f.via) }) : f.kind === 'unclear' ? s('dg.v.unclear.' + f.why) : s('dg.v.' + f.kind)
-  const layers: [string, { result: string; code?: string; status?: number }][] = res ? [['dns', res.direct.dnsSystem], ['doh', res.direct.dnsDoh], ['tcp', res.direct.tcp], ['tls', res.direct.tls], ['http', res.direct.http]] : []
+  const layers: [string, { result: string; code?: string; status?: number; to?: string }][] = res ? [['dns', res.direct.dnsSystem], ['doh', res.direct.dnsDoh], ['tcp', res.direct.tcp], ['tls', res.direct.tls], ['http', res.direct.http]] : []
   return (
     <section className="panel">
       <div className="ph-row"><h3>{s('an.probe')}</h3><span className="m">{s('an.probe.hint')}</span></div>
@@ -94,9 +104,10 @@ function Probe({ snap, live, patch }: { snap: Snapshot; live: boolean; patch: Se
             {layers.map(([k, o]) => (
               <div key={k} className={'dg-row ' + o.result}>
                 <span className="m">{s('dg.l.' + k)}</span>
-                <span>{o.result === 'ok' ? (k === 'http' && o.status ? s('dg.r.status', { n: o.status }) : s('dg.r.ok')) : o.result === 'skipped' ? '—' : s('dg.r.' + o.result + (o.code ? '.' + o.code : ''))}</span>
+                <span>{o.result === 'ok' ? (k === 'http' && o.status ? (o.to ? s('dg.r.redirect', { n: o.status, to: o.to }) : s('dg.r.status', { n: o.status })) : s('dg.r.ok')) : o.result === 'skipped' ? '—' : o.result === 'na' ? s('dg.r.na') : k === 'http' && o.code === 'method' ? s('dg.r.method') : k === 'http' && o.status ? s('dg.r.status', { n: o.status }) : s('dg.r.' + o.result + (o.code ? '.' + o.code : ''))}</span>
               </div>
             ))}
+            {res.direct.dnsDiffer && <span className="m">{s('dg.dns_differ')}</span>}
           </div>
           <div className="dg-col">
             <b className="dg-h">{s('dg.paths')}</b>
@@ -111,8 +122,8 @@ function Probe({ snap, live, patch }: { snap: Snapshot; live: boolean; patch: Se
         </div>
         {verdict && <div className={'verdict ' + (f?.kind === 'direct_ok' ? 'open' : f?.kind === 'unclear' ? '' : 'blocked')}>
           <Icon n={f?.kind === 'direct_ok' ? 'check' : 'info'} s={14} /><span className="grow">{verdict}</span>
-          {(f?.kind === 'restricted_direct' || f?.kind === 'path_only') && host && !routed && def !== 'direct' &&
-            <Btn sm onClick={() => void patch({ routes: upsert(snap.settings, customRoute(host, def)) })}>{s('dg.route', { v: viaName(snap.profiles, def) })}</Btn>}
+          {host && best && (!card || card.via !== best || !card.on) &&
+            <Btn sm onClick={apply}>{card ? s('dg.route.card', { v: viaName(snap.profiles, best) }) : s('dg.route', { h: host, v: viaName(snap.profiles, best) })}</Btn>}
           {f?.kind === 'unclear' && <Btn sm kind="ghost" onClick={() => void run()}>{s('dg.again')}</Btn>}
         </div>}
       </>}

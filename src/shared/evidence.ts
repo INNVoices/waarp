@@ -3,7 +3,7 @@
 // a path works" contrast without a failing layer stays `path_only`, and thin / mixed evidence is `unclear`.
 // Credential state (busy / revoked) is not evidence here and never enters this module.
 
-export type LayerResult = 'ok' | 'fail' | 'timeout' | 'skipped'
+export type LayerResult = 'ok' | 'fail' | 'timeout' | 'skipped' | 'na'
 export interface DnsObs { result: LayerResult; code?: 'nxdomain' | 'empty' | 'refused' | 'error'; addrs?: number }
 export interface DirectObs {
   dnsSystem: DnsObs
@@ -11,7 +11,9 @@ export interface DirectObs {
   dnsDoh: DnsObs
   tcp: { result: LayerResult; code?: 'refused' | 'reset' | 'unreachable' | 'error' }
   tls: { result: LayerResult; code?: 'reset' | 'cert' | 'alert' | 'error' }
-  http: { result: LayerResult; status?: number }
+  http: { result: LayerResult; status?: number; to?: string; code?: 'method' }
+  /** both resolvers answered with no address in common; CDNs and geo balancing do this too, so it is a note, not a verdict */
+  dnsDiffer?: boolean
 }
 /** per path: ms, or null when the path did not answer */
 export type PathObs = Record<string, number | null>
@@ -33,12 +35,12 @@ export function failingLayer(d: DirectObs): Layer | undefined {
   if (bad(d.dnsSystem.result)) return undefined // both resolvers failing: could be the site, not a restriction
   if (d.tcp.result === 'fail' && (d.tcp.code === 'reset' || d.tcp.code === 'refused')) return 'tcp'
   if (d.tcp.result === 'ok' && d.tls.result === 'fail' && (d.tls.code === 'reset' || d.tls.code === 'alert')) return 'tls'
-  if (d.tcp.result === 'ok' && d.tls.result === 'ok' && d.http.result === 'fail') return 'http'
+  if (d.tcp.result === 'ok' && (d.tls.result === 'ok' || d.tls.result === 'na') && d.http.result === 'fail' && d.http.code !== 'method') return 'http'
   return undefined
 }
 
 /** Direct works the way a browser would use it: the system resolver answered and HTTPS completed */
-export const directWorks = (d: DirectObs): boolean => d.dnsSystem.result === 'ok' && (d.http.result === 'ok' || (d.tls.result === 'ok' && d.http.result === 'skipped'))
+export const directWorks = (d: DirectObs): boolean => (d.dnsSystem.result === 'ok' || d.dnsSystem.result === 'na') && d.http.result === 'ok'
 const onlyTimeouts = (d: DirectObs): boolean =>
   [d.dnsSystem.result, d.tcp.result, d.tls.result, d.http.result].some(r => r === 'timeout') &&
   ![d.dnsSystem.result, d.tcp.result, d.tls.result, d.http.result].some(r => r === 'fail')
@@ -56,4 +58,10 @@ export function classify(d: DirectObs, paths: PathObs): Finding {
   if (layer) return { kind: 'restricted_direct', layer, via }
   // a timeout-only Direct next to a working path is still a contrast, but we cannot name a layer
   return { kind: 'path_only', via }
+}
+
+/** the path a verdict may offer: the fastest own profile that actually answered, still present and not revoked */
+export function provenPath(f: Finding | undefined, profiles: readonly { id: string; revoked?: boolean }[]): string | undefined {
+  if (!f || (f.kind !== 'restricted_direct' && f.kind !== 'path_only')) return undefined
+  return f.via.find(id => profiles.some(p => p.id === id && !p.revoked))
 }

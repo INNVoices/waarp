@@ -1,6 +1,6 @@
 // W3.1: layered Direct evidence + cautious classifier (offline: network is a fake)
-import { classify, failingLayer, type DirectObs } from '../src/shared/evidence'
-import { probeLayers, type Net } from '../src/main/layered'
+import { classify, failingLayer, provenPath, type DirectObs } from '../src/shared/evidence'
+import { parseProbe, probeLayers, type Net } from '../src/main/layered'
 
 let fails = 0, n = 0
 const ok = (c: unknown, msg: string) => { n++; if (!c) { fails++; console.error('FAIL', msg) } }
@@ -9,7 +9,7 @@ const err = (code: string) => Object.assign(new Error(code), { code })
 const never = <T>() => new Promise<T>(() => {})
 
 const net = (o: Partial<Net>): Net => ({
-  dnsSystem: async () => ['1.2.3.4'], dnsDoh: async () => ['1.2.3.4'], tcp: async () => {}, tls: async () => {}, head: async () => 200, ...o,
+  dnsSystem: async () => ['1.2.3.4'], dnsDoh: async () => ['1.2.3.4'], tcp: async () => {}, tls: async () => {}, http: async () => ({ status: 200 }), ...o,
 })
 
 ;(async () => {
@@ -31,6 +31,39 @@ const net = (o: Partial<Net>): Net => ({
 
   const both = await probeLayers('x.org', net({ dnsSystem: async () => [], dnsDoh: async () => [] }), 50)
   eq([both.dnsSystem.code, both.tcp.result], ['empty', 'skipped'], 'no address anywhere: nothing else is tried')
+
+  // ---- one target: scheme, port, path, IPv6
+  const seen: string[] = []
+  const rec = net({ tcp: async (ip, port) => { seen.push(`tcp ${ip}:${port}`) }, tls: async (_ip, h, port) => { seen.push(`tls ${h}:${port}`) }, http: async (url, m) => { seen.push(`${m} ${url}`); return { status: 200 } } })
+  const plain = await probeLayers('http://Example.org:8080/a?b=1', rec, 50)
+  eq([plain.tls.result, seen], ['na', ['tcp 1.2.3.4:8080', 'HEAD http://example.org:8080/a?b=1']], 'http://…:8080/a stays HTTP, port 8080, path kept, TLS not applicable')
+  seen.length = 0
+  await probeLayers('https://example.org:8443/x', rec, 50)
+  eq(seen, ['tcp 1.2.3.4:8443', 'tls example.org:8443', 'HEAD https://example.org:8443/x'], 'https on 8443 uses that port and the host as SNI')
+  seen.length = 0
+  const v6 = await probeLayers('https://[2001:db8::1]/', rec, 50)
+  eq([v6.dnsSystem.result, seen[0], seen[1]], ['na', 'tcp 2001:db8::1:443', 'tls :443'], 'IPv6 literal: no DNS, default port, no SNI')
+  eq(parseProbe('https://u:p@example.org/a?token=1#x')?.shown, 'https://example.org/a', 'shown target drops credentials, query and fragment')
+
+  // ---- HTTP answers are not all "open"
+  const st = async (codes: number[], location?: string) => { let i = 0; return probeLayers('x.org', net({ http: async () => ({ status: codes[Math.min(i++, codes.length - 1)], ...(location ? { location } : {}) }) }), 50) }
+  eq((await st([403])).http, { result: 'fail', status: 403 }, '403 is an answer, not access')
+  eq((await st([451])).http, { result: 'fail', status: 451 }, '451 is shown as is')
+  eq((await st([503])).http, { result: 'fail', status: 503 }, '5xx is not access')
+  eq((await st([405, 200])).http, { result: 'ok', status: 200 }, 'HEAD 405 retries once with GET')
+  eq((await st([405, 405])).http, { result: 'fail', status: 405, code: 'method' }, 'GET also refused: check method not supported')
+  eq((await st([301], 'https://block.example/stub')).http, { result: 'ok', status: 301, to: 'block.example' }, 'redirect shows where it goes')
+  eq(failingLayer({ ...(await st([405, 405])) }), undefined, 'unsupported check method is never a restriction')
+  const diff = await probeLayers('x.org', net({ dnsSystem: async () => ['10.0.0.1'], dnsDoh: async () => ['20.0.0.2'] }), 50)
+  eq([diff.dnsDiffer, classify(diff, { a: 50 }).kind], [true, 'direct_ok'], 'different valid DNS answers are a note; the site still opens')
+  const certFail = await probeLayers('x.org', net({ tls: async () => { throw err('CERT_HAS_EXPIRED') } }), 50)
+  eq(certFail.tls, { result: 'fail', code: 'cert' }, 'certificate error is its own result')
+
+  // ---- the button offers the path that was proven, never untested Auto
+  eq(provenPath({ kind: 'restricted_direct', layer: 'tls', via: ['a', 'b'] }, [{ id: 'a', revoked: true }, { id: 'b' }]), 'b', 'the fastest proven own path that still exists')
+  eq(provenPath({ kind: 'path_only', via: ['gone'] }, [{ id: 'b' }]), undefined, 'a deleted profile is never offered')
+  eq(provenPath({ kind: 'site_down' }, [{ id: 'b' }]), undefined, 'no path when nothing answered')
+  eq(provenPath({ kind: 'direct_ok' }, [{ id: 'b' }]), undefined, 'no path when Direct already works')
 
   // ---- classifier
   const P = { a: 50, b: null }
