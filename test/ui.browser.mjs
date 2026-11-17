@@ -540,7 +540,8 @@ try {
       f.emit('status', f.state.status)
       for (let n = 0; n < 20; n++) f.emit('status', { ...f.state.status, down: n })
     })
-    await page.locator('.chart polyline').waitFor()
+    // A single sample has no line segment/bounding box yet; its coordinates are still real history.
+    await page.locator('.chart polyline').waitFor({ state: 'attached' })
     await settle(page)
     const points = async () => (await page.locator('.chart polyline').getAttribute('points')).trim().split(/\s+/).filter(Boolean).length
     assert.equal(await points(), 1, 'traffic-only cloned status is not a new measurement')
