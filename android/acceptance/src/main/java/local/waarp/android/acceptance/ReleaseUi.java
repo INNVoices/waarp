@@ -13,6 +13,7 @@ import androidx.test.uiautomator.Direction;
 import androidx.test.uiautomator.StaleObjectException;
 import androidx.test.uiautomator.UiDevice;
 import androidx.test.uiautomator.UiObject2;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.ArrayDeque;
 import java.util.Comparator;
@@ -261,18 +262,76 @@ final class ReleaseUi {
     }
 
     void closeIme() {
-        if (!imeVisible()) return;
-        device.pressBack();
-        long deadline = SystemClock.elapsedRealtime() + 5000;
-        while (imeVisible() && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100);
-        TrafficProbe.require(!imeVisible(), "ime_did_not_close");
+        ImeVisibility.Readiness readiness = new ImeVisibility.Readiness(SystemClock.elapsedRealtime());
+        ImeSnapshot observed = null;
+        ImeVisibility.State state = ImeVisibility.State.UNKNOWN;
+        boolean usedWindowManager = false;
+        while (SystemClock.elapsedRealtime() < readiness.deadline) {
+            observed = imeSnapshot();
+            if (readiness.ownerId < 0 && observed.focusedTargetId >= 0) readiness.ownerId = observed.focusedTargetId;
+            state = observed.visible ? ImeVisibility.State.VISIBLE :
+                    observed.windows == 0 ? ImeVisibility.State.HIDDEN : ImeVisibility.State.UNKNOWN;
+            if (state == ImeVisibility.State.UNKNOWN && readiness.deadline - SystemClock.elapsedRealtime() >= 1100) {
+                // Android 10 can retain a TYPE_INPUT_METHOD window after hiding
+                // its surface, with a null accessibility root. Null is unknown,
+                // not visibility or absence: corroborate with WindowManager.
+                usedWindowManager = true;
+                try {
+                    state = ImeVisibility.windowManagerState(device.executeShellCommand("dumpsys -t 1 window windows"));
+                } catch (IOException ignored) { state = ImeVisibility.State.UNKNOWN; }
+                // A fresh visibility/absence or changed focus must supersede
+                // the snapshot collected during the Binder transaction.
+                ImeSnapshot after = imeSnapshot();
+                state = ImeVisibility.afterWindowManager(state, after.visible, after.windows,
+                        after.focusedTargetId == observed.focusedTargetId);
+                observed = after;
+            }
+            ImeVisibility.Action action = readiness.observe(SystemClock.elapsedRealtime(), observed.focusedTargetId, state);
+            if (action == ImeVisibility.Action.DONE) return;
+            if (action == ImeVisibility.Action.REJECT_FOCUS || action == ImeVisibility.Action.TIMEOUT) break;
+            if (action == ImeVisibility.Action.BACK) device.pressBack(); // at most once, never an edit/click retry
+            long remaining = readiness.deadline - SystemClock.elapsedRealtime();
+            if (remaining > 0) SystemClock.sleep(Math.min(100, remaining));
+        }
+        // Only scalar predicate evidence: never retain the WindowManager dump,
+        // accessibility text, editor values, configuration or clipboard.
+        throw new AssertionError("ime_did_not_close:state=" + state + ";back=" + readiness.backIssued +
+                ";windowManager=" + usedWindowManager + ";owner=" + readiness.ownerId +
+                ";focusedTarget=" + (observed == null ? -1 : observed.focusedTargetId) +
+                ";imeWindows=" + (observed == null ? -1 : observed.windows) +
+                ";nullRoots=" + (observed == null ? -1 : observed.nullRoots) +
+                ";elapsedMs=" + (SystemClock.elapsedRealtime() - readiness.started));
     }
 
-    private boolean imeVisible() {
+    private ImeSnapshot imeSnapshot() {
+        ImeSnapshot observed = new ImeSnapshot();
+        Rect display = new Rect(0, 0, device.getDisplayWidth(), device.getDisplayHeight());
         for (AccessibilityWindowInfo window : instrumentation.getUiAutomation().getWindows()) {
-            if (window.getType() == AccessibilityWindowInfo.TYPE_INPUT_METHOD) return true;
+            try {
+                boolean ime = window.getType() == AccessibilityWindowInfo.TYPE_INPUT_METHOD;
+                if (ime) observed.windows++;
+                AccessibilityNodeInfo root = window.getRoot();
+                if (root == null) { if (ime) observed.nullRoots++; continue; }
+                try {
+                    Rect bounds = new Rect(), windowBounds = new Rect();
+                    root.getBoundsInScreen(bounds); window.getBoundsInScreen(windowBounds);
+                    boolean visible = root.isVisibleToUser() && bounds.intersect(windowBounds) && bounds.intersect(display) && !bounds.isEmpty();
+                    if (ime && visible) observed.visible = true;
+                    if (window.getType() == AccessibilityWindowInfo.TYPE_APPLICATION && window.isFocused() && visible &&
+                            TARGET.contentEquals(root.getPackageName() == null ? "" : root.getPackageName())) {
+                        if (observed.focusedTargetId >= 0) observed.ambiguousFocus = true;
+                        observed.focusedTargetId = window.getId();
+                    }
+                } finally { root.recycle(); }
+            } finally { window.recycle(); }
         }
-        return false;
+        if (observed.ambiguousFocus) observed.focusedTargetId = -1;
+        return observed;
+    }
+
+    private static final class ImeSnapshot {
+        int windows, nullRoots, focusedTargetId = -1;
+        boolean visible, ambiguousFocus;
     }
 
     void scrollTo(String label) {

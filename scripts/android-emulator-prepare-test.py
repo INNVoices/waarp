@@ -32,6 +32,8 @@ class FakeAdb:
         self.uid = uid
         self.stage = "original"
         self.stop_polls = 0
+        self.pid_polls = {"original": 0, "started": 0}
+        self.pid_sequences = {"original": [], "started": []}
         self.events = []
         self.old = {"zygote": [101], "zygote64": [102], "system_server": [103]}
         self.new = {"zygote": [201], "zygote64": [202], "system_server": [203]}
@@ -46,6 +48,11 @@ class FakeAdb:
         }
 
     def processes(self):
+        sequence = self.pid_sequences.get(self.stage, [])
+        if sequence:
+            snapshot = sequence[min(self.pid_polls[self.stage] - 1, len(sequence) - 1)]
+            if snapshot is not None:
+                return snapshot
         if self.stage == "original":
             return self.old
         if self.stage in ("stopping", "configured"):
@@ -93,6 +100,8 @@ class FakeAdb:
             return self.result(arguments, stdout=value + "\n")
         if args[:2] == ("shell", "pidof"):
             name = args[2]
+            if name == "zygote" and self.stage in self.pid_polls:
+                self.pid_polls[self.stage] += 1
             if self.stage == "stopping" and name == "zygote":
                 self.stop_polls += 1
             if self.scenario == "pidof_error" and self.stage == "stopping":
@@ -261,6 +270,111 @@ class EmulatorPreparationTests(unittest.TestCase):
         self.assertTrue(report["passed"], report.get("error"))
         self.assertEqual((report["originalShellUid"], report["finalShellUid"]), (0, 0))
         self.assertNotIn(("unroot",), fake.commands())
+
+    def test_observed_api29_fork_rename_waits_for_unique_framework_owners(self):
+        fake = FakeAdb()
+        fake.new = {"zygote": [3787], "zygote64": [3784], "system_server": [3821]}
+        # Actual run 44024845939 snapshots: the three pidof calls are not atomic.
+        partial = {"zygote": [], "zygote64": [3784], "system_server": []}
+        mixed = {"zygote": [3787], "zygote64": [3784, 3821], "system_server": [3821]}
+        fake.pid_sequences["started"] = [partial, mixed, None]
+        report = self.execute(fake)
+        self.assertTrue(report["passed"], report.get("error"))
+        self.assertEqual(report["newPids"], fake.new)
+        self.assertEqual(report["incompletePidReads"], 2)
+        self.assertEqual(report["lastIncompletePids"], mixed)
+        commands = fake.commands()
+        start = commands.index(("shell", "start"))
+        binder = commands.index(("shell", "cmd", "activity", "get-config"))
+        self.assertEqual(commands[start:binder].count(("shell", "pidof", "zygote")), 3)
+        self.assertEqual(commands.count(("shell", "stop")), 1)
+        self.assertEqual(commands.count(("shell", "start")), 1)
+        phase = next(row for row in report["phases"] if row["name"] == "start-and-readiness")
+        self.assertEqual(phase["timeoutSeconds"], 120)
+
+    def test_persistent_ambiguity_reaches_original_deadline_without_start_retry(self):
+        ambiguous = (
+            {"zygote": [201], "zygote64": [202, 203], "system_server": [203]},
+            {"zygote": [203], "zygote64": [202], "system_server": [203]},
+        )
+        for snapshot in ambiguous:
+            with self.subTest(snapshot=snapshot):
+                fake = FakeAdb()
+                fake.pid_sequences["started"] = [snapshot]
+                report = self.execute(fake)
+                self.assertFalse(report["passed"])
+                self.assertEqual(report["newPids"], {})
+                self.assertEqual(report["phase"], "start-and-readiness")
+                phase = report["phases"][-1]
+                self.assertEqual(phase["timeoutSeconds"], 120)
+                self.assertAlmostEqual(phase["seconds"], 120, places=2)
+                self.assertGreater(report["incompletePidReads"], 1)
+                self.assertEqual(fake.commands().count(("shell", "stop")), 1)
+                self.assertEqual(fake.commands().count(("shell", "start")), 1)
+                self.assertNotIn(("shell", "cmd", "activity", "get-config"), fake.commands())
+                self.assertNotIn(("unroot",), fake.commands())
+
+    def test_transient_children_in_guard_and_root_are_observed_without_repeating_root(self):
+        for position in (0, 1):
+            with self.subTest(position=position):
+                fake = FakeAdb()
+                extra = {**fake.old, "zygote64": [102, 104]}
+                fake.pid_sequences["original"] = [None] * position + [extra, None]
+                report = self.execute(fake)
+                self.assertTrue(report["passed"], report.get("error"))
+                self.assertEqual(report["oldPids"], fake.old)
+                self.assertEqual(report["lastIncompletePids"], extra)
+                self.assertEqual(fake.commands().count(("root",)), 1)
+                self.assertEqual(fake.commands().count(("shell", "stop")), 1)
+                self.assertEqual(fake.commands().count(("shell", "start")), 1)
+
+    def test_late_fork_keeps_accepted_owners_through_binder_final_and_unroot_checks(self):
+        for position, location in ((1, "after Binder"), (2, "final check"), (3, "after unroot")):
+            with self.subTest(location=location):
+                fake = FakeAdb()
+                extra = {**fake.new, "zygote64": [202, 204]}
+                fake.pid_sequences["started"] = [None] * position + [extra, None]
+                report = self.execute(fake)
+                self.assertTrue(report["passed"], report.get("error"))
+                self.assertEqual(report["newPids"], fake.new)
+                self.assertEqual(report["lastIncompletePids"], extra)
+                self.assertEqual(report["finalShellUid"], 2000)
+                self.assertEqual(fake.commands().count(("shell", "stop")), 1)
+                self.assertEqual(fake.commands().count(("shell", "start")), 1)
+                self.assertEqual(fake.commands().count(("unroot",)), 1)
+
+    def test_extra_children_cannot_hide_the_loss_of_an_accepted_owner(self):
+        for name in ("zygote", "zygote64", "system_server"):
+            with self.subTest(name=name):
+                fake = FakeAdb()
+                replaced = {**fake.new, name: [204, 205]}
+                fake.pid_sequences["started"] = [None, replaced, None]
+                report = self.execute(fake)
+                self.assertFalse(report["passed"])
+                self.assertIn("PIDs changed", report["error"])
+                self.assertEqual(report["newPids"], fake.new)
+                self.assertEqual(fake.pid_polls["started"], 2)
+                self.assertEqual(fake.commands().count(("shell", "start")), 1)
+
+    def test_old_pid_in_initial_or_late_ambiguous_snapshot_cannot_wait_into_success(self):
+        for position in (0, 1, 2, 3):
+            with self.subTest(position=position):
+                fake = FakeAdb()
+                extra_old = {**fake.new, "zygote64": [202, 102]}
+                fake.pid_sequences["started"] = [None] * position + [extra_old, None]
+                report = self.execute(fake)
+                self.assertFalse(report["passed"])
+                self.assertIn("old framework PID reappeared", report["error"])
+                self.assertEqual(fake.pid_polls["started"], position + 1)
+                self.assertEqual(fake.commands().count(("shell", "start")), 1)
+
+    def test_duplicate_pid_inside_one_command_is_malformed_not_a_rename(self):
+        fake = FakeAdb()
+        fake.pid_sequences["started"] = [{**fake.new, "zygote64": [202, 202]}]
+        report = self.execute(fake)
+        self.assertFalse(report["passed"])
+        self.assertIn("Repeated PID in one lookup", report["error"])
+        self.assertEqual(fake.commands().count(("shell", "start")), 1)
 
     def test_single_arch_mapping_rejects_an_unexpected_other_zygote(self):
         fake = FakeAdb()

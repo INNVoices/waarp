@@ -140,16 +140,45 @@ class Preparation:
                 values[name] = [int(value) for value in output.split()]
                 require(len(values[name]) <= 4 and all(pid <= 2**31 - 1 for pid in values[name]),
                         "Unexpected PID count or value: " + name)
+                require(len(values[name]) == len(set(values[name])), "Repeated PID in one lookup: " + name)
         return values
 
     def complete_pids(self, pids):
         expected = set(self.expected_zygotes) | {"system_server"}
         require(all(not pids[name] for name in set(PROCESS_NAMES) - expected),
                 "A zygote outside the ro.zygote configuration is running")
-        require(all(len(pids[name]) <= 1 for name in expected), "Multiple framework processes have one name")
         ids = [pid for group in pids.values() for pid in group]
-        require(len(ids) == len(set(ids)), "Framework PID identities overlap")
-        return all(len(pids[name]) == 1 for name in expected)
+        # A forked child inherits the zygote name until specialization renames it.
+        # Separate pidof calls may observe that same child under both names.
+        # Only a unique snapshot is ready; the caller's phase deadline still applies.
+        complete = all(len(pids[name]) == 1 for name in expected) and len(ids) == len(set(ids))
+        if not complete:
+            self.report["incompletePidReads"] = self.report.get("incompletePidReads", 0) + 1
+            self.report["lastIncompletePids"] = pids
+        return complete
+
+    def unique_pids(self, report_key, message):
+        def ready():
+            current = self.pids()
+            self.report[report_key] = current
+            return self.complete_pids(current)
+        self.poll(ready, message)
+        return self.report[report_key]
+
+    def retained_pids(self, current, expected, message):
+        # Extra short-lived children are not replacements for an accepted owner.
+        # A missing/replaced accepted PID must fail, even in an ambiguous snapshot.
+        ids = {pid for group in current.values() for pid in group}
+        require(not ids.intersection(self.old_ids), "An old framework PID reappeared after start")
+        require(all(set(expected[name]).issubset(current[name]) for name in PROCESS_NAMES), message)
+        return self.complete_pids(current)
+
+    def wait_for_retained_pids(self, message):
+        def ready():
+            current = self.pids()
+            self.report["lastReadyPids"] = current
+            return self.retained_pids(current, self.report["newPids"], message)
+        self.poll(ready, message)
 
     def old_processes_gone(self):
         remaining = []
@@ -204,9 +233,7 @@ class Preparation:
         require(props["ro.zygote"] in ZYGOTES, "Unsupported ro.zygote configuration")
         self.expected_zygotes = ZYGOTES[props["ro.zygote"]]
         self.report["expectedZygoteProcesses"] = list(self.expected_zygotes)
-        pids = self.pids()
-        self.report["beforePids"] = pids
-        require(self.complete_pids(pids), "Initial zygote/system_server processes are missing")
+        self.unique_pids("beforePids", "Initial zygote/system_server processes did not become unique")
         uid = self.shell("id", "-u").stdout.strip()
         require(uid in ("0", "2000"), "Unexpected initial ADB shell UID")
         self.report["originalShellUid"] = int(uid)
@@ -217,9 +244,7 @@ class Preparation:
         uid = self.shell("id", "-u").stdout.strip()
         self.report["rootUid"] = uid
         require(uid == "0", "ADB did not obtain UID 0")
-        pids = self.pids()
-        self.report["oldPids"] = pids
-        require(self.complete_pids(pids), "Framework processes disappeared before the planned stop")
+        pids = self.unique_pids("oldPids", "Framework processes did not become unique before the planned stop")
         self.old_ids = {pid for group in pids.values() for pid in group}
 
     def stop(self):
@@ -242,13 +267,13 @@ class Preparation:
     def ready(self):
         current = self.pids()
         self.report["lastReadyPids"] = current
-        if not self.complete_pids(current):
-            require(not self.report["newPids"], "A newly started framework process disappeared")
-            return False
         ids = {pid for group in current.values() for pid in group}
         require(not ids.intersection(self.old_ids), "An old framework PID reappeared after start")
-        require(not self.report["newPids"] or current == self.report["newPids"],
-                "New framework PIDs changed while waiting for Binder readiness")
+        complete = (self.retained_pids(current, self.report["newPids"],
+                                      "New framework PIDs changed while waiting for Binder readiness")
+                    if self.report["newPids"] else self.complete_pids(current))
+        if not complete:
+            return False
         self.report["newPids"] = current
         require(self.prop(HEAP_PROPERTY) == HEAP_VALUE, "Heap property changed after framework start")
         boot_completed = self.prop("sys.boot_completed")
@@ -264,8 +289,10 @@ class Preparation:
         package_ok = (package.returncode == 0 and not package.stderr.strip()
                       and re.search(r"(?m)^package:/\S+\.apk\s*$", package.stdout) is not None)
         self.report["binderReady"] = {"activity": activity_ok, "package": package_ok}
-        require(self.pids() == current, "Framework PIDs changed during Binder readiness checks")
-        return activity_ok and package_ok
+        after = self.pids()
+        self.report["lastReadyPids"] = after
+        complete = self.retained_pids(after, current, "Framework PIDs changed during Binder readiness checks")
+        return activity_ok and package_ok and complete
 
     def start(self):
         self.shell("start", mutation=True)
@@ -275,7 +302,7 @@ class Preparation:
         require(props[HEAP_PROPERTY] == HEAP_VALUE, "Final heap property differs from the requested budget")
         require(props["dalvik.vm.heapgrowthlimit"] == self.report["beforeProperties"]["dalvik.vm.heapgrowthlimit"],
                 "Final heap growth limit differs from its original value")
-        require(self.pids() == self.report["newPids"], "Framework PIDs changed before preparation completed")
+        self.wait_for_retained_pids("Framework PIDs changed before preparation completed")
 
     def restore_shell(self):
         if self.report["originalShellUid"] == 2000:
@@ -284,7 +311,7 @@ class Preparation:
         uid = self.shell("id", "-u").stdout.strip()
         self.report["finalShellUid"] = int(uid) if uid.isdigit() else uid
         require(uid == str(self.report["originalShellUid"]), "Original ADB shell UID was not restored")
-        require(self.pids() == self.report["newPids"], "Framework PIDs changed while restoring ADB identity")
+        self.wait_for_retained_pids("Framework PIDs changed while restoring ADB identity")
         require(self.prop(HEAP_PROPERTY) == HEAP_VALUE, "Heap property changed while restoring ADB identity")
         require(self.prop("dalvik.vm.heapgrowthlimit") == self.report["beforeProperties"]["dalvik.vm.heapgrowthlimit"],
                 "Heap growth limit changed while restoring ADB identity")

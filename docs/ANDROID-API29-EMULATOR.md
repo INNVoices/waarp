@@ -44,6 +44,16 @@ The helper restores the original adb shell UID after preparation and checks that
 
 The helper does not change the 2,048 MiB API 29 RAM setting, the existing 512 MiB heap budget, `dalvik.vm.heapgrowthlimit`, production app code, native core bytes, test assertions or test timeouts. API 35, API 36 and the soak do not use this restart. Fake-adb regression tests cover the guard and transition failures as well as the successful sequence; actual device evidence still requires the next full CI run.
 
+## Follow-up: process-name snapshots
+
+In [run 44024845939, native API 29](https://github.com/INNVoices/waarp/actions/runs/44024845939/job/133845679896), the planned stop/property/start sequence completed, but preparation rejected the first incomplete process-name snapshot after start. Three successive `pidof` calls observed `zygote=3787`, `zygote64=3784 3821`, and `system_server=3821`. The old framework processes were gone. This happened approximately 0.54 seconds into the existing 120-second readiness phase, before app installation or instrumentation.
+
+Separate process-name queries are not an atomic process snapshot. A forked zygote child initially inherits its parent's name; [Android 10 zygote specialization](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-10.0.0_r47/core/jni/com_android_internal_os_Zygote.cpp) changes the system-server thread name later. The observed overlap is therefore insufficient evidence of two persistent framework owners. The helper now treats multiple names or extra fork children as an incomplete snapshot and observes again within the same phase deadline. Persistent ambiguity still fails.
+
+Once a unique owner has been accepted, its PID must remain present under the same process name throughout Binder readiness, final checks and restoration of adb identity. A replacement or missing accepted owner fails immediately, even if extra children are also present. Reappearance of any old framework PID remains a failure. A duplicate PID within one `pidof` response is malformed evidence, not a retryable snapshot. No second root/stop/start sequence or new application-test attempt is added.
+
+The separate release API 29 job in the same run completed preparation in 8.966 seconds and restored the original shell UID; its later IME assertion failed for a different reason. See [the follow-up acceptance observations](ANDROID-ACCEPTANCE-READINESS.md). Neither result approves the candidate.
+
 ## Approval remains separate
 
 Correct preparation is a prerequisite, not a stability result. The candidate must still pass the source-built native regressions and exact binary pins, APK/JVM/lint verification, all six short Android jobs, the complete two-hour optimized-release AWG2 soak, and desktop regression gates. The acceptance criteria and physical-device limitations remain in [ANDROID.md](ANDROID.md).

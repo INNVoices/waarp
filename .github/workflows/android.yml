@@ -51,6 +51,16 @@ jobs:
         with:
           distribution: temurin
           java-version: '17.0.21+9'
+      - name: Verify IME visibility evidence fixtures on the host JVM
+        run: |
+          mkdir -p "$RUNNER_TEMP/waarp-ime-evidence"
+          javac --release 17 -d "$RUNNER_TEMP/waarp-ime-evidence" android/acceptance/src/main/java/local/waarp/android/acceptance/ImeVisibility.java android/acceptance/checks/ImeVisibilityChecks.java
+          java -cp "$RUNNER_TEMP/waarp-ime-evidence" local.waarp.android.acceptance.ImeVisibilityChecks
+      - name: Verify probe network state fixtures on the host JVM
+        run: |
+          mkdir -p "$RUNNER_TEMP/waarp-probe-network"
+          javac --release 17 -d "$RUNNER_TEMP/waarp-probe-network" android/app/src/androidTest/java/local/waarp/android/core/ProbeNetworkState.java android/app/checks/ProbeNetworkStateChecks.java
+          java -cp "$RUNNER_TEMP/waarp-probe-network" local.waarp.android.core.ProbeNetworkStateChecks
       - uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4
         with:
           # Reuse downloaded dependencies across updates of a trusted PR.
@@ -175,8 +185,10 @@ jobs:
           else:
               raise SystemExit('The local HTTP fixture did not become ready.')
           PY
+      - name: Prepare the pinned emulator action without boot key injection
+        run: python3 scripts/android-emulator-action-prepare.py --report out/android/device-tests/emulator-action-provenance.json
       - name: Exercise actual native engine, VPN TUN, routes and UI on an emulator
-        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        uses: ./out/android-emulator-action
         with:
           api-level: ${{ matrix.api }}
           target: ${{ matrix.target }}
@@ -256,8 +268,10 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - name: Prepare the pinned emulator action without boot key injection
+        run: python3 scripts/android-emulator-action-prepare.py --report out/android/release-journeys/emulator-action-provenance.json
       - name: Exercise optimized release journeys with real encrypted traffic
-        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        uses: ./out/android-emulator-action
         with:
           api-level: ${{ matrix.api }}
           target: ${{ matrix.target }}
@@ -320,8 +334,10 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - name: Prepare the pinned emulator action without boot key injection
+        run: python3 scripts/android-emulator-action-prepare.py --report out/android/release-soak/emulator-action-provenance.json
       - name: Exercise optimized release soak with real encrypted traffic
-        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        uses: ./out/android-emulator-action
         with:
           api-level: 36
           target: google_apis_ps16k

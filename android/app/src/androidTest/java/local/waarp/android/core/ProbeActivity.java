@@ -4,19 +4,23 @@ package local.waarp.android.core;
 import android.app.Activity;
 import android.content.Intent;
 import android.net.ConnectivityManager;
+import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.system.ErrnoException;
+import org.json.JSONObject;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.net.URL;
 import java.security.SecureRandom;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * A separate test-APK UID exercises Android owner attribution and the real TUN.
@@ -25,6 +29,14 @@ import java.util.concurrent.TimeUnit;
  */
 public final class ProbeActivity extends Activity {
     private String dnsFailure = "";
+    private ConnectivityManager connectivity;
+    private ConnectivityManager.NetworkCallback networkCallback;
+    private boolean callbackRegistered;
+    private ProbeNetworkState networkState;
+    private ProbeNetworkState.Snapshot readyNetwork;
+    private int interfaceIndexAtReady = -1, socketLocalInterfaceIndex = -1;
+    private long udpSendElapsedMs = -1, udpSendUnixMs = -1, udpSentElapsedMs = -1;
+    private String localAddressMatchesReadyVpnLinkAddress = "unknown";
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -35,22 +47,22 @@ public final class ProbeActivity extends Activity {
             finish();
             return;
         }
-        new Thread(() -> {
+        new Thread(() -> runProbe(url, dns, destination), "waarp-test-http").start();
+    }
+
+    private void runProbe(String url, boolean dns, String destination) {
+        try {
             // Service/TUN readiness precedes delivery of the new default network
             // to a different UID. Exercise the actual VPN once Android exposes it.
             try {
                 awaitVpnNetwork();
             } catch (Exception error) {
-                sendBroadcast(new Intent(dns ? "local.waarp.android.TEST_DNS_RESULT" : "local.waarp.android.TEST_HTTP_RESULT")
-                        .setPackage(destination).putExtra("code", -1).putExtra("error", failureCategory("vpn-network", error)));
-                runOnUiThread(this::finish);
+                finishProbe(dns, destination, -1, failureCategory("vpn-network", error));
                 return;
             }
             if (dns) {
                 int code = dnsThroughTun() ? 204 : -1;
-                sendBroadcast(new Intent("local.waarp.android.TEST_DNS_RESULT")
-                        .setPackage(destination).putExtra("code", code).putExtra("error", dnsFailure));
-                runOnUiThread(this::finish);
+                finishProbe(true, destination, code, dnsFailure);
                 return;
             }
             int code = -1;
@@ -72,10 +84,30 @@ public final class ProbeActivity extends Activity {
             } finally {
                 if (connection != null) connection.disconnect();
             }
-            sendBroadcast(new Intent("local.waarp.android.TEST_HTTP_RESULT")
-                    .setPackage(destination).putExtra("code", code).putExtra("error", failure));
-            runOnUiThread(this::finish);
-        }, "waarp-test-http").start();
+            finishProbe(false, destination, code, failure);
+        } finally {
+            if (callbackRegistered) connectivity.unregisterNetworkCallback(networkCallback);
+        }
+    }
+
+    private void finishProbe(boolean dns, String destination, int code, String failure) {
+        sendBroadcast(new Intent(dns ? "local.waarp.android.TEST_DNS_RESULT" : "local.waarp.android.TEST_HTTP_RESULT")
+                .setPackage(destination).putExtra("code", code).putExtra("error", failure)
+                .putExtra("networkDiagnostics", networkDiagnostics()));
+        runOnUiThread(this::finish);
+    }
+
+    private String networkDiagnostics() {
+        Map<String, Object> values = new LinkedHashMap<>();
+        values.put("interfaceIndexAtReady", interfaceIndexAtReady);
+        values.put("socketLocalInterfaceIndex", socketLocalInterfaceIndex);
+        values.put("udpSendElapsedMs", udpSendElapsedMs);
+        values.put("udpSendUnixMs", udpSendUnixMs);
+        values.put("udpSentElapsedMs", udpSentElapsedMs);
+        values.put("localAddressMatchesReadyVpnLinkAddress", localAddressMatchesReadyVpnLinkAddress);
+        values.put("readySnapshot", readyNetwork == null ? JSONObject.NULL : readyNetwork.safeScalars());
+        values.put("latestSnapshot", networkState == null ? JSONObject.NULL : networkState.snapshot().safeScalars());
+        return new JSONObject(values).toString();
     }
 
     private boolean dnsThroughTun() {
@@ -90,8 +122,17 @@ public final class ProbeActivity extends Activity {
             socket.setSoTimeout(10_000);
             stage = "udp-connect";
             socket.connect(InetAddress.getByAddress(new byte[] {10, 77, 0, 1}), 53);
+            InetAddress local = socket.getLocalAddress();
+            localAddressMatchesReadyVpnLinkAddress = readyNetwork.localAddressMatches(local);
+            try {
+                NetworkInterface localInterface = NetworkInterface.getByInetAddress(local);
+                socketLocalInterfaceIndex = localInterface == null ? -1 : localInterface.getIndex();
+            } catch (IOException unavailable) { socketLocalInterfaceIndex = -1; }
             stage = "udp-send";
+            udpSendElapsedMs = SystemClock.elapsedRealtime();
+            udpSendUnixMs = System.currentTimeMillis();
             socket.send(new DatagramPacket(query, query.length));
+            udpSentElapsedMs = SystemClock.elapsedRealtime();
             byte[] answer = new byte[4096];
             DatagramPacket packet = new DatagramPacket(answer, answer.length);
             stage = "udp-receive";
@@ -107,24 +148,38 @@ public final class ProbeActivity extends Activity {
     }
 
     private void awaitVpnNetwork() throws IOException, InterruptedException {
-        ConnectivityManager manager = getSystemService(ConnectivityManager.class);
-        CountDownLatch ready = new CountDownLatch(1);
-        ConnectivityManager.NetworkCallback callback = new ConnectivityManager.NetworkCallback() {
+        connectivity = getSystemService(ConnectivityManager.class);
+        networkState = new ProbeNetworkState(SystemClock::elapsedRealtime);
+        // Android sends an ordered initial snapshot (including blocked=false on API29).
+        // Synchronous ConnectivityManager reads inside callbacks can race that stream.
+        // https://developer.android.com/reference/android/net/ConnectivityManager.NetworkCallback
+        networkCallback = new ConnectivityManager.NetworkCallback() {
+            @Override public void onAvailable(Network network) {
+                networkState.onAvailable(network.getNetworkHandle());
+            }
             @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) {
-                if (network.equals(manager.getActiveNetwork()) && capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
-                    ready.countDown();
-                }
+                networkState.onCapabilitiesChanged(network.getNetworkHandle(),
+                        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN));
+            }
+            @Override public void onLinkPropertiesChanged(Network network, LinkProperties properties) {
+                InetAddress[] addresses = properties.getLinkAddresses().stream()
+                        .map(address -> address.getAddress()).toArray(InetAddress[]::new);
+                networkState.onLinkPropertiesChanged(network.getNetworkHandle(), properties.getInterfaceName(), addresses);
+            }
+            @Override public void onBlockedStatusChanged(Network network, boolean blocked) {
+                networkState.onBlockedStatusChanged(network.getNetworkHandle(), blocked);
+            }
+            @Override public void onLost(Network network) {
+                networkState.onLost(network.getNetworkHandle());
             }
         };
-        manager.registerDefaultNetworkCallback(callback);
+        connectivity.registerDefaultNetworkCallback(networkCallback);
+        callbackRegistered = true;
+        readyNetwork = networkState.awaitReady();
         try {
-            Network network = manager.getActiveNetwork();
-            NetworkCapabilities capabilities = manager.getNetworkCapabilities(network);
-            if (capabilities != null && capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return;
-            if (!ready.await(10, TimeUnit.SECONDS)) throw new IOException("VPN network did not become active for the probe UID");
-        } finally {
-            manager.unregisterNetworkCallback(callback);
-        }
+            NetworkInterface readyInterface = NetworkInterface.getByName(readyNetwork.interfaceName);
+            interfaceIndexAtReady = readyInterface == null ? -1 : readyInterface.getIndex();
+        } catch (IOException unavailable) { interfaceIndexAtReady = -1; }
     }
 
     private static String failureCategory(String stage, Throwable error) {

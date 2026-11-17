@@ -81,10 +81,12 @@ class VpnLifecycleInstrumentedTest {
     @Test fun realTunRoutesAnotherAppAndShutsDownCleanly() = runBlocking {
         val statusCode = AtomicInteger(-2)
         val probeError = AtomicReference("")
+        val probeNetwork = AtomicReference("")
         val answer = CountDownLatch(1)
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 probeError.set(intent.getStringExtra("error").orEmpty())
+                probeNetwork.set(intent.getStringExtra("networkDiagnostics").orEmpty())
                 statusCode.set(intent.getIntExtra("code", -3)); answer.countDown()
             }
         }
@@ -105,7 +107,7 @@ class VpnLifecycleInstrumentedTest {
                 .putExtra("url", "http://fixture.waarp.test:18080/generate_204")
                 .putExtra("destination", context.packageName))
             assertTrue("The separate app did not complete its real HTTP request", answer.await(25, TimeUnit.SECONDS))
-            assertEquals("HTTP fixture: ${probeError.get()}; DNS=${controller.dnsQueries.value}; " +
+            assertEquals("HTTP fixture: ${probeError.get()}; network=${probeNetwork.get()}; DNS=${controller.dnsQueries.value}; " +
                 "flows=${controller.connections.value.filter { testPackage in it.packages }}; " +
                 "native=${fixtureLogs("fixture.waarp.test", "18080")}", 204, statusCode.get())
             val flow = withTimeout(10_000) {
@@ -169,10 +171,12 @@ class VpnLifecycleInstrumentedTest {
         controller.validateConfig(configuration)
         val statusCode = AtomicInteger(-2)
         val probeError = AtomicReference("")
+        val probeNetwork = AtomicReference("")
         var answer = CountDownLatch(1)
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 probeError.set(intent.getStringExtra("error").orEmpty())
+                probeNetwork.set(intent.getStringExtra("networkDiagnostics").orEmpty())
                 statusCode.set(intent.getIntExtra("code", -3)); answer.countDown()
             }
         }
@@ -189,7 +193,7 @@ class VpnLifecycleInstrumentedTest {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("dns", true).putExtra("destination", context.packageName))
                 assertTrue("Encrypted DNS cycle $cycle did not complete", answer.await(25, TimeUnit.SECONDS))
                 assertEquals("Synthetic inner DNS answer must traverse AWG2; cycle=$cycle; ${probeError.get()}; " +
-                    "DNS=${controller.dnsQueries.value}; host=${fixtureJson("/proof")}; " +
+                    "network=${probeNetwork.get()}; DNS=${controller.dnsQueries.value}; host=${fixtureJson("/proof")}; " +
                     "native=${fixtureLogs("example.com", "10.77.", "18081", profile.id)}", 204, statusCode.get())
                 withTimeout(10_000) {
                     controller.dnsQueries.first { list -> list.any { it.domain.startsWith("example.com") &&
