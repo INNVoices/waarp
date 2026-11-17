@@ -1,5 +1,6 @@
 import type { AwgProfile, Group, Profile, Route, Settings, Via } from '../shared/types'
 import { PRESETS } from '../shared/presets'
+import { dedupeApps } from '../shared/appmatch'
 import { validateCustom, validIpPrefix } from '../shared/route-validation'
 
 export interface Bounds { x: number; y: number; width: number; height: number; max?: boolean }
@@ -30,7 +31,7 @@ export function migrate(raw: any, firstProfile?: string): Settings {
     }
     // The persisted file is data, not a trusted IPC peer. Apply the same semantic limits as live patches.
     const unique = <T extends { id: string }>(items: T[]): T[] => { const seen = new Set<string>(); return items.filter(x => !seen.has(x.id) && !!seen.add(x.id)) }
-    const routes = unique<Route>(raw.routes.slice(0, 500).filter(route) as Route[]).map(r => r.kind === 'app' && r.matchDir && r.wholeDir === undefined ? { ...r, wholeDir: true } : r)
+    const routes = dedupeApps(unique<Route>(raw.routes.slice(0, 500).filter(route) as Route[]).map(r => r.kind === 'app' && r.matchDir && r.wholeDir === undefined ? { ...r, wholeDir: true } : r))
     const groups = Array.isArray(raw.groups) ? unique<Group>(raw.groups.slice(0, 50).filter((g: any) => g && typeof g.id === 'string' && g.id.startsWith('g-') && via(g.id) && typeof g.name === 'string' && g.name.length <= 60 && ['fastest', 'first'].includes(g.policy) && Array.isArray(g.members) && g.members.length > 0 && g.members.length <= 32 && g.members.every((m: unknown) => via(m) && m !== 'direct' && !m.startsWith('g-'))).map((g: any): Group => ({ id: g.id, name: g.name, policy: g.policy, members: [...new Set(g.members)] as string[] }))) : []
     return {
       ...DEFAULTS,

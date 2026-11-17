@@ -41,6 +41,8 @@ jobs:
           retention-days: 7
       - name: Fetch and verify pinned Windows engine
         run: npm run engine:fetch
+      - name: Validate live card slot configs with the pinned engine
+        run: node out/test/slots.check.js
       - name: Verify 50 native TUN lifecycle cycles
         run: npm run test:live -- --disposable-windows
       - name: Build portable Windows package
