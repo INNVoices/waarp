@@ -83,13 +83,13 @@ export function App() {
       snapshotVersion.current++; statusVersion.current++
       setSnap(x); setStatus(x.status); setBootError(false)
     })
-    let lastPing: Status['pings'] | undefined
+    let lastRound: number | undefined
     const b = api.onStatus((x: Status) => {
       statusVersion.current++
       setStatus(x)
-      if (x.phase === 'starting' || x.phase === 'stopping') { hist.current = {}; lastPing = undefined; return }
-      if (x.pings !== lastPing) {
-        lastPing = x.pings
+      if (x.phase === 'starting' || x.phase === 'stopping') { hist.current = {}; lastRound = undefined; return }
+      if (x.pingRound !== undefined && x.pingRound !== lastRound) {
+        lastRound = x.pingRound
         for (const [id, v] of Object.entries(x.pings)) {
           // A queued measurement from a deleted profile must not recreate its history.
           if (historyProfiles.current && !historyProfiles.current.has(id)) continue
@@ -247,7 +247,7 @@ export function App() {
           {page === 'route' && routeId && <RoutePage key={routeId} snap={snap} status={status} conns={conns} apps={apps ?? []} id={routeId} patch={patch} toast={setToast} back={() => setNav(back)} />}
           {page === 'lib' && <Library snap={snap} status={status} conns={conns} apps={apps} loading={scanning} rescan={rescan} addApp={addApp} patch={patch} toast={setToast} open={open} mode={nav.libMode} setMode={m => setNav(m === 'catalog' ? showCatalog : showList)} />}
           {page === 'servers' && <Servers snap={snap} status={status} patch={patch} toast={setToast} />}
-          {page === 'an' && <Analyzer snap={snap} status={status} hist={hist.current} patch={patch} />}
+          {page === 'an' && <Analyzer snap={snap} status={status} hist={hist.current} />}
           {page === 'settings' && <SettingsPage snap={snap} patch={patch} toast={setToast} />}
       </main>
       {adding && <AddTunnel initialClip={initialClip} onDiscoveryDone={() => localStorage.setItem('waarp-first-scan', 'done')} onClose={() => { setAdding(false); setInitialClip(false) }} onAdded={r => { setToast(importNote(r)); if (!r.clientPublicKey) { setAdding(false); setInitialClip(false); setNav(n => snap.settings.routes.length ? goTo(n, 'lib') : addEntry(n)) } }}

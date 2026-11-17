@@ -28,7 +28,19 @@ export class Checker {
   private stopVersion = 0
   private starting?: AbortController
   private requests = new Set<AbortController>()
+  private owner?: symbol
+  private cancelOwner?: () => void
   constructor(private exe: string, private dir: string, private allowStart: () => boolean = () => true) { this.journal = new RuntimeJournal(dir, exe, 'check.json') }
+
+  /** A caller owns the complete ensure → measurement sequence, not just process startup. */
+  acquire(onCancel?: () => void): symbol | undefined {
+    if (this.owner || !this.allowStart()) return undefined
+    this.cancelOwner = onCancel
+    return this.owner = Symbol('checker measurement')
+  }
+
+  owns(owner: symbol): boolean { return this.owner === owner }
+  release(owner: symbol): void { if (this.owns(owner)) { this.owner = undefined; this.cancelOwner = undefined } }
 
   async recover(): Promise<boolean> {
     this.recovered = await this.journal.recover()
@@ -154,6 +166,10 @@ export class Checker {
   }
 
   stop(): Promise<boolean> {
+    const cancelOwner = this.cancelOwner
+    this.owner = undefined
+    this.cancelOwner = undefined
+    cancelOwner?.()
     this.stopVersion++
     this.starting?.abort()
     this.abortRequests()

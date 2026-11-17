@@ -214,7 +214,8 @@ export function vlessOutbound(p: VlessProfile, tag: string) {
       enabled: true,
       ...(v.sni ? { server_name: v.sni } : {}),
       utls: { enabled: true, fingerprint: v.fp },
-      ...(v.alpn?.length ? { alpn: v.alpn } : {})
+      ...(v.alpn?.length ? { alpn: v.alpn } : {}),
+      ...(v.recordFragment ? { record_fragment: true } : {})
     }
     if (v.security === 'reality') tls.reality = { enabled: true, public_key: v.pbk, short_id: v.sid ?? '' }
     o.tls = tls

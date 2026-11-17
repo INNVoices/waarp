@@ -139,5 +139,5 @@ export function RouteIcon({ r, icon, size = 32 }: { r: Route; icon?: string; siz
 }
 
 export function kindLabel(r: Route) {
-  return s(r.kind === 'app' ? (r.wholeDir === false ? 'kind.exe' : 'kind.app') : r.kind === 'preset' ? 'kind.preset' : 'kind.custom')
+  return s(r.kind === 'app' ? (r.wholeDir === false ? 'kind.exe' : 'kind.app') : r.kind === 'preset' ? 'kind.preset' : r.kind === 'list' ? 'kind.list' : 'kind.custom')
 }

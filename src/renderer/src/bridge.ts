@@ -53,11 +53,11 @@ function mock(): Api {
       status = { ...status, phase: 'starting', open: true }; emit('status', status)
       await new Promise(r => setTimeout(r, 1400))
       if (version !== toggleVersion) return { ok: false }
-      status = { ...status, phase: 'on', since: Date.now(), pings: { a: fbDemo ? undefined : 48, b: 112, 'g-auto': fbDemo ? 112 : 48, direct: 9 }, picked: { 'g-auto': fbDemo ? 'b' : 'a' }, fallback: fbDemo ? { 'app:d': 'b' } : {} }; emit('status', status)
+      status = { ...status, phase: 'on', since: Date.now(), pings: { a: fbDemo ? undefined : 48, b: 112, 'g-auto': fbDemo ? 112 : 48, direct: 9 }, pingRound: (status.pingRound ?? 0) + 1, picked: { 'g-auto': fbDemo ? 'b' : 'a' }, fallback: fbDemo ? { 'app:d': 'b' } : {} }; emit('status', status)
       timer = setInterval(() => {
         const d = 40000 + Math.random() * 900000, u = 5000 + Math.random() * 90000
         const pa = fbDemo ? undefined : 40 + Math.round(Math.random() * 20), pb = 100 + Math.round(Math.random() * 40)
-        status = { ...status, pings: { a: pa, b: pb, 'g-auto': fbDemo ? pb : pa, direct: 8 + Math.round(Math.random() * 4) }, down: d, up: u, downTotal: status.downTotal + d, upTotal: status.upTotal + u }
+        status = { ...status, pings: { a: pa, b: pb, 'g-auto': fbDemo ? pb : pa, direct: 8 + Math.round(Math.random() * 4) }, pingRound: (status.pingRound ?? 0) + 1, down: d, up: u, downTotal: status.downTotal + d, upTotal: status.upTotal + u }
         emit('status', status)
         const conns: Conn[] = [['Discord', 'gateway.discord.gg', true], ['chrome', 'rr3---sn-4g5e.googlevideo.com', true], ['chrome', 'yandex.ru', false], ['Steam', 'steamcdn-a.akamaihd.net', false], ['Claude', 'claude.ai', true]].map(([a, h, v], i) => ({
           id: String(i), app: a as string, exe: i === 0 ? apps[0].exe : '', host: h as string, port: 443, net: 'tcp', via: v ? (i === 1 ? 'b' : 'a') : 'direct', rule: '', down: Math.random() * 9e6, up: Math.random() * 4e5, start: Date.now() - i * 61000
@@ -100,10 +100,22 @@ function mock(): Api {
         : cut ? { dnsSystem: { ...ok, addrs: 4 }, dnsDoh: { ...ok, addrs: 4 }, tcp: ok, tls: { result: 'fail' as const, code: 'reset' as const }, http: skip }
         : { dnsSystem: { ...ok, addrs: 2 }, dnsDoh: { ...ok, addrs: 2 }, tcp: ok, tls: ok, http: { result: 'ok' as const, status: 200 } }
       const paths = dead ? { a: null, b: null } : { a: 88, b: 140 }
-      return { target: t, direct, paths, finding: classify(direct, paths) }
+      return { target: t, host: t.replace(/^https?:\/\//, '').replace(/[/?#:].*$/, '').toLowerCase(), direct, paths, finding: classify(direct, paths), at: Date.now(), token: 'preview-diagnosis' }
     },
+    diagnoseCancel: async () => true,
+    diagnoseApply: async (_token: string, _via: string) => ({ ok: false, error: 'stale' }) as { ok: boolean; error?: string; id?: string },
     resetNet: async () => ({ ok: true }),
     log: async () => ['+0000 INFO router: updated', '+0000 INFO inbound/tun[tun]: started at Waarp'],
+    profileConfig: async (id: string) => ({ type: 'vless', tag: 'p-' + id, server: 'demo.example', server_port: 443, uuid: '•••' }) as unknown,
+    exportDiag: async () => ({ ok: true }) as { ok: boolean; error?: boolean },
+    tuneRun: async (_id: string) => ({ results: [{ label: '', ms: null }, { label: 'fp firefox', ms: 180 }, { label: 'TLS record fragment', ms: null }], complete: true }) as { results?: { label: string; ms: number | null }[]; complete?: boolean; error?: string },
+    tuneCancel: async () => true,
+    listAdd: async (_n: string, _u: string) => ({ ok: true }) as { ok: boolean; error?: string; id?: string },
+    listRefresh: async (_id: string) => ({ ok: true }) as { ok: boolean },
+    listToggle: async (_id: string, _on: boolean) => ({ ok: true }) as { ok: boolean },
+    listRemove: async (_id: string) => ({ ok: true }) as { ok: boolean; error?: string },
+    tuneApply: async (_id: string, _label: string) => ({ ok: true }) as { ok: boolean; error?: string },
+    tuneReset: async (_id: string) => ({ ok: true }) as { ok: boolean },
     relaunchAdmin: async () => undefined,
     win: () => undefined,
     onSnapshot: on('snapshot'),

@@ -1,5 +1,6 @@
 export type AwgParams = Partial<Record<'jc' | 'jmin' | 'jmax' | 's1' | 's2' | 's3' | 's4', number>> &
-  Partial<Record<'h1' | 'h2' | 'h3' | 'h4' | 'i1' | 'i2' | 'i3' | 'i4' | 'i5', string>>
+  Partial<Record<'h1' | 'h2' | 'h3' | 'h4' | 'i1' | 'i2' | 'i3' | 'i4' | 'i5', string>> &
+  { header_protection_key?: string; random_trailers?: boolean; disable_cookies?: boolean }
 
 import type { VlessProfile } from './vless-types'
 export type { VlessProfile, VlessFields } from './vless-types'
@@ -88,6 +89,14 @@ export interface ProfileView {
   version: string
   members?: string[]
   policy?: GroupPolicy
+  /** non-secret technical fields, label key -> value */
+  tech?: [string, string][]
+  /** imported parameters the engine does not apply */
+  notApplied?: string[]
+  /** label of a stored network-scoped tune */
+  tune?: string
+  /** A stored tune may be inactive on this network but must remain explicitly resettable. */
+  tuneStored?: boolean
 }
 
 export type Via = 'direct' | string
@@ -99,7 +108,7 @@ export interface AppPick {
   matchDir?: string
 }
 
-export type RouteKind = 'app' | 'preset' | 'custom'
+export type RouteKind = 'app' | 'preset' | 'custom' | 'list'
 
 export interface Route {
   id: string
@@ -113,8 +122,12 @@ export interface Route {
   exe?: string
   matchDir?: string
   wholeDir?: boolean
+  /** with via direct: fragment TLS records and refuse QUIC for this card only */
+  dpi?: boolean
   preset?: string
   value?: string
+  /** list source id for kind list */
+  list?: string
   icon?: string
 }
 
@@ -153,6 +166,8 @@ export interface Status {
   since?: number
   error?: string
   pings: Record<string, number | undefined>
+  pingRound?: number
+  pingAt?: number
   fallback: Record<string, Via>
   down: number
   up: number
@@ -178,6 +193,8 @@ export interface Conn {
   app: string
   exe: string
   host: string
+  /** Resolved destination, retained for matching IP/CIDR cards when host is a domain. */
+  ip?: string
   port: number
   net: string
   via: Via
@@ -208,4 +225,5 @@ export interface Snapshot {
   settings: Settings
   status: Status
   notices: Notice[]
+  lists?: { id: string; name: string; url: string; enabled: boolean; updatedAt?: number; checkedAt?: number; error?: string; count: number }[]
 }

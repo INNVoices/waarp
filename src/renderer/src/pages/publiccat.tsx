@@ -106,7 +106,12 @@ export function PublicCatalog({ toast, used, onAdded, compact = false, disabled 
       {mode === 'manual' && region && !shown.length && <p className="hint">{s('pub.region.empty')}</p>}
       {region && shown.length > 0 && (
         <div className="pub-list pick-table">
-          <div className="pub-row pick-th"><span>{s('pick.country')}</span><span>{s('pick.name')}</span><span>{s('pick.address')}</span><span>{s('pick.protocol')}</span><span>{s('pick.source')}</span><span>{s('pick.ping')}</span><span /></div>
+          <div className="pub-row pick-th">
+            <Tooltip tip={s('pick.country.hint')}><span className="pub-th-hint" tabIndex={0} title={s('pick.country.hint')}>{s('pick.country')}</span></Tooltip>
+            <span>{s('pick.name')}</span><span>{s('pick.address')}</span><span>{s('pick.protocol')}</span><span>{s('pick.source')}</span>
+            <Tooltip tip={s('pick.ping.hint')}><span className="pub-th-hint" tabIndex={0} title={s('pick.ping.hint')}>{s('pick.ping')}</span></Tooltip>
+            <span />
+          </div>
           {shown.map(n => (
             <div key={n.id} className="pub-row">
               <span className="pub-cc">{cc(n.country) || <Icon n="globe" s={14} />}</span>

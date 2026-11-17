@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 // Real Catalog lifecycle with fake HTTP and measuring-core methods. No native process, TUN or external request.
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -28,7 +29,7 @@ const make = (allowed: () => boolean = () => true) => {
   const updates: CatalogState[] = []
   const catalog = new Catalog(dir, join(dir, 'missing-engine.exe'), state => updates.push(state), allowed)
   catalog.state = oldState()
-  return { catalog, updates }
+  return { catalog, updates, dir }
 }
 
 const original = { fetch: globalThis.fetch, ensure: Checker.prototype.ensure, pings: Checker.prototype.pings, stop: Checker.prototype.stop, secure: stub.secure }
@@ -131,6 +132,38 @@ const reset = () => {
       stop = async () => true
       eq(await catalog.pause(), true, 'cleanup can recover on the next explicit attempt')
       eq(stopped, 3, 'recovered cleanup used one more bounded checker stop')
+    }
+    {
+      reset()
+      const a = 'trojan://same-pass@node.example:443?sni=a.example#A', b = 'trojan://same-pass@node.example:443?sni=b.example#B'
+      stub.secure = true
+      http = async () => new Response([a, b, a].join(String.fromCharCode(10)))
+      const { catalog, dir } = make()
+      const r = await catalog.refresh([source])
+      eq(r.alive.length, 2, 'same endpoint and password with a different SNI stay two catalog entries; an exact duplicate merges')
+      const legacy = 'pub-' + createHash('sha256').update('trojan|node.example|443|same-pass').digest('hex').slice(0, 20)
+      eq(r.alive.some(n => n.id === legacy), true, 'the first config keeps its historical id, so imported nodes and cards stay bound')
+      const originalIds = r.alive.map(n => [n.id, (catalog.node(n.id) as any)?.outbound.tls.server_name]).sort()
+      http = async () => new Response([b, a].join('\n'))
+      const reversed = await catalog.refresh([source])
+      eq(reversed.alive.map(n => [n.id, (catalog.node(n.id) as any)?.outbound.tls.server_name]).sort(), originalIds, 'source reordering never rebinds historical ids to another SNI')
+      http = async () => new Response(b)
+      const onlySecond = await catalog.refresh([source])
+      eq(onlySecond.alive[0].id, originalIds.find(([, sni]) => sni === 'b.example')?.[0], 'removing the first variant never promotes the second into its historical id')
+      http = async () => new Response('trojan://same-pass@node.example:443?sni=new.example#New')
+      stop = async () => false
+      await catalog.refresh([source])
+      eq(catalog.state.alive, onlySecond.alive, 'failed refresh preserves the last usable state')
+      eq((catalog.node(onlySecond.alive[0].id) as any)?.outbound.tls.server_name, 'b.example', 'failed refresh also preserves the importable config behind a cached id')
+      stop = async () => true
+      await catalog.pause()
+      const reloaded = new Catalog(dir, join(dir, 'missing-engine.exe'), () => undefined)
+      eq(reloaded.state.alive, onlySecond.alive, 'offline catalog reload preserves the last successfully committed result')
+      const newVariant = await reloaded.refresh([source])
+      ok(newVariant.alive[0].id !== legacy, 'a new SNI cannot steal the disappeared legacy id, even after restart')
+      http = async () => new Response([b, a].join('\n'))
+      const returned = await reloaded.refresh([source])
+      eq(returned.alive.map(n => [n.id, (reloaded.node(n.id) as any)?.outbound.tls.server_name]).sort(), originalIds, 'returning configs retain ids across absence and offline cache reload')
     }
   } finally {
     globalThis.fetch = original.fetch

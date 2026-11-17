@@ -1,4 +1,8 @@
-import { outSecrets, parseAny, parseLink } from '../src/main/links'
+import { hy2Ports, outSecrets, parseAny, parseLink } from '../src/main/links'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { subscriptionCredentialKey, subscriptionEntryKey } from '../src/main/subscription'
 let n = 0, bad = 0
 const ok = (c: unknown, m: string) => { n++; if (!c) { bad++; console.log('FAIL', m) } }
@@ -60,5 +64,34 @@ threw = false; try { parseLink('hy2://@203.0.113.7:443') } catch { threw = true 
 ok(threw, 'Hysteria2 without a credential rejected')
 threw = false; try { parseLink('vmess://' + b(JSON.stringify({ add: '203.0.113.5', port: 443, id: 'not-a-uuid' }))) } catch { threw = true }
 ok(threw, 'VMess credential shape validated')
+
+const engineCheck = (outbound: Record<string, unknown>, label: string) => {
+  const exe = join(process.cwd(), 'engine', 'sing-box.exe')
+  if (process.platform !== 'win32' || !existsSync(exe)) { console.log('[SKIP] ' + label + ': requires the verified Windows binary'); return }
+  const dir = mkdtempSync(join(tmpdir(), 'waarp-e4-'))
+  try {
+    const file = join(dir, 'c.json')
+    const isEndpoint = outbound.type === 'wireguard'
+    writeFileSync(file, JSON.stringify({ log: { level: 'warn' }, ...(isEndpoint ? { endpoints: [outbound] } : { outbounds: [outbound] }) }))
+    const r = spawnSync(exe, ['check', '-c', file], { encoding: 'utf8', timeout: 15000 })
+    ok(r.status === 0, label + ': ' + String(r.stderr).slice(-300))
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+}
+
+// ---- E4 Hysteria2 port hopping from the URI port part
+const hop = parseLink('hysteria2://secret@203.0.113.9:443,20000-30000/?sni=a.example&obfs=salamander&obfs-password=x#hop') as any
+ok(hop && hop.outbound.server_port === 443 && JSON.stringify(hop.outbound.server_ports) === JSON.stringify(['443:443', '20000:30000']) && hop.outbound.hop_interval, 'multi-port URI becomes server_ports with a hop interval')
+ok(hop.name === 'hop' && hop.outbound.password === 'secret', 'name and auth survive the multi-port form')
+const single = parseLink('hysteria2://secret@203.0.113.9:8443/?sni=a.example') as any
+ok(single.outbound.server_port === 8443 && single.outbound.server_ports === undefined, 'a single port stays a single port')
+const v6hop = parseLink('hysteria2://secret@[2001:db8::5]:5000-6000/?sni=a.example') as any
+ok(v6hop.outbound.server === '2001:db8::5' && v6hop.outbound.server_ports[0] === '5000:6000', 'IPv6 host with a port range')
+threw = false; try { hy2Ports('hysteria2://s@h.example:7000-6000/') } catch { threw = true }
+ok(threw, 'reversed port range is refused, not guessed')
+threw = false; try { parseLink('hysteria2://s@h.example:1-70000/') } catch { threw = true }
+ok(threw, 'out of range port is refused')
+for (const portList of ['443,', ',443', '443,,8443']) rejected(`hysteria2://s@h.example:${portList}/`, 'empty hopping port entry is refused: ' + portList)
+engineCheck({ ...hop.outbound, tag: 'p' }, 'pinned engine accepts hopping Hysteria2')
+
 console.log(bad ? `${bad}/${n} FAILED` : `all ${n} link checks passed`)
 if (bad) process.exit(1)

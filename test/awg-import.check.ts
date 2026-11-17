@@ -1,5 +1,9 @@
 import { deflateSync } from 'node:zlib'
-import { buildConfig, checkConfig, ConfError, detectVersion, endpoint, parseConf, tagOf } from '../src/main/awg'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { buildConfig, checkConfig, ConfError, detectVersion, endpoint, parseConf, redact, tagOf } from '../src/main/awg'
 import { DEFAULTS, normalizeProfile } from '../src/main/store-core'
 import type { AwgProfile, Profile } from '../src/shared/types'
 
@@ -89,7 +93,7 @@ rejects(conf.replace(/^AllowedIPs = .*\n/gm, ''), 'AllowedIPs', 'missing Allowed
 rejects(conf.replace(/^AllowedIPs = .*\n/gm, 'AllowedIPs =\n'), 'AllowedIPs', 'empty AllowedIPs rejected before unsupported endpoint creation')
 rejects(conf.replace('Jc = 4', 'Jc = 4\nJc = 5'), 'Jc', 'conflicting scalar duplicates rejected')
 rejects(conf + '\n[Interface]\nAddress = 10.99.0.1/32\n', '[Interface]', 'second Interface rejected instead of silently dropping it')
-rejects(conf.replace('Jc = 4', 'HeaderProtectionKey = do-not-echo-this'), 'headerprotectionkey', 'unsupported AWG3 parameter rejected instead of silently weakening config')
+rejects(conf.replace('Jc = 4', 'HeaderProtectionKey = do-not-echo-this'), 'HeaderProtectionKey', 'malformed AWG3 header protection key rejected instead of silently weakening config')
 try { parseConf(conf.replace('Jc = 4', 'HeaderProtectionKey = do-not-echo-this')); ok(false, 'unknown field error excludes its secret value') }
 catch (e) { ok(e instanceof Error && !e.message.includes('do-not-echo-this'), 'unknown field error excludes its secret value') }
 
@@ -119,6 +123,48 @@ rejects(conf + '#'.repeat(1024 * 1024), 'большой', 'plain oversized impor
 let nested: unknown = { config: conf }
 for (let i = 0; i < 40; i++) nested = { child: nested }
 rejects('vpn://' + Buffer.from(JSON.stringify(nested)).toString('base64'), 'конфига', 'deeply nested shared key rejected without stack overflow')
+
+// ---- E4 AmneziaWG 3.x client fields
+{
+  const hpk = Buffer.alloc(32, 0x33).toString('base64')
+  const v3 = (extra: string) => `[Interface]\nPrivateKey = ${key}\nAddress = 10.8.0.9/32\nJc = 4\nJmin = 10\nJmax = 50\nS1 = 20\nS2 = 30\nS3 = 16\nS4 = 12\nH1 = 100-200\nH2 = 300-400\nH3 = 500-600\nH4 = 700-800\n${extra}\n\n[Peer]\nPublicKey = ${peerKey}\nAllowedIPs = 0.0.0.0/0\nEndpoint = 203.0.113.10:51820\n`
+  const p = parseConf(v3(`HeaderProtectionKey = ${hpk}\nRandomTrailers = true\nDisableCookies = 1`))
+  ok(p.awg.header_protection_key === hpk && p.awg.random_trailers === true && p.awg.disable_cookies === true, 'AWG 3 fields are read')
+  eq(detectVersion(p.awg), 'AmneziaWG 3', 'version label shows AmneziaWG 3')
+  const ep = endpoint(p) as Record<string, unknown>
+  ok(ep.header_protection_key === hpk && ep.random_trailers === true && ep.disable_cookies === true, 'engine endpoint carries the AWG 3 fields')
+  const restored = normalizeProfile(JSON.parse(JSON.stringify(p))) as AwgProfile
+  eq(restored.awg, p.awg, 'AWG 3 parameters survive stored-profile reload')
+  ok(!redact(`header_protection_key=${hpk}`).includes(hpk), 'AWG 3 header protection key cannot appear in engine logs')
+  const disabled = parseConf(v3('RandomTrailers = false\nDisableCookies = 0'))
+  ok(disabled.awg.random_trailers === false && disabled.awg.disable_cookies === false, 'explicitly disabled AWG 3 flags survive import')
+  const disabledEndpoint = endpoint(disabled) as Record<string, unknown>
+  ok(disabledEndpoint.random_trailers === false && disabledEndpoint.disable_cookies === false, 'disabled AWG 3 flags survive endpoint compilation')
+  rejects(v3('HeaderProtectionKey ='), 'HeaderProtectionKey', 'an explicit empty header protection key cannot silently disappear')
+  rejects(v3(`HeaderProtectionKey = ${Buffer.alloc(32).toString('base64')}`), 'HeaderProtectionKey', 'all-zero header protection key is rejected like the pinned engine')
+  let msg = ''
+  try { parseConf(v3('HeaderProtectionKey = c2hvcnQ=')) } catch (e) { msg = String((e as Error).message) }
+  ok(/32/.test(msg), 'a wrong-length header protection key is refused with a clear reason')
+  msg = ''
+  try { parseConf(v3(`HeaderProtectionKey = ${hpk}`).replace('S4 = 12', 'S4 = 8')) } catch (e) { msg = String((e as Error).message) }
+  ok(/S1–S4/.test(msg), 'header protection with S below 12 is refused')
+  msg = ''
+  try { parseConf(v3('RandomTrailers = maybe')) } catch (e) { msg = String((e as Error).message) }
+  ok(/RandomTrailers/.test(msg), 'a malformed flag is refused')
+  msg = ''
+  try { parseConf(v3('ContentPaddingAddition = 10-20')) } catch (e) { msg = String((e as Error).message) }
+  ok(/contentpaddingaddition/i.test(msg), 'an unsupported AWG 3 field is named, never silently dropped')
+  const exe = join(process.cwd(), 'engine', 'sing-box.exe')
+  if (process.platform === 'win32' && existsSync(exe)) {
+    const dir = mkdtempSync(join(tmpdir(), 'waarp-awg3-'))
+    try {
+      const file = join(dir, 'c.json')
+      writeFileSync(file, JSON.stringify({ log: { level: 'warn' }, endpoints: [{ ...ep, tag: 'p' }] }))
+      const r = spawnSync(exe, ['check', '-c', file], { encoding: 'utf8', timeout: 15000 })
+      ok(r.status === 0, 'pinned engine accepts the AWG 3 endpoint: ' + String(r.stderr).slice(-300))
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  } else console.log('[SKIP] pinned AWG 3 engine check requires the verified Windows binary')
+}
 
 console.log(`AWG import: ${total - failed}/${total} passed`)
 if (failed) process.exitCode = 1

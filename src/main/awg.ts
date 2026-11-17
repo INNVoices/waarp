@@ -145,10 +145,10 @@ export function parseConf(raw: string, name = 'Сервер'): AwgProfile {
   if (!i || !p) throw new ConfError('В конфиге нет [Interface] или [Peer]')
   const commands = ['preup', 'postup', 'predown', 'postdown', 'table'].filter(k => i[k] !== undefined)
   if (commands.length) throw new ConfError(`Waarp не выполняет системные директивы из конфига: ${commands.join(', ')}`)
-  const interfaceKeys = new Set<string>(['privatekey', 'address', 'dns', 'mtu', 'listenport', ...NUM_KEYS, ...STR_KEYS])
+  const interfaceKeys = new Set<string>(['privatekey', 'address', 'dns', 'mtu', 'listenport', ...NUM_KEYS, ...STR_KEYS, 'headerprotectionkey', 'randomtrailers', 'disablecookies'])
   const peerKeys = new Set(['publickey', 'presharedkey', 'endpoint', 'allowedips', 'persistentkeepalive'])
   const unsupported = [...Object.keys(i).filter(k => !interfaceKeys.has(k)), ...Object.keys(p).filter(k => !peerKeys.has(k))]
-  if (unsupported.length) throw new ConfError(`Импорт не поддерживает параметры: ${unsupported.join(', ')}. Они не были отброшены; нужен поддерживаемый конфиг WireGuard/AmneziaWG 2`)
+  if (unsupported.length) throw new ConfError(`Импорт не поддерживает параметры: ${unsupported.join(', ')}. Они не были отброшены; нужен совместимый конфиг WireGuard/AmneziaWG`)
   if (!i.privatekey) throw new ConfError('В конфиге нет PrivateKey')
   if (!p.publickey) throw new ConfError('В конфиге нет PublicKey сервера')
   if (!p.endpoint) throw new ConfError('В конфиге нет Endpoint сервера')
@@ -165,6 +165,21 @@ export function parseConf(raw: string, name = 'Сервер'): AwgProfile {
     awg[k] = unsigned(i[k], k.toUpperCase(), k.startsWith('s') ? 65535 : 0xffffffff)
   }
   if ((awg.jmin ?? 0) > (awg.jmax ?? 0)) throw new ConfError('Jmin не может быть больше Jmax')
+  if (i.headerprotectionkey !== undefined) {
+    if (!validKey(i.headerprotectionkey)) throw new ConfError('HeaderProtectionKey должен быть ключом 32 байта в base64, как на сервере')
+    if (Buffer.from(i.headerprotectionkey, 'base64').every(b => b === 0)) throw new ConfError('HeaderProtectionKey не может состоять только из нулей; если защита заголовка не используется, уберите этот параметр')
+    if ((['s1', 's2', 's3', 's4'] as const).some(k => (awg[k] ?? 0) < 12)) throw new ConfError('С HeaderProtectionKey параметры S1–S4 должны быть не меньше 12')
+    awg.header_protection_key = i.headerprotectionkey
+  }
+  const flag = (v: string | undefined, name: string) => {
+    if (v === undefined) return undefined
+    if (/^(true|1|on)$/i.test(v)) return true
+    if (/^(false|0|off)$/i.test(v)) return false
+    throw new ConfError(`${name} должен быть true или false`)
+  }
+  const trailers = flag(i.randomtrailers, 'RandomTrailers'), cookies = flag(i.disablecookies, 'DisableCookies')
+  if (trailers !== undefined) awg.random_trailers = trailers
+  if (cookies !== undefined) awg.disable_cookies = cookies
   for (const k of STR_KEYS) if (i[k]) awg[k] = k.startsWith('h') ? magicHeader(i[k], k.toUpperCase()) : signaturePacket(i[k], k.toUpperCase())
   const headers = (['h1', 'h2', 'h3', 'h4'] as const).map((key, index) => {
     const value = awg[key]
@@ -216,6 +231,7 @@ export function createWireGuardProfile(input: { name: string; address: string; e
 }
 
 export function detectVersion(a: AwgParams): string {
+  if (a.header_protection_key || a.random_trailers || a.disable_cookies) return 'AmneziaWG 3'
   const ranged = [a.h1, a.h2, a.h3, a.h4].some(h => h && h.includes('-'))
   if (a.s3 !== undefined || a.s4 !== undefined || [a.i1, a.i2, a.i3, a.i4, a.i5].some(Boolean) || ranged) return 'AmneziaWG 2'
   if (NUM_KEYS.some(k => a[k] !== undefined) || [a.h1, a.h2, a.h3, a.h4].some(Boolean)) return 'AmneziaWG 1'
@@ -281,7 +297,7 @@ export interface Loaded { profiles: string[]; groups: LiveGroup[]; fbs: FbGroup[
 
 export interface Slots { app: string[]; dom: string[] }
 const appPool = (s: Settings) => s.routes.filter(r => r.kind === 'app' && r.exe).map(r => r.id)
-const domPool = (s: Settings) => [...s.routes.filter(r => r.kind === 'custom'), ...s.routes.filter(r => r.kind === 'preset')].map(r => r.id)
+const domPool = (s: Settings) => [...s.routes.filter(r => r.kind === 'custom'), ...s.routes.filter(r => r.kind === 'list'), ...s.routes.filter(r => r.kind === 'preset')].map(r => r.id)
 const room = (n: number) => Math.ceil((n + 12) / 8) * 8
 const pad = (ids: string[], size: number) => [...ids, ...Array<string>(Math.max(0, size - ids.length)).fill('')]
 const repack = (ids: string[], size: number) => (ids.length > size ? undefined : pad(ids, size))
@@ -309,9 +325,25 @@ export function planSlots(s: Settings, prev?: Slots): Slots | undefined {
   return app && dom ? { app, dom } : undefined
 }
 
-export const CANARY = 'wcanary'
+let listDomains: (id: string) => string[] = () => []
+export function setListResolver(fn: (id: string) => string[]) { listDomains = fn }
+
+export const CANARY_ZONE = 'waarp-check.invalid'
 export const CANARY_IP = '127.0.0.9'
-export const canaryFile = (name: string) => JSON.stringify({ version: 3, rules: [{ domain: [name] }] })
+/** Keep canonical business files unchanged; only the watched copy carries its own reload witness. */
+export function ruleFileWithWitness(body: string, name: string): string {
+  const file = JSON.parse(body)
+  if (file.version !== 3 || !Array.isArray(file.rules)) throw new Error('invalid rule file')
+  return JSON.stringify({ version: 3, rules: [
+    // Query type prevents this synthetic domain from becoming a traffic-routing match.
+    { domain: [name], query_type: ['A'] },
+    ...(file.rules.length ? [{ type: 'logical', mode: 'and', rules: [
+      // A broad user suffix must not acknowledge a witness belonging to another file.
+      { domain_suffix: [CANARY_ZONE], invert: true },
+      ...(file.rules.length === 1 ? file.rules : [{ type: 'logical', mode: 'or', rules: file.rules }])
+    ] }] : [])
+  ] })
+}
 export const ruleFileOf = (tag: string) => tag.replace(/[^\w.-]/g, '_') + '.json'
 const ENGINE_LOG = /^(trace|debug|info|warn|error)$/.test(process.env.WAARP_ENGINE_LOG ?? '') ? process.env.WAARP_ENGINE_LOG! : 'warn'
 const VPN_CLIENT_DIRS = ['(?i)\\\\(?:ExitLag|WireGuard|AmneziaVPN|AmneziaWG|OpenVPN|OpenVPN Connect|Outline|Cloudflare WARP|Mullvad VPN|NordVPN|ProtonVPN|Proton\\\\VPN|Tailscale|ZeroTier|Hiddify|v2rayN|nekoray|Throne|Radmin VPN|LogMeIn Hamachi|WireSock[^\\\\]*)\\\\']
@@ -424,6 +456,7 @@ function group<T>(items: T[], key: (x: T) => string) {
 
 export function routeTargets(r: Route) {
   if (r.kind === 'custom') return splitCustom([r.value ?? ''])
+  if (r.kind === 'list') return { domains: listDomains(r.list ?? ''), cidrs: [] }
   if (r.kind === 'preset') {
     const p = PRESETS.find(x => x.id === r.preset)
     return { domains: p?.domains ?? [], cidrs: p?.cidrs ?? [] }
@@ -500,7 +533,6 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
   const slotMode = !!(o.selectors && o.slots)
   const files: Record<string, string> = {}
   const sets: string[] = []
-  if (slotMode) dnsRules.push({ rule_set: [CANARY], action: 'predefined', rcode: 'NOERROR', answer: [`${CANARY}.invalid. IN A ${CANARY_IP}`] })
   // HOTFIX-RUNTIME-01 C: "Russian sites direct" is a global bypass: it wins over app and card routes, and its DNS stays local first
   if (s.ruDirect) {
     rules.push({ domain_suffix: RU_DIRECT, outbound: DIRECT })
@@ -530,11 +562,14 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
         const t = r ? outR(r) : DIRECT
         const m = r ? (r.kind === 'app' ? appSet(r) : domSet(r, true)) : []
         set('r' + n, t === BLOCK ? [] : m)
+        set('f' + n, t === DIRECT && r?.dpi === true ? m : [])
         set('x' + n, t === BLOCK ? m : [])
         set('v' + n, t !== BLOCK && !v6(t) ? m : [])
         if (r) buckets.get(dnsKey(t))?.push(...(r.kind === 'app' ? appSet(r) : domSet(r, false)))
         sels.push({ type: 'selector', tag: 'rt-' + n, outbounds: loadedTags, default: t === BLOCK ? DIRECT : t, interrupt_exist_connections: true })
-        rules.push({ rule_set: ['x' + n], action: 'reject' }, { ip_version: 6, rule_set: ['v' + n], action: 'reject' }, { rule_set: ['r' + n], outbound: 'rt-' + n })
+        rules.push({ rule_set: ['x' + n], action: 'reject' }, { ip_version: 6, rule_set: ['v' + n], action: 'reject' },
+          { rule_set: ['f' + n], network: 'udp', port: 443, action: 'reject' }, { rule_set: ['f' + n], action: 'route', outbound: 'rt-' + n, tls_record_fragment: true },
+          { rule_set: ['r' + n], outbound: 'rt-' + n })
       })
     }
     for (const [tag, list] of buckets) set(tag, list)
@@ -553,7 +588,7 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
     if (regex.length) m.process_path_regex = regex
     rules.push(...noV6(m, o.selectors ? outR(list[0]) : key), { ...m, outbound: tag })
   }
-  if (!slotMode) for (const kind of ['custom', 'preset'] as const) {
+  if (!slotMode) for (const kind of ['custom', 'list', 'preset'] as const) {
     for (const [key, list] of byTarget(act.filter(r => r.kind === kind))) {
       const tag = targetOf(key, list)
       const t = list.map(routeTargets)
@@ -596,7 +631,17 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
   // a route's DNS follows the route's own selector: the same resolver as its target, detour = the route switch
   for (const d of routeDns) dnsServers.push({ ...dnsServers.find(x => x.tag === d.from)!, tag: d.tag, detour: d.detour })
 
-  const ruleSets = slotMode ? [...sets, CANARY].map(tag => ({ type: 'local', tag, format: 'source', path: join(o.ruleDir ?? '.', ruleFileOf(tag)) })) : []
+  if (slotMode) dnsRules.unshift(
+    { type: 'logical', mode: 'and', rules: [
+      { domain_suffix: [CANARY_ZONE] },
+      // The controller query has no source IP. CIDR branches cannot become a
+      // deferred destination match or switch the pinned core's DNS rule mode.
+      { rule_set: sets, rule_set_ip_cidr_match_source: true }
+    ], action: 'predefined', rcode: 'NOERROR', answer: [`${CANARY_ZONE}. IN A ${CANARY_IP}`] },
+    // Unloaded witnesses terminate locally, without a resolver or negative cache.
+    { domain_suffix: [CANARY_ZONE], action: 'predefined', rcode: 'NXDOMAIN' }
+  )
+  const ruleSets = slotMode ? sets.map(tag => ({ type: 'local', tag, format: 'source', path: join(o.ruleDir ?? '.', ruleFileOf(tag)) })) : []
   const cfg = {
     log: { level: ENGINE_LOG, timestamp: true },
     dns: { servers: dnsServers, rules: dnsRules, final: dnsFinal, strategy: 'ipv4_only' },

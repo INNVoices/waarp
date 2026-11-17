@@ -42,5 +42,5 @@ export function connsOf(r: Route, conns: Conn[]): Conn[] {
 export function connRoute(c: Conn, routes: Route[]): Route | undefined {
   if (c.route !== undefined) return routes.find(r => r.id === c.route)
   const on = routes.filter(r => r.on)
-  return on.find(r => r.kind === 'app' && routeHits(r, c)) ?? on.find(r => r.kind === 'custom' && routeHits(r, c)) ?? on.find(r => r.kind === 'preset' && routeHits(r, c))
+  return on.find(r => r.kind === 'app' && routeHits(r, c)) ?? on.find(r => (r.kind === 'custom' || r.kind === 'list') && routeHits(r, c)) ?? on.find(r => r.kind === 'preset' && routeHits(r, c))
 }

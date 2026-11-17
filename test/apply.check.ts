@@ -5,6 +5,7 @@ import { DEFAULTS } from '../src/main/store-core'
 import type { Settings } from '../src/shared/types'
 import { readFileSync } from 'node:fs'
 import { SerialGate } from '../src/main/serial'
+import { compilePlan, requiresCore } from '../src/shared/plan'
 
 let fails = 0, n = 0
 const ok = (c: unknown, msg: string) => { n++; if (!c) { fails++; console.error('FAIL', msg) } }
@@ -23,7 +24,7 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
     phase: () => phase,
     open: o.open === undefined ? undefined : () => !!o.open,
     blocked: async () => !!o.block,
-    demandsTunnel: s => s.rest !== 'direct' || s.routes.some(r => r.on && r.via !== 'direct'),
+    demandsTunnel: requiresCore,
     start: async () => { starts++; phase = o.startTo ?? 'on' },
     stop: async () => { stops++; phase = 'off' },
     changed: () => { changed++ }
@@ -32,6 +33,20 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
 }
 
 ;(async () => {
+  const dpi: Settings = { ...DEFAULTS, rest: 'direct', routes: [{ id: 'custom:example.org', kind: 'custom', name: 'example.org', value: 'example.org', via: 'direct', on: true, dpi: true }] }
+  ok(compilePlan(dpi, []).canStart, 'Direct+DPI needs the core even with no personal tunnels')
+  {
+    const r = rig({ open: true })
+    const a = await r.apply(dpi)
+    eq([a.applied, r.counts().starts], [true, 1], 'enabling Direct+DPI starts an open idle master')
+  }
+  {
+    const r = rig({ phase: 'on', open: true })
+    const a = await r.apply(dpi)
+    eq([a.applied, r.counts().stops], [true, 0], 'last tunnel card becoming Direct+DPI keeps a required core')
+  }
+  ok(!requiresCore({ ...dpi, routes: dpi.routes.map(r => ({ ...r, dpi: false })) }), 'plain Direct can remain idle')
+  ok(!requiresCore({ ...dpi, routes: dpi.routes.map(r => ({ ...r, on: false })) }), 'disabled DPI card does not start a core')
   // B: selecting one card never changes rest
   const sel = selectVia(base, 0, 'p2')
   eq(sel.rest, 'p1', 'select keeps rest (whole-computer intent)')

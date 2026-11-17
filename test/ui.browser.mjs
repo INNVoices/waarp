@@ -93,6 +93,29 @@ function fixture(options) {
     removeProfile: async id => { count('remove'); state.profiles = state.profiles.filter(profile => profile.id !== id); push(); return { ok: true } },
     renameProfile: async () => ({ ok: true }), replaceProfile: async () => ({ ok: true }), refreshSubscription: async () => ({ ok: true }),
     discoverScan: async () => ({ ok: true, items: [] }), discoverPickFolder: async () => ({ canceled: true }), discoverAdd: async () => ({ ok: false }),
+    diagnose: async target => {
+      count('diagnose')
+      const host = new URL(target.includes('://') ? target : 'https://' + target).hostname.replace(/^\[|\]$/g, '')
+      const diagnosis = { target, host, at: Date.now(), token: `diagnosis-${state.calls.diagnose}`,
+        direct: { dnsSystem: { result: 'ok', addrs: 1 }, dnsDoh: { result: 'ok', addrs: 1 }, tcp: { result: 'ok' }, tls: { result: 'timeout' }, http: { result: 'skipped' } },
+        paths: { a: null, b: 25 }, finding: { kind: 'path_only', via: ['b'] } }
+      state.diagnosis = diagnosis
+      if (options.deferDiagnose) return new Promise(resolve => { state.resolveDiagnose = () => resolve(diagnosis) })
+      return diagnosis
+    },
+    diagnoseCancel: async () => { count('diagnoseCancel') },
+    diagnoseApply: async (token, via) => {
+      count('diagnoseApply'); state.lastDiagnosisApply = { token, via }
+      if (state.rejectDiagnosisApply || token !== state.diagnosis?.token) return { ok: false, error: 'stale' }
+      const id = 'custom:' + state.diagnosis.host
+      const found = state.settings.routes.findIndex(route => route.id === id)
+      const route = { id, kind: 'custom', name: state.diagnosis.host, value: state.diagnosis.host, via, on: true }
+      if (found >= 0) state.settings.routes[found] = { ...state.settings.routes[found], via, on: true }
+      else state.settings.routes.push(route)
+      push(); return { ok: true, id }
+    },
+    profileConfig: async id => { count('profileConfig'); return { type: 'trojan', tag: 'p-' + id, server: '192.0.2.1', server_port: 443, password: '•••' } },
+    exportDiag: async () => { count('exportDiag'); return state.exportCanceled ? { ok: false } : { ok: true } },
     log: async () => [],
     resetNet: async () => {
       count('resetNet')
@@ -202,7 +225,8 @@ async function rendererStability() {
         f.state.settings.routes[0].name = name
         f.state.profiles.push({ ...f.state.profiles[0], id: tempId, name: tempName })
         f.push()
-        f.emit('status', { ...f.state.status, pings: { direct: 10, a: 20, [tempId]: 30 } })
+        f.state.status.pingRound = (f.state.status.pingRound ?? 0) + 1
+        f.emit('status', { ...f.state.status, pingAt: Date.now(), pings: { direct: 10, a: 20, [tempId]: 30 } })
       }, { name, tempName, tempId })
       const route = page.getByRole('switch', { name, exact: true })
       await route.click()
@@ -222,7 +246,8 @@ async function rendererStability() {
       await page.evaluate(tempId => {
         const f = window.__waarpTest, temporary = f.state.profiles.find(profile => profile.id === tempId)
         f.state.profiles = f.state.profiles.filter(profile => profile.id !== tempId); f.push()
-        f.emit('status', { ...f.state.status, pings: { [tempId]: 999 } }) // late queued measurement after removal
+        f.state.status.pingRound = (f.state.status.pingRound ?? 0) + 1
+        f.emit('status', { ...f.state.status, pingAt: Date.now(), pings: { [tempId]: 999 } }) // late queued measurement after removal
         f.state.profiles.push(temporary); f.push()
       }, tempId)
       await settle(page)
@@ -470,6 +495,16 @@ try {
       return name.getBoundingClientRect().left - country.getBoundingClientRect().right
     })
     assert.ok(headingGap >= 4, `country and name captions need a visible gap, got ${headingGap}px`)
+    const countryCaption = page.locator('.pub-row.pick-th .pub-th-hint').first()
+    assert.equal(await countryCaption.textContent(), strings['pick.country'])
+    assert.equal(await countryCaption.getAttribute('title'), strings['pick.country.hint'])
+    await page.keyboard.press('Tab') // keyboard modality makes the existing Tooltip expose its focus description
+    await countryCaption.focus()
+    await page.getByRole('tooltip').getByText(strings['pick.country.hint'], { exact: true }).waitFor()
+    await page.keyboard.press('Tab')
+    await page.getByRole('tooltip').getByText(strings['pick.ping.hint'], { exact: true }).waitFor()
+    assert.equal(await page.locator('.pub-row.pick-th .pub-th-hint').last().getAttribute('title'), strings['pick.ping.hint'])
+    await page.keyboard.press('Tab')
     const visibleColumns = await page.locator('.pub-row:not(.pick-th)').first().evaluate(row => {
       const table = row.closest('.pick-table').getBoundingClientRect()
       return [...row.querySelectorAll('.pub-ms, .pub-add')].map(element => {
@@ -494,6 +529,101 @@ try {
     await modal.getByRole('button', { name: 'Personal A', exact: true }).click()
     await modal.waitFor({ state: 'hidden' })
     assert.equal(await page.evaluate(() => window.__waarpTest.state.settings.rest), 'a')
+    await page.context().close()
+  })
+  await check('history records real rounds once, including equal values and OFF measurements', async () => {
+    const page = await pageFor()
+    await ready(page); await clickNav(page, 'an')
+    await page.evaluate(() => {
+      const f = window.__waarpTest
+      f.state.status = { ...f.state.status, phase: 'on', open: true, since: Date.now(), pings: { a: 42 }, pingRound: 1, pingAt: Date.now() }
+      f.emit('status', f.state.status)
+      for (let n = 0; n < 20; n++) f.emit('status', { ...f.state.status, down: n })
+    })
+    // A single sample has no line segment/bounding box yet; its coordinates are still real history.
+    await page.locator('.chart polyline').waitFor({ state: 'attached' })
+    await settle(page)
+    const points = async () => (await page.locator('.chart polyline').getAttribute('points')).trim().split(/\s+/).filter(Boolean).length
+    assert.equal(await points(), 1, 'traffic-only cloned status is not a new measurement')
+    await page.evaluate(() => { const f = window.__waarpTest; f.state.status.pingRound++; f.emit('status', f.state.status) })
+    await settle(page)
+    assert.equal(await points(), 2, 'an independent identical ping is still a new measurement')
+    await page.evaluate(() => { const f = window.__waarpTest; f.state.status.pingRound++; f.state.status.pings = { a: undefined }; f.emit('status', f.state.status) })
+    await page.locator('.legend').getByText(strings['an.loss'].replace('{n}', '33'), { exact: true }).waitFor()
+    await page.evaluate(() => {
+      const f = window.__waarpTest
+      f.emit('status', { ...f.state.status, phase: 'stopping' })
+      f.state.status = { ...f.state.status, phase: 'off', open: false, pingRound: -1, pings: { a: 57 }, pingAt: Date.now() }
+      f.emit('status', f.state.status); f.emit('status', f.state.status)
+    })
+    await settle(page)
+    assert.equal(await points(), 1, 'OFF rounds work without treating a duplicate as a second sample')
+    await page.context().close()
+  })
+  await check('diagnosis applies the proven profile through its token and refuses a stale result', async () => {
+    const page = await pageFor()
+    await ready(page); await clickNav(page, 'an')
+    await page.getByPlaceholder(strings['an.probe.ph']).fill('https://example.com:8443/path?query=sample')
+    await page.getByRole('button', { name: strings['an.probe.go'], exact: true }).click()
+    const applyName = strings['dg.route.card'].replace('{v}', 'Personal B')
+    await page.getByRole('button', { name: applyName, exact: true }).click()
+    await page.waitForFunction(() => window.__waarpTest.state.settings.routes[0].via === 'b')
+    assert.deepEqual(await page.evaluate(() => window.__waarpTest.state.lastDiagnosisApply), { token: 'diagnosis-1', via: 'b' })
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.settings ?? 0), 0, 'UI cannot bypass the main diagnosis guard with a generic settings patch')
+    await page.evaluate(() => { const f = window.__waarpTest; f.state.settings.routes[0].via = 'a'; f.state.rejectDiagnosisApply = true; f.push() })
+    await page.getByRole('button', { name: applyName, exact: true }).click()
+    await page.waitForFunction(() => window.__waarpTest.state.calls.diagnose === 2)
+    await page.getByRole('button', { name: applyName, exact: true }).waitFor()
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.settings.routes[0].via), 'a', 'stale apply refreshes evidence without silently changing the route')
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.diagnoseApply), 2)
+    await page.context().close()
+  })
+  await check('leaving diagnostics cancels the operation and ignores a late result', async () => {
+    const page = await pageFor({ deferDiagnose: true })
+    await ready(page); await clickNav(page, 'an')
+    await page.getByRole('button', { name: strings['an.probe.go'], exact: true }).click()
+    await page.waitForFunction(() => typeof window.__waarpTest.state.resolveDiagnose === 'function')
+    const before = await page.evaluate(() => window.__waarpTest.state.calls.diagnoseCancel)
+    await clickNav(page, 'servers')
+    await page.waitForFunction(before => window.__waarpTest.state.calls.diagnoseCancel > before, before)
+    await page.evaluate(() => window.__waarpTest.state.resolveDiagnose())
+    await clickNav(page, 'an'); await settle(page)
+    assert.equal(await page.locator('.dg').count(), 0, 'unmounted result never reappears in a new diagnostics page')
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.diagnoseApply ?? 0), 0)
+    await page.context().close()
+  })
+  await check('technical details stay public and keyboard-accessible at 900px; export is explicit', async () => {
+    const page = await pageFor()
+    await ready(page); await page.setViewportSize({ width: 900, height: 600 })
+    await page.evaluate(() => { const f = window.__waarpTest; f.state.profiles[0].tech = [['transport', 'xhttp'], ['fp', 'chrome']]; f.state.profiles[0].notApplied = ['unsupported-field']; f.push() })
+    await clickNav(page, 'servers')
+    const detail = page.locator('.srv-adv').first(), summary = detail.locator('summary')
+    await summary.focus(); await page.keyboard.press('Enter')
+    await detail.getByText('xhttp', { exact: true }).waitFor({ state: 'visible' })
+    await detail.getByText('unsupported-field', { exact: true }).waitFor({ state: 'visible' })
+    assert.equal(await page.getByRole('button', { name: strings['tech.config'], exact: true }).count(), 0, 'ordinary technical facts do not require developer mode')
+    assert.ok(await page.evaluate(() => document.querySelector('.main').scrollWidth - document.querySelector('.main').clientWidth) <= 1)
+    await capture(page, 'technical-details-min-width.png')
+    await clickNav(page, 'settings')
+    const dev = page.getByRole('switch', { name: strings['set.dev'], exact: true })
+    await dev.focus(); await page.keyboard.press('Space')
+    const exportButton = page.getByRole('button', { name: strings['set.diag.go'], exact: true })
+    await page.evaluate(() => { window.__waarpTest.state.exportCanceled = true })
+    await exportButton.click()
+    await settle(page)
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.exportDiag), 1)
+    assert.equal(await page.getByText(strings['set.diag.done'], { exact: true }).count(), 0, 'canceling a save dialog is not an exported file')
+    await page.evaluate(() => { window.__waarpTest.state.exportCanceled = false })
+    await exportButton.focus(); await page.keyboard.press('Enter')
+    await page.getByText(strings['set.diag.done'], { exact: true }).waitFor()
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.exportDiag), 2)
+    await clickNav(page, 'servers')
+    await page.locator('.srv-adv').first().locator('summary').click()
+    await page.getByRole('button', { name: strings['tech.config'], exact: true }).first().click()
+    await page.locator('.srv-adv').first().locator('pre').waitFor()
+    assert.ok((await page.locator('.srv-adv').first().locator('pre').textContent()).includes('•••'))
+    await capture(page, 'technical-config-min-width.png')
+    assert.deepEqual(pageConsoleErrors.get(page), [], 'technical details and developer actions log no renderer errors')
     await page.context().close()
   })
   // This specifically uses the production bundle. Do not run this check against the browser-only dev demo.

@@ -38,6 +38,7 @@ const host = (h: string) => h.toLowerCase().replace(/\.$/, '')
 
 export function routeHits(r: Route, c: Pick<Conn, 'exe' | 'host'>): boolean {
   if (r.kind === 'app') return !!r.exe && exeHits(appPatterns(r), c.exe)
+  if (r.kind === 'list') return false
   const doms = r.kind === 'preset' ? PRESETS.find(p => p.id === r.preset)?.domains ?? [] : [r.value ?? '']
   const h = host(c.host)
   return doms.some(d => d && (h === d || h.endsWith('.' + d)))

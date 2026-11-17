@@ -21,7 +21,7 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
   ok(loserAborted, 'when the DoH race settles, the losing request is aborted too')
   const live = new Set<string>()
   const hang = (name: string) => (..._a: unknown[]) => new Promise<never>((_r, _j) => { live.add(name); (_a[_a.length - 1] as AbortSignal).addEventListener('abort', () => live.delete(name)) })
-  const net: Net = { dnsSystem: async () => ['1.2.3.4'], dnsDoh: async () => ['1.2.3.4'], tcp: async () => {}, tls: hang('tls') as Net['tls'], head: async () => 200 }
+  const net: Net = { dnsSystem: async () => ['1.2.3.4'], dnsDoh: async () => ['1.2.3.4'], tcp: async () => {}, tls: hang('tls') as Net['tls'], http: async () => ({ status: 200 }) }
   const r = await probeLayers('x.org', net, 20)
   await sleep(5)
   eq([r.tls.result, live.size], ['timeout', 0], 'after a timeout no layer is left running')

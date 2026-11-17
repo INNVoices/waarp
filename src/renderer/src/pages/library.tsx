@@ -66,7 +66,7 @@ export function Library({ snap, status, conns, apps, loading, rescan, addApp, pa
     return { running: list.filter(a => a.running), installed: list.filter(a => !a.running) }
   }, [apps, ql]) // eslint-disable-line react-hooks/exhaustive-deps
   const services = PRESETS.filter(p => match(p.name, p.domains.join(' ')))
-  const customs = st.routes.filter(r => r.kind === 'custom' && match(r.name, r.value ?? ''))
+  const customs = st.routes.filter(r => (r.kind === 'custom' || r.kind === 'list') && match(r.name, r.value ?? ''))
   const show = (k: Filter) => f === 'all' || f === k
 
   // target first: an existing target opens as it is; a new one is saved as a neutral draft (off, no path chosen) and its page opens.

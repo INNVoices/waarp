@@ -142,6 +142,9 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
 
       <section className="panel">
         <h3>{s('route.more')}</h3>
+        <Row title={s('route.dpi')} text={r.via === 'direct' ? s('route.dpi.text') : s('route.dpi.off')}>
+          <Toggle on={r.via === 'direct' && r.dpi === true} disabled={locked || r.via !== 'direct'} onChange={v => set({ dpi: v })} label={s('route.dpi')} />
+        </Row>
         {r.kind === 'app' && <>
           <Row title={s('route.dir')} text={r.matchDir ? s('route.dir.text', { d: r.matchDir }) : s('route.dir.none')}>
             <Toggle on={!!r.matchDir && r.wholeDir === true} disabled={locked || !r.matchDir} onChange={v => set({ wholeDir: v })} label={s('route.dir')} />
@@ -149,6 +152,7 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
           <div className="path mono selectable">{r.exe}</div>
         </>}
         {preset && <div className="chips">{[...preset.domains, ...(preset.cidrs ?? [])].map(d => <span key={d} className="chip mono">{d}</span>)}</div>}
+        {r.kind === 'list' && (() => { const l = snap.lists?.find(x => x.id === r.list); return <p className="hint">{l ? s('lists.route', { n: l.count, name: l.name }) + (l.enabled ? '' : ' · ' + s('lists.disabled')) : s('lists.gone')}</p> })()}
         {r.kind === 'custom' && <>
           <div className="path mono selectable">{r.value}</div>
           <p className="hint">{s('custom.dest.note')}</p>

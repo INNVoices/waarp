@@ -20,20 +20,22 @@ export function settingsPatchCurrent(patch: Partial<Settings>, base: unknown, cu
 
 function route(r: any): Route | null {
   if (!r || typeof r !== 'object' || !str(r.id, 400) || !str(r.name, 200) || !via(r.via) || !bool(r.on)) return null
-  if (!['app', 'preset', 'custom'].includes(r.kind)) return null
+  if (!['app', 'preset', 'custom', 'list'].includes(r.kind)) return null
   const out: any = { id: r.id, kind: r.kind, name: r.name, via: r.via, on: r.on }
-  for (const k of ['exe', 'matchDir', 'preset', 'value', 'icon'] as const) if (r[k] !== undefined) {
+  for (const k of ['exe', 'matchDir', 'preset', 'value', 'icon', 'list'] as const) if (r[k] !== undefined) {
     if (!str(r[k], k === 'icon' ? 200000 : 1000)) return null
     if (k === 'icon' && r[k] !== '' && !/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(r[k])) return null
     out[k] = r[k]
   }
   if (r.wholeDir !== undefined) { if (!bool(r.wholeDir)) return null; out.wholeDir = r.wholeDir }
+  if (r.dpi !== undefined) { if (!bool(r.dpi)) return null; if (r.dpi) out.dpi = true }
   if (r.fallback !== undefined) { if (!via(r.fallback)) return null; out.fallback = r.fallback }
   if (r.owner !== undefined) { if (r.owner !== 'companion') return null; out.owner = r.owner }
   // a reserved ext: id or an owner must be a well-formed companion route; main checks it against the stored one
   if (!reservedOk(out)) return null
   if (r.kind === 'custom' && (typeof out.value !== 'string' || validateCustom(out.value))) return null
   if (r.kind === 'preset' && (typeof out.preset !== 'string' || !PRESETS.some(p => p.id === out.preset))) return null
+  if (r.kind === 'list' && (typeof out.list !== 'string' || !/^l-[a-z0-9]{8}$/.test(out.list))) return null
   if (r.kind === 'app' && (typeof out.exe !== 'string' || !/^(?:[A-Za-z]:\\|\\\\[^\\]+\\[^\\]+\\).+\.exe$/i.test(out.exe))) return null
   return out as Route
 }
@@ -100,6 +102,7 @@ export function probeTarget(raw: unknown): string | null {
   if (!str(raw, 200)) return null
   const value = raw.trim()
   if (!value || /[\s\\]/.test(value)) return null
+  if (/^[a-z][a-z\d+.-]*:\/\//i.test(value) && !/^https?:\/\//i.test(value)) return null
   try {
     const url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`)
     if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password) return null

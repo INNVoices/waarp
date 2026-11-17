@@ -1,5 +1,5 @@
 // Saved connections, their groups, and the explicitly refreshed public catalog share one destination.
-import { useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { Group, ProfileView, Snapshot, Status } from '../../../shared/types'
 import { dropGroup, usersOf } from '../../../main/store-core'
 import { Modal } from '../ui/modal'
@@ -10,10 +10,12 @@ import type { SettingsPatch } from '../lib/actions'
 import { Mark, Ping } from '../parts'
 import { AddTunnel, importNote, type ImportResult } from './addtunnel'
 import { GroupDialog } from './groupdlg'
+import { useDev } from '../lib/dev'
 import { PublicCatalog } from './publiccat'
 
 
 export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status: Status; patch: SettingsPatch; toast: (x: string) => void }) {
+  const dev = useDev()
   const [edit, setEdit] = useState<string>()
   const [name, setName] = useState('')
   const [adding, setAdding] = useState(false)
@@ -175,7 +177,13 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
               {p.address.length > 0 && <><span className="m">{s('srv.addr')}</span><span className="selectable ell">{p.address.join(', ')}</span></>}
               {p.clientPublicKey && <><span className="m">{s('add.create.clientKey')}</span><Tooltip tip={p.clientPublicKey}><span className="selectable ell mono">{p.clientPublicKey}</span></Tooltip></>}
               <span className="m">{s('srv.proto')}</span><span>{p.version}</span>
-            </div></details>
+              {p.tech?.map(([k, v]) => <Fragment key={k}><span className="m">{s('tech.' + k)}</span><span className="selectable ell">{v}</span></Fragment>)}
+              {!!p.notApplied?.length && <><span className="m">{s('tech.notApplied')}</span><span className="warn ell">{p.notApplied.join(', ')}</span></>}
+              {live && status.pingAt !== undefined && uses(p.id) > 0 && <><span className="m">{s('tech.measured')}</span><span>{new Date(status.pingAt).toLocaleTimeString()}</span></>}
+            </div>
+            {p.kind !== 'group' && p.kind !== 'openvpn' && <Tune p={p} open={status.phase !== 'off' || !!status.open} toast={toast} />}
+            {dev && <DevConfig id={p.id} />}
+            </details>
             {foot(p)}
           </div>
         ))}
@@ -209,6 +217,85 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
         onPublic={() => { setAdding(false); requestAnimationFrame(() => document.getElementById('public-catalog')?.scrollIntoView({ behavior: 'smooth' })) }} />}
       {grp && <GroupDialog tunnels={available} groups={st.groups} edit={grp.edit} onClose={() => setGrp(undefined)}
         onSave={g => patch({ groups: st.groups.some(x => x.id === g.id) ? st.groups.map(x => (x.id === g.id ? g : x)) : [...st.groups, g] })} />}
+    </div>
+  )
+}
+
+/** developer mode: the engine config of one connection, secrets replaced, read-only */
+function DevConfig({ id }: { id: string }) {
+  const [cfg, setCfg] = useState<string>()
+  return cfg === undefined
+    ? <Btn sm kind="ghost" onClick={async () => { try { setCfg(JSON.stringify(await api.profileConfig(id), null, 1)) } catch { setCfg('') } }}><Icon n="doc" />{s('tech.config')}</Btn>
+    : <pre className="log selectable">{cfg || s('tech.config.none')}</pre>
+}
+
+/** manual tune: a small fixed set of client-side variants, checked one by one by the separate checker while Waarp is closed */
+function Tune({ p, open, toast }: { p: ProfileView; open: boolean; toast: (x: string) => void }) {
+  const [busy, setBusy] = useState(false)
+  const [writing, setWriting] = useState(false)
+  const [res, setRes] = useState<{ label: string; ms: number | null }[]>()
+  const sequence = useRef(0), running = useRef(false), writeLock = useRef(false)
+  useEffect(() => () => {
+    sequence.current++
+    if (running.current) void api.tuneCancel(p.id)
+  }, [p.id])
+  useEffect(() => {
+    if (!open) return
+    sequence.current++
+    if (running.current) void api.tuneCancel(p.id)
+    running.current = false; setBusy(false); setRes(undefined)
+  }, [open, p.id])
+  const run = async () => {
+    if (running.current || writeLock.current) return
+    running.current = true
+    const request = ++sequence.current
+    setBusy(true); setRes(undefined)
+    try {
+      const r = await api.tuneRun(p.id)
+      if (request !== sequence.current) return
+      if (r.error) { if (r.error !== 'canceled') toast(s('tune.err.' + r.error)) }
+      else setRes(r.results)
+    } catch { if (request === sequence.current) toast(s('tune.err.engine')) }
+    finally { if (request === sequence.current) { running.current = false; setBusy(false) } }
+  }
+  const cancel = async () => {
+    sequence.current++
+    try { if (!(await api.tuneCancel(p.id))) toast(s('tune.err.engine')) }
+    catch { toast(s('tune.err.engine')) }
+    finally { running.current = false; setBusy(false); setRes(undefined) }
+  }
+  const save = async (label?: string) => {
+    if (writeLock.current || running.current) return
+    writeLock.current = true; setWriting(true)
+    try {
+      const r = label === undefined ? await api.tuneReset(p.id) : await api.tuneApply(p.id, label)
+      if (!r.ok || r.warning) toast(s('tune.err.' + (r.error ?? r.warning ?? 'engine')))
+      else if (label !== undefined) toast(s('tune.applied'))
+      setRes(undefined)
+    } catch { toast(s('tune.err.engine')) }
+    finally { writeLock.current = false; setWriting(false) }
+  }
+  const base = res?.[0]
+  return (
+    <div className="tune">
+      <div className="ph-row">
+        <b>{s('tune.title')}</b>
+        {p.tune && <span className="badge">{s('tune.active', { v: p.tune })}</span>}
+        {p.tuneStored && !p.tune && <span className="hint">{s('tune.saved')}</span>}
+        <div className="grow" />
+        {busy ? <Btn sm kind="ghost" onClick={() => void cancel()}>{s('tune.cancel')}</Btn>
+          : <Btn sm disabled={open || writing} title={open ? s('tune.closed') : undefined} onClick={() => void run()}><Icon n="bolt" />{s('tune.go')}</Btn>}
+        {p.tuneStored && !busy && <Btn sm kind="ghost" disabled={writing} onClick={() => void save()}>{s('tune.reset')}</Btn>}
+      </div>
+      {open && !p.tune && <p className="hint">{s('tune.closed')}</p>}
+      {res && <div className="kv mono">
+        {res.map(r => <Fragment key={r.label || 'base'}>
+          <span className="m">{r.label || s('tune.base')}</span>
+          <span>{r.ms === null ? s('tune.fail') : s('meter.ms', { n: r.ms })}{r.label && r.ms !== null && base?.ms === null && <> <Btn sm disabled={writing} onClick={() => void save(r.label)}>{s('tune.apply')}</Btn></>}</span>
+        </Fragment>)}
+      </div>}
+      {res && base?.ms !== null && base !== undefined && <p className="hint">{s('tune.base_ok')}</p>}
+      {res && res.every(r => r.ms === null) && <p className="hint">{s('tune.none')}</p>}
     </div>
   )
 }

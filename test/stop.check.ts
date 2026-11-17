@@ -172,15 +172,27 @@ function rig(o: { owned?: 'same' | 'gone' | 'other' | 'unknown'; onBreak?: 'exit
   {
     let allowed = true
     const checker = new Checker(process.execPath, mkdtempSync(join(tmpdir(), 'waarp-checker-')), () => allowed)
+    let measurementCanceled = false
+    const owner = checker.acquire(() => { measurementCanceled = true })!
+    eq(typeof owner, 'symbol', 'a measurement acquires ownership across ensure and probe')
+    eq(checker.acquire(), undefined, 'a background probe cannot interleave with a manual measurement')
     let release!: (recovered: boolean) => void, recoveries = 0
     ;(checker as any).recover = () => { recoveries++; return new Promise(resolve => { release = resolve }) }
     const ensure = checker.ensure([], []), queued = checker.ensure([], [])
     await Promise.resolve()
     const stop = checker.stop()
+    eq(checker.owns(owner), false, 'stop invalidates a measurement owner synchronously')
+    eq(measurementCanceled, true, 'master stop cancels the measurement deadline/network observation too')
     allowed = false; release(true)
     eq(await Promise.all([ensure, queued, stop]), [false, false, true], 'checker stop invalidates the active and queued ensure')
     eq([recoveries, !!(checker as any).child], [1, false], 'no cancelled checker process is spawned')
     eq(await checker.ensure([], []), false, 'main admission guard refuses a checker while TUN is wanted')
+    eq(checker.acquire(), undefined, 'TUN admission also refuses a new measurement owner')
+    allowed = true
+    const nextOwner = checker.acquire()!
+    checker.release(owner)
+    eq(checker.owns(nextOwner), true, 'late cleanup of a cancelled measurement cannot release its successor')
+    checker.release(nextOwner)
   }
   {
     const checker = new Checker(process.execPath, mkdtempSync(join(tmpdir(), 'waarp-checker-')))
