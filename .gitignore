@@ -5,3 +5,14 @@ dist-*/
 *.log
 engine/libcronet.dll
 engine/sing-box.exe
+android/.gradle/
+android/.kotlin/
+android/local.properties
+android/**/build/
+android/app/libs/*.aar
+*.jks
+*.keystore
+*.p12
+*.pfx
+keystore.properties
+__pycache__/

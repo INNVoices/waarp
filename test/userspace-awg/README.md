@@ -12,13 +12,61 @@ Successful execution establishes a real authenticated AWG handshake and sends a 
 
 This tests the AWG library and server interoperability, not sing-box routing, Windows Wintun, Electron startup recovery, or whole-computer traffic policy.
 
+### Android encrypted tunnel acceptance
+
+The Android workflow also runs this harness as one ephemeral server peer:
+
+```sh
+go test -run TestAndroid -count=1 -timeout=35s .
+go build -trimpath -buildvcs=false -o "$RUNNER_TEMP/awg-android-fixture" .
+"$RUNNER_TEMP/awg-android-fixture" --android-server --android-port 18081 --android-report "$RUNNER_TEMP/awg-proof.json"
+```
+
+The module selects Go 1.26.11. The server binds ordinary UDP and HTTP control to
+`127.0.0.1:18081`; the Android emulator reaches it through `10.0.2.2`. `/health`
+reports readiness. `POST /register` accepts only the Android-generated public key
+and returns the server public key and UDP port. Each side generates a fresh private
+key in memory. No private key or profile is transferred over the control API,
+written to disk, printed, or included in evidence.
+
+The Android test imports a synthetic AWG2 profile, uses the production routing
+compiler, and starts the actual shipped libbox through `VpnService`. A separate
+test-APK UID sends a fresh DNS query through Android TUN and the profile's DNS
+route. The host peer decrypts and answers it with the documentation-only address
+`192.0.2.42`. Valid EDNS OPT queries are supported because the production router
+can hijack and reconstruct DNS. The test requires the real answer, an authenticated
+handshake, observed AWG header/padding, no plaintext DNS question in either
+direction's outer UDP datagrams, and a new encrypted response after OFF/ON.
+
+`GET /proof` exposes only booleans and counters. SIGTERM/INT closes the peer and
+writes the same evidence plus confirmed shutdown to `--android-report`. The
+server expires after 30 minutes by default; `--android-duration 3h` gives the
+two-hour release soak its required setup margin (allowed lifetime1m–4h).
+The workflow retains only this evidence, never keys or packet traces. The
+existing debug acceptance still proves encrypted AWG2 DNS through the core/TUN,
+with a separate Direct HTTP routing fixture.
+
+The new external release acceptance additionally exercises **encrypted TCP/HTTP**:
+the authenticated peer exposes `10.77.0.1:18080/probe?nonce=<unique>` inside an
+upstream WireGuard userspace TCP/IP stack. Unique `*.soak.waarp.test` DNS queries
+return that inner address with TTL0; HTTP replies echo the nonce and64KiB of
+validated data. These listeners are not exposed on the outer host network.
+The proof adds unique DNS/HTTP counts, HTTP bytes and first/last encrypted request
+timestamps. The focused `TestAndroid` regression now verifies these real DNS/TCP
+exchanges using two successive client Devices and clean shutdown. The APK's
+public UI, release lifecycle and measured two-hour resource/recovery gates are
+specified separately in [the external acceptance module](../../android/acceptance/README.md).
+Its execution result must come from the actual device artifacts; the host
+fixture's unit/integration pass alone is not a release acceptance result.
+
 ## Version and sources
 
 - Initial local evidence used Go 1.26.8. The replay/CI toolchain is now pinned to Go 1.26.11 in `go.mod`; each CI artifact retains `go version -m`. Historical verified compiler archive: official `go1.26.8.linux-amd64.tar.gz`, SHA256 `d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b`; [official archive metadata](https://go.dev/dl/?mode=json&include=all).
 - AWG library: [`64065e6826ad82aa28429dd829c1c65f29b7f6c9`](https://github.com/Leadaxe/wireguard-go-awg2-lx/commit/64065e6826ad82aa28429dd829c1c65f29b7f6c9), module replacement fixed in `go.mod`; [MIT license](https://github.com/Leadaxe/wireguard-go-awg2-lx/blob/64065e6826ad82aa28429dd829c1c65f29b7f6c9/LICENSE).
 - Its public [Bind contract](https://github.com/Leadaxe/wireguard-go-awg2-lx/blob/64065e6826ad82aa28429dd829c1c65f29b7f6c9/conn/conn.go), [TUN contract](https://github.com/Leadaxe/wireguard-go-awg2-lx/blob/64065e6826ad82aa28429dd829c1c65f29b7f6c9/tun/tun.go), [end-to-end memory transport tests](https://github.com/Leadaxe/wireguard-go-awg2-lx/blob/64065e6826ad82aa28429dd829c1c65f29b7f6c9/device/transport_padding_test.go) and [StdNetBind sticky route listener](https://github.com/Leadaxe/wireguard-go-awg2-lx/blob/64065e6826ad82aa28429dd829c1c65f29b7f6c9/device/sticky_linux.go) establish the embedding contract.
 - Native sing-box behavior: [`route/network.go`](https://github.com/Leadaxe/sing-box-lx/blob/3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d/route/network.go), [`option/route.go`](https://github.com/Leadaxe/sing-box-lx/blob/3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d/option/route.go).
-- `sing`, `x/crypto`, `x/net`, and `x/sys` versions are aligned to the [pinned engine module file](https://github.com/Leadaxe/sing-box-lx/blob/3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d/go.mod). No gVisor or other tunnel implementation is substituted.
+- `sing`, `x/crypto`, `x/net`, and `x/sys` versions are aligned to the [pinned engine module file](https://github.com/Leadaxe/sing-box-lx/blob/3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d/go.mod). AWG cryptography remains the pinned fork in every mode.
+- Only the Android fixture's inner TCP/IP stack uses official [`wireguard-go/tun/netstack`](https://git.zx2c4.com/wireguard-go/tree/tun/netstack/tun.go?id=b3bc704ef0ee), pinned to `v0.0.0-20261024220952-b3bc704ef0ee`, with its gVisor dependency fixed by `go.mod`/`go.sum`. The adapter translates the named TUN event type; it does not replace the AWG implementation. Private-host `--run` and the original loopback self-test retain their narrow memory TUN.
 
 ## Scope and use
 

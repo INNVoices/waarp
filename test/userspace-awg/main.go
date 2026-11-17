@@ -314,6 +314,9 @@ func (b *udpBind) Open(port uint16) ([]conn.ReceiveFunc, uint16, error) {
 		sizes[0] = n
 		endpoints[0] = &udpEndpoint{remote: remote}
 		b.received.Add(1)
+		if b.observe != nil {
+			b.observe(packets[0][:n])
+		}
 		return 1, nil
 	}
 	return []conn.ReceiveFunc{receive}, uint16(socket.LocalAddr().(*net.UDPAddr).Port), nil
@@ -588,7 +591,22 @@ func main() {
 	timeout := flag.Duration("timeout", 20*time.Second, "Network phase timeout (1s to 30s)")
 	selfTest := flag.Bool("self-test", false, "Run synthetic AWG2 lifecycle checks using loopback UDP only")
 	hold := flag.Duration("hold", 0, "Hold successful self-test devices open for a bounded SIGKILL/restart experiment (0 to 60s)")
+	androidServer := flag.Bool("android-server", false, "Serve one ephemeral Android AWG2 test peer on loopback only")
+	androidPort := flag.Int("android-port", 18081, "Loopback TCP control and UDP AWG port for the Android acceptance fixture")
+	androidReport := flag.String("android-report", "", "Write only boolean/counter evidence after the Android fixture stops")
+	androidDuration := flag.Duration("android-duration", 30*time.Minute, "Android fixture lifetime (1m to 4h; use 3h for the two-hour release soak)")
 	flag.Parse()
+	if *androidServer {
+		if *path != "" || *network || *selfTest || *hold != 0 || *androidPort < 1024 || *androidPort > 65535 || *androidReport == "" || *androidDuration < time.Minute || *androidDuration > 4*time.Hour {
+			fmt.Println(`{"error_stage":"arguments","error_category":"invalid_android_fixture_arguments"}`)
+			os.Exit(2)
+		}
+		if err := executeAndroidServerFor(*androidPort, *androidReport, *androidDuration); err != nil {
+			fmt.Println(`{"error_stage":"android_fixture","error_category":"operation_failed"}`)
+			os.Exit(1)
+		}
+		return
+	}
 	if *selfTest {
 		if *path != "" || *network || *hold < 0 || *hold > 60*time.Second {
 			fmt.Println(`{"error_stage":"arguments","error_category":"self_test_requires_no_config_or_run_and_bounded_hold"}`)

@@ -1,0 +1,104 @@
+# Android 10 emulator preparation
+
+## Observed failure
+
+The native API 29 job in [Android run 43972704556](https://github.com/INNVoices/waarp/actions/runs/43972704556/job/133675629186), for source `db47709f5dcc7c88d0156b80d4938ec311d119a8`, failed before the Android test runner started. The other five short Android jobs passed; the two-hour soak was skipped. This run therefore did **not** approve the candidate.
+
+The retained [runtime archive](https://github.com/INNVoices/waarp/actions/runs/43972704556/artifacts/14280687144) is 31,680 bytes with SHA-256 `4bc2a0eefcb1c6c9c4c3d42a5c5dac8f68e1ce5ecaf4242b497a2c4360fc175d`. Its downloaded size, digest and all ZIP entry CRCs were checked before inspecting the evidence.
+
+The guest log establishes this sequence on 2026-11-16 (UTC):
+
+| Time | Evidence |
+| --- | --- |
+| 22:58:19.729 | `system_server` PID 1897 already reports a Java heap of `11MB/16MB`. |
+| 22:58:24.269–24.500 | `ConfigUpdater` installs downloaded system configuration updates. |
+| 22:58:24.631–24.665 | Allocations of approximately 3.9 MB fail at a growth limit of **16,777,216 bytes**. The stack ends in `ConfigUpdateInstallReceiver.getAltContent`, reading an update into a byte array. |
+| 22:58:24.666–24.670 | A fatal exception in the system process is followed by its SIGKILL. |
+| 22:58:24.868 | The shell Java process used for `am instrument` starts. |
+| 22:58:24.980–24.989 | That process encounters `DeadObjectException` in `startInstrumentation`, after ActivityManager has died. |
+
+The instrumentation result contains **zero tests**, not an empty successful suite. The AWG peer has no registered client or encrypted exchanges, and the HTTP fixture has no payload request. These are consequences of not reaching instrumentation, not evidence of a failed application DNS exchange.
+
+Guest `MemAvailable` was 777,952 KiB; host `MemAvailable` was 12,287,072 KiB. The fatal stack identifies a process heap limit, not global RAM exhaustion. The process-memory diagnostic contains a Binder error despite adb exit code zero and cannot be treated as a valid memory measurement. The broadcast queue was busy, but the saved evidence does not establish that observing it caused the OOM.
+
+## Source analysis and uncertainty
+
+The workflow already requests `heap-size: 512M`. The pinned emulator action writes `hw.heapSize=512M`, and this failed job prints `qemu.dalvik.vm.heapsize=512m` in its userspace boot properties. There is no evidence of a malformed `512Mm` value. Merely changing the unit suffix would not address the observed failure on that evidence.
+
+The relevant Android 10 sources show why a later property value alone does not prove the heap used by an existing VM:
+
+- [`AndroidRuntime.cpp`, Android 10 r47](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-10.0.0_r47/core/jni/AndroidRuntime.cpp) reads `dalvik.vm.heapsize` into `-Xmx` when starting the VM and defaults to **16m** if the property is absent.
+- [`init.rc`, Android 10 r47](https://github.com/aosp-mirror/platform_system_core/blob/android-10.0.0_r47/rootdir/init.rc) triggers `zygote-start` before the later `boot` action.
+- [Goldfish `init.ranchu.rc`, Android 10 GSI](https://android.googlesource.com/device/generic/goldfish/+/refs/heads/android10-gsi/init.ranchu.rc), blob `81bcc22705b94fd877d5bfd1683b249c72aacd39`, sets `dalvik.vm.heapsize` in `on boot`, first to a default and then from the kernel QEMU property.
+- [`SystemServer.java`, Android 10 r47](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-10.0.0_r47/services/java/com/android/server/SystemServer.java) calls `VMRuntime.clearGrowthLimit()`. Changing `dalvik.vm.heapgrowthlimit` is not justified by this failure.
+
+This source analysis supports an ordering explanation for a VM retaining the 16 MiB startup default. The failed CI run did **not** retain the actual guest property timeline or ART startup arguments, so the exact race in that system image is not established as an observed fact.
+
+## Deterministic preparation
+
+`scripts/android-emulator-prepare.py` makes the existing 512 MiB configuration explicit before starting a fresh framework on API 29. It runs once during disposable-device setup, before app installation and test traffic. The host-only HTTP fixture can already exist; it has no guest VM state.
+
+The helper requires explicit disposable-emulator authorization and verifies an emulator serial, QEMU/debuggable properties and API 29 before requesting root. It records the old framework identities and heap properties, stops the framework once, requires both applicable zygotes and `system_server` to be absent, sets and reads back `dalvik.vm.heapsize=512m` while those processes are absent, then starts the framework once. Acceptance requires new process identities and working ActivityManager/PackageManager Binder services within a bounded setup deadline. A leftover `sys.boot_completed=1` cannot establish readiness.
+
+The helper restores the original adb shell UID after preparation and checks that restoration. The preparation report preserves phase observations, shell identities and the property ordering. It does **not** label a property readback as a direct measurement of ART maximum heap: `actualRuntimeMaxHeapBytes` remains null. Failure of a guard, process transition, property check, Binder readiness or shell-identity restoration fails setup; it does not invoke a second framework restart or rerun an application test. Crash history is retained.
+
+The helper does not change the 2,048 MiB API 29 RAM setting, the existing 512 MiB heap budget, `dalvik.vm.heapgrowthlimit`, production app code, native core bytes, test assertions or test timeouts. API 35, API 36 and the soak do not use this restart. Fake-adb regression tests cover the guard and transition failures as well as the successful sequence; actual device evidence still requires the next full CI run.
+
+## Follow-up: process-name snapshots
+
+In [run 44024845939, native API 29](https://github.com/INNVoices/waarp/actions/runs/44024845939/job/133845679896), the planned stop/property/start sequence completed, but preparation rejected the first incomplete process-name snapshot after start. Three successive `pidof` calls observed `zygote=3787`, `zygote64=3784 3821`, and `system_server=3821`. The old framework processes were gone. This happened approximately 0.54 seconds into the existing 120-second readiness phase, before app installation or instrumentation.
+
+Separate process-name queries are not an atomic process snapshot. A forked zygote child initially inherits its parent's name; [Android 10 zygote specialization](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-10.0.0_r47/core/jni/com_android_internal_os_Zygote.cpp) changes the system-server thread name later. The observed overlap is therefore insufficient evidence of two persistent framework owners. The helper now treats multiple names or extra fork children as an incomplete snapshot and observes again within the same phase deadline. Persistent ambiguity still fails.
+
+Once a unique owner has been accepted, its PID must remain present under the same process name throughout Binder readiness, final checks and restoration of adb identity. A replacement or missing accepted owner fails immediately, even if extra children are also present. Reappearance of any old framework PID remains a failure. A duplicate PID within one `pidof` response is malformed evidence, not a retryable snapshot. No second root/stop/start sequence or new application-test attempt is added.
+
+The separate release API 29 job in the same run completed preparation in 8.966 seconds and restored the original shell UID; its later IME assertion failed for a different reason. See [the follow-up acceptance observations](ANDROID-ACCEPTANCE-READINESS.md). Neither result approves the candidate.
+
+## Follow-up: ADB identity restoration
+
+[Run 44028345222, native API 29](https://github.com/INNVoices/waarp/actions/runs/44028345222/job/133857540976) completed the guarded stop/property/start sequence and accepted unique new framework owners. The old PIDs were absent, `dalvik.vm.heapsize=512m` was observed before start, and both ActivityManager and PackageManager answered real Binder calls. The final `adb unroot` returned exit code 1 after approximately 46 ms, with exactly `adb: unable to connect for unroot: closed`. Preparation failed after 8.666 seconds, before app installation or tests. The report has `finalShellUid=null`; no later UID observation exists.
+
+The original archive is 4,234 bytes, SHA-256 `cf1c84ec5c6e82df40dfa6dcd5a4756b7bce0aad31b37bbde7bfefe44b2b5fbf`; its size, SHA-256 and every ZIP entry CRC were verified. The failure remains a failure. A closed transport alone cannot establish whether the requested identity change happened.
+
+In the pinned [Android 10 `restart_service.cpp`](https://android.googlesource.com/platform/system/core/+/1dea9a052b7f214c10a77d5ed6ffd3602722a817/adb/daemon/restart_service.cpp), the unroot service changes `service.adb.root` before writing its reply. The associated [`sockets.cpp`](https://android.googlesource.com/platform/system/core/+/1dea9a052b7f214c10a77d5ed6ffd3602722a817/adb/sockets.cpp) and [`daemon/main.cpp`](https://android.googlesource.com/platform/system/core/+/1dea9a052b7f214c10a77d5ed6ffd3602722a817/adb/daemon/main.cpp) explain the connection close and shell-UID restoration mechanism. The [ADB client](https://android.googlesource.com/platform/packages/modules/adb/+/1cf2f017d312f73b3dc53bda85ef2610e35a80e9/client/commandline.cpp) returns early if service connection fails, before its normal disconnect/reconnect wait. This source analysis supports an ambiguous transport outcome; the failed job did not record the host ADB version or a successful restoration.
+
+The correction preserves the raw exit code and issues `unroot` at most once. Only this exact exit-1/empty-stdout/`closed`-stderr outcome permits bounded, read-only reconnect and UID observations within the existing 30-second phase. Known transport closure/offline/device-not-found observations may remain pending; permission failures, unsupported errors and mutation timeouts still fail. No root, stop, start, property write or app test is repeated.
+
+Acceptance requires the original shell UID, fresh ActivityManager/PackageManager Binder calls through that restored identity, the same accepted framework PIDs with no old owners, and unchanged heap/growth-limit properties. A second UID read confirms the final identity. The new `shellIdentityRestoration` object records the original command outcome, observations and all postconditions; it is marked verified only after every check succeeds. Original-UID-0 devices issue no `unroot` and still require fresh postconditions. Offline regression fixtures cover both branches, ambiguous closure, generic errors, persistent root, Binder failure and process replacement. Actual CI evidence is still mandatory.
+
+## Follow-up: preserve diagnostics when preparation fails
+
+In [run 44058621038, release API 29](https://github.com/INNVoices/waarp/actions/runs/44058621038/job/133961309323), preparation failed before app installation or guest AWG startup. The retained [artifact 14317458362](https://github.com/INNVoices/waarp/actions/runs/44058621038/artifacts/14317458362) records this sequence:
+
+| Preparation time | Observation |
+| --- | --- |
+| 9.904–9.960 s | The old named processes and `/proc/1664`, `/proc/1665`, `/proc/1919` were absent. |
+| 9.962–10.047 s | `dalvik.vm.heapsize=512m` was set and read back before new framework processes appeared. |
+| 10.048 s | The one planned `start` command was issued. |
+| 10.898–10.935 s | A unique name snapshot identified `zygote=3394`, `zygote64=3393`, `system_server=3443`. |
+| 10.953–10.986 s | Both actual Binder commands returned exit code 224 and `Broken pipe (32)`. |
+| 10.985–11.033 s | `pidof` still found `zygote=3394`, but no `zygote64` or `system_server` name. |
+
+This evidence proves a failed readiness check, not the underlying crash mechanism. There is no subsequent `/proc` identity check for PIDs 3393/3443, so a missing process name is not independent proof that the numeric process died. The original guard also observed extra zygote-name PIDs 2740 and 2965; fork specialization is a possible explanation, not an observed identity timeline. The old 16 MiB OOM diagnosis from another run must not be assigned to this failure without its crash/VM evidence.
+
+The [same run's native API 29 preparation](https://github.com/INNVoices/waarp/actions/runs/44058621038/artifacts/14317663091) completed in 15.543 seconds with fresh PIDs 4076/4073/4108, both Binder probes ready and shell UID 2000 restored; it recorded 19 incomplete name snapshots. That observation demonstrates that this preparation can succeed on the same source. It does not identify the cause of the failed release job or approve the candidate.
+
+The failure report was returned at 10:01:05.707 UTC and the action requested emulator termination at 10:01:05.716 UTC. Consequently, later workflow artifact steps had no live guest from which to obtain a crash log. The concrete correction is to collect diagnostics **inside the failed preparation**, after saving the permanent failure and before returning to the action. It does not retry readiness or replace the failed result.
+
+The failed-only collector has a separate **12-second command budget**, with at most two seconds per read-only command. Existing preparation phase budgets remain unchanged. It first reads `/proc/<accepted-pid>/stat` even when name lookup no longer finds that owner, then captures the crash/recent logcat buffers, bounded kernel output, process names/command lines, properties, memory/uptime, accepted-PID status/command lines, and relevant system-server DropBox entries. Snapshots are sequential observations, not an atomic process-identity proof. No new owner can become accepted during diagnostics.
+
+Raw stdout and stderr are saved separately under `emulator-preparation-diagnostics/`, including empty outputs and errors, with exact command, exit code, elapsed time, byte count and SHA-256. Each output stream has an explicit cap of at most 1 MiB enforced by the host process's file-size limit; reaching the cap is visible. Timeouts and unattempted commands after deadline exhaustion remain explicit. Unsupported commands, missing `/proc` paths, unavailable Binder services or collector exceptions cannot erase the original preparation error. Existing raw bundles are preserved. A failed guest guard produces no diagnostic device access; a successful preparation runs no failure collector.
+
+The command behavior is grounded in Android 10 r47 primary sources:
+
+- [Toybox `pidof.c`](https://android.googlesource.com/platform/external/toybox/+/refs/tags/android-10.0.0_r47/toys/lsb/pidof.c) delegates name matching to [`names_to_pid`](https://android.googlesource.com/platform/external/toybox/+/refs/tags/android-10.0.0_r47/lib/lib.c). Name matching is not an immutable owner-lifetime record.
+- [Zygote specialization and child handling](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-10.0.0_r47/core/jni/com_android_internal_os_Zygote.cpp) sets the system-server name and logs child termination. Zygote can terminate when its system-server child terminates; that is a possible mechanism to investigate from future raw logs, not a proved explanation for this run.
+- [`logcat.cpp`](https://github.com/aosp-mirror/platform_system_core/blob/android-10.0.0_r47/logcat/logcat.cpp) defines bounded recent output with `-t`, and [`dmesg.c`](https://android.googlesource.com/platform/external/toybox/+/refs/tags/android-10.0.0_r47/toys/lsb/dmesg.c) supports a sized read of the kernel buffer. Neither dump clears history.
+- [`DropBoxManagerService.java`](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-10.0.0_r47/services/core/java/com/android/server/DropBoxManagerService.java) supports printing entries filtered by a tag. Each tag is requested separately because multiple filters are conjunctive; a dead system server may make this evidence unavailable.
+- The first-hand [emulator-runner issue 264](https://github.com/ReactiveCircus/android-emulator-runner/issues/264) describes a different API 29 startup-heap race. It supports investigating VM startup evidence, not guessing that every later Binder failure has that cause.
+
+Offline fixtures preserve the actual run11 PID/code/message pattern while explicitly labeling their new diagnostic bytes as synthetic. They verify that an apparently successful later diagnostic observation cannot turn the failure into readiness, that the original error survives timeouts/collector errors, that the diagnostic deadline cannot extend a preparation phase, and that raw bytes, hashes and output caps are preserved. Real guest diagnostic evidence remains pending a new run; the old failed artifact remains unchanged.
+
+## Approval remains separate
+
+Correct preparation is a prerequisite, not a stability result. The candidate must still pass the source-built native regressions and exact binary pins, APK/JVM/lint verification, all six short Android jobs, the complete two-hour optimized-release AWG2 soak, and desktop regression gates. The acceptance criteria and physical-device limitations remain in [ANDROID.md](ANDROID.md).

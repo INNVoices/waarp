@@ -1,0 +1,439 @@
+diff --git a/dns/transport/conn_pool.go b/dns/transport/conn_pool.go
+--- a/dns/transport/conn_pool.go
++++ b/dns/transport/conn_pool.go
+@@ -2,6 +2,7 @@
+ 
+ import (
+ 	"context"
++	"errors"
+ 	"net"
+ 	"sync"
+ 
+@@ -10,6 +11,15 @@
+ 	"golang.org/x/sync/semaphore"
+ )
+ 
++// A reset retires one generation but leaves the pool usable. Keep errors.Is
++// compatibility with net.ErrClosed while distinguishing it from terminal Close.
++type connPoolResetError struct{}
++
++func (*connPoolResetError) Error() string { return "DNS connection pool reset" }
++func (*connPoolResetError) Unwrap() error { return net.ErrClosed }
++
++var errConnPoolReset = &connPoolResetError{}
++
+ type ConnPoolMode int
+ 
+ const (
+@@ -19,6 +29,9 @@
+ 
+ type ConnPoolOptions[T comparable] struct {
+ 	Mode ConnPoolMode
++	// ReturnResetErrors lets a caller own one retry budget across both pending
++	// queries and in-progress shared dials. Other users retain transparent reacquisition.
++	ReturnResetErrors bool
+ 	// MaxInflight caps concurrent in-progress dials. Only honored in ConnPoolOrdered mode.
+ 	MaxInflight int
+ 	IsAlive     func(T) bool
+@@ -233,7 +246,7 @@
+ 	p.state = newConnPoolState[T](p.options.Mode)
+ 	p.access.Unlock()
+ 
+-	p.closeState(oldState, net.ErrClosed)
++	p.closeState(oldState, errConnPoolReset)
+ }
+ 
+ func (p *ConnPool[T]) Close() error {
+@@ -318,8 +331,8 @@
+ 	}
+ 	if p.state != current {
+ 		p.access.Unlock()
+-		p.options.Close(conn, net.ErrClosed)
+-		return zero, false, net.ErrClosed
++		p.options.Close(conn, errConnPoolReset)
++		return zero, false, errConnPoolReset
+ 	}
+ 	current.all[conn] = struct{}{}
+ 	p.installedLx(current, ctx, conn) // lx: SPEC 139
+@@ -333,6 +346,9 @@
+ 	}
+ 	var zero T
+ 	for {
++		if ctx.Err() != nil {
++			return zero, nil, false, context.Cause(ctx)
++		}
+ 		p.access.Lock()
+ 		if p.closed {
+ 			p.access.Unlock()
+@@ -389,6 +405,12 @@
+ 			if closed {
+ 				return zero, nil, false, net.ErrClosed
+ 			}
++			if p.options.ReturnResetErrors {
++				if ctx.Err() != nil {
++					return zero, nil, false, context.Cause(ctx)
++				}
++				return zero, nil, false, errConnPoolReset
++			}
+ 		}
+ 	}
+ }
+@@ -421,7 +443,7 @@
+ 		closeErr = net.ErrClosed
+ 		state.err = closeErr
+ 	} else if p.state != current {
+-		closeErr = net.ErrClosed
++		closeErr = errConnPoolReset
+ 		state.err = closeErr
+ 	} else {
+ 		sharedCtx, sharedCancel := context.WithCancelCause(current.ctx)
+@@ -447,8 +469,12 @@
+ 	current.sharedWaiters--
+ 	if state.err != nil {
+ 		err := state.err
++		closed := p.closed
+ 		p.access.Unlock()
+-		if startDial {
++		if closed {
++			return zero, nil, false, false, net.ErrClosed
++		}
++		if startDial || p.options.ReturnResetErrors && errors.Is(err, errConnPoolReset) {
+ 			return zero, nil, false, false, err
+ 		}
+ 		return zero, nil, false, true, nil
+@@ -459,7 +485,7 @@
+ 	}
+ 	if p.state != current {
+ 		p.access.Unlock()
+-		return zero, nil, false, false, net.ErrClosed
++		return zero, nil, false, false, errConnPoolReset
+ 	}
+ 	if !current.hasShared {
+ 		p.access.Unlock()
+diff --git a/dns/transport/multiplexer.go b/dns/transport/multiplexer.go
+--- a/dns/transport/multiplexer.go
++++ b/dns/transport/multiplexer.go
+@@ -35,6 +35,7 @@
+ 	readNext       func(conn net.Conn) (*mDNS.Msg, error)
+ 	retryReadError bool
+ 	probeReuse     bool
++	returnResetErrors bool
+ }
+ 
+ type queryMultiplexer struct {
+@@ -87,6 +88,7 @@
+ 		queries: make(map[uint16]*pendingQuery),
+ 		connection: NewConnPool(ConnPoolOptions[*multiplexConn]{
+ 			Mode: ConnPoolSingle,
++			ReturnResetErrors: options.returnResetErrors,
+ 			IsAlive: func(conn *multiplexConn) bool {
+ 				return conn != nil
+ 			},
+@@ -322,7 +324,7 @@
+ 		if created {
+ 			go m.recvLoop(conn)
+ 		}
+-		queryId, err := m.register(ctx, connCtx, conn, message, callback, retryReadError && m.options.retryReadError && !created)
++		queryId, registered, err := m.register(ctx, connCtx, conn, message, callback, retryReadError && m.options.retryReadError && !created)
+ 		if err != nil {
+ 			m.connection.Release(conn, true)
+ 			m.closeIdleConnection()
+@@ -333,12 +335,12 @@
+ 		if writeErr == nil {
+ 			return
+ 		}
+-		pending := m.take(queryId)
+-		m.connection.Invalidate(conn, writeErr)
++		pending := m.take(queryId, conn, registered)
+ 		if pending == nil {
+ 			return
+ 		}
+-		if !created && firstAttempt {
++		m.connection.Invalidate(conn, writeErr)
++		if !created && firstAttempt && !m.options.returnResetErrors {
+ 			continue
+ 		}
+ 		callback(nil, E.Cause(writeErr, "write request"))
+@@ -354,7 +356,7 @@
+ 	return &multiplexConn{Conn: conn}, nil
+ }
+ 
+-func (m *queryMultiplexer) register(ctx context.Context, connCtx context.Context, conn *multiplexConn, message *mDNS.Msg, callback func(response *mDNS.Msg, err error), retryReadError bool) (uint16, error) {
++func (m *queryMultiplexer) register(ctx context.Context, connCtx context.Context, conn *multiplexConn, message *mDNS.Msg, callback func(response *mDNS.Msg, err error), retryReadError bool) (uint16, *pendingQuery, error) {
+ 	m.queryAccess.Lock()
+ 	defer m.queryAccess.Unlock()
+ 	start := m.queryId
+@@ -364,7 +366,7 @@
+ 			break
+ 		}
+ 		if m.queryId == start {
+-			return 0, E.New("no available query ID")
++			return 0, nil, E.New("no available query ID")
+ 		}
+ 	}
+ 	queryId := m.queryId
+@@ -379,16 +381,16 @@
+ 	}
+ 	m.queries[queryId] = pending
+ 	pending.stopContext = context.AfterFunc(ctx, func() {
+-		m.completeContextDone(queryId, ctx)
++		m.completeContextDone(queryId, ctx, pending)
+ 	})
+ 	pending.stopConn = context.AfterFunc(connCtx, func() {
+-		m.completeConnDone(queryId, connCtx)
++		m.completeConnDone(queryId, connCtx, pending)
+ 	})
+-	return queryId, nil
++	return queryId, pending, nil
+ }
+ 
+-func (m *queryMultiplexer) completeConnDone(queryId uint16, connCtx context.Context) {
+-	pending := m.take(queryId)
++func (m *queryMultiplexer) completeConnDone(queryId uint16, connCtx context.Context, expected *pendingQuery) {
++	pending := m.take(queryId, expected.conn, expected)
+ 	if pending == nil {
+ 		return
+ 	}
+@@ -401,10 +403,13 @@
+ 	pending.callback(nil, connErr)
+ }
+ 
+-func (m *queryMultiplexer) take(queryId uint16) *pendingQuery {
++func (m *queryMultiplexer) take(queryId uint16, conn *multiplexConn, expected *pendingQuery) *pendingQuery {
+ 	m.queryAccess.Lock()
+ 	pending, loaded := m.queries[queryId]
+-	if !loaded {
++	// Responses must belong to this connection; per-query completion paths
++	// must also belong to this exact query, even if its wire ID is reused on
++	// the same connection while an old callback or writer is still running.
++	if !loaded || pending.conn != conn || expected != nil && pending != expected {
+ 		m.queryAccess.Unlock()
+ 		return nil
+ 	}
+@@ -415,8 +420,8 @@
+ 	return pending
+ }
+ 
+-func (m *queryMultiplexer) complete(queryId uint16, response *mDNS.Msg, err error, releaseConn bool) {
+-	pending := m.take(queryId)
++func (m *queryMultiplexer) complete(conn *multiplexConn, queryId uint16, response *mDNS.Msg, err error, releaseConn bool) {
++	pending := m.take(queryId, conn, nil)
+ 	if pending == nil {
+ 		return
+ 	}
+@@ -430,8 +435,8 @@
+ 	m.closeIdleConnection()
+ }
+ 
+-func (m *queryMultiplexer) completeContextDone(queryId uint16, ctx context.Context) {
+-	pending := m.take(queryId)
++func (m *queryMultiplexer) completeContextDone(queryId uint16, ctx context.Context, expected *pendingQuery) {
++	pending := m.take(queryId, expected.conn, expected)
+ 	if pending == nil {
+ 		return
+ 	}
+@@ -457,6 +462,6 @@
+ 		if message == nil {
+ 			continue
+ 		}
+-		m.complete(message.Id, message, nil, true)
++		m.complete(conn, message.Id, message, nil, true)
+ 	}
+ }
+diff --git a/dns/transport/udp.go b/dns/transport/udp.go
+--- a/dns/transport/udp.go
++++ b/dns/transport/udp.go
+@@ -2,7 +2,9 @@
+ 
+ import (
+ 	"context"
++	"errors"
+ 	"net"
++	"sync"
+ 	"sync/atomic"
+ 
+ 	"github.com/sagernet/sing-box/adapter"
+@@ -31,6 +33,10 @@
+ 	dns.RegisterTransport[option.RemoteDNSServerOptions](registry, C.DNSTypeUDP, NewUDP)
+ }
+ 
++// A handover can retire the first replacement connection as well. Keep the
++// replay budget small and share the original query context/deadline.
++const udpConnectionResetRetries = 2
++
+ type UDPTransport struct {
+ 	dns.TransportAdapter
+ 	logger logger.ContextLogger
+@@ -40,6 +46,11 @@
+ 	udpSize    atomic.Int32
+ 
+ 	multiplexer *queryMultiplexer
++
++	closed      atomic.Bool
++	closeCtx    context.Context
++	closeCancel context.CancelFunc
++	dialAccess  sync.RWMutex
+ }
+ 
+ func NewUDP(ctx context.Context, logger log.ContextLogger, tag string, options option.RemoteDNSServerOptions) (adapter.DNSTransport, error) {
+@@ -64,10 +75,11 @@
+ 		dialer:           dialerInstance,
+ 		serverAddr:       serverAddr,
+ 	}
++	t.closeCtx, t.closeCancel = context.WithCancel(context.Background())
+ 	t.udpSize.Store(2048)
+ 	t.multiplexer = newQueryMultiplexer(queryMultiplexerOptions{
+ 		dial: func(ctx context.Context) (net.Conn, error) {
+-			conn, err := t.dialer.DialContext(ctx, N.NetworkUDP, t.serverAddr)
++			conn, err := t.dialContext(ctx, N.NetworkUDP)
+ 			if err != nil {
+ 				return nil, E.Cause(err, "dial UDP connection")
+ 			}
+@@ -75,6 +87,7 @@
+ 		},
+ 		write:    t.writeQuery,
+ 		readNext: t.readResponse,
++		returnResetErrors: true,
+ 	})
+ 	return t
+ }
+@@ -83,7 +96,7 @@
+ 	if stage != adapter.StartStateStart {
+ 		return nil
+ 	}
+-	scope.Add(t.multiplexer.Close)
++	scope.Add(t.close)
+ 	return dialer.InitializeDetour(t.dialer)
+ }
+ 
+@@ -99,27 +112,103 @@
+ 	t.multiplexer.CloseIdleConnections()
+ }
+ 
+-func (t *UDPTransport) Exchange(ctx context.Context, message *mDNS.Msg) (*mDNS.Msg, error) {
+-	t.updateUDPSize(message)
+-	response, err := t.multiplexer.Exchange(ctx, message)
+-	if err != nil {
+-		return nil, err
++// close cancels exchanges before waiting for their dialers. A dial which won
++// the race with close is canceled and joined; no dial starts after close returns.
++func (t *UDPTransport) close() error {
++	t.closed.Store(true)
++	t.closeCancel()
++	err := t.multiplexer.Close()
++	t.dialAccess.Lock()
++	t.dialAccess.Unlock()
++	return err
++}
++
++func (t *UDPTransport) dialContext(ctx context.Context, network string) (net.Conn, error) {
++	t.dialAccess.RLock()
++	defer t.dialAccess.RUnlock()
++	if t.closed.Load() {
++		return nil, net.ErrClosed
+ 	}
+-	if response.Truncated {
+-		t.logger.InfoContext(ctx, "response truncated, retrying with TCP")
+-		return t.exchangeTCP(ctx, message)
++	if ctx.Err() != nil {
++		return nil, context.Cause(ctx)
+ 	}
+-	return response, nil
++	conn, err := t.dialer.DialContext(ctx, network, t.serverAddr)
++	if t.closed.Load() {
++		if conn != nil {
++			conn.Close()
++		}
++		return nil, net.ErrClosed
++	}
++	if ctx.Err() != nil {
++		if conn != nil {
++			conn.Close()
++		}
++		return nil, context.Cause(ctx)
++	}
++	return conn, err
+ }
+ 
++func (t *UDPTransport) Exchange(ctx context.Context, message *mDNS.Msg) (*mDNS.Msg, error) {
++	done := make(chan struct{})
++	var response *mDNS.Msg
++	var err error
++	t.ExchangeAsync(ctx, message, func(result *mDNS.Msg, resultErr error) {
++		response, err = result, resultErr
++		close(done)
++	})
++	<-done
++	return response, err
++}
++
+ func (t *UDPTransport) ExchangeAsync(ctx context.Context, message *mDNS.Msg, callback func(response *mDNS.Msg, err error)) {
++	if t.closed.Load() {
++		callback(nil, net.ErrClosed)
++		return
++	}
++	// Derive cancellation only: every replay keeps the caller's deadline.
++	queryCtx, cancel := context.WithCancelCause(ctx)
++	stopClose := context.AfterFunc(t.closeCtx, func() { cancel(net.ErrClosed) })
+ 	t.updateUDPSize(message)
++	t.exchangeAttempt(queryCtx, message, udpConnectionResetRetries, func(response *mDNS.Msg, err error) {
++		stopClose()
++		if t.closed.Load() {
++			response, err = nil, net.ErrClosed
++		} else if queryCtx.Err() != nil {
++			response, err = nil, context.Cause(queryCtx)
++		}
++		cancel(nil)
++		callback(response, err)
++	})
++}
++
++func (t *UDPTransport) exchangeAttempt(ctx context.Context, message *mDNS.Msg, retries int, callback func(response *mDNS.Msg, err error)) {
++	if t.closed.Load() {
++		callback(nil, net.ErrClosed)
++		return
++	}
++	if ctx.Err() != nil {
++		callback(nil, context.Cause(ctx))
++		return
++	}
+ 	t.multiplexer.ExchangeAsync(ctx, message, func(response *mDNS.Msg, err error) {
++		if t.closed.Load() {
++			callback(nil, net.ErrClosed)
++			return
++		}
++		if ctx.Err() != nil {
++			callback(nil, context.Cause(ctx))
++			return
++		}
++		// Reset has its own cause; a tracked socket can also close before the
++		// DNS pool is reset. Terminal transport close is fenced above. Do not
++		// replay timeouts, arbitrary network errors, or failed DNS responses.
++		if retries > 0 && errors.Is(err, net.ErrClosed) {
++			t.exchangeAttempt(ctx, message, retries-1, callback)
++			return
++		}
+ 		if err == nil && response.Truncated {
+ 			t.logger.InfoContext(ctx, "response truncated, retrying with TCP")
+-			go func() {
+-				callback(t.exchangeTCP(ctx, message))
+-			}()
++			go func() { callback(t.exchangeTCP(ctx, message)) }()
+ 			return
+ 		}
+ 		callback(response, err)
+@@ -174,11 +263,13 @@
+ }
+ 
+ func (t *UDPTransport) exchangeTCP(ctx context.Context, message *mDNS.Msg) (*mDNS.Msg, error) {
+-	conn, err := t.dialer.DialContext(ctx, N.NetworkTCP, t.serverAddr)
++	conn, err := t.dialContext(ctx, N.NetworkTCP)
+ 	if err != nil {
+ 		return nil, E.Cause(err, "dial TCP connection")
+ 	}
+ 	defer conn.Close()
++	stopContext := context.AfterFunc(ctx, func() { conn.Close() })
++	defer stopContext()
+ 	defer setConnDeadline(ctx, conn, deadline.NeedAdditionalReadDeadline(conn))()
+ 	err = WriteMessage(conn, message.Id, message)
+ 	if err != nil {

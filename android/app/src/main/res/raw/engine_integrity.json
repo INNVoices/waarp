@@ -1,0 +1,39 @@
+{
+  "bytes": 249431020,
+  "goVersion": "go1.26.10",
+  "license": "GPL-3.0-or-later",
+  "nativeDependencyCount": 112,
+  "nativeLibraries": {
+    "arm64-v8a": {
+      "bytes": 84200336,
+      "elfBits": 64,
+      "sha256": "86ae4dd5feb19f1c5132df0ae3244fff10ca5e88c341d0c90cef485c9ec77a3d"
+    },
+    "armeabi-v7a": {
+      "bytes": 75747184,
+      "elfBits": 32,
+      "sha256": "a5dcd3962680dba99be695257085b073a3311cbfd0ef4fbcc5e3cd2413c33137"
+    },
+    "x86_64": {
+      "bytes": 88988704,
+      "elfBits": 64,
+      "sha256": "1a65b12a32cefcdaf3a88169fe818a3e896c2be4f048aae13e8c857d75cb7f9c"
+    }
+  },
+  "packagedAbis": [
+    "arm64-v8a",
+    "armeabi-v7a",
+    "x86_64"
+  ],
+  "project": "Leadaxe/sing-box-lx",
+  "schemaVersion": 1,
+  "sha256": "562afef9bcdbb37bc6069cdc247f821324d5be3471242f6eee136ff3883f2fb7",
+  "sourceBuild": {
+    "canonicalArchive": "zip-stored-sorted-1980-v1",
+    "classesJarSha256": "d15ef5430296ec0315486cc3bba108660a77bf09b35a2b47c65f4345c6e51302",
+    "inputsSha256": "b9eecf6fd8b9584b1da6c09989945a3398ab78ca9750f939235d421d083e01db",
+    "manifest": "android/native-source.json"
+  },
+  "sourceCommit": "f1bac271853eaf13398ce1030c948aebc3aed2e1",
+  "version": "1.14.4-lx.35-waarp.1"
+}

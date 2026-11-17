@@ -1,0 +1,26 @@
+diff --git a/src/emulator-manager.ts b/src/emulator-manager.ts
+--- a/src/emulator-manager.ts
++++ b/src/emulator-manager.ts
+@@ -97,7 +97,8 @@
+
+     // wait for emulator to complete booting
+     await waitForDevice(port, emulatorBootTimeout);
+-    await adb(port, `shell input keyevent 82`);
++    // Waarp: dismiss the keyguard without injecting input into a booting Activity.
++    await adb(port, `shell wm dismiss-keyguard`);
+
+     if (disableAnimations) {
+       console.log('Disabling animations.');
+diff --git a/lib/emulator-manager.js b/lib/emulator-manager.js
+--- a/lib/emulator-manager.js
++++ b/lib/emulator-manager.js
+@@ -103,7 +103,8 @@
+         });
+         // wait for emulator to complete booting
+         await waitForDevice(port, emulatorBootTimeout);
+-        await adb(port, `shell input keyevent 82`);
++        // Waarp: dismiss the keyguard without injecting input into a booting Activity.
++        await adb(port, `shell wm dismiss-keyguard`);
+         if (disableAnimations) {
+             console.log('Disabling animations.');
+             await adb(port, `shell settings put global window_animation_scale 0.0`);

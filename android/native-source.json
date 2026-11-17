@@ -1,0 +1,128 @@
+{
+  "androidAPI": 24,
+  "buildTags": [
+    "with_gvisor",
+    "with_quic",
+    "with_wireguard",
+    "with_utls",
+    "with_naive_outbound",
+    "badlinkname",
+    "tfogo_checklinkname0",
+    "with_xhttp",
+    "with_awg",
+    "with_lx_command",
+    "with_lx_chain",
+    "with_lx_idle_suspend",
+    "with_openvpn",
+    "with_openconnect",
+    "with_trusttunnel",
+    "with_tailscale",
+    "ts_omit_logtail",
+    "ts_omit_ssh",
+    "ts_omit_drive",
+    "ts_omit_taildrop",
+    "ts_omit_webclient",
+    "ts_omit_doctor",
+    "ts_omit_capture",
+    "ts_omit_kube",
+    "ts_omit_aws",
+    "ts_omit_synology",
+    "ts_omit_bird"
+  ],
+  "canonicalArchive": "zip-stored-sorted-1980-v1",
+  "linkerFlags": [
+    "-X github.com/sagernet/sing-box/constant.Version=1.14.4-lx.35-waarp.1",
+    "-X runtime.godebugDefault=multipathtcp=0,tlssha1=1",
+    "-checklinkname=0",
+    "-s",
+    "-w",
+    "-buildid="
+  ],
+  "nativeDependencyCount": 112,
+  "nativeTests": {
+    "expectedTopLevelTests": 14,
+    "linkerFlags": "-checklinkname=0",
+    "requiredSubtests": [
+      "TestWaarpUDPResetPendingQuery/sync",
+      "TestWaarpUDPResetPendingQuery/async",
+      "TestWaarpUDPResetBudgetIsBounded/pending-resets",
+      "TestWaarpUDPResetBudgetIsBounded/cached-write-errors"
+    ],
+    "tags": [
+      "with_gvisor",
+      "with_quic",
+      "with_dhcp",
+      "with_wireguard",
+      "with_utls",
+      "with_clash_api",
+      "with_naive_outbound",
+      "with_purego",
+      "badlinkname",
+      "tfogo_checklinkname0",
+      "with_openvpn",
+      "with_openconnect",
+      "with_tailscale",
+      "with_xhttp",
+      "with_awg",
+      "with_lx_command",
+      "with_lxd",
+      "with_lx_chain"
+    ],
+    "upstreamRecipe": "https://github.com/Leadaxe/sing-box-lx/blob/f1bac271853eaf13398ce1030c948aebc3aed2e1/.github/workflows/lx-ci.yml"
+  },
+  "packagedAbis": [
+    "arm64-v8a",
+    "armeabi-v7a",
+    "x86_64"
+  ],
+  "patch": {
+    "bytes": 13386,
+    "path": "android/native-patches/dns-transient-reset.patch",
+    "sha256": "45ca7a20033583e3905105e6ebaa7671936a77137ad3cd462e0cb727102455ee",
+    "targets": [
+      "dns/transport/conn_pool.go",
+      "dns/transport/multiplexer.go",
+      "dns/transport/udp.go"
+    ]
+  },
+  "regressionTest": {
+    "bytes": 27798,
+    "destination": "dns/transport/dns_recovery_waarp_test.go",
+    "path": "android/native-patches/dns_recovery_waarp_test.go",
+    "sha256": "28140bfde4b362b1ce97f5955ce223ef5506538f8d7c8b9abe18ff3141e04afb"
+  },
+  "schemaVersion": 1,
+  "source": {
+    "commit": "f1bac271853eaf13398ce1030c948aebc3aed2e1",
+    "repository": "Leadaxe/sing-box-lx",
+    "submodules": {
+      "submodules/gvisor": {
+        "commit": "117243aa02fa2915cb53d1d4549bfca3a3ebf238",
+        "repository": "Leadaxe/gvisor-lx"
+      },
+      "submodules/sing-tun": {
+        "commit": "513871512fb32c6418b0cbd13daa4f19147be400",
+        "repository": "Leadaxe/sing-tun-lx"
+      },
+      "submodules/utls": {
+        "commit": "5b1d579d14864b13e142c3567ddfd4fcd320bf57",
+        "repository": "Leadaxe/utls-lx"
+      },
+      "submodules/wireguard-go": {
+        "commit": "3ed047160c1454c513ddeacbf387daf3d480ff6d",
+        "repository": "Leadaxe/wireguard-go-awg2-lx"
+      }
+    }
+  },
+  "tools": {
+    "androidJarSha256": "d9eb9da824d9e247a352f570f01e1169e725b2954bca9e283a71786c59b59f9a",
+    "goVersion": "go1.26.10",
+    "gomobileCommit": "9f03b8f25789099c5c8abef4a02085da783ba923",
+    "gomobileVersion": "v0.1.13",
+    "javaVendor": "Temurin",
+    "javaVersion": "17.0.21+9",
+    "ndkVersion": "28.2.13676358",
+    "sdkPlatform": 36
+  },
+  "version": "1.14.4-lx.35-waarp.1"
+}

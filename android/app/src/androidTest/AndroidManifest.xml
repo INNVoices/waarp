@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <application android:usesCleartextTraffic="true">
+        <!-- Separate test APK/UID: requests really traverse Waarp's per-app VPN router. -->
+        <activity android:name="local.waarp.android.core.ProbeActivity"
+            android:exported="true" android:excludeFromRecents="true" />
+    </application>
+</manifest>
