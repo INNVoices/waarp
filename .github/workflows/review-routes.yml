@@ -1,0 +1,47 @@
+name: Route switch audit (temporary)
+on:
+  push:
+    paths: ['.github/workflows/review-routes.yml']
+permissions:
+  contents: read
+jobs:
+  desktop:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: bc0061d689e7bbc53222609aa76d45c9653fd269
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - run: python scripts/review-route-pass.py
+      - run: git diff --check
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run engine:fetch
+      - run: npm test
+      - run: npm run check
+      - run: npm run build
+      - run: npm run test:performance
+      - name: Preserve exact validated source objects without changing refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          for path in json.loads(Path('out/route-pass-files.json').read_text(encoding='utf-8')):
+              data = {'content': Path(path).read_text(encoding='utf-8'), 'encoding':'utf-8'}
+              result = subprocess.run(['gh','api','repos/'+os.environ['GITHUB_REPOSITORY']+'/git/blobs','--method','POST','--input','-'],input=json.dumps(data),encoding='utf-8',capture_output=True)
+              if result.returncode: raise RuntimeError(result.stderr)
+              print('ROUTE_FILE', path, json.loads(result.stdout)['sha'], flush=True)
+          PY
