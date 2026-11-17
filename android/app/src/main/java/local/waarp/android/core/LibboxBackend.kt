@@ -2,6 +2,8 @@
 package local.waarp.android.core
 
 import android.net.VpnService
+import android.util.Log
+import local.waarp.android.BuildConfig
 import io.nekohasekai.libbox.CommandClient
 import io.nekohasekai.libbox.CommandClientHandler
 import io.nekohasekai.libbox.CommandClientOptions
@@ -287,6 +289,7 @@ internal class LibboxBackend(
 
     private inner class Handler(private val epoch: Long) : CommandClientHandler {
         private val accumulator = Connections()
+        private val ansi = Regex("\u001B\\[[0-9;]*m")
         private fun accept(): Boolean = current() && epoch == streamEpoch.get() && !recovery.hasFailed(epoch)
         // These Go interfaces have no error result. A thrown exception would abort ART/JNI.
         private inline fun callback(block: () -> Unit) {
@@ -303,6 +306,11 @@ internal class LibboxBackend(
         override fun writeLogs(messageList: LogIterator?) = callback {
             val entries = mutableListOf<Pair<Int, String>>()
             if (messageList != null) while (messageList.hasNext()) messageList.next().let { entries += it.level to it.message }
+            // Debug builds mirror the engine log to logcat so a phone can be traced over adb.
+            if (BuildConfig.DEBUG) entries.forEach { (level, message) ->
+                val priority = when { level <= 2 -> Log.ERROR; level == 3 -> Log.WARN; level == 4 -> Log.INFO; else -> Log.DEBUG }
+                Log.println(priority, "waarp-core", message.replace(ansi, ""))
+            }
             publish(epoch) { entries.takeLast(500).forEach { RuntimeState.appendLog(it.first, it.second) } }
         }
         override fun writeStatus(message: StatusMessage?) = callback {

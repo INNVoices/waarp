@@ -30,7 +30,7 @@ export const TCP = `vless://${UUID}@1.2.3.4:8443?type=tcp&security=reality&pbk=$
   eq(f.version, 'VLESS · REALITY · XHTTP', 'version label')
 
   const min = parseVless(`vless://${UUID}@[2001:db8::1]:443?security=reality&pbk=${PBK}&sni=a.com`)
-  eq([min.vless.server, min.vless.network, min.vless.fp, min.vless.sid, min.vless.flow], ['2001:db8::1', 'tcp', 'firefox', '', undefined], 'minimal: defaults, no guessed flow')
+  eq([min.vless.server, min.vless.network, min.vless.fp, min.vless.sid, min.vless.flow], ['2001:db8::1', 'tcp', 'ios', '', undefined], 'minimal: defaults, no guessed flow')
   eq(min.name, 'Сервер', 'fallback name')
   const plain = parseVless(`vless://${UUID}@h.com:80`)
   eq(plain.vless.security, 'none', 'plain security')
@@ -189,7 +189,7 @@ export const TCP = `vless://${UUID}@1.2.3.4:8443?type=tcp&security=reality&pbk=$
   // ---- network-scoped tune (E3)
   const vs = variants(base)
   ok(vs.length > 0 && vs.length <= TUNE_MAX_VARIANTS, 'a bounded set of variants')
-  ok(vs.every(v => !v.patch.fp || ['firefox', 'chrome', 'safari'].includes(v.patch.fp)) && !vs.some(v => v.patch.fp === base.vless.fp), 'only supported fingerprints, never the current one again')
+  ok(vs.every(v => !v.patch.fp || ['ios', 'edge', 'firefox', 'chrome', 'safari'].includes(v.patch.fp)) && !vs.some(v => v.patch.fp === base.vless.fp), 'only supported fingerprints, never the current one again')
   const tunedOut = vlessOutbound(applyTune(base, { fp: 'safari', recordFragment: true }) as typeof base, 'p') as any
   ok(tunedOut.tls.utls.fingerprint === 'safari' && tunedOut.tls.record_fragment === true && tunedOut.tls.reality.public_key === base.vless.pbk, 'tune changes only client TLS knobs, REALITY stays')
   eq(base.vless.fp, 'firefox', 'the stored profile is never modified')

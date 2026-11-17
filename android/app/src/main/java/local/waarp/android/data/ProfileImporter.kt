@@ -16,6 +16,7 @@ data class ImportResult(val profiles: List<TunnelProfile>, val skipped: Int = 0)
 /** Native port of the desktop import policy. Unmapped verification/transport fields fail explicitly. */
 object ProfileImporter {
     private val uuid = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+    const val DEFAULT_FINGERPRINT = "ios"
     private val fingerprints = setOf("chrome", "firefox", "safari", "edge", "ios", "android", "360", "qq", "random", "randomized")
     private val links = Regex("(?:vless|vmess|trojan|ss|hysteria2|hy2|tuic)://[^\\s\"'<>\\\\]+", RegexOption.IGNORE_CASE)
     fun name(value: String, default: String = "Сервер") = value.replace(Regex("[\\p{Cntrl}]"), " ").trim().take(80).ifEmpty { default }
@@ -326,7 +327,10 @@ object ProfileImporter {
                 node.put("type", "vless").put("uuid", id)
                 flow?.let { node.put("flow", it) }
                 q["encryption"]?.takeUnless { it == "none" || it.isBlank() }?.let { node.put("encryption", it) }
-                tls(q + ("fp" to (q["fp"] ?: "firefox")), u.host, security != "none")?.let { t ->
+                // Default uTLS hello must fit one TCP segment: the pinned core's firefox/chrome/safari
+                // hellos carry a post-quantum key share (~1.5-1.9 KB, two segments) and a Russian mobile
+                // operator drops the second segment, so REALITY stalls. ios is a 517-byte hello.
+                tls(q + ("fp" to (q["fp"]?.takeIf(String::isNotBlank) ?: DEFAULT_FINGERPRINT)), u.host, security != "none")?.let { t ->
                     if (security == "reality") {
                         val pk = q["pbk"].orEmpty(); val sid = q["sid"].orEmpty()
                         require(pk.matches(Regex("[A-Za-z0-9_-]{43}")) && sid.matches(Regex("(?:[0-9a-fA-F]{2}){0,8}")) && !q["sni"].isNullOrBlank()) { "Неполные параметры REALITY" }

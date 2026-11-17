@@ -10,7 +10,8 @@ export interface TuneResult { id: string; net: string; sig: string; at: number; 
 export const TUNE_TTL_MS = 14 * 24 * 3600_000
 export const TUNE_MAX_VARIANTS = 6
 export const TUNE_RESULT_TTL_MS = 5 * 60_000
-const FPS = ['firefox', 'chrome', 'safari']
+// Single-segment hellos (ios, edge) first: a mobile DPI drops the second segment of the larger ones.
+const FPS = ['ios', 'edge', 'firefox', 'chrome', 'safari']
 
 export const profileSig = (p: Profile) => createHash('sha256').update(JSON.stringify(p)).digest('hex').slice(0, 16)
 

@@ -21,7 +21,9 @@ const XMUX: Record<string, string> = {
   hMaxReusableSecs: 'h_max_reusable_secs'
 }
 
-export const DEFAULT_FP = 'firefox'
+// The pinned core's firefox/chrome/safari hellos carry a post-quantum key share (~1.5-1.9 KB, two TCP
+// segments); a Russian mobile operator drops the second segment and REALITY stalls. ios is 517 bytes.
+export const DEFAULT_FP = 'ios'
 
 export function looksLikeVless(text: string): boolean {
   const t = text.trim()
@@ -117,7 +119,7 @@ export function parseVless(raw: string, fallbackName = 'Сервер'): VlessPro
   const network = typeMap[typeRaw]
   if (!network) throw new ConfError(`Транспорт type=${typeRaw} не поддерживается. Есть xhttp, tcp, ws, grpc`)
 
-  const fp = (g('fp') ?? DEFAULT_FP).toLowerCase()
+  const fp = (g('fp') || DEFAULT_FP).toLowerCase()
   if (!FPS.includes(fp)) throw new ConfError(`Отпечаток fp=${fp} не поддерживается`)
 
   const pbk = g('pbk')

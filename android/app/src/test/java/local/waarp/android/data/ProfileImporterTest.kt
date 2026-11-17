@@ -169,6 +169,17 @@ class ProfileImporterTest {
         assertEquals("http/1.1", ws.getJSONObject("tls").getJSONArray("alpn").getString(1))
     }
 
+    @Test fun vlessDefaultFingerprintIsSingleSegmentButExplicitOneIsKept() {
+        val pk = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32) { 3 })
+        val base = "vless://$id@192.0.2.1:443?security=reality&sni=cover.example&pbk=$pk&sid=aabb"
+        fun fp(link: String) = json(link).getJSONObject("tls").getJSONObject("utls").getString("fingerprint")
+        // firefox/chrome hellos of the pinned core span two TCP segments; a mobile DPI drops the second one.
+        assertEquals("ios", fp(base))
+        assertEquals("ios", fp("$base&fp="))
+        assertEquals("firefox", fp("$base&fp=firefox"))
+        assertEquals("chrome", fp("$base&fp=chrome"))
+    }
+
     @Test fun xhttpPreservesSupportedHeadersRangesAndMux() {
         val extra = """{"headers":{"X-Test":"Value"},"xPaddingBytes":{"from":100,"to":200},"xmux":{"maxConcurrency":"4-8","hKeepAlivePeriod":30}}"""
         val node = json("vless://$id@192.0.2.1:443?type=xhttp&mode=packet-up&extra=${encode(extra)}")
