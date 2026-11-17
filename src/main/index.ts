@@ -25,11 +25,14 @@ import { Store } from './store'
 import { dropServer } from './store-core'
 import { startBridge } from './bridge'
 import { createApply, onRoutingPatch, selectVia, type ApplyResult } from './apply'
-import { defaultRoutes, tunPreflight, tunSnapshot } from './tun'
+import { clearTunGhost, defaultRoutes, TUN, tunPreflight, tunSnapshot } from './tun'
+import { isIP } from 'node:net'
+import { LogFile } from './logfile'
+import { dedupeApps } from '../shared/appmatch'
 import { bounded } from './stop'
 import { createResume, underlayReady } from './resume'
 import { scanScreenQr } from './qr'
-import { verifyEngine } from './integrity'
+import { stableEngine, verifyEngine } from './integrity'
 import { reconcileSubscription, subscriptionEntryKey } from './subscription'
 import { trayPresentation } from './tray-view'
 import { effectiveRoutes, moodOf } from '../shared/effective'
@@ -75,7 +78,7 @@ const qrImports = new Map<string, { text: string; expires: number }>()
 /** Settings/routing intent crosses renderer IPC and the local companion bridge. Keep those mutations FIFO across awaits. */
 const intentWrites = new SerialGate()
 
-const engineExe = app.isPackaged
+let engineExe = app.isPackaged
   ? join(process.resourcesPath, 'engine', 'sing-box.exe')
   : join(app.getAppPath(), 'engine', 'sing-box.exe')
 
@@ -469,6 +472,7 @@ function ipc() {
     if (!settingsPatchCurrent(patch, base, store.settings)) { send('toast', 'Настройки уже изменились. Список обновлён — повтори действие.'); return { ...snapshot(), saved: false } }
     // companion routes: never created or redefined by the renderer, never a public / unsafe path or fallback
     if (patch.routes && !companionEditsOk(patch.routes, store.settings.routes)) { send('toast', 'Маршрут приложения нельзя создать или переопределить вручную'); return { ...snapshot(), saved: false } }
+    if (patch.routes) patch.routes = dedupeApps(patch.routes)
     if (('routes' in patch || 'groups' in patch) && !companionPatchSafe({ routes: patch.routes ?? store.settings.routes, groups: patch.groups ?? store.settings.groups }, store.settings, store.profiles)) { send('toast', COMPANION_SAFE); return { ...snapshot(), saved: false } }
     const routing = ['rest', 'routes', 'ruDirect', 'dnsAll', 'lanDirect', 'groups'].some(k => k in patch)
     const previous = store.settings
@@ -855,8 +859,18 @@ app.whenReady().then(async () => {
   if (waitingForParent && !app.requestSingleInstanceLock()) { app.quit(); return }
   store = new Store(app.getPath('userData'))
   loadNetMem(app.getPath('userData'))
+  const logFile = new LogFile(join(app.getPath('userData'), 'logs'))
+  const portable = process.env.PORTABLE_EXECUTABLE_FILE && process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Waarp', 'engine') : undefined
+  engineExe = stableEngine(engineExe, portable)
   engineIntegrity = verifyEngine(engineExe)
+  logFile.write([`[app] Waarp ${app.getVersion()} started; engine ${engineExe}; integrity ${engineIntegrity ? 'ok' : 'failed'}`])
   engine = new Engine(engineExe, join(app.getPath('userData'), 'engine'), process.execPath)
+  engine.sink = lines => logFile.write(lines)
+  engine.clearGhost = () => clearTunGhost()
+  engine.hostV6 = async () => {
+    const routes = await defaultRoutes()
+    return routes ? routes.some(r => r.up && isIP(r.nextHop.split('%')[0]) === 6 && r.alias.toLowerCase() !== TUN.name.toLowerCase() && !/teredo|isatap|6to4/i.test(r.alias)) : undefined
+  }
   // R1.4: read-only check for a leftover Waarp adapter or a taken service subnet before every TUN start
   engine.preflight = async () => tunPreflight(await tunSnapshot())
   const allowMeasurements = () => runtimeRecovery.ready && !quitting && !master.open && engine.status.phase === 'off'

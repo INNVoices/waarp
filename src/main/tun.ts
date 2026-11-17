@@ -2,6 +2,7 @@
 // the startup readiness budget and a read-only preflight for a stale Waarp adapter or a subnet collision.
 // Nothing here changes Windows: when the state is ambiguous Waarp refuses to start instead of "repairing" the system.
 import { BlockList, createServer, isIP } from 'node:net'
+import { createHash } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { ps } from './ps'
 import type { DefaultRoute } from './resume'
@@ -160,6 +161,33 @@ $up=@(Get-NetAdapter -IncludeHidden | Where-Object { $_.Status -eq 'Up' } | ForE
 $routes=@(Get-NetRoute | Where-Object { $_.DestinationPrefix -in '0.0.0.0/0','::/0' } | ForEach-Object { [pscustomobject]@{ alias=[string]$_.InterfaceAlias; nextHop=[string]$_.NextHop; up=[bool]($up -contains $_.ifIndex) } })
 [pscustomobject]@{ok=1;routes=$routes}|ConvertTo-Json -Depth 3 -Compress
 `
+export function tunGuid(name: string = TUN.name): string {
+  const h = createHash('md5').update('wintun' + name).digest()
+  const x = (b: Buffer) => b.toString('hex').toUpperCase()
+  const rev = (a: number, b: number) => x(Buffer.from(h.subarray(a, b)).reverse())
+  return `{${rev(0, 4)}-${rev(4, 6)}-${rev(6, 8)}-${x(h.subarray(8, 10))}-${x(h.subarray(10, 16))}}`
+}
+
+const GHOST = (id: string) => `
+$ErrorActionPreference='Stop'
+$id='${id}'
+$pnp=Join-Path $env:SystemRoot 'System32\\pnputil.exe'
+if (@(Get-NetAdapter -IncludeHidden | Where-Object { $_.Name -eq '${TUN.name}' }).Count -gt 0) { [pscustomobject]@{ok=1;state='adapter'} | ConvertTo-Json -Compress; return }
+if ($null -eq (Get-PnpDevice -InstanceId $id -ErrorAction SilentlyContinue)) { [pscustomobject]@{ok=1;state='none'} | ConvertTo-Json -Compress; return }
+$null = & $pnp /remove-device $id
+for ($i=0; $i -lt 20 -and $null -ne (Get-PnpDevice -InstanceId $id -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 150 }
+$left = $null -ne (Get-PnpDevice -InstanceId $id -ErrorAction SilentlyContinue)
+[pscustomobject]@{ok=1;state=$(if($left){'left'}else{'removed'})} | ConvertTo-Json -Compress
+`
+
+export type GhostState = 'none' | 'removed' | 'left' | 'adapter' | 'unknown'
+export async function clearTunGhost(read: (script: string) => Promise<unknown> = script => ps(script, 15000)): Promise<GhostState> {
+  try {
+    const r = await read(GHOST('SWD\\WINTUN\\' + tunGuid())) as { ok?: unknown; state?: unknown }
+    return r?.ok === 1 && ['none', 'removed', 'left', 'adapter'].includes(String(r.state)) ? r.state as GhostState : 'unknown'
+  } catch { return 'unknown' }
+}
+
 /** Both address families matter for wake-up readiness; a partial response remains unknown. */
 export function parseDefaultRoutes(raw: unknown): DefaultRoute[] | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined

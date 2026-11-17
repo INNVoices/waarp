@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 export function verifyEngine(exe: string): boolean {
@@ -14,4 +14,23 @@ export function verifyEngine(exe: string): boolean {
     }
     return true
   } catch { return false }
+}
+
+export function stableEngine(exe: string, root: string | undefined): string {
+  if (!root) return exe
+  try {
+    const src = dirname(exe)
+    const key = createHash('sha256').update(readFileSync(join(src, 'integrity.json'))).digest('hex').slice(0, 12)
+    const dir = join(root, key)
+    const target = join(dir, 'sing-box.exe')
+    if (verifyEngine(target)) return target
+    if (!verifyEngine(exe)) return exe
+    mkdirSync(dir, { recursive: true })
+    for (const name of ['integrity.json', 'libcronet.dll', 'sing-box.exe']) {
+      const part = join(dir, name + '.part')
+      copyFileSync(join(src, name), part)
+      renameSync(part, join(dir, name))
+    }
+    return verifyEngine(target) ? target : exe
+  } catch { return exe }
 }

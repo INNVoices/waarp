@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildConfig, parseConf } from '../src/main/awg'
 import { Engine } from '../src/main/engine'
-import { loopbackFree, pickPort, PORT_RANGE, serviceGuardRule, START_BUDGET_MS, TUN, TUN_SUBNETS, tunPreflight, waitReady, type TunSnapshot } from '../src/main/tun'
+import { clearTunGhost, loopbackFree, pickPort, tunGuid, PORT_RANGE, serviceGuardRule, START_BUDGET_MS, TUN, TUN_SUBNETS, tunPreflight, waitReady, type TunSnapshot } from '../src/main/tun'
 import { DEFAULTS } from '../src/main/store-core'
 import type { Settings } from '../src/shared/types'
 
@@ -158,6 +158,14 @@ const S = (over: Partial<Settings> = {}): Settings => ({ ...DEFAULTS, rest: p.id
   e.preflight = async () => { checks++; return { ok: false, kind: 'tun_collision', text: 'busy' } }
   await e.start([p], S())
   eq([e.status.recovery, checks, !!(e as any).child], ['tun_collision', 1, false], 'collision: refused at once, nothing spawned')
+
+  eq(tunGuid('Waarp'), '{78F04A7F-86C1-9212-9675-52E8987AC741}', 'adapter id matches the one Windows gives the Waarp adapter')
+  let script = ''
+  eq(await clearTunGhost(async x => { script = x; return { ok: 1, state: 'removed' } }), 'removed', 'leftover adapter removal is reported')
+  eq(script.includes("'SWD\\WINTUN\\{78F04A7F-86C1-9212-9675-52E8987AC741}'"), true, 'only the exact Waarp device id is touched')
+  eq(script.indexOf("Get-NetAdapter") < script.indexOf('remove-device'), true, 'a visible Waarp adapter is never removed')
+  eq(await clearTunGhost(async () => { throw new Error('x') }), 'unknown', 'failed check stays unknown')
+  eq(await clearTunGhost(async () => ({ ok: 1, state: 'weird' })), 'unknown', 'unexpected answer stays unknown')
 
   console.log(`tun.check: ${n} checks`)
   if (fails) { console.error(`${fails} failed`); process.exit(1) }

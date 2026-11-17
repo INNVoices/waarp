@@ -1,10 +1,12 @@
 import { ChildProcess, spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
-import type { Conn, Profile, Settings, Status, TunnelHealth } from '../shared/types'
-import { activeRoutes, buildConfig, fallbackGroups, liveSwitches, loadedOf, loadedSets, redact, runtimeAutoLive, tagOf, usedProfiles, withoutAuto, type Loaded } from './awg'
+import { isIP } from 'node:net'
+import type { Conn, Profile, Route, Settings, Status, TunnelHealth } from '../shared/types'
+import { activeRoutes, buildConfig, buildRuntime, CANARY, CANARY_IP, canaryFile, fallbackGroups, liveSwitches, loadedOf, loadedSets, planSlots, redact, ruleFileOf, runtimeAutoLive, tagOf, usedProfiles, withoutAuto, type Loaded } from './awg'
+import { routeHits } from '../shared/appmatch'
 import { AUTO_ID, autoMembers, autoSample, firstAlive, grpTag, liveGroups, stickyFastest, withAuto, type LiveGroup } from '../shared/groups'
 import { FbTracker } from './fallback'
 import { Health, validLatency } from './health'
@@ -51,7 +53,7 @@ export class Engine extends EventEmitter {
   private polling?: object
   private pollFailures = 0
   /** HOTFIX-RUNTIME-01: the running core's config, what it loaded and its Auto pool; set on a ready start, cleared on halt */
-  private run?: { cfg: ReturnType<typeof buildConfig>; loaded: Loaded; autoLive: string[] }
+  private run?: { cfg: ReturnType<typeof buildConfig>; loaded: Loaded; autoLive: string[]; files: Record<string, string>; settings: Settings; hostV6?: boolean }
   /** count of live route applies in this process (tests, log) */
   liveApplies = 0
   /** R1.4: read-only Windows check before a TUN start (set by main); absent in offline tests */
@@ -62,6 +64,9 @@ export class Engine extends EventEmitter {
   breakSignal: (pid: number, identity: ProcessIdentity) => Promise<boolean> = (pid, identity) => ctrlBreak(pid, identity)
   gracefulMs = 5000
   killMs = 4000
+  hostV6?: () => Promise<boolean | undefined>
+  sink?: (lines: string[]) => void
+  clearGhost?: () => Promise<string>
 
   constructor(private exe: string, private dir: string, private selfExe: string) {
     super()
@@ -72,16 +77,22 @@ export class Engine extends EventEmitter {
   get recoveryReady(): boolean { return this.recoveryOk }
 
   private set(s: Partial<Status>) {
+    const prev = this.status
     this.status = { ...this.status, ...s }
+    if (s.phase && s.phase !== prev.phase) this.push(`[phase] ${prev.phase} -> ${s.phase}${this.status.error ? ' | ' + this.status.error : ''}`)
+    else if (s.error && s.error !== prev.error) this.push(`[error] ${s.error}`)
     this.emit('status', this.status)
   }
 
   private push(line: string) {
+    const added: string[] = []
     for (const l of line.split(/\r?\n/)) {
       if (!l.trim()) continue
-      this.tail.push(redactVless(redact(l.replace(/\x1b\[[0-9;]*m/g, '')), this.secrets))
+      added.push(redactVless(redact(l.replace(/\x1b\[[0-9;]*m/g, '')), this.secrets))
     }
+    this.tail.push(...added)
     if (this.tail.length > 600) this.tail.splice(0, this.tail.length - 600)
+    if (added.length) try { this.sink?.(added) } catch {}
   }
 
   private clearJournal(): boolean {
@@ -142,12 +153,14 @@ export class Engine extends EventEmitter {
     return this.serialize(async () => (version === this.stopVersion && this.child && this.status.phase === 'on' && this.run ? this.liveApply(profiles, s) : false))
   }
 
-  private async startNow(profiles: Profile[], s: Settings, signal: AbortSignal) {
+  private async startNow(profiles: Profile[], s: Settings, signal: AbortSignal, retry = true): Promise<void> {
     if (!this.recoveryOk) {
       this.set({ phase: 'error', error: this.recoveryError ?? 'Проверка прошлых процессов ещё не завершена. Дождись восстановления и повтори запуск' })
       return
     }
-    if (this.child && !(await this.stopNow())) return
+    const began = Date.now()
+    let clean = false
+    if (this.child) { if (!(await this.stopNow())) return; clean = true }
     if (signal.aborted) return
     if (!existsSync(this.exe)) { this.set({ phase: 'error', error: 'Не найден движок engine\\sing-box.exe' }); return }
     this.stopping = false
@@ -155,24 +168,39 @@ export class Engine extends EventEmitter {
     // HOTFIX-RUNTIME-01 B: the local port pick does not depend on the Windows check, so both run together;
     // the preflight itself is still a fresh read just before spawn, with the same stale-adapter re-checks
     const fresh = async (): Promise<Preflight> => {
-      if (!this.preflight) return { ok: true }
+      if (!this.preflight || clean) return { ok: true }
       let pf = await this.preflight()
       for (let i = 0; i < 2 && !signal.aborted && !pf.ok && pf.kind === 'tun_stale'; i++) { await untilCancelled(new Promise(r => setTimeout(r, this.preflightGap)), signal); if (!signal.aborted) pf = await this.preflight() }
       return pf
     }
-    const prepared = await untilCancelled(Promise.all([fresh(), pickPort()]), signal)
+    const v6 = async () => { try { return await this.hostV6?.() } catch { return undefined } }
+    const ghost = async () => {
+      const state = await this.clearGhost?.().catch(() => 'unknown')
+      if (state === 'removed') this.push('[start] removed a leftover Waarp adapter left by a previous engine')
+      else if (state === 'left') this.push('[start] a leftover Waarp adapter is still being removed by Windows')
+    }
+    const prepared = await untilCancelled(Promise.all([fresh(), pickPort(), v6(), ghost()]), signal)
     if (!prepared || signal.aborted) return
-    const [pf, port] = prepared
+    const [pf, port, hostV6] = prepared
     if (!pf.ok) { this.set({ phase: 'error', engine: 'down', since: undefined, error: pf.text, recovery: pf.kind }); return }
     if (!port) { this.set({ phase: 'error', error: 'Нет свободного локального порта для управления движком. Туннель не запущен', recovery: undefined }); return }
     this.api = { port, secret: randomBytes(16).toString('hex') }
     this.secrets = profiles.flatMap(p => (p.kind === 'vless' ? vlessSecrets(p) : p.kind === 'out' ? outSecrets(p) : p.kind === 'openvpn' ? openVpnSecrets(p) : []))
     let cfg: ReturnType<typeof buildConfig>
+    let files: Record<string, string>
     // R5: the core gets a bounded Auto live pool; the plan/UI keep the full logical Auto membership
     const autoLive = runtimeAutoLive(s, profiles, this.lastAutoPick)
     const live = { autoLive }
-    try { cfg = buildConfig(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive, selectors: true }) }
+    const preload = profiles.filter(p => !p.revoked && p.kind !== 'openvpn' && (p as { source?: string }).source !== 'public' && (p.kind !== 'awg' || isIP(p.peer.host) !== 0)).slice(0, 8).map(p => p.id)
+    const slots = planSlots(s)!
+    const ruleDir = join(this.dir, 'rules')
+    try { ({ cfg, files } = buildRuntime(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive, selectors: true, slots, ruleDir, hostV6, preload })) }
     catch { this.set({ phase: 'error', error: 'Не удалось подготовить конфиг движка' }); return }
+    try {
+      mkdirSync(ruleDir, { recursive: true })
+      for (const [tag, body] of Object.entries(files)) writeFileSync(join(ruleDir, ruleFileOf(tag)), body)
+      writeFileSync(join(ruleDir, ruleFileOf(CANARY)), canaryFile('start.waarp.invalid'))
+    } catch { this.set({ phase: 'error', error: 'Не удалось записать временный конфиг движка' }); return }
     this.ids = usedProfiles(s, profiles, live).map(p => p.id)
     this.groups = liveGroups(withAuto(s, profiles, autoLive), new Set(profiles.filter(p => !p.revoked).map(p => p.id)))
     this.firstSelected = new Map(this.groups.map(g => [g.id, g.members[0]]))
@@ -213,6 +241,7 @@ export class Engine extends EventEmitter {
       // more useful startup error that startNow publishes immediately afterwards.
       if (this.stopping) return
       const fatal = this.tail.filter(l => /FATAL|ERROR/.test(l)).pop()
+      if (retry && ADAPTER_CLASH.test(fatal ?? '')) return
       this.set({ phase: 'error', engine: 'down', since: undefined, error: humanize(fatal) ?? `Движок завершился (код ${code})` })
       // R2.4: a crashed core may leave its adapter/routes behind; check read-only and block the next start if so
       void this.serialize(async () => { const r = await this.residue(); if (r && !this.child) this.set({ error: r.text, recovery: r.kind }) })
@@ -257,13 +286,18 @@ export class Engine extends EventEmitter {
     if (signal.aborted) { await this.stopNow(); return }
     if (!ok || this.child !== child) {
       if (this.child) await this.stopNow()
+      if (retry && !signal.aborted && this.tail.some(l => ADAPTER_CLASH.test(l))) {
+        this.push('[start] Windows still held the previous Waarp adapter; clearing it and starting again')
+        return this.startNow(profiles, s, signal, false)
+      }
       if (this.status.phase !== 'error') {
         const diagnostic = this.tail.filter(l => /FATAL|ERROR|open interface take too much time/i.test(l)).pop()
         this.set({ phase: 'error', engine: 'down', since: undefined, error: humanize(diagnostic) ?? 'Движок не стартовал' })
       }
       return
     }
-    this.run = { cfg, loaded: loadedOf(loadedSets(profiles, s, live)), autoLive }
+    this.run = { cfg, loaded: { ...loadedOf(loadedSets(profiles, s, { ...live, preload })), slots }, autoLive, files, settings: s, hostV6 }
+    this.push(`[start] ready in ${Date.now() - began} ms; card slots ${slots.app.length}+${slots.dom.length}; host IPv6 ${hostV6 === undefined ? 'unknown' : hostV6 ? 'yes' : 'no'}`)
     this.timer = setInterval(() => void this.poll(), 1000)
     // Controller readiness is the start boundary. Health probes continue independently and must
     // not keep the whole UI in Starting for several seconds.
@@ -306,21 +340,75 @@ export class Engine extends EventEmitter {
   private async liveApply(profiles: Profile[], s: Settings): Promise<boolean> {
     const run = this.run!, child = this.child, version = this.stopVersion
     const current = () => this.child === child && this.stopVersion === version && !this.stopping
-    let next: ReturnType<typeof buildConfig>
-    try { next = buildConfig(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive: run.autoLive, selectors: true, keep: run.loaded }) }
+    const slots = planSlots(s, run.loaded.slots)
+    if (!slots) { this.push('[apply] no free card slot; restarting the core once'); return false }
+    let next: ReturnType<typeof buildRuntime>
+    try { next = buildRuntime(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive: run.autoLive, selectors: true, keep: run.loaded, slots, ruleDir: join(this.dir, 'rules'), hostV6: run.hostV6 }) }
     catch { return false }
-    const switches = liveSwitches(run.cfg, next)
-    if (!switches) return false
+    const switches = liveSwitches(run.cfg, next.cfg)
+    if (!switches) { this.push('[apply] the change needs a new tunnel or core setting; restarting the core once'); return false }
     for (const x of switches) {
       if (!current() || !(await this.select(x.tag, x.to))) { this.push(`live route apply failed at ${x.tag}; restarting the core once`); return false }
     }
+    const changed = Object.keys(next.files).filter(k => next.files[k] !== run.files[k])
+    if (changed.length && !(await this.writeRules(changed, next.files, current))) { this.push('[apply] the core did not confirm the new card rules; restarting the core once'); return false }
     if (!current()) return false
-    this.run = { ...run, cfg: next }
+    this.run = { ...run, cfg: next.cfg, files: next.files, loaded: { ...run.loaded, slots }, settings: s }
     this.fbRoutes = new Map(run.loaded.fbs.map(g => [g.tag, activeRoutes(s).filter(r => r.via === g.main && r.fallback === g.fb).map(r => ({ id: r.id, name: r.name }))]))
     this.liveApplies++
-    this.push(`live route apply: ${switches.length} selector switch(es), core and TUN kept`)
+    const closed = await this.closeTouched(run.settings.routes, s.routes)
+    this.push(`live route apply: ${switches.length} selector switch(es), ${changed.length} rule file(s), ${closed} connection(s) reopened; core and TUN kept`)
     this.set({ error: undefined })
     return true
+  }
+
+  private async writeRules(names: string[], files: Record<string, string>, current: () => boolean): Promise<boolean> {
+    const dir = join(this.dir, 'rules')
+    const put = async (name: string, body: string) => {
+      const file = join(dir, name), tmp = file + '.tmp'
+      writeFileSync(tmp, body)
+      for (let i = 0; i < 5; i++) {
+        try { renameSync(tmp, file); return } catch { await new Promise(r => setTimeout(r, 40)) }
+      }
+      writeFileSync(file, body)
+      try { rmSync(tmp, { force: true }) } catch {}
+    }
+    try {
+      mkdirSync(dir, { recursive: true })
+      for (const n of names) await put(ruleFileOf(n), files[n])
+    } catch { return false }
+    const probe = randomBytes(6).toString('hex') + '.waarp.invalid'
+    try { await put(ruleFileOf(CANARY), canaryFile(probe)) } catch { return false }
+    const end = Date.now() + 3000
+    while (Date.now() < end && current()) {
+      const r = await this.req(`/dns/query?name=${probe}&type=A`, 1000)
+      if (JSON.stringify(r ?? '').includes(CANARY_IP)) return true
+      await new Promise(res => setTimeout(res, 100))
+    }
+    return false
+  }
+
+  private async closeTouched(before: Route[], after: Route[]): Promise<number> {
+    const key = (r: Route) => JSON.stringify([r.on, r.kind, r.exe, r.matchDir, r.wholeDir, r.preset, r.value])
+    const was = new Map(before.map(r => [r.id, r]))
+    const now = new Map(after.map(r => [r.id, r]))
+    const touched: Route[] = []
+    for (const r of after) { const o = was.get(r.id); if (!o ? r.on : key(o) !== key(r)) touched.push(r, ...(o ? [o] : [])) }
+    for (const o of before) if (!now.has(o.id) && o.on) touched.push(o)
+    if (!touched.length) return 0
+    const ids = this.conns.filter(c => touched.some(r => routeHits(r, c))).map(c => c.id)
+    await this.bounded(ids, async id => { await this.drop(id) })
+    return ids.length
+  }
+
+  private async drop(id: string): Promise<void> {
+    const child = this.child, api = this.api
+    if (!child || this.stopping) return
+    const ctl = new AbortController()
+    this.requests.add(ctl)
+    const t = setTimeout(() => ctl.abort(), 2000)
+    try { await fetch(`http://127.0.0.1:${api.port}/connections/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${api.secret}` }, signal: ctl.signal }) }
+    catch {} finally { clearTimeout(t); this.requests.delete(ctl) }
   }
 
   private abortRequests() {
@@ -560,10 +648,12 @@ export class Engine extends EventEmitter {
         this.set({ down: Math.max(0, (d - this.last.d) / dt), up: Math.max(0, (u - this.last.u) / dt), downTotal: d, upTotal: u })
       }
       this.last = { t: now, d, u }
+      const slots = this.run?.loaded.slots
       this.conns = (r.connections ?? []).map((c: any): Conn => {
         const m = c.metadata ?? {}
         const exe: string = m.processPath ?? ''
         const chain: string[] = c.chains ?? []
+        const slot = chain.map(x => /^rt-([ad])(\d+)$/.exec(x)).find(Boolean)
         return {
           id: c.id,
           app: exe ? exe.split('\\').pop()!.replace(/\.exe$/i, '') : (m.process || 'система'),
@@ -573,6 +663,7 @@ export class Engine extends EventEmitter {
           net: m.network ?? '',
           via: chain.find(c => c.startsWith('p-'))?.slice(2) ?? 'direct',
           rule: c.rule ?? '',
+          ...(slots ? { route: slot ? (slot[1] === 'a' ? slots.app : slots.dom)[Number(slot[2])] ?? '' : '' } : {}),
           down: c.download ?? 0,
           up: c.upload ?? 0,
           start: Date.parse(c.start) || now
@@ -584,8 +675,11 @@ export class Engine extends EventEmitter {
 
 }
 
+const ADAPTER_CLASH = /create adapter:.*open existing adapter:/i
+
 function humanize(line?: string): string | undefined {
   if (!line) return undefined
+  if (ADAPTER_CLASH.test(line)) return 'Windows ещё не освободил прошлый адаптер Waarp. Включи Waarp ещё раз через несколько секунд'
   if (/access is denied|operation not permitted|requires elevation|Отказано/i.test(line)) return 'Нужны права администратора, чтобы создать сетевой адаптер'
   if (/address already in use|bind:/i.test(line)) return 'Порт занят: похоже, ещё одна копия Waarp уже работает'
   if (/open interface take too much time/i.test(line)) return 'Windows не успел открыть адаптер Waarp. Туннель остановлен; чужие подключения не менялись'
