@@ -207,18 +207,56 @@ def apply_inputs(lock, source, env, output, go):
     return required_tests, formatted
 
 
-def native_tests(lock, source, env, output, go, required_tests):
-    spec = lock["nativeTests"]
-    args = [go, "test", "-json", "-race", "-count=1", "-timeout=5m",
-            "-ldflags", spec["linkerFlags"], "-tags", ",".join(spec["tags"]), "./dns/transport"]
-    log_path = output / "native-tests.jsonl"
+def apply_wireguard_inputs(lock, source, env, output, go):
+    """Patch the exact pinned submodule, independently of the retained DNS patch."""
+    module = source / "submodules/wireguard-go"
+    patch_path, patch_data = locked_file(lock["wireguardPatch"], 256 * 1024)
+    test_path, test_data = locked_file(lock["wireguardRegressionTest"], 256 * 1024)
+    required_tests = re.findall(r"(?m)^func\s+(TestWaarp[A-Za-z0-9_]+)\s*\(\s*t\s+\*testing\.T\s*\)", test_data.decode("utf-8"))
+    require(len(required_tests) == len(set(required_tests)) == lock["wireguardTests"]["expectedTopLevelTests"],
+            "WireGuard regression source does not declare the locked number of unique TestWaarp tests")
+    targets = lock["wireguardPatch"]["targets"]
+    require(set(targets) == {"conn/bind_std.go", "conn/errors_linux.go"}, "Unexpected WireGuard patch targets")
+    stats = query(git_args("apply", "--numstat", patch_path), module, env)
+    touched = [line.split("\t")[-1] for line in stats.splitlines()]
+    require(len(touched) == len(targets) and set(touched) == set(targets), "WireGuard patch changes unexpected files")
+    run(git_args("apply", "--check", patch_path), module, env, output / "source-patch.log", "check locked WireGuard patch", 120)
+    run(git_args("apply", "--index", "--whitespace=error", patch_path),
+        module, env, output / "source-patch.log", "apply locked WireGuard patch", 120)
+    relative_test = lock["wireguardRegressionTest"]["destination"]
+    destination = module / relative_test
+    require(destination == module / "conn/waarp_gso_retry_test.go" and not destination.exists(),
+            "WireGuard regression test destination already exists or differs")
+    destination.write_bytes(test_data)
+    gofmt = str(Path(go).resolve().parent / "gofmt")
+    run([gofmt, "-w", *targets, relative_test], module, env, output / "source-patch.log",
+        "format only patched WireGuard files and regression tests", 120)
+    for path, data in ((patch_path, patch_data), (test_path, test_data)):
+        (output / "source-patch" / path.name).write_bytes(data)
+    formatted = {"submodules/wireguard-go/" + path: sha256(module / path) for path in [*targets, relative_test]}
+    return required_tests, formatted
+
+
+def native_tests(lock, source, env, output, go, required_tests, wireguard=False):
+    spec = lock["wireguardTests" if wireguard else "nativeTests"]
+    package = "github.com/sagernet/wireguard-go/conn" if wireguard else "github.com/sagernet/sing-box/dns/transport"
+    label = "WireGuard GSO fallback" if wireguard else "DNS transport"
+    name = "wireguard-tests" if wireguard else "native-tests"
+    args = [go, "test", "-json", "-race", "-count=1", "-timeout=5m"]
+    if wireguard:
+        # Run through the engine module's replacement and dependency graph,
+        # exactly as the AAR does, not the submodule's older standalone go.mod.
+        args += ["-run", "^TestWaarp", package]
+    else:
+        args += ["-ldflags", spec["linkerFlags"], "-tags", ",".join(spec["tags"]), "./dns/transport"]
+    log_path = output / (name + ".jsonl")
     report = {"schemaVersion": 1, "passed": False, "raceDetector": True, "count": 1,
-              "package": "github.com/sagernet/sing-box/dns/transport",
+              "package": package,
               "requiredTests": required_tests, "requiredSubtests": spec["requiredSubtests"],
-              "tags": spec["tags"], "linkerFlags": spec["linkerFlags"],
-              "scope": "Host Linux production DNS transport tests; Android device acceptance remains separate."}
+              "tags": spec.get("tags", []), "linkerFlags": spec.get("linkerFlags", ""),
+              "scope": f"Host Linux production {label} tests; Android device acceptance remains separate."}
     try:
-        report["elapsedSeconds"] = run(args, source, env, log_path, "native DNS regression suite with race detector", 1200)
+        report["elapsedSeconds"] = run(args, source, env, log_path, f"native {label} regression suite with race detector", 1200)
         events = []
         for line in read_bytes(log_path, MAX_LOG).decode("utf-8").splitlines():
             if line.startswith("{"):
@@ -233,7 +271,7 @@ def native_tests(lock, source, env, output, go, required_tests):
         report.update(testsRun=sorted(runs), testsPassed=sorted(passes), failures=failures, skipped=skips)
         require(not failures and not skips and len(package_passes) == 1, "Native package did not finish with one unskipped pass")
         require(expected.issubset(runs) and expected.issubset(passes),
-                "A named DNS regression or required sync/async subtest did not run and pass")
+                f"A named {label} regression or required subtest did not run and pass")
         report["passed"] = True
     except (ValueError, OSError, json.JSONDecodeError) as error:
         report["error"] = str(error)[-16_000:]
@@ -241,7 +279,7 @@ def native_tests(lock, source, env, output, go, required_tests):
     finally:
         if log_path.exists():
             report["rawLogSha256"] = sha256(log_path)
-        write_json(output / "native-tests.json", report)
+        write_json(output / (name + ".json"), report)
     return report
 
 
@@ -500,7 +538,7 @@ def main():
     require(not output.exists() or output.is_dir() and not any(output.iterdir()), "Use an empty native evidence output directory")
     output.mkdir(parents=True, exist_ok=True)
     report = {"schemaVersion": 1, "passed": False, "bootstrap": options.bootstrap is not None,
-              "scope": "Reproducible native source build and native DNS regressions; no APK build or deployment."}
+              "scope": "Reproducible native source build, DNS and WireGuard regressions; no APK build or deployment."}
     try:
         lock = read_json(LOCK_PATH)
         require(lock["schemaVersion"] == 1 and lock["androidAPI"] == 24, "Unsupported native source recipe")
@@ -526,12 +564,17 @@ def main():
             source, gitlinks = source_checkout(lock, work, env, output)
             unchanged = {name: sha256(source / name) for name in ("go.mod", "go.sum")}
             required_tests, formatted = apply_inputs(lock, source, env, output, go)
+            wireguard_tests, wireguard_formatted = apply_wireguard_inputs(lock, source, env, output, go)
+            formatted.update(wireguard_formatted)
             write_json(output / "source-provenance.json",
                        {"schemaVersion": 1, "source": finalized["source"], "patch": finalized["patch"],
                         "regressionTest": finalized["regressionTest"], "sourceInputsSha256": json_hash(finalized),
+                        "wireguardPatch": finalized["wireguardPatch"],
+                        "wireguardRegressionTest": finalized["wireguardRegressionTest"],
                         "builderSha256": sha256(Path(__file__)), "formattedFileSha256": formatted,
                         "moduleFilesSha256": unchanged, "tools": tools,
                         "canonicalArchive": finalized["canonicalArchive"]})
+            native_tests(lock, source, env, output, go, wireguard_tests, wireguard=True)
             native_tests(lock, source, env, output, go, required_tests)
             install_mobile_tools(lock, work, env, output, go)
             raw = work / "libbox-raw.aar"

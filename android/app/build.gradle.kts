@@ -38,8 +38,8 @@ android {
         applicationId = "local.waarp.android"
         minSdk = 29
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.5.0-rc.2"
+        versionCode = 4
+        versionName = "0.5.0-rc.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["clearPackageData"] = "true"
         buildConfigField("String", "ENGINE_VERSION", "\"${enginePin["version"]}\"")

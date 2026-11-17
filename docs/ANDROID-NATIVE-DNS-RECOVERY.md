@@ -1,5 +1,10 @@
 # Android native DNS recovery
 
+This record describes the original `1.14.4-lx.35-waarp.1` DNS correction and its
+retained evidence. Engine `.2` keeps the same DNS patch and adds the
+[WireGuard UDP fallback correction](ANDROID-RC3-AWG.md); its current binary pins
+are in `android/app/src/main/res/raw/engine_integrity.json`.
+
 ## Evidence and scope
 
 The API 29 instrumentation job for source `93b5385712d0257282d6c5bf12fe0a859041d2b6` failed the second OFF/ON DNS exchange. The retained assertion identifies `cycle=1`, a probe `SocketTimeoutException`, and native `example.com` telemetry reporting `use of closed network connection`. The independent AWG2 peer sent the encrypted answer, but the pending native DNS operation had already completed with an error.

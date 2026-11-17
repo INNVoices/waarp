@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "engineAarSha256": "562afef9bcdbb37bc6069cdc247f821324d5be3471242f6eee136ff3883f2fb7",
+  "engineAarSha256": "1edc7454a993ad72de084e294c16a87797a1a8d1a51a7ee2b71fec6802245eaf",
   "goVersion": "go1.26.10",
   "expectedModules": 112,
   "modules": [
@@ -1317,7 +1317,7 @@
       },
       "source": "https://github.com/Leadaxe/wireguard-go-awg2-lx/tree/3ed047160c1454c513ddeacbf387daf3d480ff6d",
       "sourceCommit": "3ed047160c1454c513ddeacbf387daf3d480ff6d",
-      "integrity": "Pinned parent source gitlink; the AAR records this dependency as a local replacement.",
+      "integrity": "Pinned parent source gitlink with the downstream WireGuard GSO patch locked in android/native-source.json; the AAR records this dependency as a local replacement.",
       "noticeFile": "4b6f3a3b5d6a53a69c21.txt",
       "notices": [
         {

@@ -179,8 +179,8 @@ object ProfileImporter {
             if (depth > 32) return null
             return when (value) {
                 is String -> when {
-                    value.contains(Regex("\\[Interface]", RegexOption.IGNORE_CASE)) -> value
                     value.trimStart().startsWith('{') -> { checkJsonDepth(value); runCatching { find(JSONObject(value), depth + 1) }.getOrNull() }
+                    value.contains(Regex("\\[Interface]", RegexOption.IGNORE_CASE)) -> value
                     else -> null
                 }
                 is JSONObject -> value.keys().asSequence().mapNotNull { find(value.opt(it), depth + 1) }.firstOrNull()

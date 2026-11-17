@@ -16,6 +16,14 @@ class ProfileImporterTest {
     private fun b64(value: String) = Base64.getEncoder().encodeToString(value.toByteArray())
     private fun encode(value: String) = URLEncoder.encode(value, "UTF-8")
     private fun json(link: String) = JSONObject(ProfileImporter.link(link).config)
+    private fun amnezia(data: JSONObject): String {
+        val body = data.toString().toByteArray()
+        val compressed = ByteArrayOutputStream().apply {
+            write(byteArrayOf((body.size ushr 24).toByte(), (body.size ushr 16).toByte(), (body.size ushr 8).toByte(), body.size.toByte()))
+            DeflaterOutputStream(this).use { it.write(body) }
+        }.toByteArray()
+        return "vpn://" + Base64.getUrlEncoder().withoutPadding().encodeToString(compressed)
+    }
     private fun wg(extra: String = "", address: String = "10.8.0.2") = """
         [Interface]
         PrivateKey = $key
@@ -64,6 +72,8 @@ class ProfileImporterTest {
     @Test fun unsafeOrAmbiguousWireGuardConfigurationsAreRejected() {
         listOf(
             wg("PostUp = echo do-not-execute"), wg("PrivateKey = $peer"),
+            wg("Jc = 4\njC = 5"), wg("HeaderProtectionKey = $key"),
+            wg("RandomTrailers = true"), wg("DisableCookies = true"),
             wg("H1 = 1-3"), wg("Jmin = 90\nJmax = 80"), wg("I1 = <r 2017>"),
             wg() + "\n[Peer]\nPublicKey = $peer", wg(address = "10.8.0.2/33"),
             wg().replace("[2001:db8::1]:51820", "[192.0.2.1]:51820"),
@@ -71,14 +81,72 @@ class ProfileImporterTest {
     }
 
     @Test fun amneziaQCompressContainerImportsNestedConfiguration() {
-        val body = JSONObject().put("containers", org.json.JSONArray().put(JSONObject().put("config", wg()))).toString().toByteArray()
-        val compressed = ByteArrayOutputStream().apply {
-            write(byteArrayOf((body.size ushr 24).toByte(), (body.size ushr 16).toByte(), (body.size ushr 8).toByte(), body.size.toByte()))
-            DeflaterOutputStream(this).use { it.write(body) }
-        }.toByteArray()
-        val profile = ProfileImporter.parse("vpn://" + Base64.getUrlEncoder().withoutPadding().encodeToString(compressed)).profiles.single()
+        val body = JSONObject().put("containers", org.json.JSONArray().put(JSONObject().put("config", wg())))
+        val profile = ProfileImporter.parse(amnezia(body)).profiles.single()
         assertEquals("WireGuard", profile.protocol)
         assertEquals("2001:db8::1", profile.host)
+    }
+
+    @Test fun nativeAmneziaLastConfigRetainsAwgOptionsThroughStorageAndCompilation() {
+        val psk = Base64.getEncoder().encodeToString(ByteArray(32) { 0x5a })
+        val conf = wg("""
+            Address = fd00::2/64
+            DNS = 1.1.1.1
+            MTU = 1380
+            ListenPort = 51825
+            Jc = 4
+            Jmin = 40
+            Jmax = 200
+            S1 = 80
+            S2 = 20
+            S3 = 35
+            S4 = 12
+            H1 = 2147483648-2147483658
+            H2 = 3000000000
+            H3 = 4000000000
+            H4 = 4294967295
+            I1 = <b 0xAbCD><r 32>
+            I2 = <rc 10><rd 5><t>
+            I3 = <d><ds><dz 2>
+            I4 = <r 0>
+            I5 = <b 0x00>
+        """.trimIndent(), address = "10.8.0.2/24").replace("AllowedIPs = 0.0.0.0/0, ::/0", "AllowedIPs = 10.8.0.0/16, 2001:db8::/48")
+            .replace("PersistentKeepalive = off", "PersistentKeepalive = 25\nPresharedKey = $psk")
+        // Amnezia stores last_config as JSON text, whose config member is the actual INI text.
+        val lastConfig = JSONObject().put("config", conf).put("client_priv_key", key).put("psk_key", psk).toString()
+        val container = JSONObject().put("container", "amnezia-awg")
+            .put("awg", JSONObject().put("last_config", lastConfig))
+        val body = JSONObject().put("containers", org.json.JSONArray().put(container)).put("defaultContainer", "amnezia-awg")
+        val imported = ProfileImporter.parse(amnezia(body)).profiles.single()
+        val stored = TunnelProfile.fromJson(JSONObject(imported.json().toString()))
+        val data = AppData(profiles = listOf(stored), settings = AppSettings(defaultVia = stored.id))
+        val node = JSONObject(RoutingCompiler.compile(data).json).getJSONArray("endpoints").getJSONObject(0)
+        assertEquals("AWG2", stored.protocol)
+        assertEquals(ProfileImporter.identity(ProfileImporter.parse(conf).profiles.single()), ProfileImporter.identity(stored))
+        assertEquals(ProfileImporter.identity(stored), ProfileImporter.identity(stored.copy(config = node.toString())))
+        assertEquals(key, node.getString("private_key"))
+        assertEquals(1380, node.getInt("mtu"))
+        assertEquals(51825, node.getInt("listen_port"))
+        assertEquals(listOf("10.8.0.2/24", "fd00::2/64"), node.stringList("address"))
+        assertEquals(listOf("10.8.0.1", "1.1.1.1"), stored.dns)
+        val endpoint = node.getJSONArray("peers").getJSONObject(0)
+        assertEquals(peer, endpoint.getString("public_key"))
+        assertEquals(psk, endpoint.getString("pre_shared_key"))
+        assertEquals("2001:db8::1", endpoint.getString("address"))
+        assertEquals(51820, endpoint.getInt("port"))
+        assertEquals(25, endpoint.getInt("persistent_keepalive_interval"))
+        assertEquals(listOf("10.8.0.0/16", "2001:db8::/48"), endpoint.stringList("allowed_ips"))
+        for ((field, value) in mapOf("jc" to 4L, "jmin" to 40L, "jmax" to 200L, "s1" to 80L,
+            "s2" to 20L, "s3" to 35L, "s4" to 12L, "h2" to 3000000000L, "h3" to 4000000000L, "h4" to 4294967295L))
+            assertEquals(field, value, node.getLong(field))
+        assertEquals("2147483648-2147483658", node.getString("h1"))
+        for ((field, value) in mapOf("i1" to "<b 0xAbCD><r 32>", "i2" to "<rc 10><rd 5><t>",
+            "i3" to "<d><ds><dz 2>", "i4" to "<r 0>", "i5" to "<b 0x00>")) assertEquals(field, value, node.getString(field))
+    }
+
+    @Test fun amneziaNestedJsonStillHonorsTheDepthLimit() {
+        val lastConfig = "{\"child\":".repeat(33) + JSONObject().put("config", wg()).toString() + "}".repeat(33)
+        assertThrows(RuntimeException::class.java) { ProfileImporter.parse(amnezia(JSONObject().put("last_config", lastConfig))) }
     }
 
     @Test fun importBoundsRejectOversizedAndDeepInputs() {

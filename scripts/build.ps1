@@ -3,10 +3,10 @@
 #   build.bat 1      app + unpacked folder (dist\win-unpacked\Waarp.exe): fast, local checks
 #   build.bat 2      app + portable exe (dist\Waarp-<version>-portable.exe): ready for delivery
 #   build.bat 3      android debug apk (out\android\*.apk), same as "build.bat apk": JDK 17 + Python, a minimal Android SDK
-#                    is downloaded into .android-local\ on first use; the engine AAR comes from CI (gh auth login once)
+#                    is downloaded into .android-local\ on first use; the engine AAR comes from a CI artifact in your browser
 #   build.bat        asks in a console; without an interactive console it builds mode 1
 #   -Demo            the same UI over short fake steps (no npm, no build) for screenshots / checks
-#   -SelfTest        render checks at several console widths, prints PASS/FAIL, builds nothing
+#   -SelfTest        render and offline Android artifact checks, prints PASS/FAIL, builds nothing
 param([string]$Mode = '', [switch]$Demo, [switch]$SelfTest)
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path $PSScriptRoot -Parent)
@@ -111,9 +111,9 @@ function SummaryLines($allOk) {
 $total = [Diagnostics.Stopwatch]::StartNew()
 $results = New-Object System.Collections.Generic.List[object]
 
-# ---- -SelfTest: pure render checks, nothing is built or redrawn
-if ($SelfTest) {
-  $fail = 0
+# ---- -SelfTest: render checks and synthetic artifact fixtures, no builds or network
+function RunSelfTest {
+  $script:fail = 0
   function T($ok, $name) { if ($ok) { Write-Host "PASS  $name" } else { $script:fail++; Write-Host "FAIL  $name" } }
   $long = 'x' * 300
   $results.Add([pscustomobject]@{ Title = 'A step with a rather long title that keeps going'; Time = '12.3s'; Done = $true })
@@ -129,7 +129,8 @@ if ($SelfTest) {
   T (-not ((Bar 1) -match [regex]::Escape("$cT█"))) 'Bar 1 with shine -1 has no highlight cell'
   T ((Bar 0.5 3) -match [regex]::Escape("$cT█")) 'Bar with a shine shows the highlight'
   T ((Clip 'abcdef' 4) -eq 'abc…' -and (Clip 'abc' 4) -eq 'abc') 'Clip uses one ellipsis only when needed'
-  if ($fail) { Write-Host "$fail failed"; exit 1 } else { Write-Host 'build.ps1 self-test ok'; exit 0 }
+  TestAndroidArtifacts
+  if ($script:fail) { Write-Host "$script:fail failed"; exit 1 } else { Write-Host 'build.ps1 self-test ok'; exit 0 }
 }
 
 function Step($n, $of, $title, $cmd) {
@@ -239,23 +240,27 @@ function InstallSdkPackages($sdk, $missing) {
     Out "  $cOk●$cR $cT $($pkg.Path) installed$cR"
   }
 }
-function AarMatchesPin($file) {
-  $pin = Get-Content 'android\app\src\main\res\raw\engine_integrity.json' -Raw | ConvertFrom-Json
+function AarMatchesPin($file, $pin = (Get-Content 'android\app\src\main\res\raw\engine_integrity.json' -Raw | ConvertFrom-Json)) {
+  if (-not (Test-Path $file -PathType Leaf)) { return $false }
   (Get-Item $file).Length -eq $pin.bytes -and (Get-FileHash $file -Algorithm SHA256).Hash -ieq $pin.sha256
 }
-function AarFromZip($zip) { # pulls libbox.aar out of a downloaded CI artifact zip; true only if it matches the pin
+function AarFromZip($zip, $pin = (Get-Content 'android\app\src\main\res\raw\engine_integrity.json' -Raw | ConvertFrom-Json)) { # true only for the pinned engine
   try { $z = [IO.Compression.ZipFile]::OpenRead($zip) } catch { return $false } # still being written by the browser
+  $tmp = $null
   try {
     $entry = $z.Entries | Where-Object { $_.FullName -match '(^|/)libbox\.aar$' } | Select-Object -First 1
-    if (-not $entry) { return $false }
+    if (-not $entry -or $entry.Length -ne $pin.bytes) { return $false }
     $tmp = Join-Path $AndroidLocal "download\libbox-$([DateTimeOffset]::Now.ToUnixTimeMilliseconds()).aar"
     $null = New-Item -ItemType Directory -Force (Split-Path $tmp)
     [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $tmp)
-  } finally { $z.Dispose() }
-  if (-not (AarMatchesPin $tmp)) { return $false }
-  $null = New-Item -ItemType Directory -Force (Split-Path $AndroidAar)
-  Move-Item -Force $tmp $AndroidAar
-  $true
+    if (-not (AarMatchesPin $tmp $pin)) { return $false }
+    $null = New-Item -ItemType Directory -Force (Split-Path $AndroidAar)
+    Move-Item -Force $tmp $AndroidAar
+    return $true
+  } finally {
+    $z.Dispose()
+    if ($tmp -and (Test-Path $tmp)) { Remove-Item $tmp -Force }
+  }
 }
 function DownloadDirs { # Windows Downloads (also when moved) and the save folder of every Chrome / Edge / Brave profile
   $dirs = @((Join-Path $env:USERPROFILE 'Downloads'), (Join-Path $AndroidLocal 'download'))
@@ -271,42 +276,140 @@ function DownloadDirs { # Windows Downloads (also when moved) and the save folde
 function ArtifactZips { # what the browser saved: waarp-android-build-reports.zip, (1), (2) ...
   @(Get-ChildItem (DownloadDirs) -Filter 'waarp-android-build-reports*.zip' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
 }
+function GitHubJson([string]$path) {
+  $headers = @{ 'User-Agent' = 'waarp-build'; 'Accept' = 'application/vnd.github+json' }
+  if ($env:GITHUB_TOKEN) {
+    # A supplied token stays in the HTTPS header, never in a URL, command line or diagnostic.
+    $headers.Authorization = "Bearer $env:GITHUB_TOKEN"
+  } elseif (Get-Command gh -ErrorAction SilentlyContinue) {
+    $prompt = $env:GH_PROMPT_DISABLED
+    try {
+      $env:GH_PROMPT_DISABLED = '1'
+      $body = & gh api --hostname github.com --header 'Accept: application/vnd.github+json' $path 2>$null
+      if ($LASTEXITCODE -ne 0) { throw 'GitHub API access unavailable' }
+      return (($body -join "`n") | ConvertFrom-Json)
+    } finally { $env:GH_PROMPT_DISABLED = $prompt }
+  }
+  Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/$path" -TimeoutSec 20
+}
+function AarDownloadPage([string]$repo, [string]$pin) {
+  # A missing API credential (private repositories return 404) does not prove that an artifact is absent.
+  $fallback = [pscustomobject]@{ Url = "https://github.com/$repo/actions/workflows/android.yml"; Size = $null; Matched = $false }
+  try {
+    # The build artifact can be ready while the separate two-hour soak is still running.
+    foreach ($run in (GitHubJson "repos/$repo/actions/workflows/android.yml/runs?per_page=20").workflow_runs) {
+      $art = (GitHubJson "repos/$repo/actions/runs/$($run.id)/artifacts").artifacts |
+        Where-Object { $_.name -eq 'waarp-android-build-reports' -and -not $_.expired } | Select-Object -First 1
+      if (-not $art) { continue }
+      # Contents API uses the same authenticated transport; raw.githubusercontent.com cannot read a private file anonymously.
+      $file = GitHubJson "repos/$repo/contents/android/app/src/main/res/raw/engine_integrity.json?ref=$($run.head_sha)"
+      if ($file.encoding -ne 'base64') { continue }
+      $runPin = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($file.content)) | ConvertFrom-Json
+      if ($runPin.sha256 -ieq $pin) {
+        return [pscustomobject]@{ Url = "https://github.com/$repo/actions/runs/$($run.id)"; Size = [Math]::Round($art.size_in_bytes / 1MB); Matched = $true }
+      }
+    }
+  } catch { } # No auth prompt or credential/error dump; a signed-in browser can still access the workflow.
+  $fallback
+}
+function TestAndroidArtifacts {
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $scratch = Join-Path ([IO.Path]::GetTempPath()) ('waarp-build-test-' + [guid]::NewGuid())
+  $oldAar = $script:AndroidAar; $oldLocal = $script:AndroidLocal; $oldToken = $env:GITHUB_TOKEN
+  $oldPrompt = $env:GH_PROMPT_DISABLED; $oldExit = $global:LASTEXITCODE
+  $apiFunction = (Get-Item Function:GitHubJson).ScriptBlock
+  try {
+    $source = Join-Path $scratch 'source/out/android-core'
+    $null = New-Item -ItemType Directory -Force $source
+    $payload = Join-Path $source 'libbox.aar'
+    [IO.File]::WriteAllText($payload, 'synthetic pinned engine')
+    $pin = [pscustomobject]@{ bytes = (Get-Item $payload).Length; sha256 = (Get-FileHash $payload -Algorithm SHA256).Hash }
+    $zip = Join-Path $scratch 'artifact.zip'
+    [IO.Compression.ZipFile]::CreateFromDirectory((Join-Path $scratch 'source'), $zip)
+    $script:AndroidAar = Join-Path $scratch 'installed/libbox.aar'; $script:AndroidLocal = $scratch
+    T ((AarFromZip $zip $pin) -and (AarMatchesPin $AndroidAar $pin)) 'Android: a pinned cached artifact is installed'
+    $wrongHash = [pscustomobject]@{ bytes = $pin.bytes; sha256 = ('0' * 64) }
+    $wrongSize = [pscustomobject]@{ bytes = $pin.bytes + 1; sha256 = $pin.sha256 }
+    T (-not (AarFromZip $zip $wrongHash) -and -not (AarFromZip $zip $wrongSize)) 'Android: stale hash and size are rejected'
+    T ((AarMatchesPin $AndroidAar $pin) -and @(Get-ChildItem (Join-Path $scratch 'download') -Filter '*.aar').Count -eq 0) 'Android: rejection preserves installed bytes and cleans temporary AARs'
+
+    # Exercise the real token transport without making a request or printing a credential.
+    function Invoke-RestMethod($Headers, $Uri, $TimeoutSec) {
+      [pscustomobject]@{ ok = ($Headers.Authorization -eq 'Bearer synthetic-test-token' -and $Uri -eq 'https://api.github.com/repos/example/project' -and $TimeoutSec -eq 20) }
+    }
+    $env:GITHUB_TOKEN = 'synthetic-test-token'
+    T ((& $apiFunction 'repos/example/project').ok) 'Android: token is supplied only in the GitHub API header'
+    $env:GITHUB_TOKEN = $null; $env:GH_PROMPT_DISABLED = 'previous-test-value'; $ghExit = 0
+    function gh {
+      $global:LASTEXITCODE = $ghExit
+      [pscustomobject]@{ ok = ($args[0] -eq 'api' -and $args[1] -eq '--hostname' -and $args[2] -eq 'github.com' -and $args[-1] -eq 'repos/example/project' -and $env:GH_PROMPT_DISABLED -eq '1') } | ConvertTo-Json -Compress
+    }
+    T ((& $apiFunction 'repos/example/project').ok -and $env:GH_PROMPT_DISABLED -eq 'previous-test-value') 'Android: gh uses existing authentication without prompting and restores its environment'
+    $ghExit = 1; $rejected = $false
+    try { $null = & $apiFunction 'repos/example/project' } catch { $rejected = $true }
+    T $rejected 'Android: a failed gh request is not accepted as an API result'
+
+    $calls = New-Object System.Collections.Generic.List[string]
+    $expired = $false; $apiUnavailable = $false; $reportedPin = $pin.sha256
+    function GitHubJson($path) {
+      $calls.Add($path)
+      if ($apiUnavailable) { throw 'private repository without API access' }
+      if ($path -like '*/actions/workflows/android.yml/runs*') { return [pscustomobject]@{ workflow_runs = @([pscustomobject]@{ id = 42; status = 'in_progress'; head_sha = ('a' * 40) }) } }
+      if ($path -like '*/artifacts') { return [pscustomobject]@{ artifacts = @([pscustomobject]@{ name = 'waarp-android-build-reports'; expired = $expired; size_in_bytes = 1MB }) } }
+      if ($path -like '*/contents/*') { return [pscustomobject]@{ encoding = 'base64'; content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"sha256":"' + $reportedPin + '"}')) } }
+      throw 'unexpected API path'
+    }
+    $page = AarDownloadPage 'example/project' $pin.sha256
+    T ($page.Matched -and $page.Url -eq 'https://github.com/example/project/actions/runs/42' -and @($calls | Where-Object { $_ -like '*/contents/*?ref=*' }).Count -eq 1 -and @($calls | Where-Object { $_ -match 'status=completed' }).Count -eq 0) 'Android: private run selection reads the pinned commit and accepts an uploaded artifact while soak is running'
+    $expired = $true; $calls.Clear()
+    T (-not (AarDownloadPage 'example/project' $pin.sha256).Matched -and @($calls | Where-Object { $_ -like '*/contents/*' }).Count -eq 0) 'Android: expired artifacts are not selected'
+    $expired = $false; $reportedPin = '0' * 64
+    T (-not (AarDownloadPage 'example/project' $pin.sha256).Matched) 'Android: another engine pin is not selected'
+    $apiUnavailable = $true
+    $page = AarDownloadPage 'example/project' $pin.sha256
+    T (-not $page.Matched -and $page.Url -eq 'https://github.com/example/project/actions/workflows/android.yml') 'Android: unavailable private API falls back to the browser workflow page'
+  } finally {
+    $script:AndroidAar = $oldAar; $script:AndroidLocal = $oldLocal; $env:GITHUB_TOKEN = $oldToken
+    $env:GH_PROMPT_DISABLED = $oldPrompt; $global:LASTEXITCODE = $oldExit
+    if (Test-Path $scratch) { Remove-Item $scratch -Recurse -Force }
+  }
+}
 function FetchAar {
   # The engine is built on Linux by CI and kept in the 'waarp-android-build-reports' artifact (out/android-core/libbox.aar).
   # GitHub gives artifacts only to a signed-in user, so the builder opens the run page in the browser, you click the
   # artifact once, and the build goes on by itself. Only a file whose size and SHA-256 match the committed pin is used.
   Add-Type -AssemblyName System.IO.Compression.FileSystem
+  if (AarMatchesPin $AndroidAar) { return }
   foreach ($z in ArtifactZips) { if (AarFromZip $z.FullName) { Out "  $cOk●$cR $cT android engine taken from $($z.Name) (pin verified)$cR"; return } }
-  $repo = (git remote get-url origin) -replace '^https://github\.com/', '' -replace '\.git$', ''
+  $repo = 'INNVoices/waarp'
+  try {
+    $origin = (& git remote get-url origin 2>$null | Select-Object -First 1)
+    if ($origin -match '^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?$') { $repo = $Matches[1] }
+  } catch { }
   $pin = (Get-Content 'android\app\src\main\res\raw\engine_integrity.json' -Raw | ConvertFrom-Json).sha256
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-  $h = @{ 'User-Agent' = 'waarp-build' }
-  $url = $null
-  try { # public API, no login: the newest run whose commit pins the same engine and still keeps its build reports
-    foreach ($run in (Invoke-RestMethod -Headers $h "https://api.github.com/repos/$repo/actions/workflows/android.yml/runs?status=completed&per_page=20").workflow_runs) {
-      $art = (Invoke-RestMethod -Headers $h "https://api.github.com/repos/$repo/actions/runs/$($run.id)/artifacts").artifacts |
-        Where-Object { $_.name -eq 'waarp-android-build-reports' -and -not $_.expired } | Select-Object -First 1
-      if (-not $art) { continue }
-      $runPin = (Invoke-RestMethod -Headers $h "https://raw.githubusercontent.com/$repo/$($run.head_sha)/android/app/src/main/res/raw/engine_integrity.json").sha256
-      if ($runPin -eq $pin) { $url = "https://github.com/$repo/actions/runs/$($run.id)"; $size = [Math]::Round($art.size_in_bytes / 1MB); break }
-    }
-  } catch { }
-  if (-not $url) { Write-Host "  $cErr●$cR $cT no CI run keeps an engine for this pin (artifacts live 14 days): a new CI run on GitHub is needed$cR"; throw 'android tools missing' }
+  $page = AarDownloadPage $repo $pin
+  $url = $page.Url
   if (-not $script:Animated -or [Console]::IsInputRedirected) {
     Write-Host "  $cErr●$cR $cT android engine is missing: download artifact waarp-android-build-reports from $url into Downloads, then build again$cR"; throw 'android tools missing'
   }
   Write-Host ''
-  Write-Host "  $cA●$cR $cT the android engine is needed once. A browser opens the CI run page:$cR"
-  Write-Host "  $cT   scroll to Artifacts and click $cB waarp-android-build-reports$cR $cM($size MB, into Downloads)$cR"
-  Write-Host "  $cM   the build continues by itself when the download is complete (Ctrl+C to stop)$cR"
+  Write-Host "  $cA●$cR $cT a matching android engine is needed. A browser opens GitHub Actions:$cR"
+  if (-not $page.Matched) { Write-Host "  $cM   API access did not identify a matching run. In your signed-in browser, open a completed Android build for this engine.$cR" }
+  $sizeText = if ($page.Matched) { "$($page.Size) MB, " } else { '' }
+  Write-Host "  $cT   scroll to Artifacts and click $cB waarp-android-build-reports$cR $cM(${sizeText}into Downloads)$cR"
+  Write-Host "  $cM   only the pinned engine is accepted; waiting up to 10 minutes (Ctrl+C to stop)$cR"
   Start-Process $url
   $since = Get-Date
-  while ($true) {
+  $deadline = $since.AddMinutes(10)
+  while ((Get-Date) -lt $deadline) {
     Start-Sleep -Seconds 3
     foreach ($z in (ArtifactZips | Where-Object { $_.LastWriteTime -ge $since.AddMinutes(-1) })) {
       if (AarFromZip $z.FullName) { Out "  $cOk●$cR $cT android engine taken from $($z.Name) (pin verified)$cR"; return }
     }
   }
+  Write-Host "  $cErr●$cR $cT no matching engine was downloaded in 10 minutes. Finish downloading from $url and run build.bat apk again.$cR"
+  throw 'android tools missing'
 }
 function PrepareAndroid {
   $why = @()
@@ -321,7 +424,7 @@ function PrepareAndroid {
   if ($missing.Count) { InstallSdkPackages $sdk $missing }
   $env:ANDROID_HOME = $sdk; $env:ANDROID_SDK_ROOT = $sdk
   $env:GRADLE_USER_HOME = Join-Path $AndroidLocal 'gradle'
-  if (-not (Test-Path $AndroidAar)) { FetchAar }
+  FetchAar # an existing AAR may belong to the previous engine pin
 }
 function StageDebugApks { # names like android-build.mjs: waarp-android-<version>-<abi>-debug.apk
   $dir = 'android\app\build\outputs\apk\debug'
@@ -355,6 +458,8 @@ function Celebrate {
   }
   Pos $top; Out "  $cOk↗ ship it$cR"
 }
+
+if ($SelfTest) { RunSelfTest }
 
 $code = 0
 try {

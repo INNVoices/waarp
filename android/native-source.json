@@ -31,7 +31,7 @@
   ],
   "canonicalArchive": "zip-stored-sorted-1980-v1",
   "linkerFlags": [
-    "-X github.com/sagernet/sing-box/constant.Version=1.14.4-lx.35-waarp.1",
+    "-X github.com/sagernet/sing-box/constant.Version=1.14.4-lx.35-waarp.2",
     "-X runtime.godebugDefault=multipathtcp=0,tlssha1=1",
     "-checklinkname=0",
     "-s",
@@ -124,5 +124,27 @@
     "ndkVersion": "28.2.13676358",
     "sdkPlatform": 36
   },
-  "version": "1.14.4-lx.35-waarp.1"
+  "version": "1.14.4-lx.35-waarp.2",
+  "wireguardPatch": {
+    "bytes": 1142,
+    "path": "android/native-patches/wireguard-gso-retry.patch",
+    "sha256": "6e51d472ff96d3d62e0ef1e9e805d61ea8ea268d73be0add2d1c1c71c5dce224",
+    "targets": [
+      "conn/bind_std.go",
+      "conn/errors_linux.go"
+    ]
+  },
+  "wireguardRegressionTest": {
+    "bytes": 4358,
+    "destination": "conn/waarp_gso_retry_test.go",
+    "path": "android/native-patches/waarp_gso_retry_test.go",
+    "sha256": "7d866bffb4404cf58c15ea557f3b933c179f0e280f813eee5fde57cb0cf39ef0"
+  },
+  "wireguardTests": {
+    "expectedTopLevelTests": 2,
+    "requiredSubtests": [
+      "TestWaarpGSORetryPreservesDatagrams/EIO",
+      "TestWaarpGSORetryPreservesDatagrams/EINVAL"
+    ]
+  }
 }
