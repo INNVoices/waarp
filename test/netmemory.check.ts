@@ -74,20 +74,22 @@ $script:neighborFixture = @(
   [pscustomobject]@{ InterfaceIndex = 11; IPAddress = '192.168.1.1'; LinkLayerAddress = 'AA-BB-CC-DD-EE-11' },
   [pscustomobject]@{ InterfaceIndex = 22; IPAddress = '192.168.1.1'; LinkLayerAddress = 'AA-BB-CC-DD-EE-22' }
 )
-$results = @([string](Read-Gateway))
+$results = [ordered]@{}
+$results['combined'] = @(Read-Gateway) -join ''
 $script:neighborFixture = @($script:neighborFixture[0])
-$results += [string](Read-Gateway)
+$results['missingNeighbor'] = @(Read-Gateway) -join ''
 $script:interfaceFixture[1].InterfaceMetric = $null
-$results += [string](Read-Gateway)
+$results['unknownMetric'] = @(Read-Gateway) -join ''
 $script:interfaceFixture[1].InterfaceMetric = 91
-$results += [string](Read-Gateway)
-$results | ConvertTo-Json -Compress
+$results['ambiguous'] = @(Read-Gateway) -join ''
+ConvertTo-Json -InputObject $results -Compress
 `
-  const result = JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true, timeout: 10_000 }).trim()) as string[]
-  eq(result[0], 'AA-BB-CC-DD-EE-22', 'combined metric selects the real default NIC and its own same-IP neighbor')
-  eq(result[1], '', 'missing neighbor on the selected NIC never borrows another NIC MAC')
-  eq(result[2], '', 'unknown interface metric cannot silently become zero')
-  eq(result[3], '', 'equally preferred different gateways do not create a guessed fingerprint')
+  const result = JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true, timeout: 10_000 }).trim()) as Record<string, unknown>
+  eq(Object.keys(result).sort(), ['ambiguous', 'combined', 'missingNeighbor', 'unknownMetric'], 'all four gateway observations survive PowerShell serialization')
+  eq(result.combined, 'AA-BB-CC-DD-EE-22', 'combined metric selects the real default NIC and its own same-IP neighbor')
+  eq(result.missingNeighbor, '', 'missing neighbor on the selected NIC never borrows another NIC MAC')
+  eq(result.unknownMetric, '', 'unknown interface metric cannot silently become zero')
+  eq(result.ambiguous, '', 'equally preferred different gateways do not create a guessed fingerprint')
 } else console.log('[SKIP] netmemory.check: Windows gateway-command fixture NOT_RUN on this platform')
 
 // Applying an observation is bound to the measured profile/network, not a renderer-selected label.
