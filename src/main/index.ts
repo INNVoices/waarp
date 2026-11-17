@@ -25,7 +25,7 @@ import { Store } from './store'
 import { dropServer } from './store-core'
 import { startBridge } from './bridge'
 import { createApply, onRoutingPatch, selectVia, type ApplyResult } from './apply'
-import { clearTunGhost, defaultRoutes, TUN, tunPreflight, tunSnapshot } from './tun'
+import { defaultRoutes, TUN, tunPreflight, tunSnapshot } from './tun'
 import { isIP } from 'node:net'
 import { LogFile } from './logfile'
 import { dedupeApps } from '../shared/appmatch'
@@ -866,7 +866,8 @@ app.whenReady().then(async () => {
   logFile.write([`[app] Waarp ${app.getVersion()} started; engine ${engineExe}; integrity ${engineIntegrity ? 'ok' : 'failed'}`])
   engine = new Engine(engineExe, join(app.getPath('userData'), 'engine'), process.execPath)
   engine.sink = lines => logFile.write(lines)
-  engine.clearGhost = () => clearTunGhost()
+  // Automatic PnP removal stays disconnected until TZ-NEXT-2026-11 E0.3 proves
+  // ownership, inspection failures and cancellation. Keep the read-only preflight.
   engine.hostV6 = async () => {
     const routes = await defaultRoutes()
     return routes ? routes.some(r => r.up && isIP(r.nextHop.split('%')[0]) === 6 && r.alias.toLowerCase() !== TUN.name.toLowerCase() && !/teredo|isatap|6to4/i.test(r.alias)) : undefined
