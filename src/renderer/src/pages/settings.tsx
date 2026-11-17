@@ -108,10 +108,13 @@ function ListsPanel({ snap, patch, toast }: { snap: Snapshot; patch: SettingsPat
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [busy, setBusy] = useState('')
+  const busyRef = useRef(false)
   const lists = snap.lists ?? []
-  const act = async (key: string, f: () => Promise<{ ok: boolean; error?: string }>, fail: string) => {
+  const act = async (key: string, f: () => Promise<{ ok: boolean; error?: string; warning?: string }>, fail: string) => {
+    if (busyRef.current) return
+    busyRef.current = true
     setBusy(key)
-    try { const r = await f(); if (!r.ok) toast(s(r.error ? 'lists.err.' + r.error : fail), 'error') } catch { toast(s(fail), 'error') } finally { setBusy('') }
+    try { const r = await f(); if (!r.ok || r.warning) toast(s(r.error || r.warning ? 'lists.err.' + (r.error ?? r.warning) : fail), 'error') } catch { toast(s(fail), 'error') } finally { busyRef.current = false; setBusy('') }
   }
   const used = (id: string) => snap.settings.routes.some(r => r.kind === 'list' && r.list === id)
   const card = (id: string, n: string) => void patch({ routes: [...snap.settings.routes, { id: 'list:' + id, kind: 'list', name: n, list: id, via: firstServer(snap.profiles), on: true }] })
@@ -134,7 +137,7 @@ function ListsPanel({ snap, patch, toast }: { snap: Snapshot; patch: SettingsPat
             </div>
             <Toggle on={l.enabled} disabled={!!busy} onChange={v => void act(l.id, () => api.listToggle(l.id, v), 'lists.err.save')} label={l.name} />
             <Btn kind="ghost" disabled={!!busy} title={s('lists.refresh')} onClick={() => void act(l.id, () => api.listRefresh(l.id), 'lists.err.fetch')}><span className={busy === l.id ? 'spin' : ''}><Icon n="refresh" /></span></Btn>
-            {!used(l.id) && l.count > 0 && <Btn kind="ghost" onClick={() => card(l.id, l.name)}><Icon n="plus" />{s('lists.card')}</Btn>}
+            {!used(l.id) && l.enabled && l.count > 0 && <Btn kind="ghost" disabled={!!busy} onClick={() => card(l.id, l.name)}><Icon n="plus" />{s('lists.card')}</Btn>}
             <Btn kind="danger" disabled={!!busy || used(l.id)} title={used(l.id) ? s('lists.err.used') : s('set.remove')} onClick={() => void act(l.id, () => api.listRemove(l.id), 'lists.err.save')}><Icon n="trash" /></Btn>
           </div>
         ))}

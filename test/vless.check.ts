@@ -1,7 +1,8 @@
 import { ConfError } from '../src/main/conf-error'
 import { createConnection, createServer } from 'node:net'
 import { configOf, techOf } from '../src/main/techview'
-import { applyTune, profileSig, pruneTunes, tuned, variants, TUNE_MAX_VARIANTS, TUNE_TTL_MS } from '../src/main/tune'
+import { activeTune, applyTune, profileSig, provenTune, pruneTunes, tuned, variants, TUNE_MAX_VARIANTS, TUNE_TTL_MS, TUNE_RESULT_TTL_MS } from '../src/main/tune'
+import { parseAny } from '../src/main/links'
 import { parseConf } from '../src/main/awg'
 import { fetchSubscription, isSubscriptionUrl, looksLikeVless, parseSubscription, parseVless, pinnedAddressLookup, redactVless, vlessKey, vlessOutbound, vlessSecrets } from '../src/main/vless'
 
@@ -200,6 +201,24 @@ export const TCP = `vless://${UUID}@1.2.3.4:8443?type=tcp&security=reality&pbk=$
   const changed = { ...base, vless: { ...base.vless, sni: 'other.example' } }
   eq((tuned([changed], { [base.id]: entry }, 'netA', 2000)[0] as typeof base).vless.fp, 'firefox', 'a changed profile (subscription update) drops the tune')
   eq(Object.keys(pruneTunes({ [base.id]: entry }, [changed], 2000)), [], 'stale tunes are pruned')
+  eq(pruneTunes(null, [base], 2000), {}, 'malformed disk cache cannot crash startup')
+  eq(pruneTunes({ [base.id]: null }, [base], 2000), {}, 'null tune entry is ignored')
+  eq(activeTune(base, { ...entry, patch: { fp: 'edge' } }, 'netA', 2000), undefined, 'cache cannot inject a variant that was never offered')
+  eq(activeTune(base, { ...entry, at: 3000 }, 'netA', 2000), undefined, 'future timestamp is not fresh evidence')
+  const proof = { id: base.id, net: 'netA', sig: profileSig(base), at: 1000, results: [{ label: '', ms: null }, { label: 'fp safari', ms: 0 }] }
+  eq(provenTune(proof, base, 'netA', 'fp safari', 2000)?.patch, { fp: 'safari' }, 'only measured successful variant can be applied; zero latency is valid')
+  eq(provenTune(undefined, base, 'netA', 'fp safari', 2000), undefined, 'a known variant label alone is not permission to apply')
+  eq(provenTune(proof, base, 'netB', 'fp safari', 2000), undefined, 'a result cannot be rebound to the network present at apply time')
+  eq(provenTune(proof, changed, 'netA', 'fp safari', 2000), undefined, 'profile edit invalidates a measured result before apply')
+  eq(provenTune(proof, base, 'netA', 'fp safari', 1000 + TUNE_RESULT_TTL_MS), undefined, 'expired measurement must be repeated')
+  eq(provenTune({ ...proof, results: [{ label: '', ms: 25 }, { label: 'fp safari', ms: 10 }] }, base, 'netA', 'fp safari', 2000), undefined, 'working original is not replaced by tuning')
+  eq(provenTune({ ...proof, results: [{ label: '', ms: null }, { label: 'fp safari', ms: null }] }, base, 'netA', 'fp safari', 2000), undefined, 'failed variant cannot be applied')
+  for (const link of [`hysteria2://fixture@example.org:443`, `tuic://${UUID}:fixture@example.org:443`]) {
+    const quic = parseAny(link).items[0]
+    ok(!!quic, 'QUIC tuning fixture imports')
+    eq(variants(quic), [], 'QUIC profiles never receive incompatible uTLS/TCP fragmentation variants')
+    eq(applyTune(quic, { fp: 'safari', recordFragment: true }), quic, 'even a stale QUIC tuning patch is a no-op')
+  }
   const awg = parseConf(`[Interface]
 PrivateKey = gB5c0VMuG6oZ3FqzJHLqX7RCkv4cC4m23OIlriNib0U=
 Address = 10.8.0.7/32

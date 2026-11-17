@@ -148,7 +148,7 @@ export function parseConf(raw: string, name = 'Сервер'): AwgProfile {
   const interfaceKeys = new Set<string>(['privatekey', 'address', 'dns', 'mtu', 'listenport', ...NUM_KEYS, ...STR_KEYS, 'headerprotectionkey', 'randomtrailers', 'disablecookies'])
   const peerKeys = new Set(['publickey', 'presharedkey', 'endpoint', 'allowedips', 'persistentkeepalive'])
   const unsupported = [...Object.keys(i).filter(k => !interfaceKeys.has(k)), ...Object.keys(p).filter(k => !peerKeys.has(k))]
-  if (unsupported.length) throw new ConfError(`Импорт не поддерживает параметры: ${unsupported.join(', ')}. Они не были отброшены; нужен поддерживаемый конфиг WireGuard/AmneziaWG 2`)
+  if (unsupported.length) throw new ConfError(`Импорт не поддерживает параметры: ${unsupported.join(', ')}. Они не были отброшены; нужен совместимый конфиг WireGuard/AmneziaWG`)
   if (!i.privatekey) throw new ConfError('В конфиге нет PrivateKey')
   if (!p.publickey) throw new ConfError('В конфиге нет PublicKey сервера')
   if (!p.endpoint) throw new ConfError('В конфиге нет Endpoint сервера')
@@ -165,8 +165,9 @@ export function parseConf(raw: string, name = 'Сервер'): AwgProfile {
     awg[k] = unsigned(i[k], k.toUpperCase(), k.startsWith('s') ? 65535 : 0xffffffff)
   }
   if ((awg.jmin ?? 0) > (awg.jmax ?? 0)) throw new ConfError('Jmin не может быть больше Jmax')
-  if (i.headerprotectionkey) {
+  if (i.headerprotectionkey !== undefined) {
     if (!validKey(i.headerprotectionkey)) throw new ConfError('HeaderProtectionKey должен быть ключом 32 байта в base64, как на сервере')
+    if (Buffer.from(i.headerprotectionkey, 'base64').every(b => b === 0)) throw new ConfError('HeaderProtectionKey не может состоять только из нулей; если защита заголовка не используется, уберите этот параметр')
     if ((['s1', 's2', 's3', 's4'] as const).some(k => (awg[k] ?? 0) < 12)) throw new ConfError('С HeaderProtectionKey параметры S1–S4 должны быть не меньше 12')
     awg.header_protection_key = i.headerprotectionkey
   }
@@ -176,8 +177,9 @@ export function parseConf(raw: string, name = 'Сервер'): AwgProfile {
     if (/^(false|0|off)$/i.test(v)) return false
     throw new ConfError(`${name} должен быть true или false`)
   }
-  if (flag(i.randomtrailers, 'RandomTrailers')) awg.random_trailers = true
-  if (flag(i.disablecookies, 'DisableCookies')) awg.disable_cookies = true
+  const trailers = flag(i.randomtrailers, 'RandomTrailers'), cookies = flag(i.disablecookies, 'DisableCookies')
+  if (trailers !== undefined) awg.random_trailers = trailers
+  if (cookies !== undefined) awg.disable_cookies = cookies
   for (const k of STR_KEYS) if (i[k]) awg[k] = k.startsWith('h') ? magicHeader(i[k], k.toUpperCase()) : signaturePacket(i[k], k.toUpperCase())
   const headers = (['h1', 'h2', 'h3', 'h4'] as const).map((key, index) => {
     const value = awg[key]
@@ -326,9 +328,22 @@ export function planSlots(s: Settings, prev?: Slots): Slots | undefined {
 let listDomains: (id: string) => string[] = () => []
 export function setListResolver(fn: (id: string) => string[]) { listDomains = fn }
 
-export const CANARY = 'wcanary'
+export const CANARY_ZONE = 'waarp-check.invalid'
 export const CANARY_IP = '127.0.0.9'
-export const canaryFile = (name: string) => JSON.stringify({ version: 3, rules: [{ domain: [name] }] })
+/** Keep canonical business files unchanged; only the watched copy carries its own reload witness. */
+export function ruleFileWithWitness(body: string, name: string): string {
+  const file = JSON.parse(body)
+  if (file.version !== 3 || !Array.isArray(file.rules)) throw new Error('invalid rule file')
+  return JSON.stringify({ version: 3, rules: [
+    // Query type prevents this synthetic domain from becoming a traffic-routing match.
+    { domain: [name], query_type: ['A'] },
+    ...(file.rules.length ? [{ type: 'logical', mode: 'and', rules: [
+      // A broad user suffix must not acknowledge a witness belonging to another file.
+      { domain_suffix: [CANARY_ZONE], invert: true },
+      ...(file.rules.length === 1 ? file.rules : [{ type: 'logical', mode: 'or', rules: file.rules }])
+    ] }] : [])
+  ] })
+}
 export const ruleFileOf = (tag: string) => tag.replace(/[^\w.-]/g, '_') + '.json'
 const ENGINE_LOG = /^(trace|debug|info|warn|error)$/.test(process.env.WAARP_ENGINE_LOG ?? '') ? process.env.WAARP_ENGINE_LOG! : 'warn'
 const VPN_CLIENT_DIRS = ['(?i)\\\\(?:ExitLag|WireGuard|AmneziaVPN|AmneziaWG|OpenVPN|OpenVPN Connect|Outline|Cloudflare WARP|Mullvad VPN|NordVPN|ProtonVPN|Proton\\\\VPN|Tailscale|ZeroTier|Hiddify|v2rayN|nekoray|Throne|Radmin VPN|LogMeIn Hamachi|WireSock[^\\\\]*)\\\\']
@@ -518,7 +533,6 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
   const slotMode = !!(o.selectors && o.slots)
   const files: Record<string, string> = {}
   const sets: string[] = []
-  if (slotMode) dnsRules.push({ rule_set: [CANARY], action: 'predefined', rcode: 'NOERROR', answer: [`${CANARY}.invalid. IN A ${CANARY_IP}`] })
   // HOTFIX-RUNTIME-01 C: "Russian sites direct" is a global bypass: it wins over app and card routes, and its DNS stays local first
   if (s.ruDirect) {
     rules.push({ domain_suffix: RU_DIRECT, outbound: DIRECT })
@@ -617,7 +631,17 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
   // a route's DNS follows the route's own selector: the same resolver as its target, detour = the route switch
   for (const d of routeDns) dnsServers.push({ ...dnsServers.find(x => x.tag === d.from)!, tag: d.tag, detour: d.detour })
 
-  const ruleSets = slotMode ? [...sets, CANARY].map(tag => ({ type: 'local', tag, format: 'source', path: join(o.ruleDir ?? '.', ruleFileOf(tag)) })) : []
+  if (slotMode) dnsRules.unshift(
+    { type: 'logical', mode: 'and', rules: [
+      { domain_suffix: [CANARY_ZONE] },
+      // The controller query has no source IP. CIDR branches cannot become a
+      // deferred destination match or switch the pinned core's DNS rule mode.
+      { rule_set: sets, rule_set_ip_cidr_match_source: true }
+    ], action: 'predefined', rcode: 'NOERROR', answer: [`${CANARY_ZONE}. IN A ${CANARY_IP}`] },
+    // Unloaded witnesses terminate locally, without a resolver or negative cache.
+    { domain_suffix: [CANARY_ZONE], action: 'predefined', rcode: 'NXDOMAIN' }
+  )
+  const ruleSets = slotMode ? sets.map(tag => ({ type: 'local', tag, format: 'source', path: join(o.ruleDir ?? '.', ruleFileOf(tag)) })) : []
   const cfg = {
     log: { level: ENGINE_LOG, timestamp: true },
     dns: { servers: dnsServers, rules: dnsRules, final: dnsFinal, strategy: 'ipv4_only' },

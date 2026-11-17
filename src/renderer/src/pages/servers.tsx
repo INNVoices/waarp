@@ -1,5 +1,5 @@
 // Saved connections, their groups, and the explicitly refreshed public catalog share one destination.
-import { Fragment, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { Group, ProfileView, Snapshot, Status } from '../../../shared/types'
 import { dropGroup, usersOf } from '../../../main/store-core'
 import { Modal } from '../ui/modal'
@@ -232,17 +232,48 @@ function DevConfig({ id }: { id: string }) {
 /** manual tune: a small fixed set of client-side variants, checked one by one by the separate checker while Waarp is closed */
 function Tune({ p, open, toast }: { p: ProfileView; open: boolean; toast: (x: string) => void }) {
   const [busy, setBusy] = useState(false)
+  const [writing, setWriting] = useState(false)
   const [res, setRes] = useState<{ label: string; ms: number | null }[]>()
+  const sequence = useRef(0), running = useRef(false), writeLock = useRef(false)
+  useEffect(() => () => {
+    sequence.current++
+    if (running.current) void api.tuneCancel(p.id)
+  }, [p.id])
+  useEffect(() => {
+    if (!open) return
+    sequence.current++
+    if (running.current) void api.tuneCancel(p.id)
+    running.current = false; setBusy(false); setRes(undefined)
+  }, [open, p.id])
   const run = async () => {
+    if (running.current || writeLock.current) return
+    running.current = true
+    const request = ++sequence.current
     setBusy(true); setRes(undefined)
     try {
       const r = await api.tuneRun(p.id)
+      if (request !== sequence.current) return
       if (r.error) { if (r.error !== 'canceled') toast(s('tune.err.' + r.error)) }
       else setRes(r.results)
-    } catch { toast(s('tune.err.engine')) } finally { setBusy(false) }
+    } catch { if (request === sequence.current) toast(s('tune.err.engine')) }
+    finally { if (request === sequence.current) { running.current = false; setBusy(false) } }
   }
-  const apply = async (label: string) => {
-    try { const r = await api.tuneApply(p.id, label); toast(r.ok ? s('tune.applied') : s('tune.err.' + (r.error ?? 'engine'))) } catch { toast(s('tune.err.engine')) }
+  const cancel = async () => {
+    sequence.current++
+    try { if (!(await api.tuneCancel(p.id))) toast(s('tune.err.engine')) }
+    catch { toast(s('tune.err.engine')) }
+    finally { running.current = false; setBusy(false); setRes(undefined) }
+  }
+  const save = async (label?: string) => {
+    if (writeLock.current || running.current) return
+    writeLock.current = true; setWriting(true)
+    try {
+      const r = label === undefined ? await api.tuneReset(p.id) : await api.tuneApply(p.id, label)
+      if (!r.ok || r.warning) toast(s('tune.err.' + (r.error ?? r.warning ?? 'engine')))
+      else if (label !== undefined) toast(s('tune.applied'))
+      setRes(undefined)
+    } catch { toast(s('tune.err.engine')) }
+    finally { writeLock.current = false; setWriting(false) }
   }
   const base = res?.[0]
   return (
@@ -250,16 +281,17 @@ function Tune({ p, open, toast }: { p: ProfileView; open: boolean; toast: (x: st
       <div className="ph-row">
         <b>{s('tune.title')}</b>
         {p.tune && <span className="badge">{s('tune.active', { v: p.tune })}</span>}
+        {p.tuneStored && !p.tune && <span className="hint">{s('tune.saved')}</span>}
         <div className="grow" />
-        {busy ? <Btn sm kind="ghost" onClick={() => void api.tuneCancel()}>{s('tune.cancel')}</Btn>
-          : <Btn sm disabled={open} title={open ? s('tune.closed') : undefined} onClick={() => void run()}><Icon n="bolt" />{s('tune.go')}</Btn>}
-        {p.tune && !busy && <Btn sm kind="ghost" onClick={async () => { try { await api.tuneReset(p.id) } catch {} }}>{s('tune.reset')}</Btn>}
+        {busy ? <Btn sm kind="ghost" onClick={() => void cancel()}>{s('tune.cancel')}</Btn>
+          : <Btn sm disabled={open || writing} title={open ? s('tune.closed') : undefined} onClick={() => void run()}><Icon n="bolt" />{s('tune.go')}</Btn>}
+        {p.tuneStored && !busy && <Btn sm kind="ghost" disabled={writing} onClick={() => void save()}>{s('tune.reset')}</Btn>}
       </div>
       {open && !p.tune && <p className="hint">{s('tune.closed')}</p>}
       {res && <div className="kv mono">
         {res.map(r => <Fragment key={r.label || 'base'}>
           <span className="m">{r.label || s('tune.base')}</span>
-          <span>{r.ms === null ? s('tune.fail') : s('meter.ms', { n: r.ms })}{r.label && r.ms !== null && (!base || base.ms === null) && <> <Btn sm onClick={() => void apply(r.label)}>{s('tune.apply')}</Btn></>}</span>
+          <span>{r.ms === null ? s('tune.fail') : s('meter.ms', { n: r.ms })}{r.label && r.ms !== null && base?.ms === null && <> <Btn sm disabled={writing} onClick={() => void save(r.label)}>{s('tune.apply')}</Btn></>}</span>
         </Fragment>)}
       </div>}
       {res && base?.ms !== null && base !== undefined && <p className="hint">{s('tune.base_ok')}</p>}

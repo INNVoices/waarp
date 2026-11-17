@@ -95,6 +95,8 @@ export interface ProfileView {
   notApplied?: string[]
   /** label of a stored network-scoped tune */
   tune?: string
+  /** A stored tune may be inactive on this network but must remain explicitly resettable. */
+  tuneStored?: boolean
 }
 
 export type Via = 'direct' | string
@@ -191,6 +193,8 @@ export interface Conn {
   app: string
   exe: string
   host: string
+  /** Resolved destination, retained for matching IP/CIDR cards when host is a domain. */
+  ip?: string
   port: number
   net: string
   via: Via

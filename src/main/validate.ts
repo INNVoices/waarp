@@ -102,6 +102,7 @@ export function probeTarget(raw: unknown): string | null {
   if (!str(raw, 200)) return null
   const value = raw.trim()
   if (!value || /[\s\\]/.test(value)) return null
+  if (/^[a-z][a-z\d+.-]*:\/\//i.test(value) && !/^https?:\/\//i.test(value)) return null
   try {
     const url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`)
     if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password) return null

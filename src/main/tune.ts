@@ -5,16 +5,19 @@ export type TunePatch = { fp?: string; recordFragment?: boolean; jc?: number; jm
 export interface TuneVariant { label: string; patch: TunePatch }
 export interface TuneEntry { net: string; sig: string; label: string; patch: TunePatch; at: number }
 export type Tunes = Record<string, TuneEntry>
+export interface TuneResult { id: string; net: string; sig: string; at: number; results: { label: string; ms: number | null }[] }
 
 export const TUNE_TTL_MS = 14 * 24 * 3600_000
 export const TUNE_MAX_VARIANTS = 6
+export const TUNE_RESULT_TTL_MS = 5 * 60_000
 const FPS = ['firefox', 'chrome', 'safari']
 
 export const profileSig = (p: Profile) => createHash('sha256').update(JSON.stringify(p)).digest('hex').slice(0, 16)
 
 const tlsOf = (p: Profile): { fp?: string } | undefined => {
   if (p.kind === 'vless') return p.vless.security === 'none' ? undefined : { fp: p.vless.fp }
-  if (p.kind === 'out') { const t = (p.outbound as { tls?: { enabled?: boolean; utls?: { fingerprint?: string } } }).tls; return t?.enabled ? { fp: t.utls?.fingerprint } : undefined }
+  // QUIC transports (Hysteria2/TUIC) cannot use TCP TLS record fragmentation or uTLS.
+  if (p.kind === 'out' && ['vmess', 'trojan'].includes(String(p.outbound.type))) { const t = (p.outbound as { tls?: { enabled?: boolean; utls?: { fingerprint?: string } } }).tls; return t?.enabled ? { fp: t.utls?.fingerprint } : undefined }
   return undefined
 }
 
@@ -39,8 +42,8 @@ export function applyTune(p: Profile, t: TunePatch): Profile {
   if (p.kind === 'vless') return { ...p, vless: { ...p.vless, ...(t.fp ? { fp: t.fp } : {}), ...(t.recordFragment ? { recordFragment: true } : {}) } }
   if (p.kind === 'out') {
     const o = p.outbound as Record<string, any>
-    if (!o.tls?.enabled) return p
-    const tls = { ...o.tls, ...(t.recordFragment ? { record_fragment: true } : {}), ...(t.fp ? { utls: { enabled: true, fingerprint: t.fp } } : {}) }
+    if (!tlsOf(p)) return p
+    const tls = { ...o.tls, ...(t.recordFragment ? { record_fragment: true } : {}), ...(t.fp ? { utls: { ...o.tls.utls, enabled: true, fingerprint: t.fp } } : {}) }
     return { ...p, outbound: { ...o, tls } }
   }
   if (p.kind === 'awg') {
@@ -54,12 +57,36 @@ export function applyTune(p: Profile, t: TunePatch): Profile {
 export function tuned(profiles: Profile[], tunes: Tunes, net: string | undefined, now: number): Profile[] {
   if (!net) return profiles
   return profiles.map(p => {
-    const t = tunes[p.id]
-    return t && t.net === net && t.sig === profileSig(p) && now - t.at < TUNE_TTL_MS ? applyTune(p, t.patch) : p
+    const t = activeTune(p, tunes[p.id], net, now)
+    return t ? applyTune(p, t.patch) : p
   })
 }
 
-export function pruneTunes(tunes: Tunes, profiles: Profile[], now: number): Tunes {
-  const sig = new Map(profiles.map(p => [p.id, profileSig(p)]))
-  return Object.fromEntries(Object.entries(tunes).filter(([id, t]) => sig.get(id) === t.sig && now - t.at < TUNE_TTL_MS))
+const fresh = (at: unknown, now: number, ttl: number): boolean => typeof at === 'number' && Number.isFinite(at) && at <= now && now - at < ttl
+const patchKey = (patch: unknown): string => patch && typeof patch === 'object' && !Array.isArray(patch) ? JSON.stringify(Object.entries(patch).sort(([a], [b]) => a.localeCompare(b))) : ''
+
+/** Disk data must still describe one of the bounded, compatible variants for this profile. */
+export function activeTune(p: Profile, value: unknown, net: string | undefined, now: number): TuneEntry | undefined {
+  if (!value || typeof value !== 'object' || !net || p.revoked) return undefined
+  const t = value as TuneEntry
+  if (t.net !== net || t.sig !== profileSig(p) || !fresh(t.at, now, TUNE_TTL_MS)) return undefined
+  return variants(p).some(v => v.label === t.label && patchKey(v.patch) === patchKey(t.patch)) ? t : undefined
+}
+
+export function pruneTunes(tunes: unknown, profiles: Profile[], now: number): Tunes {
+  if (!tunes || typeof tunes !== 'object' || Array.isArray(tunes)) return {}
+  return Object.fromEntries(profiles.flatMap(p => {
+    const t = (tunes as Tunes)[p.id]
+    const valid = activeTune(p, t, typeof t?.net === 'string' ? t.net : undefined, now)
+    return valid ? [[p.id, valid]] : []
+  }))
+}
+
+/** Apply only a successful result, measured for this exact profile/network while the original failed. */
+export function provenTune(result: TuneResult | undefined, p: Profile, net: string | undefined, label: string, now: number): TuneVariant | undefined {
+  if (!result || !net || p.revoked || result.id !== p.id || result.net !== net || result.sig !== profileSig(p) || !fresh(result.at, now, TUNE_RESULT_TTL_MS)) return undefined
+  const base = result.results.find(r => r.label === '')
+  const measured = result.results.find(r => r.label === label)
+  if (!base || base.ms !== null || !measured || measured.ms === null || !Number.isFinite(measured.ms) || measured.ms < 0) return undefined
+  return variants(p).find(v => v.label === label)
 }

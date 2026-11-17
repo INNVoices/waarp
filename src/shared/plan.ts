@@ -26,6 +26,9 @@ export interface RoutePlan {
   canStart: boolean
 }
 
+/** Direct with per-card TLS fragmentation still requires the routing core. */
+export const requiresCore = (s: Settings): boolean => s.rest !== 'direct' || s.routes.some(r => r.on && (r.via !== 'direct' || r.dpi === true))
+
 /**
  * Authoritative, side-effect-free interpretation of persisted routing state.
  * UI summaries, guards and engine configuration must consume this plan rather
@@ -82,7 +85,6 @@ export function compilePlan(given: Settings, profiles: (Pick<Profile, 'id' | 're
 
   // A profile cannot be described as standby if another active route needs it now.
   for (const id of required) standby.delete(id)
-  const demandsTunnel = settings.rest !== 'direct' || routes.some(r => r.target !== 'direct')
   return {
     scope,
     final: settings.rest,
@@ -93,7 +95,7 @@ export function compilePlan(given: Settings, profiles: (Pick<Profile, 'id' | 're
     blockedTargets: [...blocked],
     warnings: [...warnings],
     // Missing protected targets are representable as reject rules, so starting preserves fail-closed behavior.
-    canStart: demandsTunnel
+    canStart: requiresCore(settings)
   }
 }
 

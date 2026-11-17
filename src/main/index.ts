@@ -2,11 +2,11 @@ import { prepareStart } from './connect'
 import { ConnectionControl } from './connection-control'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, net, Notification, powerMonitor, screen, Tray } from 'electron'
 import { execFile } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { createHash, randomBytes } from 'node:crypto'
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { Notice, Profile, Settings, Snapshot, Status } from '../shared/types'
-import { compilePlan } from '../shared/plan'
+import { compilePlan, requiresCore } from '../shared/plan'
 import { ConfError, createWireGuardProfile, parseConf, usedProfiles, validateCustom, withoutAuto } from './awg'
 import { fetchSubscription, isSubscriptionUrl, looksLikeVless } from './vless'
 import { describeExe, scanApps, trayImage } from './apps'
@@ -26,13 +26,13 @@ import { Store } from './store'
 import { dropServer } from './store-core'
 import { startBridge } from './bridge'
 import { createApply, onRoutingPatch, selectVia, type ApplyResult } from './apply'
-import { defaultRoutes, TUN, tunPreflight, tunSnapshot } from './tun'
+import { defaultRoutes, TUN, tunPreflight, tunSnapshot, untilCancelled } from './tun'
 import { isIP } from 'node:net'
 import { LogFile } from './logfile'
-import { configOf } from './techview'
+import { configOf, diagnosticsOf } from './techview'
 import { Lists } from './lists'
 import { setListResolver } from './awg'
-import { applyTune, profileSig, pruneTunes, tuned, variants, type Tunes } from './tune'
+import { activeTune, applyTune, profileSig, provenTune, pruneTunes, tuned, variants, type TuneResult, type Tunes } from './tune'
 import { dedupeApps } from '../shared/appmatch'
 import { bounded } from './stop'
 import { createResume, underlayReady } from './resume'
@@ -48,6 +48,7 @@ import { parseProbe, probeLayers } from './layered'
 import { activeIds, diagnosisSet, learn, type NetMemory } from '../shared/netmemory'
 import { loadMem, saveMem } from './netmem-store'
 import { networkFingerprint } from './netid'
+import { diagnosisCurrent, diagnosisProof, type DiagnosisProof } from './diagnosis'
 import { SerialGate } from './serial'
 import { RuntimeRecovery } from './runtime-recovery'
 import { relaunchArgs, relaunchParent, waitForRelaunchParent } from './relaunch'
@@ -96,7 +97,7 @@ const runtimeRecovery = new RuntimeRecovery({
   changed: () => { send('status', statusView(engine.status)); updateTray() }
 })
 
-const demandsTunnel = (s: Settings): boolean => s.rest !== 'direct' || s.routes.some(r => r.on && r.via !== 'direct')
+const demandsTunnel = requiresCore
 
 function writeError(): string | undefined {
   if (store.canSave()) return undefined
@@ -127,7 +128,12 @@ async function chooseConfig(): Promise<{ text: string; name: string } | { error:
 }
 
 function snapshot(): Snapshot {
-  return { admin, profiles: store.views().map(v => (tunes[v.id] ? { ...v, tune: tunes[v.id].label } : v)), settings: store.settings, status: statusView(engine.status), notices, lists: lists?.views() ?? [] }
+  const byId = new Map(store.profiles.map(p => [p.id, p]))
+  return { admin, profiles: store.views().map(v => {
+    const p = byId.get(v.id)
+    const t = p && engine.status.phase === 'on' && runtimeTuneIds.has(v.id) && activeTune(p, tunes[v.id], netCache && Date.now() - netCache.at < 60_000 ? netCache.net : undefined, Date.now())
+    return { ...v, ...(tunes[v.id] ? { tuneStored: true } : {}), ...(t ? { tune: t.label } : {}) }
+  }), settings: store.settings, status: statusView(engine.status), notices, lists: lists?.views() ?? [] }
 }
 
 /** HOTFIX-RUNTIME-01 E: the master switch's intent, owned here. Only the master (and a hard block / quit) changes it;
@@ -140,11 +146,12 @@ const master = new ConnectionControl({
   start: async () => engine.start(await runtimeProfiles(), store.settings),
   stop: () => engine.stop(),
   serial: work => intentWrites.run(work),
-  changed: () => { send('status', statusView(engine.status)); updateTray() }
+  changed: () => { void cancelDiagnosis(); send('status', statusView(engine.status)); updateTray() }
 })
 const setMaster = (open: boolean) => master.set(open)
 const statusView = (s: Status) => ({ ...withRoutes(s), open: master.open, startup: runtimeRecovery.state })
 async function pauseMeasurements(): Promise<boolean> {
+  void cancelDiagnosis()
   const stopped = await Promise.all([checker?.stop() ?? true, catalog?.pause() ?? true])
   return stopped.every(Boolean)
 }
@@ -274,7 +281,15 @@ async function watch() {
   try {
     const n = await refreshNotices()
     const block = n.find(x => x.level === 'block')
-    if (!block || !master.current(revision) || engine.status.phase !== 'on') return
+    if (!master.current(revision) || engine.status.phase !== 'on') return
+    if (!block) {
+      if (await refreshTuneNetwork()) await intentWrites.run(async () => {
+        if (!master.current(revision) || engine.status.phase !== 'on') return
+        const r = await master.reconnect(revision, { restart: true, preserveIntent: true })
+        if (!r.ok && r.error) send('toast', r.error)
+      })
+      return
+    }
     setMaster(false)
     await engine.stop()
     const msg = `Waarp закрылся: ${block.title.toLowerCase()}`
@@ -377,8 +392,11 @@ function ipc() {
   const addPublic = (id: string): string | undefined => {
     const p = catalog?.node(id); if (!p) return undefined
     const key = credentialKey(p)
-    const have = store.profiles.find(x => x.id === p.id || credentialKey(x) === key); if (have) return have.id
-    const copy = { ...p, source: 'public' } as Profile
+    const have = store.profiles.find(x => credentialKey(x) === key); if (have) return have.id
+    // A legacy catalog id can survive a lost cache or reordered source. Never retarget its saved profile.
+    const copyId = store.profiles.some(x => x.id === p.id) ? 'pub-' + createHash('sha256').update(key).digest('hex').slice(0, 20) : p.id
+    if (store.profiles.some(x => x.id === copyId)) return undefined
+    const copy = { ...p, id: copyId, source: 'public' } as Profile
     store.profiles.push(copy); return copy.id
   }
   const addProfiles = (fresh: Profile[]): boolean => {
@@ -793,10 +811,19 @@ function ipc() {
     const subset = store.profiles.filter(p => pick.ids.includes(p.id))
     const viaPaths = async (): Promise<Record<string, number | null>> => {
       if (!checker || !subset.length) return {}
+      const measured = checker, lease = measured.acquire()
+      if (!lease) return {}
       // A failed adapter scan gives no permission to reuse a possibly live AWG
       // address. Skip this measurement; it is not evidence that a server failed.
-      try { return await checker.ensure(subset, await adapters()) ? checker.probe(target, pick.ids) : {} }
+      try {
+        const list = await adapters()
+        if (!measured.owns(lease) || master.open || engine.status.phase !== 'off') return {}
+        if (!(await measured.ensure(subset, list)) || !measured.owns(lease)) return {}
+        const result = await measured.probe(target, pick.ids)
+        return measured.owns(lease) ? result : {}
+      }
       catch { return {} }
+      finally { measured.release(lease) }
     }
     const [direct, via] = await Promise.all([directProbe(target), viaPaths()])
     return { direct, ...via }
@@ -806,135 +833,255 @@ function ipc() {
     const target = probeTarget(t)
     const parsed = target ? parseProbe(target) : undefined
     if (!target || !parsed) return null
-    const run = ++diagnoseRun
-    // "in use" = carrying traffic now (required, picked, effective), not every Auto standby candidate
-    const st = withRoutes(engine.status)
-    const used = activeIds(compilePlan(store.settings, store.profiles).requiredProfiles, st.picked, Object.values(st.routes ?? {}).map(e => e.effective), new Set(store.profiles.map(p => p.id)))
-    const host = parsed.host
-    const net = await networkFingerprint(netMem.salt)
-    const now = Date.now()
-    // memory only orders which own paths this diagnosis checks; it never touches routes or runtime Auto
-    const eligible = diagnosisSet(autoMembers(store.profiles), used, netMem.data, net, host, now, AUTO_BUDGET)
-    const viaPaths = async (): Promise<Record<string, number | null>> => {
-      if (!eligible.length) return {}
-      if (engine.status.phase === 'on') return engine.probePaths(target, eligible)
-      // the checker is built from the bounded set only, never the whole library
-      const subset = store.profiles.filter(p => eligible.includes(p.id))
-      try { return checker && (await checker.ensure(subset, await adapters())) ? checker.probe(target, eligible) : {} }
-      catch { return {} }
+    const stopping = cancelDiagnosis()
+    const run = diagnoseRun
+    await stopping
+    if (run !== diagnoseRun || quitting) return null
+    const ac = new AbortController(), context = diagnosisContext()
+    diagnosisAbort = ac
+    const measured = checker
+    let lease: symbol | undefined
+    let cleanup: Promise<boolean> | undefined
+    const stopOwned = () => {
+      if (lease && measured?.owns(lease)) cleanup = diagnosisCleanup = measured.stop()
     }
-    const checked = store.profiles.filter(p => eligible.includes(p.id))
-    const deadline = new Promise<Record<string, number | null>>(r => setTimeout(() => r({}), DIAGNOSE_MS))
-    const [direct, all] = await Promise.all([probeLayers(target), Promise.race([viaPaths(), deadline])])
-    const paths: Record<string, number | null> = {}
-    for (const id of eligible) if (id in all) paths[id] = all[id]
-    const finding = classify(direct, paths)
-    const stale = run !== diagnoseRun || checked.some(p => !store.profiles.includes(p)) || (await networkFingerprint(netMem.salt)) !== net
-    if (net && !stale) { netMem.data = learn(netMem.data, net, host, finding, autoMembers(store.profiles), now); saveNetMem() }
-    return { target: parsed.shown, host, direct, paths, finding, at: now, stale }
+    ac.signal.addEventListener('abort', stopOwned, { once: true })
+    const timer = setTimeout(() => ac.abort(), DIAGNOSE_MS)
+    const current = () => !ac.signal.aborted && run === diagnoseRun && !quitting && context === diagnosisContext()
+    try {
+      const st = withRoutes(engine.status)
+      const used = activeIds(compilePlan(store.settings, store.profiles).requiredProfiles, st.picked, Object.values(st.routes ?? {}).map(e => e.effective), new Set(store.profiles.map(p => p.id)))
+      const host = parsed.host
+      const net = await networkFingerprint(netMem.salt, ac.signal)
+      if (!current()) return null
+      const eligible = diagnosisSet(autoMembers(store.profiles), used, netMem.data, net, host, Date.now(), AUTO_BUDGET)
+      const checked = store.profiles.filter(p => eligible.includes(p.id))
+      const signatures = new Map(checked.map(p => [p.id, profileSig(p)]))
+      const viaPaths = async (): Promise<Record<string, number | null>> => {
+        if (!eligible.length || !current()) return {}
+        if (engine.status.phase === 'on') return engine.probePaths(parsed.url, eligible, ac.signal)
+        if (!measured || master.open || engine.status.phase !== 'off') return {}
+        lease = measured.acquire(() => ac.abort())
+        if (!lease) return {}
+        try {
+          const list = await untilCancelled(adapters(), ac.signal)
+          if (!list || !current() || !measured.owns(lease)) return {}
+          if (!(await measured.ensure(checked, list)) || !current() || !measured.owns(lease)) return {}
+          const result = await measured.probe(parsed.url, eligible)
+          return current() && measured.owns(lease) ? result : {}
+        } catch { return {} }
+      }
+      const [direct, all] = await Promise.all([probeLayers(parsed.url, undefined, undefined, ac.signal), viaPaths()])
+      if (!current()) return null
+      const paths: Record<string, number | null> = {}
+      for (const id of eligible) if (all[id] === null || (typeof all[id] === 'number' && Number.isFinite(all[id]) && all[id]! >= 0)) paths[id] = all[id]
+      const finding = classify(direct, paths)
+      const latestNet = await networkFingerprint(netMem.salt, ac.signal)
+      const stale = !current() || latestNet !== net || checked.some(p => signatures.get(p.id) !== profileSig(store.profiles.find(x => x.id === p.id) ?? p) || !store.profiles.some(x => x.id === p.id && !x.revoked))
+      const at = Date.now()
+      if (net && !stale) { netMem.data = learn(netMem.data, net, host, finding, autoMembers(store.profiles), at); saveNetMem() }
+      const proof = !stale && (finding.kind === 'restricted_direct' || finding.kind === 'path_only') ? diagnosisProof(host, paths, checked, net, at, context) : undefined
+      if (run === diagnoseRun) lastDiagnosis = proof
+      return { target: parsed.shown, host, direct, paths, finding, at, stale, token: proof?.token }
+    } finally {
+      clearTimeout(timer)
+      stopOwned()
+      if (cleanup) await cleanup
+      if (lease) measured?.release(lease)
+      ac.signal.removeEventListener('abort', stopOwned)
+      if (diagnosisAbort === ac) diagnosisAbort = undefined
+    }
+  })
+  secureHandle('diagnose:cancel', () => cancelDiagnosis())
+  secureIntentHandle('diagnose:apply', async (_e, token: unknown, via: unknown) => {
+    const proof = lastDiagnosis
+    if (!proof || typeof via !== 'string' || proof.token !== token) return { ok: false, error: 'stale' }
+    const net = await networkFingerprint(netMem.salt, AbortSignal.timeout(8000))
+    if (proof !== lastDiagnosis || !diagnosisCurrent(proof, token, via, store.profiles, net, Date.now(), diagnosisContext())) return { ok: false, error: 'stale' }
+    if (writeError()) return { ok: false, error: 'save' }
+    const old = store.settings.routes.find(r => r.kind === 'custom' && r.value === proof.host)
+    const route: Settings['routes'][number] = old ? { ...old, via, on: true, fallback: undefined } : { id: 'custom:' + proof.host, kind: 'custom', name: proof.host.slice(0, 80), value: proof.host, via, on: true }
+    const routes = old ? store.settings.routes.map(r => r.id === old.id ? route : r) : [...store.settings.routes, route]
+    if (!checkedPatch({ routes }).ok || !companionPatchSafe({ routes, groups: store.settings.groups }, store.settings, store.profiles)) return { ok: false, error: 'invalid' }
+    const applied = await applyRouting({ ...store.settings, routes })
+    if (applied.saved) lastDiagnosis = undefined
+    const message = applyText(applied)
+    if (message) send('toast', message)
+    return { ok: applied.saved, id: route.id, applied: applied.applied, ...(applied.code ? { warning: applied.code, error: applied.code === 'save' ? 'save' : undefined } : {}) }
   })
   secureHandle('log', () => engine.log())
   /** a list change reaches the core through the same confirmed live apply as a card edit */
-  const reapplyLists = async () => {
-    send('snapshot', snapshot())
-    if (engine.status.phase === 'on' && store.settings.routes.some(r => r.kind === 'list' && r.on)) {
-      if (!(await engine.applyLive(await runtimeProfiles(), store.settings))) { const r = await master.reconnect(master.revision, { restart: true }); if (!r.ok) send('toast', r.error) }
-    }
+  const reapplyLists = async (id: string): Promise<boolean> => {
+    const revision = master.revision
+    try {
+      if (!master.current(revision) || engine.status.phase !== 'on' || !store.settings.routes.some(r => r.kind === 'list' && r.list === id && r.on)) return true
+      if (await engine.applyLive(await runtimeProfiles(false), store.settings)) return true
+      if (!master.current(revision)) return true // OFF supersedes a pending apply; the next open uses saved data.
+      return (await master.reconnect(revision, { restart: true })).ok
+    } catch { return false }
+    finally { send('snapshot', snapshot()) }
   }
-  const saveLists = () => { try { lists?.save(); return true } catch { return false } }
-  secureIntentHandle('lists:add', async (_e, name: unknown, url: unknown) => {
+  type ListReply = { ok: boolean; error?: string; warning?: string }
+  const listRefreshes = new Map<string, Promise<ListReply>>()
+  const listAttempts = new Map<string, number>()
+  const refreshList = (id: string): Promise<ListReply> => {
+    if (!lists?.data.some(l => l.id === id)) return Promise.resolve({ ok: false, error: 'gone' })
+    const pending = listRefreshes.get(id)
+    if (pending) return pending
+    listAttempts.set(id, Date.now())
+    const task = (async (): Promise<ListReply> => {
+      const update = await lists?.download(id)
+      return intentWrites.run(async () => {
+        const next = update && lists?.updated(update)
+        if (!lists || !next || !update || quitting) return { ok: false, error: 'gone' }
+        try { lists.replace(next) } catch { return { ok: false, error: 'save' } }
+        if (!update.ok) { send('snapshot', snapshot()); return { ok: false, error: update.patch.error } }
+        return await reapplyLists(id) ? { ok: true } : { ok: true, warning: 'apply' }
+      })
+    })().finally(() => listRefreshes.delete(id))
+    listRefreshes.set(id, task)
+    return task
+  }
+  secureHandle('lists:add', async (_e, name: unknown, url: unknown) => {
     if (!lists || typeof url !== 'string' || url.length > 1000 || (name !== undefined && typeof name !== 'string')) return { ok: false, error: 'url' }
-    let id: string
-    try { id = lists.add(typeof name === 'string' ? name : '', url.trim()).id } catch (e) { return { ok: false, error: (e as Error).message === 'limit' ? 'limit' : 'url' } }
-    await lists.refresh(id)
-    if (!saveLists()) return { ok: false, error: 'save' }
-    await reapplyLists()
-    return { ok: true, id }
+    const added = await intentWrites.run(() => {
+      const before = lists!.data
+      let id: string
+      try { id = lists!.add(typeof name === 'string' ? name : '', url.trim()).id } catch (e) { return { error: (e as Error).message === 'limit' ? 'limit' : 'url' } }
+      const next = lists!.data
+      lists!.data = before
+      try { lists!.replace(next) } catch { return { error: 'save' } }
+      send('snapshot', snapshot())
+      return { id }
+    })
+    if (!added.id) return { ok: false, error: added.error }
+    const refreshed = await refreshList(added.id)
+    return { ok: true, id: added.id, warning: refreshed.error ?? refreshed.warning }
   })
-  secureIntentHandle('lists:refresh', async (_e, id: unknown) => {
-    if (!lists || typeof id !== 'string') return { ok: false }
-    const ok = await lists.refresh(id)
-    saveLists()
-    await reapplyLists()
-    return { ok }
-  })
+  secureHandle('lists:refresh', async (_e, id: unknown) => typeof id === 'string' ? refreshList(id) : { ok: false, error: 'gone' })
   secureIntentHandle('lists:toggle', async (_e, id: unknown, on: unknown) => {
-    if (!lists || typeof id !== 'string' || typeof on !== 'boolean') return { ok: false }
-    lists.patch(id, { enabled: on })
-    if (!saveLists()) return { ok: false }
-    await reapplyLists()
-    return { ok: true }
+    if (!lists || typeof id !== 'string' || typeof on !== 'boolean' || !lists.data.some(l => l.id === id)) return { ok: false, error: 'gone' }
+    try { lists.replace(lists.data.map(l => l.id === id ? { ...l, enabled: on } : l)) } catch { return { ok: false, error: 'save' } }
+    return await reapplyLists(id) ? { ok: true } : { ok: true, warning: 'apply' }
   })
   secureIntentHandle('lists:remove', async (_e, id: unknown) => {
-    if (!lists || typeof id !== 'string') return { ok: false }
+    if (!lists || typeof id !== 'string' || !lists.data.some(l => l.id === id)) return { ok: false, error: 'gone' }
     if (store.settings.routes.some(r => r.kind === 'list' && r.list === id)) return { ok: false, error: 'used' }
-    lists.remove(id)
-    if (!saveLists()) return { ok: false }
+    try { lists.replace(lists.data.filter(l => l.id !== id)) } catch { return { ok: false, error: 'save' } }
+    listAttempts.delete(id)
     send('snapshot', snapshot())
     return { ok: true }
   })
-  void (async () => {
-    for (const l of lists?.data ?? []) if (l.enabled && Date.now() - (l.checkedAt ?? 0) > LIST_STALE_MS) await intentWrites.run(async () => { if (await lists!.refresh(l.id)) { saveLists(); await reapplyLists() } else saveLists() })
-  })()
+  let listSweepBusy = false
+  const refreshStaleLists = async () => {
+    if (listSweepBusy || quitting) return
+    listSweepBusy = true
+    try {
+      for (const id of (lists?.data ?? []).map(l => l.id)) {
+        const l = lists?.data.find(l => l.id === id)
+        if (!quitting && l?.enabled && Date.now() - Math.max(l.checkedAt ?? 0, listAttempts.get(id) ?? 0) >= LIST_STALE_MS) await refreshList(id)
+      }
+    }
+    finally { listSweepBusy = false }
+  }
+  void refreshStaleLists()
+  const listTimer = setInterval(() => void refreshStaleLists(), 60_000); listTimer.unref()
   secureHandle('tune:run', async (_e, id: unknown) => {
     const p = typeof id === 'string' ? store.profiles.find(x => x.id === id && !x.revoked) : undefined
     if (!p) return { error: 'gone' }
     if (engine.status.phase !== 'off' || master.open) return { error: 'open' }
-    if (!checker) return { error: 'engine' }
+    const measuring = checker
+    if (!measuring || !runtimeRecovery.ready) return { error: 'engine' }
+    const choices = variants(p)
+    if (!choices.length) return { error: 'unsupported' }
+    const controller = new AbortController()
+    const owner = measuring.acquire(() => controller.abort())
+    if (!owner) return { error: 'busy' }
     const run = ++tuneRun
-    const end = Date.now() + TUNE_MS
-    const list = [{ label: '', patch: {} }, ...variants(p)]
+    const revision = master.revision
+    tuneResult = undefined
+    const sig = profileSig(p)
+    let timedOut = false, cleanup: Promise<boolean> | undefined
+    const stopOwned = () => cleanup ??= measuring.owns(owner) ? measuring.stop() : Promise.resolve(true)
+    const cancel = () => { if (run === tuneRun) tuneRun++; controller.abort(); return stopOwned() }
+    const task = { id: p.id, cancel }
+    tuneTask = task
+    const timer = setTimeout(() => { timedOut = true; void cancel() }, TUNE_MS)
+    const current = () => run === tuneRun && revision === master.revision && !controller.signal.aborted && !master.open && engine.status.phase === 'off' && !quitting && store.profiles.some(x => x.id === p.id && !x.revoked && profileSig(x) === sig)
+    const active = () => current() && measuring.owns(owner)
+    const list = [{ label: '', patch: {} }, ...choices]
     const results: { label: string; ms: number | null }[] = []
-    for (const v of list) {
-      if (run !== tuneRun || Date.now() > end) break
-      const probe = applyTune(p, v.patch)
-      try {
-        const ok = await checker.ensure([probe], await adapters())
-        const r = ok ? await checker.probe(TUNE_URL, [p.id]) : {}
-        results.push({ label: v.label, ms: r[p.id] ?? null })
-      } catch { results.push({ label: v.label, ms: null }) }
+    try {
+      const net = await untilCancelled(currentNet(controller.signal), controller.signal)
+      if (!active()) return { error: timedOut ? 'timeout' : 'canceled' }
+      if (!net) return { error: 'net' }
+      for (const v of list) {
+        const observation = await untilCancelled(Promise.all([currentNet(controller.signal), adapters()]), controller.signal)
+        if (!active()) return { error: timedOut ? 'timeout' : 'canceled' }
+        if (!observation || observation[0] !== net) return { error: 'stale' }
+        const ready = await measuring.ensure([applyTune(p, v.patch)], observation[1])
+        if (!active()) return { error: timedOut ? 'timeout' : 'canceled' }
+        if (!ready) return { error: 'engine' } // inability to measure is not evidence that the original failed.
+        const r = await measuring.probe(TUNE_URL, [p.id])
+        if (!active()) return { error: timedOut ? 'timeout' : 'canceled' }
+        if (!(p.id in r)) return { error: 'engine' }
+        results.push({ label: v.label, ms: r[p.id] })
+        if (!v.label && r[p.id] !== null) break
+      }
+      const finalNet = await untilCancelled(currentNet(controller.signal), controller.signal)
+      if (!active()) return { error: timedOut ? 'timeout' : 'canceled' }
+      if (finalNet !== net) return { error: 'stale' }
+      // Normal completion releases the cancellation hook before its own confirmed shutdown.
+      measuring.release(owner)
+      cleanup = measuring.stop()
+      if (!(await cleanup)) return { error: 'engine' }
+      if (!current()) return { error: timedOut ? 'timeout' : 'canceled' }
+      tuneResult = { id: p.id, sig, net, at: Date.now(), results, revision }
+      return { results, complete: results[0]?.ms !== null || results.length === list.length }
+    } catch { return { error: timedOut ? 'timeout' : 'engine' } }
+    finally {
+      clearTimeout(timer)
+      await stopOwned()
+      measuring.release(owner)
+      if (tuneTask === task) tuneTask = undefined
     }
-    void checker.stop()
-    if (run !== tuneRun) return { error: 'canceled' }
-    return { results, complete: results.length === list.length }
   })
-  secureHandle('tune:cancel', () => { tuneRun++; return true })
+  secureHandle('tune:cancel', async (_e, id: unknown) => {
+    if (typeof id !== 'string') return false
+    if (tuneResult?.id === id) tuneResult = undefined
+    return tuneTask?.id === id ? tuneTask.cancel() : true
+  })
   secureIntentHandle('tune:apply', async (_e, id: unknown, label: unknown) => {
     const p = typeof id === 'string' ? store.profiles.find(x => x.id === id && !x.revoked) : undefined
-    const v = p && typeof label === 'string' ? variants(p).find(x => x.label === label) : undefined
-    if (!p || !v) return { ok: false, error: 'gone' }
-    netCache = undefined
+    if (!p || typeof label !== 'string') return { ok: false, error: 'gone' }
     const net = await currentNet()
     if (!net) return { ok: false, error: 'net' }
-    tunes = { ...tunes, [p.id]: { net, sig: profileSig(p), label: v.label, patch: v.patch, at: Date.now() } }
-    saveTunes()
-    if (engine.status.phase === 'on') { const r = await master.reconnect(master.revision, { restart: true }); if (!r.ok) send('toast', r.error) }
+    const v = tuneResult?.revision === master.revision ? provenTune(tuneResult, p, net, label, Date.now()) : undefined
+    if (!v || !store.profiles.includes(p)) return { ok: false, error: 'stale' }
+    if (!saveTunes({ ...tunes, [p.id]: { net, sig: profileSig(p), label: v.label, patch: v.patch, at: Date.now() } })) return { ok: false, error: 'save' }
+    tuneResult = undefined
+    let applied = true
+    if (engine.status.phase === 'on') applied = (await master.reconnect(master.revision, { restart: true })).ok
     send('snapshot', snapshot())
-    return { ok: true }
+    return { ok: true, ...(!applied ? { warning: 'apply' } : {}) }
   })
   secureIntentHandle('tune:reset', async (_e, id: unknown) => {
-    if (typeof id !== 'string' || !tunes[id]) return { ok: false }
+    if (typeof id !== 'string' || !tunes[id]) return { ok: false, error: 'gone' }
+    const p = store.profiles.find(x => x.id === id)
+    const wasActive = runtimeTuneIds.has(id) || (!!p && !!activeTune(p, tunes[id], await currentNet(), Date.now()))
     const { [id]: _gone, ...rest } = tunes
-    tunes = rest
-    saveTunes()
-    if (engine.status.phase === 'on') { const r = await master.reconnect(master.revision, { restart: true }); if (!r.ok) send('toast', r.error) }
+    if (!saveTunes(rest)) return { ok: false, error: 'save' }
+    let applied = true
+    if (wasActive && engine.status.phase === 'on') applied = (await master.reconnect(master.revision, { restart: true })).ok
     send('snapshot', snapshot())
-    return { ok: true }
+    return { ok: true, ...(!applied ? { warning: 'apply' } : {}) }
   })
   secureHandle('profile:config', (_e, id: unknown) => {
     const p = typeof id === 'string' ? store.profiles.find(x => x.id === id) : undefined
     return p ? configOf(p) : null
   })
   secureHandle('diag:export', async () => {
-    const st = engine.status
-    const report = {
-      app: app.getVersion(), engine: engineExe, integrity: engineIntegrity, at: new Date().toISOString(),
-      status: { phase: st.phase, engine: st.engine, error: st.error, health: st.health, pings: st.pings, pingAt: st.pingAt, picked: st.picked, fallback: st.fallback },
-      profiles: store.views().map(({ clientPublicKey: _k, ...v }) => v),
-      routes: store.settings.routes.map(r => ({ name: r.name, kind: r.kind, on: r.on, via: r.via, fallback: r.fallback, exe: r.exe, wholeDir: r.wholeDir, preset: r.preset, value: r.value })),
-      settings: { rest: store.settings.rest, ruDirect: store.settings.ruDirect, lanDirect: store.settings.lanDirect, groups: store.settings.groups },
-      log: engine.log()
-    }
+    const report = diagnosticsOf({ app: app.getVersion(), integrity: engineIntegrity, at: new Date().toISOString(), status: statusView(engine.status), profiles: store.views(), settings: store.settings, log: engine.log() })
     const r = await dialog.showSaveDialog({ defaultPath: `waarp-diagnostics-${Date.now()}.json`, filters: [{ name: 'JSON', extensions: ['json'] }] })
     if (r.canceled || !r.filePath) return { ok: false }
     try { writeFileSync(r.filePath, JSON.stringify(report, null, 1)); return { ok: true } } catch { return { ok: false, error: true } }
@@ -1095,6 +1242,8 @@ app.whenReady().then(async () => {
   let offPingCursor = 0
   const offPing = async (): Promise<void> => {
     if (!allowMeasurements() || offPingBusy || catalog?.state.busy || !win?.isVisible()) return
+    const measured = checker, lease = measured?.acquire()
+    if (measured && !lease) return
     const revision = master.revision
     offPingBusy = true
     try {
@@ -1109,15 +1258,16 @@ app.whenReady().then(async () => {
       const profiles = store.views().filter(p => p.kind !== 'group' && selectedIds.has(p.id))
       // through each selected tunnel via the checker (real latency over the tunnel); ICMP to the host when the checker can't
       const list = await adapters()
-      if (!allowMeasurements() || revision !== master.revision) return
-      const ok = !!checker && selected.length > 0 && (await checker.ensure(selected, list))
-      const via = ok && checker ? await checker.pings() : {}
+      if (!allowMeasurements() || revision !== master.revision || (lease && !measured?.owns(lease))) return
+      const ok = !!measured && selected.length > 0 && (await measured.ensure(selected, list))
+      if (lease && !measured?.owns(lease)) return
+      const via = ok && measured ? await measured.pings() : {}
       await Promise.all([...profiles.map(async p => { pings[p.id] = via[p.id] ?? (checker?.busy.has(p.id) ? undefined : await icmp(p.host)) }), (async () => { pings.direct = await icmp('1.1.1.1') })()])
       const health = offHealth.step(via, ok ? profiles.map(p => p.id) : [], checker?.busy, store.profiles.filter(p => !p.revoked).map(p => p.id))
-      if (allowMeasurements() && revision === master.revision) send('status', statusView({ ...engine.status, engine: 'down', pings, health: ok ? health : undefined }))
-      else void checker?.stop()
+      if (allowMeasurements() && revision === master.revision && (!lease || measured?.owns(lease))) engine.recordIdlePings(pings, ok ? health : undefined)
+      else if (lease && measured?.owns(lease)) await measured.stop()
     } catch { /* a background measurement failure must not escape the timer or alter owner intent */ }
-    finally { offPingBusy = false }
+    finally { if (lease) measured?.release(lease); offPingBusy = false }
   }
   void offPing(); const offPingTimer = setInterval(() => void offPing(), 30000); offPingTimer.unref()
 })
@@ -1150,32 +1300,69 @@ const COMPANION_SAFE = 'Для маршрута приложения можно 
 /** companion targets waiting for a path chosen in the picker (bridge routes.open); bounded, in memory only */
 const pendingPicks = createPending()
 let diagnoseRun = 0
+let diagnosisAbort: AbortController | undefined
+let diagnosisCleanup: Promise<boolean> = Promise.resolve(true)
+let lastDiagnosis: DiagnosisProof | undefined
+const diagnosisContext = () => JSON.stringify([master.revision, engine.status.phase, engine.status.since, tunes])
+async function cancelDiagnosis(): Promise<boolean> {
+  diagnoseRun++
+  lastDiagnosis = undefined
+  diagnosisAbort?.abort()
+  return diagnosisCleanup
+}
 let tunes: Tunes = {}
 let lists: Lists | undefined
 const LIST_STALE_MS = 24 * 3600_000
 let tuneFile = ''
 let tuneRun = 0
+let tuneTask: { id: string; cancel: () => Promise<boolean> } | undefined
+let tuneResult: (TuneResult & { revision: number }) | undefined
 let netCache: { at: number; net?: string } | undefined
+let netRead = 0
+let runtimeTuneSignature = '[]'
+let runtimeTuneIds = new Set<string>()
+let runtimeNet: string | undefined
 const TUNE_URL = 'https://www.gstatic.com/generate_204'
 const TUNE_MS = 60_000
-async function currentNet(): Promise<string | undefined> {
-  if (netCache && Date.now() - netCache.at < 60_000) return netCache.net
-  const net = await networkFingerprint(netMem.salt)
-  netCache = { at: Date.now(), net }
+async function currentNet(signal?: AbortSignal): Promise<string | undefined> {
+  const read = ++netRead
+  const net = await networkFingerprint(netMem.salt, signal)
+  if (read === netRead && !signal?.aborted) netCache = { at: Date.now(), net }
   return net
 }
+const tuneSignature = (net: string | undefined) => JSON.stringify(store.profiles.flatMap(p => {
+  const t = activeTune(p, tunes[p.id], net, Date.now())
+  return t ? [[p.id, t.patch]] : []
+}).sort(([a], [b]) => String(a).localeCompare(String(b))))
+
+/** Called by the existing network watch. Reconnect only when the effective overlay differs. */
+async function refreshTuneNetwork(): Promise<boolean> {
+  if (!Object.keys(pruneTunes(tunes, store.profiles, Date.now())).length) return runtimeTuneSignature !== '[]'
+  const net = await currentNet()
+  return tuneSignature(net) !== runtimeTuneSignature
+}
 /** the profiles the core runs: stored ones, with a tune applied only on the network it was chosen for */
-async function runtimeProfiles() {
-  if (!Object.keys(tunes).length) return store.profiles
-  return tuned(store.profiles, tunes, await currentNet(), Date.now())
+async function runtimeProfiles(refresh = true) {
+  // Card-only live applies keep the running overlay; the existing network watch owns network changes.
+  if (!refresh) return tuned(store.profiles, tunes, runtimeNet, Date.now())
+  const net = Object.keys(pruneTunes(tunes, store.profiles, Date.now())).length ? await currentNet() : undefined
+  runtimeNet = net
+  runtimeTuneSignature = tuneSignature(net)
+  runtimeTuneIds = new Set(store.profiles.filter(p => activeTune(p, tunes[p.id], net, Date.now())).map(p => p.id))
+  return tuned(store.profiles, tunes, net, Date.now())
 }
 function loadTunes(dir: string) {
   tuneFile = join(dir, 'tune.json')
-  try { tunes = existsSync(tuneFile) ? JSON.parse(readFileSync(tuneFile, 'utf8')) as Tunes : {} } catch { tunes = {} }
+  try { tunes = pruneTunes(existsSync(tuneFile) ? JSON.parse(readFileSync(tuneFile, 'utf8')) : {}, store.profiles, Date.now()) } catch { tunes = {} }
 }
-function saveTunes() {
-  tunes = pruneTunes(tunes, store.profiles, Date.now())
-  try { writeFileSync(tuneFile, JSON.stringify(tunes)) } catch {}
+function saveTunes(next: Tunes): boolean {
+  const valid = pruneTunes(next, store.profiles, Date.now()), tmp = tuneFile + '.tmp'
+  try {
+    writeFileSync(tmp, JSON.stringify(valid))
+    renameSync(tmp, tuneFile)
+    tunes = valid
+    return true
+  } catch { try { rmSync(tmp, { force: true }) } catch {}; return false }
 }
 const DIAGNOSE_MS = 20_000
 /** R5: rotation cursor for tunnel-closed probes (bounded checker set) */
@@ -1198,7 +1385,7 @@ const applyRouting = createApply({
     if (!master.current(revision) || quitting || !(await runtimeRecovery.ensure(!stopped))) return
     if (master.current(revision) && !quitting) await engine.start(await runtimeProfiles(), s)
   },
-  live: async s => engine.applyLive(await runtimeProfiles(), s),
+  live: async s => engine.applyLive(await runtimeProfiles(false), s),
   stop: () => engine.stop(),
   changed: () => send('snapshot', snapshot())
 })

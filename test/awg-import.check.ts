@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildConfig, checkConfig, ConfError, detectVersion, endpoint, parseConf, tagOf } from '../src/main/awg'
+import { buildConfig, checkConfig, ConfError, detectVersion, endpoint, parseConf, redact, tagOf } from '../src/main/awg'
 import { DEFAULTS, normalizeProfile } from '../src/main/store-core'
 import type { AwgProfile, Profile } from '../src/shared/types'
 
@@ -133,6 +133,15 @@ rejects('vpn://' + Buffer.from(JSON.stringify(nested)).toString('base64'), 'ко
   eq(detectVersion(p.awg), 'AmneziaWG 3', 'version label shows AmneziaWG 3')
   const ep = endpoint(p) as Record<string, unknown>
   ok(ep.header_protection_key === hpk && ep.random_trailers === true && ep.disable_cookies === true, 'engine endpoint carries the AWG 3 fields')
+  const restored = normalizeProfile(JSON.parse(JSON.stringify(p))) as AwgProfile
+  eq(restored.awg, p.awg, 'AWG 3 parameters survive stored-profile reload')
+  ok(!redact(`header_protection_key=${hpk}`).includes(hpk), 'AWG 3 header protection key cannot appear in engine logs')
+  const disabled = parseConf(v3('RandomTrailers = false\nDisableCookies = 0'))
+  ok(disabled.awg.random_trailers === false && disabled.awg.disable_cookies === false, 'explicitly disabled AWG 3 flags survive import')
+  const disabledEndpoint = endpoint(disabled) as Record<string, unknown>
+  ok(disabledEndpoint.random_trailers === false && disabledEndpoint.disable_cookies === false, 'disabled AWG 3 flags survive endpoint compilation')
+  rejects(v3('HeaderProtectionKey ='), 'HeaderProtectionKey', 'an explicit empty header protection key cannot silently disappear')
+  rejects(v3(`HeaderProtectionKey = ${Buffer.alloc(32).toString('base64')}`), 'HeaderProtectionKey', 'all-zero header protection key is rejected like the pinned engine')
   let msg = ''
   try { parseConf(v3('HeaderProtectionKey = c2hvcnQ=')) } catch (e) { msg = String((e as Error).message) }
   ok(/32/.test(msg), 'a wrong-length header protection key is refused with a clear reason')
@@ -154,7 +163,7 @@ rejects('vpn://' + Buffer.from(JSON.stringify(nested)).toString('base64'), 'ко
       const r = spawnSync(exe, ['check', '-c', file], { encoding: 'utf8', timeout: 15000 })
       ok(r.status === 0, 'pinned engine accepts the AWG 3 endpoint: ' + String(r.stderr).slice(-300))
     } finally { rmSync(dir, { recursive: true, force: true }) }
-  }
+  } else console.log('[SKIP] pinned AWG 3 engine check requires the verified Windows binary')
 }
 
 console.log(`AWG import: ${total - failed}/${total} passed`)

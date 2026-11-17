@@ -39,16 +39,18 @@ export function failingLayer(d: DirectObs): Layer | undefined {
   return undefined
 }
 
-/** Direct works the way a browser would use it: the system resolver answered and HTTPS completed */
-export const directWorks = (d: DirectObs): boolean => (d.dnsSystem.result === 'ok' || d.dnsSystem.result === 'na') && d.http.result === 'ok'
+/** A redirect proves an HTTP response, not access to the requested content. */
+export const directWorks = (d: DirectObs): boolean => (d.dnsSystem.result === 'ok' || d.dnsSystem.result === 'na') && d.http.result === 'ok' && d.http.status !== undefined && d.http.status >= 200 && d.http.status < 300
 const onlyTimeouts = (d: DirectObs): boolean =>
   [d.dnsSystem.result, d.tcp.result, d.tls.result, d.http.result].some(r => r === 'timeout') &&
   ![d.dnsSystem.result, d.tcp.result, d.tls.result, d.http.result].some(r => r === 'fail')
 
 export function classify(d: DirectObs, paths: PathObs): Finding {
   if (directWorks(d)) return { kind: 'direct_ok' }
+  // Do not learn a restriction or recommend a new route from an unfollowed redirect.
+  if (d.http.result === 'ok' && d.http.status !== undefined && d.http.status >= 300 && d.http.status < 400) return { kind: 'unclear', why: 'mixed' }
   const ids = Object.keys(paths)
-  const via = ids.filter(id => paths[id] !== null).sort((a, b) => paths[a]! - paths[b]!)
+  const via = ids.filter(id => typeof paths[id] === 'number' && Number.isFinite(paths[id]) && paths[id]! >= 0).sort((a, b) => paths[a]! - paths[b]!)
   if (!ids.length) return { kind: 'unclear', why: 'no_paths' }
   if (!via.length) {
     // nothing answers anywhere: the site itself is the likely problem, unless Direct only timed out
@@ -61,7 +63,7 @@ export function classify(d: DirectObs, paths: PathObs): Finding {
 }
 
 /** the path a verdict may offer: the fastest own profile that actually answered, still present and not revoked */
-export function provenPath(f: Finding | undefined, profiles: readonly { id: string; revoked?: boolean }[]): string | undefined {
+export function provenPath(f: Finding | undefined, profiles: readonly { id: string; revoked?: boolean; source?: string; kind?: string }[]): string | undefined {
   if (!f || (f.kind !== 'restricted_direct' && f.kind !== 'path_only')) return undefined
-  return f.via.find(id => profiles.some(p => p.id === id && !p.revoked))
+  return f.via.find(id => profiles.some(p => p.id === id && !p.revoked && p.source !== 'public' && p.kind !== 'group'))
 }

@@ -395,6 +395,8 @@
 .pub-list.pick-table .pub-row { grid-template-columns: 48px minmax(150px, 1.05fr) minmax(180px, 1fr) 110px 120px 72px 96px; gap: 14px; min-width: 900px; height: 54px; padding-inline: 12px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
 .pub-list.pick-table .pub-row:last-child { border-bottom: 0; }
 .pub-list.pick-table .pick-th { height: 32px; }
+.pub-th-hint { min-width: 0; white-space: nowrap; cursor: help; }
+.pub-th-hint:focus-visible { outline: 1px solid var(--a); outline-offset: 2px; border-radius: 2px; }
 .pub-list.pick-table .pub-add { width: auto; min-width: 88px; padding-inline: 12px; }
 /* Keep the measured ping and row action visible at the 900px minimum window.
    Long names/addresses retain their existing ellipsis; smaller embedded tables can still scroll. */

@@ -97,6 +97,8 @@ async function fetchText(url: string, cancel?: AbortSignal): Promise<string> {
 export class Catalog {
   state: CatalogState = { sources: [], total: 0, checked: 0, alive: [], busy: false }
   private nodes = new Map<string, Profile>()
+  /** Bounded non-secret config hashes keep historical ids stable when a node temporarily leaves the sample. */
+  private identities = new Map<string, string>()
   private file: string
   private abort?: AbortController
   private pending?: Promise<CatalogState>
@@ -112,6 +114,10 @@ export class Catalog {
         const d = JSON.parse(safeStorage.decryptString(Buffer.from(envelope.sealed, 'base64')))
         this.state = { ...this.state, ...d.state, busy: false }
         for (const p of d.nodes ?? []) this.nodes.set(p.id, p)
+        for (const pair of Array.isArray(d.identities) ? d.identities.slice(-MAX_NODES) : []) {
+          if (Array.isArray(pair) && /^(vless|out|openvpn)\|[a-f0-9]{64}$/.test(pair[0]) && /^pub-[a-f0-9]{20}$/.test(pair[1])) this.identities.set(pair[0], pair[1])
+        }
+        for (const [id, p] of this.nodes) this.identities.set(credentialKey(p), id)
       }
     } catch { /* cache unreadable: start empty; never overwrite a personal profile store */ }
   }
@@ -142,7 +148,9 @@ export class Catalog {
     const abort = new AbortController()
     this.abort = abort
     const previous = this.state
+    const previousNodes = new Map(this.nodes)
     this.pending = this.runRefresh(sources, abort).catch(() => {
+      this.nodes = previousNodes
       this.state = { ...previous, busy: false }
       this.onChange(this.state)
       return this.state
@@ -153,8 +161,9 @@ export class Catalog {
   /** fetch every source, parse, dedupe, then health-check a bounded sample through the local checker */
   private async runRefresh(sources: string[], abort: AbortController): Promise<CatalogState> {
     const previous = this.state
+    const previousNodes = new Map(this.nodes)
     const active = () => !abort.signal.aborted && this.allowStart()
-    const canceled = () => { this.state = { ...previous, busy: false }; this.onChange(this.state); return this.state }
+    const canceled = () => { this.nodes = previousNodes; this.state = { ...previous, busy: false }; this.onChange(this.state); return this.state }
     this.state = { ...this.state, busy: true }; this.onChange(this.state)
     const seen = new Map<string, Profile>(); const report: CatalogState['sources'] = []
     const nodeSources = new Map<string, string>()
@@ -163,7 +172,8 @@ export class Catalog {
     const perSourceLimit = Math.max(1, Math.ceil(MAX_NODES / selectedSources.length))
     // Sources are independent. Fetch them concurrently so one 20-second timeout cannot
     // multiply into several minutes; parsing and deduplication remain deterministic in source order.
-    const legacyIds = new Set<string>()
+    const existingIds = new Map([...this.identities, ...[...previousNodes].map(([id, p]) => [credentialKey(p), id] as const)])
+    const idOwners = new Map([...existingIds].map(([key, id]) => [id, key]))
     const fetched = await Promise.all(selectedSources.map(async url => {
       try { return { url, body: await fetchText(url, abort.signal) } }
       catch (error) { return { url, error: error instanceof Error ? error.message : String(error) } }
@@ -182,9 +192,11 @@ export class Catalog {
           const k = credentialKey(p)
           if (seen.has(k) || seen.size >= MAX_NODES) continue
           p.source = 'public'
-          // the first effective config of an endpoint keeps the id it always had, so imported nodes and card bindings stay valid
-          p.id = 'pub-' + createHash('sha256').update(legacyIds.has(legacy) ? k : legacy).digest('hex').slice(0, 20)
-          legacyIds.add(legacy)
+          // Preserve the cached config → id binding even when a source changes ordering.
+          // A new config cannot take the historical id of another SNI/path at this endpoint.
+          const legacyId = 'pub-' + createHash('sha256').update(legacy).digest('hex').slice(0, 20)
+          p.id = existingIds.get(k) ?? (!idOwners.has(legacyId) || idOwners.get(legacyId) === k ? legacyId : 'pub-' + createHash('sha256').update(k).digest('hex').slice(0, 20))
+          idOwners.set(p.id, k)
           nodeSources.set(p.id, sourceLabel(url))
           seen.set(k, p); n++
           const family = p.kind === 'out' ? String(p.outbound.type) : p.kind
@@ -204,11 +216,11 @@ export class Catalog {
     // Recheck enough known-good nodes to keep the list useful, but reserve most of every
     // automatic refresh for discovery. This continuously replenishes the public pool instead
     // of spending the whole bounded budget on the same previously alive entries.
-    const prev = new Set(this.state.alive.map(a => `${a.host}:${a.port}`))
+    const prev = new Set(this.state.alive.map(a => a.id))
     const hostOf = (p: Profile) => (p.kind === 'vless' ? p.vless.server : p.kind === 'awg' ? p.peer.host : p.host)
     const portOf = (p: Profile) => (p.kind === 'vless' ? p.vless.port : p.kind === 'awg' ? p.peer.port : p.port)
-    const knownCandidates = all.filter(p => prev.has(`${hostOf(p)}:${portOf(p)}`)).slice(0, RECHECK_PREVIOUS)
-    const fresh = all.filter(p => !prev.has(`${hostOf(p)}:${portOf(p)}`)).slice(0, CHECK_TOTAL - knownCandidates.length)
+    const knownCandidates = all.filter(p => prev.has(p.id)).slice(0, RECHECK_PREVIOUS)
+    const fresh = all.filter(p => !prev.has(p.id)).slice(0, CHECK_TOTAL - knownCandidates.length)
     const sample = [...knownCandidates, ...fresh]
     this.state = { ...this.state, sources: report, total: all.length, planned: sample.length, checked: 0 }
     this.onChange(this.state)
@@ -238,6 +250,7 @@ export class Catalog {
         this.onChange(this.state)
       }
     } catch (e) {
+      this.nodes = previousNodes
       report.push({ url: 'local checker', ok: false, count: 0, error: e instanceof Error ? e.message : String(e) })
       this.state = { ...previous, sources: report, busy: false }
       this.onChange(this.state)
@@ -245,18 +258,21 @@ export class Catalog {
     } finally { this.checkerStopped = await chk.stop() }
     if (!active()) return canceled()
     if (!this.checkerStopped) {
+      this.nodes = previousNodes
       report.push({ url: 'local checker', ok: false, count: 0, error: 'Проверочный движок не подтвердил остановку' })
       this.state = { ...previous, sources: report, busy: false }
       this.onChange(this.state)
       return this.state
     }
     if (sample.length && !started) {
+      this.nodes = previousNodes
       report.push({ url: 'local checker', ok: false, count: 0, error: 'Проверочный движок недоступен' })
       this.state = { ...previous, sources: report, busy: false }
       this.onChange(this.state)
       return this.state
     }
     if (sample.length && !alive.length) {
+      this.nodes = previousNodes
       // A temporary network/probe outage must not erase the last usable public list. Its old checkedAt
       // remains visible, so the UI can distinguish cached data from a fresh successful verification.
       report.push({ url: 'local checker', ok: false, count: 0, error: 'Ни один узел не ответил; оставлен прошлый рабочий список' })
@@ -267,11 +283,17 @@ export class Catalog {
     alive.sort((a, b) => a.ping! - b.ping!)
     const keep = alive.slice(0, KEEP_ALIVE)
     this.nodes = new Map(keep.map(n => [n.id, all.find(p => p.id === n.id)!]))
+    for (const [id, p] of this.nodes) {
+      const key = credentialKey(p)
+      this.identities.delete(key)
+      this.identities.set(key, id)
+    }
+    while (this.identities.size > MAX_NODES) this.identities.delete(this.identities.keys().next().value!)
     this.state = { updatedAt: Date.now(), sources: report, total: all.length, planned: sample.length, checked: sample.length, alive: keep, busy: false }
     if (safeStorage.isEncryptionAvailable()) {
       const tmp = this.file + '.tmp'
       try {
-        const sealed = safeStorage.encryptString(JSON.stringify({ state: this.state, nodes: [...this.nodes.values()] })).toString('base64')
+        const sealed = safeStorage.encryptString(JSON.stringify({ state: this.state, nodes: [...this.nodes.values()], identities: [...this.identities] })).toString('base64')
         mkdirSync(this.dir, { recursive: true })
         writeFileSync(tmp, JSON.stringify({ version: 1, sealed }))
         protectPrivateFile(tmp)

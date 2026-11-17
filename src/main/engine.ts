@@ -3,9 +3,9 @@ import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
-import { isIP } from 'node:net'
+import { BlockList, isIP } from 'node:net'
 import type { Conn, Profile, Route, Settings, Status, TunnelHealth } from '../shared/types'
-import { activeRoutes, buildConfig, buildRuntime, CANARY, CANARY_IP, canaryFile, fallbackGroups, liveSwitches, loadedOf, loadedSets, planSlots, redact, ruleFileOf, runtimeAutoLive, tagOf, usedProfiles, withoutAuto, type Loaded } from './awg'
+import { activeRoutes, buildConfig, buildRuntime, CANARY_ZONE, CANARY_IP, fallbackGroups, liveSwitches, loadedOf, loadedSets, planSlots, redact, ruleFileOf, ruleFileWithWitness, runtimeAutoLive, tagOf, usedProfiles, withoutAuto, type Loaded, type Slots } from './awg'
 import { routeHits } from '../shared/appmatch'
 import { AUTO_ID, autoMembers, autoSample, firstAlive, grpTag, liveGroups, stickyFastest, withAuto, type LiveGroup } from '../shared/groups'
 import { FbTracker } from './fallback'
@@ -17,6 +17,47 @@ import { RuntimeJournal, type ProcessIdentity } from './runtime-journal'
 import { protectPrivateFile } from './private-file'
 import { pickPort, START_BUDGET_MS, untilCancelled, waitReady, type Preflight } from './tun'
 import { ctrlBreak, waitExit } from './stop'
+
+interface CardRuleFiles { slots?: Slots; files: Record<string, string> }
+
+/** Only the flat match forms buildRuntime emits for cards, not a second router. */
+function cardRuleMatcher(bodies: string[]): (c: Conn) => boolean {
+  const matches: ((c: Conn) => boolean)[] = []
+  const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
+  for (const body of bodies) {
+    const rules: Record<string, unknown>[] = JSON.parse(body).rules ?? []
+    for (const rule of rules) {
+      const exes = new Set(strings(rule.process_path).map(path => path.toLowerCase()))
+      const patterns = strings(rule.process_path_regex).map(pattern => new RegExp(pattern.replace(/^\(\?i\)/, ''), pattern.startsWith('(?i)') ? 'i' : ''))
+      if (exes.size || patterns.length) matches.push(c => exes.has(c.exe.toLowerCase()) || patterns.some(pattern => pattern.test(c.exe)))
+      const exact = new Set(strings(rule.domain).map(domain => domain.toLowerCase().replace(/\.$/, '')))
+      const suffixes = new Set(strings(rule.domain_suffix).map(domain => domain.toLowerCase().replace(/^\./, '').replace(/\.$/, '')))
+      if (exact.size || suffixes.size) matches.push(c => {
+        let name = c.host.toLowerCase().replace(/\.$/, '')
+        if (exact.has(name)) return true
+        for (;;) {
+          if (suffixes.has(name)) return true
+          const dot = name.indexOf('.')
+          if (dot < 0) return false
+          name = name.slice(dot + 1)
+        }
+      })
+      const cidrs = strings(rule.ip_cidr)
+      if (cidrs.length) {
+        const ranges = new BlockList()
+        for (const cidr of cidrs) {
+          const [address, bits] = cidr.split('/')
+          ranges.addSubnet(address, Number(bits), isIP(address) === 6 ? 'ipv6' : 'ipv4')
+        }
+        matches.push(c => {
+          const address = c.ip || c.host, family = isIP(address)
+          return !!family && ranges.check(address, family === 6 ? 'ipv6' : 'ipv4')
+        })
+      }
+    }
+  }
+  return c => matches.some(match => match(c))
+}
 
 export class Engine extends EventEmitter {
   status: Status = { phase: 'off', pings: {}, fallback: {}, down: 0, up: 0, downTotal: 0, upTotal: 0 }
@@ -76,6 +117,12 @@ export class Engine extends EventEmitter {
 
   log(): string[] { return this.tail.slice(-300) }
   get recoveryReady(): boolean { return this.recoveryOk }
+
+  /** OFF checker samples share the same sequence as running-core health rounds. */
+  recordIdlePings(pings: Status['pings'], health?: Status['health']): void {
+    if (this.status.phase !== 'off') return
+    this.set({ engine: 'down', pings, health, pingRound: ++this.pingSeq, pingAt: Date.now() })
+  }
 
   private set(s: Partial<Status>) {
     const prev = this.status
@@ -199,8 +246,8 @@ export class Engine extends EventEmitter {
     catch { this.set({ phase: 'error', error: 'Не удалось подготовить конфиг движка' }); return }
     try {
       mkdirSync(ruleDir, { recursive: true })
-      for (const [tag, body] of Object.entries(files)) writeFileSync(join(ruleDir, ruleFileOf(tag)), body)
-      writeFileSync(join(ruleDir, ruleFileOf(CANARY)), canaryFile('start.waarp.invalid'))
+      const generation = randomBytes(12).toString('hex')
+      Object.entries(files).forEach(([tag, body], i) => writeFileSync(join(ruleDir, ruleFileOf(tag)), ruleFileWithWitness(body, `${generation}.${i}.${CANARY_ZONE}`)))
     } catch { this.set({ phase: 'error', error: 'Не удалось записать временный конфиг движка' }); return }
     this.ids = usedProfiles(s, profiles, live).map(p => p.id)
     this.groups = liveGroups(withAuto(s, profiles, autoLive), new Set(profiles.filter(p => !p.revoked).map(p => p.id)))
@@ -356,63 +403,95 @@ export class Engine extends EventEmitter {
     if (!current()) return false
     this.run = { ...run, cfg: next.cfg, files: next.files, loaded: { ...run.loaded, slots }, settings: s }
     this.fbRoutes = new Map(run.loaded.fbs.map(g => [g.tag, activeRoutes(s).filter(r => r.via === g.main && r.fallback === g.fb).map(r => ({ id: r.id, name: r.name }))]))
+    const closed = await this.closeTouched(run.settings.routes, s.routes,
+      { slots: run.loaded.slots, files: run.files }, { slots, files: next.files })
+    if (!current()) return false
     this.liveApplies++
-    const closed = await this.closeTouched(run.settings.routes, s.routes)
-    this.push(`live route apply: ${switches.length} selector switch(es), ${changed.length} rule file(s) written, canary confirmed; connections closed ${closed.closed}/${closed.tried}; core and TUN kept`)
+    const written = changed.length ? `${changed.length} rule file(s) written, each reload confirmed` : 'no rule file changes'
+    this.push(`live route apply: ${switches.length} selector switch(es), ${written}; connections closed ${closed.closed}/${closed.tried}; core and TUN kept`)
     this.set({ error: undefined })
     return true
   }
 
   private async writeRules(names: string[], files: Record<string, string>, current: () => boolean): Promise<boolean> {
+    if (!current()) return false
+    const end = Date.now() + 3000
+    const active = () => current() && Date.now() < end
     const dir = join(this.dir, 'rules')
     const put = async (name: string, body: string) => {
       const file = join(dir, name), tmp = file + '.tmp'
-      writeFileSync(tmp, body)
-      for (let i = 0; i < 5; i++) {
-        try { renameSync(tmp, file); return } catch { await new Promise(r => setTimeout(r, 40)) }
+      try {
+        if (!active()) throw new Error('rule apply cancelled or timed out')
+        writeFileSync(tmp, body)
+        for (let i = 0; i < 5; i++) {
+          if (!active()) throw new Error('rule apply cancelled or timed out')
+          try { renameSync(tmp, file); return }
+          catch (error) {
+            // Never truncate a watched file after an atomic replacement fails:
+            // the existing restart path can load a complete configuration safely.
+            if (i === 4) throw error
+            await new Promise(r => setTimeout(r, Math.min(40, Math.max(0, end - Date.now()))))
+          }
+        }
+      } finally {
+        try { rmSync(tmp, { force: true }) } catch {}
       }
-      writeFileSync(file, body)
-      try { rmSync(tmp, { force: true }) } catch {}
     }
+    const generation = randomBytes(12).toString('hex')
+    const pending = new Set(names.map((_, i) => `${generation}.${i}.${CANARY_ZONE}`))
     try {
       mkdirSync(dir, { recursive: true })
-      for (const n of names) await put(ruleFileOf(n), files[n])
+      for (const [i, name] of names.entries()) await put(ruleFileOf(name), ruleFileWithWitness(files[name], `${generation}.${i}.${CANARY_ZONE}`))
     } catch { return false }
-    const probe = randomBytes(6).toString('hex') + '.waarp.invalid'
-    try { await put(ruleFileOf(CANARY), canaryFile(probe)) } catch { return false }
-    const end = Date.now() + 3000
-    while (Date.now() < end && current()) {
-      const r = await this.req(`/dns/query?name=${probe}&type=A`, 1000)
-      if (JSON.stringify(r ?? '').includes(CANARY_IP)) return true
-      await new Promise(res => setTimeout(res, 100))
+    while (pending.size && active()) {
+      await this.bounded([...pending], async probe => {
+        if (!active()) return
+        const r = await this.req(`/dns/query?name=${probe}&type=A`, Math.min(1000, end - Date.now()))
+        if (active() && r?.Status === 0 && Array.isArray(r.Answer) && r.Answer.some((answer: { data?: unknown; type?: unknown }) => answer?.type === 1 && answer.data === CANARY_IP)) pending.delete(probe)
+      })
+      if (pending.size && active()) await new Promise(res => setTimeout(res, Math.min(100, end - Date.now())))
     }
-    return false
+    return pending.size === 0 && active()
   }
 
-  private async closeTouched(before: Route[], after: Route[]): Promise<{ tried: number; closed: number }> {
-    const key = (r: Route) => JSON.stringify([r.on, r.kind, r.exe, r.matchDir, r.wholeDir, r.preset, r.value, r.list, r.via === 'direct' && r.dpi === true])
+  private async closeTouched(before: Route[], after: Route[], previous?: CardRuleFiles, next?: CardRuleFiles): Promise<{ tried: number; closed: number }> {
+    // Match only the forms emitted by our card compiler, using both immutable
+    // snapshots: the list resolver may already contain the newly downloaded list.
+    const compiled = (routes: Route[], state?: CardRuleFiles) =>
+      (['app', 'custom', 'list', 'preset'] as const).flatMap(kind => routes.filter(r => r.on && r.kind === kind)).map(route => {
+        const pool = route.kind === 'app' ? state?.slots?.app : state?.slots?.dom
+        const index = pool?.indexOf(route.id) ?? -1
+        const slot = (route.kind === 'app' ? 'a' : 'd') + index
+        const bodies = state && index >= 0 ? [state.files['r' + slot], state.files['x' + slot]].filter((body): body is string => typeof body === 'string') : undefined
+        return { route, matches: bodies ? cardRuleMatcher(bodies) : (c: Conn) => routeHits(route, c) }
+      })
+    const oldCards = compiled(before, previous), newCards = compiled(after, next)
     const was = new Map(before.map(r => [r.id, r]))
-    const now = new Map(after.map(r => [r.id, r]))
-    const touched: Route[] = []
-    for (const r of after) { const o = was.get(r.id); if (!o ? r.on : key(o) !== key(r)) touched.push(r, ...(o ? [o] : [])) }
-    for (const o of before) if (!now.has(o.id) && o.on) touched.push(o)
-    const kept = after.filter(r => was.has(r.id)).map(r => r.id)
-    const prior = before.filter(r => now.has(r.id)).map(r => r.id)
-    kept.forEach((id, i) => { if (prior[i] !== id) touched.push(now.get(id)!, was.get(id)!) })
-    if (!touched.length) return { tried: 0, closed: 0 }
-    const ids = this.conns.filter(c => touched.some(r => routeHits(r, c))).map(c => c.id)
+    const forwarding = (r?: Route) => r ? JSON.stringify([r.via, r.fallback, r.via === 'direct' && r.dpi === true]) : ''
+    const ids = this.conns.filter(c => {
+      const oldMatch = oldCards.find(card => card.matches(c))?.route
+      // A core-attributed global/LAN bypass beats the card rules. Do not interrupt
+      // that session just because a broader domain card also happens to match it.
+      if (c.route === '' && oldMatch) return false
+      const oldRoute = c.route === undefined ? oldMatch : was.get(c.route)
+      const newRoute = newCards.find(card => card.matches(c))?.route
+      return oldRoute?.id !== newRoute?.id || forwarding(oldRoute) !== forwarding(newRoute)
+    }).map(c => c.id)
     let closed = 0
     await this.bounded(ids, async id => { if (await this.drop(id)) closed++ })
     return { tried: ids.length, closed }
   }
 
   private async drop(id: string): Promise<boolean> {
-    const child = this.child, api = this.api
+    const child = this.child, api = this.api, version = this.stopVersion
     if (!child || this.stopping) return false
     const ctl = new AbortController()
     this.requests.add(ctl)
     const t = setTimeout(() => ctl.abort(), 2000)
-    try { return (await fetch(`http://127.0.0.1:${api.port}/connections/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${api.secret}` }, signal: ctl.signal })).ok }
+    try {
+      const r = await fetch(`http://127.0.0.1:${api.port}/connections/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${api.secret}` }, signal: ctl.signal })
+      return r.ok && this.child === child && this.api === api && this.stopVersion === version && !this.stopping
+    }
     catch { return false } finally { clearTimeout(t); this.requests.delete(ctl) }
   }
 
@@ -547,22 +626,22 @@ export class Engine extends EventEmitter {
     }))
   }
 
-  private async req(path: string, timeout = 3000): Promise<any> {
+  private async req(path: string, timeout = 3000, signal?: AbortSignal): Promise<any> {
     const child = this.child, api = this.api, version = this.stopVersion
-    if (!child || this.stopping) return undefined
+    if (!child || this.stopping || signal?.aborted) return undefined
     const ctl = new AbortController()
     this.requests.add(ctl)
     const t = setTimeout(() => ctl.abort(), timeout)
     try {
-      const r = await fetch(`http://127.0.0.1:${api.port}${path}`, { headers: { Authorization: `Bearer ${api.secret}` }, signal: ctl.signal })
+      const r = await fetch(`http://127.0.0.1:${api.port}${path}`, { headers: { Authorization: `Bearer ${api.secret}` }, signal: signal ? AbortSignal.any([ctl.signal, signal]) : ctl.signal })
       if (!r.ok) return undefined
       const value = await r.json()
-      return this.child === child && this.api === api && this.stopVersion === version && !this.stopping ? value : undefined
+      return this.child === child && this.api === api && this.stopVersion === version && !this.stopping && !signal?.aborted ? value : undefined
     } catch { return undefined } finally { clearTimeout(t); this.requests.delete(ctl) }
   }
 
-  private async delay(tag: string, url = 'https://www.gstatic.com/generate_204'): Promise<number | undefined> {
-    const r = await this.req(`/proxies/${tag}/delay?timeout=6000&url=` + encodeURIComponent(url), 8000)
+  private async delay(tag: string, url = 'https://www.gstatic.com/generate_204', signal?: AbortSignal): Promise<number | undefined> {
+    const r = await this.req(`/proxies/${tag}/delay?timeout=6000&url=` + encodeURIComponent(url), 8000, signal)
     return validLatency(r?.delay) ? r.delay : undefined
   }
 
@@ -591,12 +670,17 @@ export class Engine extends EventEmitter {
   }
 
   /** W3 diagnosis: through the given own paths only; Direct is measured separately by the layered prober */
-  async probePaths(target: string, ids: string[]): Promise<Record<string, number | null>> {
+  async probePaths(target: string, ids: string[], signal?: AbortSignal): Promise<Record<string, number | null>> {
+    if (signal?.aborted) return {}
     const child = this.child, version = this.stopVersion
     const url = /^https?:\/\//.test(target) ? target : 'https://' + target
     const out: Record<string, number | null> = {}
-    await this.bounded(this.ids.filter(id => ids.includes(id)), async id => { out[id] = (await this.delay(tagOf(id), url)) ?? null })
-    return this.child === child && this.stopVersion === version ? out : {}
+    await this.bounded(this.ids.filter(id => ids.includes(id)), async id => {
+      if (signal?.aborted) return
+      const delay = await this.delay(tagOf(id), url, signal)
+      if (!signal?.aborted) out[id] = delay ?? null
+    })
+    return this.child === child && this.stopVersion === version && !signal?.aborted ? out : {}
   }
 
   /** C08: two independent probe targets per round; one failed site never marks a tunnel broken */
@@ -664,6 +748,7 @@ export class Engine extends EventEmitter {
           app: exe ? exe.split('\\').pop()!.replace(/\.exe$/i, '') : (m.process || 'система'),
           exe,
           host: m.host || m.destinationIP || '',
+          ip: typeof m.destinationIP === 'string' ? m.destinationIP : undefined,
           port: Number(m.destinationPort) || 0,
           net: m.network ?? '',
           via: chain.find(c => c.startsWith('p-'))?.slice(2) ?? 'direct',

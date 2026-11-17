@@ -67,7 +67,7 @@ ok(threw, 'VMess credential shape validated')
 
 const engineCheck = (outbound: Record<string, unknown>, label: string) => {
   const exe = join(process.cwd(), 'engine', 'sing-box.exe')
-  if (process.platform !== 'win32' || !existsSync(exe)) return
+  if (process.platform !== 'win32' || !existsSync(exe)) { console.log('[SKIP] ' + label + ': requires the verified Windows binary'); return }
   const dir = mkdtempSync(join(tmpdir(), 'waarp-e4-'))
   try {
     const file = join(dir, 'c.json')
@@ -90,6 +90,7 @@ threw = false; try { hy2Ports('hysteria2://s@h.example:7000-6000/') } catch { th
 ok(threw, 'reversed port range is refused, not guessed')
 threw = false; try { parseLink('hysteria2://s@h.example:1-70000/') } catch { threw = true }
 ok(threw, 'out of range port is refused')
+for (const portList of ['443,', ',443', '443,,8443']) rejected(`hysteria2://s@h.example:${portList}/`, 'empty hopping port entry is refused: ' + portList)
 engineCheck({ ...hop.outbound, tag: 'p' }, 'pinned engine accepts hopping Hysteria2')
 
 console.log(bad ? `${bad}/${n} FAILED` : `all ${n} link checks passed`)

@@ -100,8 +100,10 @@ function mock(): Api {
         : cut ? { dnsSystem: { ...ok, addrs: 4 }, dnsDoh: { ...ok, addrs: 4 }, tcp: ok, tls: { result: 'fail' as const, code: 'reset' as const }, http: skip }
         : { dnsSystem: { ...ok, addrs: 2 }, dnsDoh: { ...ok, addrs: 2 }, tcp: ok, tls: ok, http: { result: 'ok' as const, status: 200 } }
       const paths = dead ? { a: null, b: null } : { a: 88, b: 140 }
-      return { target: t, host: t.replace(/^https?:\/\//, '').replace(/[/?#:].*$/, '').toLowerCase(), direct, paths, finding: classify(direct, paths), at: Date.now() }
+      return { target: t, host: t.replace(/^https?:\/\//, '').replace(/[/?#:].*$/, '').toLowerCase(), direct, paths, finding: classify(direct, paths), at: Date.now(), token: 'preview-diagnosis' }
     },
+    diagnoseCancel: async () => true,
+    diagnoseApply: async (_token: string, _via: string) => ({ ok: false, error: 'stale' }) as { ok: boolean; error?: string; id?: string },
     resetNet: async () => ({ ok: true }),
     log: async () => ['+0000 INFO router: updated', '+0000 INFO inbound/tun[tun]: started at Waarp'],
     profileConfig: async (id: string) => ({ type: 'vless', tag: 'p-' + id, server: 'demo.example', server_port: 443, uuid: '•••' }) as unknown,

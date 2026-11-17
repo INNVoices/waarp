@@ -104,7 +104,7 @@ function ss(raw: string): OutProfile {
 export function hy2Ports(raw: string): { url: string; ports?: string[] } {
   const m = /^([a-z0-9]+:\/\/[^@/?#]*@)(\[[^\]]+\]|[^:/?#]+):([0-9,-]+)([/?#].*)?$/i.exec(raw)
   if (!m || /^\d+$/.test(m[3])) return { url: raw }
-  const parts = m[3].split(',').filter(Boolean)
+  const parts = m[3].split(',')
   const ports = parts.map(x => {
     const r = /^(\d+)(?:-(\d+))?$/.exec(x)
     if (!r) throw new Error('bad hysteria2 port list')

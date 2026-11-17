@@ -26,6 +26,7 @@ export interface ProbeUrl { url: string; scheme: 'http' | 'https'; host: string;
 
 export function parseProbe(target: string): ProbeUrl | undefined {
   try {
+    if (/^[a-z][a-z\d+.-]*:\/\//i.test(target) && !/^https?:\/\//i.test(target)) return undefined
     const u = new URL(/^https?:\/\//i.test(target) ? target : 'https://' + target)
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return undefined
     const scheme = u.protocol === 'http:' ? 'http' : 'https'
@@ -39,19 +40,28 @@ export function parseProbe(target: string): ProbeUrl | undefined {
 
 const timeoutErr = () => Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' })
 /** run one layer under a deadline; on the deadline (or when done) the layer's signal is aborted so it cleans up */
-export function cancellable<T>(fn: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
+export function cancellable<T>(fn: (signal: AbortSignal) => Promise<T>, ms: number, signal?: AbortSignal): Promise<T> {
   const ac = new AbortController()
   return new Promise<T>((res, rej) => {
-    const t = setTimeout(() => { ac.abort(timeoutErr()); rej(timeoutErr()) }, ms)
-    fn(ac.signal).then(v => { clearTimeout(t); res(v) }, e => { clearTimeout(t); rej(e) })
+    let settled = false
+    const finish = (error?: unknown, value?: T) => {
+      if (settled) return
+      settled = true; clearTimeout(t); signal?.removeEventListener('abort', abort)
+      if (error) rej(error); else res(value as T)
+    }
+    const abort = () => { const error = signal?.reason ?? timeoutErr(); ac.abort(error); finish(error) }
+    const t = setTimeout(() => { const error = timeoutErr(); ac.abort(error); finish(error) }, Math.max(0, ms))
+    if (signal?.aborted) { abort(); return }
+    signal?.addEventListener('abort', abort, { once: true })
+    Promise.resolve().then(() => { if (ac.signal.aborted) throw ac.signal.reason; return fn(ac.signal) }).then(v => finish(undefined, v), e => finish(e))
   }).finally(() => { if (!ac.signal.aborted) ac.abort() }) // losers (e.g. the second DoH address) stop too
 }
 const codeOf = (e: unknown): string => String((e as { code?: string })?.code ?? '')
 const isTimeout = (e: unknown) => codeOf(e) === 'ETIMEDOUT'
 
-async function dnsObs(fn: (s: AbortSignal) => Promise<string[]>, ms: number): Promise<DnsObs & { first?: string; all?: string[] }> {
+async function dnsObs(fn: (s: AbortSignal) => Promise<string[]>, ms: number, signal?: AbortSignal): Promise<DnsObs & { first?: string; all?: string[] }> {
   try {
-    const a = await cancellable(fn, ms)
+    const a = await cancellable(fn, ms, signal)
     return a.length ? { result: 'ok', addrs: a.length, first: a[0], all: a } : { result: 'fail', code: 'empty' }
   } catch (e) {
     if (isTimeout(e)) return { result: 'timeout' }
@@ -61,28 +71,33 @@ async function dnsObs(fn: (s: AbortSignal) => Promise<string[]>, ms: number): Pr
 }
 
 /** probe one URL layer by layer; later layers are `skipped` once an earlier one fails */
-export async function probeLayers(target: string, net: Net = realNet, ms = LAYER_MS): Promise<DirectObs> {
+export async function probeLayers(target: string, net: Net = realNet, ms = LAYER_MS, signal?: AbortSignal): Promise<DirectObs> {
   const t = parseProbe(target)
   const skip = { result: 'skipped' as LayerResult }, na = { result: 'na' as LayerResult }
   if (!t) return { dnsSystem: { result: 'fail', code: 'error' }, dnsDoh: skip, tcp: skip, tls: skip, http: skip }
   const [sys, doh] = t.ip ? [{ result: 'na' as LayerResult, first: t.host }, { result: 'na' as LayerResult }] as const
-    : await Promise.all([dnsObs(s => net.dnsSystem(t.host, s), ms), dnsObs(s => net.dnsDoh(t.host, s), ms)])
+    : await Promise.all([dnsObs(s => net.dnsSystem(t.host, s), ms, signal), dnsObs(s => net.dnsDoh(t.host, s), ms, signal)])
   const out: DirectObs = { dnsSystem: strip(sys), dnsDoh: strip(doh), tcp: skip, tls: t.scheme === 'http' ? na : skip, http: skip }
   if ('all' in sys && 'all' in doh && sys.all && doh.all && !sys.all.some(a => doh.all!.includes(a))) out.dnsDiffer = true
   // TCP/TLS use the system answer when it exists (that is what the browser would use), else the DoH answer
   const ip = sys.first ?? ('first' in doh ? doh.first : undefined)
   if (!ip) return out
-  try { await cancellable(s => net.tcp(ip, t.port, s), ms); out.tcp = { result: 'ok' } }
+  try { await cancellable(s => net.tcp(ip, t.port, s), ms, signal); out.tcp = { result: 'ok' } }
   catch (e) { out.tcp = isTimeout(e) ? { result: 'timeout' } : { result: 'fail', code: codeOf(e) === 'ECONNRESET' ? 'reset' : codeOf(e) === 'ECONNREFUSED' ? 'refused' : codeOf(e) === 'EHOSTUNREACH' || codeOf(e) === 'ENETUNREACH' ? 'unreachable' : 'error' }; return out }
   if (t.scheme === 'https') {
-    try { await cancellable(s => net.tls(ip, t.ip ? '' : t.host, t.port, s), ms); out.tls = { result: 'ok' } }
+    try { await cancellable(s => net.tls(ip, t.ip ? '' : t.host, t.port, s), ms, signal); out.tls = { result: 'ok' } }
     catch (e) {
       const c = codeOf(e)
       out.tls = isTimeout(e) ? { result: 'timeout' } : { result: 'fail', code: c === 'ECONNRESET' ? 'reset' : /CERT|ALTNAME|SELF_SIGNED/.test(c) ? 'cert' : /ALERT|SSL/.test(c) ? 'alert' : 'error' }
       return out
     }
   }
-  const ask = async (method: 'HEAD' | 'GET') => cancellable(s => net.http(t.url, method, s), ms)
+  const httpDeadline = Date.now() + ms
+  const ask = async (method: 'HEAD' | 'GET') => {
+    const remaining = httpDeadline - Date.now()
+    if (remaining <= 0) throw timeoutErr()
+    return cancellable(s => net.http(t.url, method, s), remaining, signal)
+  }
   try {
     let r = await ask('HEAD')
     if (r.status === 405 || r.status === 501) {
