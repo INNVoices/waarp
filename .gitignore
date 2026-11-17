@@ -16,3 +16,4 @@ android/app/libs/*.aar
 *.pfx
 keystore.properties
 __pycache__/
+.android-local/

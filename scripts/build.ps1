@@ -2,6 +2,8 @@
 # Animated only in a real console with cursor control; redirected / captured output gets plain lines (no redraw spam).
 #   build.bat 1      app + unpacked folder (dist\win-unpacked\Waarp.exe): fast, local checks
 #   build.bat 2      app + portable exe (dist\Waarp-<version>-portable.exe): ready for delivery
+#   build.bat 3      android debug apk (out\android\*.apk), same as "build.bat apk": JDK 17 + Python, a minimal Android SDK
+#                    is downloaded into .android-local\ on first use; the engine AAR comes from CI (gh auth login once)
 #   build.bat        asks in a console; without an interactive console it builds mode 1
 #   -Demo            the same UI over short fake steps (no npm, no build) for screenshots / checks
 #   -SelfTest        render checks at several console widths, prints PASS/FAIL, builds nothing
@@ -176,6 +178,172 @@ function Step($n, $of, $title, $cmd) {
   }
 }
 
+# ---- android apk, local and minimal: everything Android lives in one ignored folder, .android-local\ in the repo.
+#   sdk\     only platforms;android-36 + build-tools;35.0.0 straight from Google's index (SHA-1 checked), no
+#            Android Studio, no sdkmanager, no NDK, no emulator
+#   gradle\  GRADLE_USER_HOME: the Gradle distribution and the build dependencies
+#   download\ the zips, kept as a cache
+# The native engine (android\app\libs\libbox.aar) can only be built on Linux: it comes once from a CI artifact.
+$AndroidLocal = Join-Path (Resolve-Path .).Path '.android-local'
+$AndroidAar = 'android\app\libs\libbox.aar'
+$AndroidPackages = @(
+  @{ Path = 'platforms;android-36'; Dir = 'platforms\android-36'; Probe = 'android.jar' },
+  @{ Path = 'build-tools;35.0.0'; Dir = 'build-tools\35.0.0'; Probe = 'apksigner.bat' }
+)
+function JavaMajor($exe) {
+  $si = New-Object Diagnostics.ProcessStartInfo $exe, '-version'
+  $si.UseShellExecute = $false; $si.RedirectStandardError = $true; $si.RedirectStandardOutput = $true; $si.CreateNoWindow = $true
+  $p = [Diagnostics.Process]::Start($si); $err = $p.StandardError.ReadToEnd(); $null = $p.StandardOutput.ReadToEnd(); $p.WaitForExit()
+  if ($err -match 'version "(\d+)') { [int]$Matches[1] } else { 0 }
+}
+function InstallSdkPackages($sdk, $missing) {
+  $marker = Join-Path $AndroidLocal 'android-sdk-license-accepted.txt'
+  if (-not (Test-Path $marker)) {
+    if (-not $script:Animated -or [Console]::IsInputRedirected) { Write-Host "  $cErr●$cR $cT the Android SDK license has to be accepted once: run build.bat apk in a console$cR"; throw 'android tools missing' }
+    Write-Host "  $cT Android SDK packages are provided under the Android Software Development Kit License$cR"
+    Write-Host "  $cM https://developer.android.com/studio/terms$cR"
+    try { [Console]::CursorVisible = $true } catch { }
+    $k = Read-Host "`n  Accept it and download ~125 MB into .android-local? (y = yes)"
+    try { [Console]::CursorVisible = $false } catch { }
+    if ($k -ne 'y') { throw 'android tools missing' }
+    Set-Content $marker "Android SDK License accepted in build.bat on $(Get-Date -Format s): https://developer.android.com/studio/terms"
+  }
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $base = 'https://dl.google.com/android/repository/'
+  $web = New-Object Net.WebClient
+  $index = [xml]$web.DownloadString($base + 'repository2-3.xml')
+  $cache = Join-Path $AndroidLocal 'download'
+  $null = New-Item -ItemType Directory -Force $cache
+  foreach ($pkg in $missing) {
+    $node = $index.DocumentElement.SelectNodes('remotePackage') | Where-Object { $_.path -eq $pkg.Path } | Select-Object -First 1
+    if (-not $node) { throw "Google's SDK index has no $($pkg.Path)" }
+    $arc = @($node.archives.archive | Where-Object { -not $_.'host-os' -or $_.'host-os' -eq 'windows' })[0]
+    $zip = Join-Path $cache $arc.complete.url
+    $sha1 = $arc.complete.checksum.'#text'
+    if (-not (Test-Path $zip) -or (Get-FileHash $zip -Algorithm SHA1).Hash -ine $sha1) {
+      Out "  $cA●$cR $cT downloading $($pkg.Path) ($([Math]::Round([long]$arc.complete.size / 1MB)) MB)$cR"
+      $web.DownloadFile($base + $arc.complete.url, "$zip.part")
+      if ((Get-FileHash "$zip.part" -Algorithm SHA1).Hash -ine $sha1) { throw "$($arc.complete.url): SHA-1 does not match Google's index" }
+      Move-Item -Force "$zip.part" $zip
+    }
+    # every package zip has one top folder (named after anything); it becomes the package directory
+    $stage = Join-Path $cache "unpack-$([DateTimeOffset]::Now.ToUnixTimeMilliseconds())"
+    [IO.Compression.ZipFile]::ExtractToDirectory($zip, $stage)
+    $top = @(Get-ChildItem $stage -Directory)
+    if ($top.Count -ne 1) { throw "$($arc.complete.url): unexpected layout" }
+    $dest = Join-Path $sdk $pkg.Dir
+    $null = New-Item -ItemType Directory -Force (Split-Path $dest)
+    if (Test-Path $dest) { throw "$dest exists but is incomplete: remove it and build again" }
+    Move-Item $top[0].FullName $dest
+    Out "  $cOk●$cR $cT $($pkg.Path) installed$cR"
+  }
+}
+function AarMatchesPin($file) {
+  $pin = Get-Content 'android\app\src\main\res\raw\engine_integrity.json' -Raw | ConvertFrom-Json
+  (Get-Item $file).Length -eq $pin.bytes -and (Get-FileHash $file -Algorithm SHA256).Hash -ieq $pin.sha256
+}
+function AarFromZip($zip) { # pulls libbox.aar out of a downloaded CI artifact zip; true only if it matches the pin
+  try { $z = [IO.Compression.ZipFile]::OpenRead($zip) } catch { return $false } # still being written by the browser
+  try {
+    $entry = $z.Entries | Where-Object { $_.FullName -match '(^|/)libbox\.aar$' } | Select-Object -First 1
+    if (-not $entry) { return $false }
+    $tmp = Join-Path $AndroidLocal "download\libbox-$([DateTimeOffset]::Now.ToUnixTimeMilliseconds()).aar"
+    $null = New-Item -ItemType Directory -Force (Split-Path $tmp)
+    [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $tmp)
+  } finally { $z.Dispose() }
+  if (-not (AarMatchesPin $tmp)) { return $false }
+  $null = New-Item -ItemType Directory -Force (Split-Path $AndroidAar)
+  Move-Item -Force $tmp $AndroidAar
+  $true
+}
+function DownloadDirs { # Windows Downloads (also when moved) and the save folder of every Chrome / Edge / Brave profile
+  $dirs = @((Join-Path $env:USERPROFILE 'Downloads'), (Join-Path $AndroidLocal 'download'))
+  try { $dirs += [Environment]::ExpandEnvironmentVariables((Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders').'{374DE290-123F-4565-9164-04C4AB31F4E3}') } catch { }
+  foreach ($browser in 'Google\Chrome', 'Microsoft\Edge', 'BraveSoftware\Brave-Browser') {
+    foreach ($pref in @(Get-ChildItem (Join-Path $env:LOCALAPPDATA "$browser\User Data") -Filter Preferences -Recurse -Depth 1 -ErrorAction SilentlyContinue)) {
+      # Preferences is a big JSON file (PS 5.1 ConvertFrom-Json chokes on it): read just this one string
+      try { if ((Get-Content $pref.FullName -Raw -Encoding UTF8) -match '"default_directory"\s*:\s*("(?:[^"\\]|\\.)*")') { $dirs += ($Matches[1] | ConvertFrom-Json) } } catch { }
+    }
+  }
+  @($dirs | Where-Object { $_ -and (Test-Path $_) } | Sort-Object -Unique)
+}
+function ArtifactZips { # what the browser saved: waarp-android-build-reports.zip, (1), (2) ...
+  @(Get-ChildItem (DownloadDirs) -Filter 'waarp-android-build-reports*.zip' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+}
+function FetchAar {
+  # The engine is built on Linux by CI and kept in the 'waarp-android-build-reports' artifact (out/android-core/libbox.aar).
+  # GitHub gives artifacts only to a signed-in user, so the builder opens the run page in the browser, you click the
+  # artifact once, and the build goes on by itself. Only a file whose size and SHA-256 match the committed pin is used.
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  foreach ($z in ArtifactZips) { if (AarFromZip $z.FullName) { Out "  $cOk●$cR $cT android engine taken from $($z.Name) (pin verified)$cR"; return } }
+  $repo = (git remote get-url origin) -replace '^https://github\.com/', '' -replace '\.git$', ''
+  $pin = (Get-Content 'android\app\src\main\res\raw\engine_integrity.json' -Raw | ConvertFrom-Json).sha256
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  $h = @{ 'User-Agent' = 'waarp-build' }
+  $url = $null
+  try { # public API, no login: the newest run whose commit pins the same engine and still keeps its build reports
+    foreach ($run in (Invoke-RestMethod -Headers $h "https://api.github.com/repos/$repo/actions/workflows/android.yml/runs?status=completed&per_page=20").workflow_runs) {
+      $art = (Invoke-RestMethod -Headers $h "https://api.github.com/repos/$repo/actions/runs/$($run.id)/artifacts").artifacts |
+        Where-Object { $_.name -eq 'waarp-android-build-reports' -and -not $_.expired } | Select-Object -First 1
+      if (-not $art) { continue }
+      $runPin = (Invoke-RestMethod -Headers $h "https://raw.githubusercontent.com/$repo/$($run.head_sha)/android/app/src/main/res/raw/engine_integrity.json").sha256
+      if ($runPin -eq $pin) { $url = "https://github.com/$repo/actions/runs/$($run.id)"; $size = [Math]::Round($art.size_in_bytes / 1MB); break }
+    }
+  } catch { }
+  if (-not $url) { Write-Host "  $cErr●$cR $cT no CI run keeps an engine for this pin (artifacts live 14 days): a new CI run on GitHub is needed$cR"; throw 'android tools missing' }
+  if (-not $script:Animated -or [Console]::IsInputRedirected) {
+    Write-Host "  $cErr●$cR $cT android engine is missing: download artifact waarp-android-build-reports from $url into Downloads, then build again$cR"; throw 'android tools missing'
+  }
+  Write-Host ''
+  Write-Host "  $cA●$cR $cT the android engine is needed once. A browser opens the CI run page:$cR"
+  Write-Host "  $cT   scroll to Artifacts and click $cB waarp-android-build-reports$cR $cM($size MB, into Downloads)$cR"
+  Write-Host "  $cM   the build continues by itself when the download is complete (Ctrl+C to stop)$cR"
+  Start-Process $url
+  $since = Get-Date
+  while ($true) {
+    Start-Sleep -Seconds 3
+    foreach ($z in (ArtifactZips | Where-Object { $_.LastWriteTime -ge $since.AddMinutes(-1) })) {
+      if (AarFromZip $z.FullName) { Out "  $cOk●$cR $cT android engine taken from $($z.Name) (pin verified)$cR"; return }
+    }
+  }
+}
+function PrepareAndroid {
+  $why = @()
+  $javaExe = if ($env:JAVA_HOME -and (Test-Path (Join-Path $env:JAVA_HOME 'bin\java.exe'))) { Join-Path $env:JAVA_HOME 'bin\java.exe' }
+             else { $j = Get-Command java -ErrorAction SilentlyContinue; if ($j) { $j.Source } }
+  if (-not $javaExe) { $why += 'JDK 17 is not installed (Temurin 17: https://adoptium.net)' }
+  elseif ((JavaMajor $javaExe) -lt 17) { $why += "java at $javaExe is older than 17 (set JAVA_HOME to a JDK 17)" }
+  if (-not (Get-Command python -ErrorAction SilentlyContinue)) { $why += 'Python 3 is not installed (python.org), it checks the APKs' }
+  if ($why.Count) { foreach ($w in $why) { Write-Host "  $cErr●$cR $cT$w$cR" }; throw 'android tools missing' }
+  $sdk = Join-Path $AndroidLocal 'sdk'
+  $missing = @($AndroidPackages | Where-Object { -not (Test-Path (Join-Path $sdk (Join-Path $_.Dir $_.Probe))) })
+  if ($missing.Count) { InstallSdkPackages $sdk $missing }
+  $env:ANDROID_HOME = $sdk; $env:ANDROID_SDK_ROOT = $sdk
+  $env:GRADLE_USER_HOME = Join-Path $AndroidLocal 'gradle'
+  if (-not (Test-Path $AndroidAar)) { FetchAar }
+}
+function StageDebugApks { # names like android-build.mjs: waarp-android-<version>-<abi>-debug.apk
+  $dir = 'android\app\build\outputs\apk\debug'
+  $meta = Get-Content (Join-Path $dir 'output-metadata.json') -Raw | ConvertFrom-Json
+  $stage = "out\android-stage-$([DateTimeOffset]::Now.ToUnixTimeMilliseconds())"
+  $null = New-Item -ItemType Directory -Force $stage
+  foreach ($e in $meta.elements) {
+    $abi = ($e.filters | Where-Object { $_.filterType -eq 'ABI' }).value
+    $ver = $e.versionName -replace '-debug$', ''
+    if (-not $abi -or $ver -notmatch '^[0-9A-Za-z.+-]+$') { throw 'unexpected APK metadata' }
+    Copy-Item (Join-Path $dir $e.outputFile) (Join-Path $stage "waarp-android-$ver-$abi-debug.apk")
+  }
+  $stage
+}
+function PublishApks($from) { # like android-build.mjs: the previous set moves to out\android-history, never mixed or deleted
+  if (Test-Path out\android) {
+    $null = New-Item -ItemType Directory -Force out\android-history
+    Move-Item out\android "out\android-history\previous-$([DateTimeOffset]::Now.ToUnixTimeMilliseconds())"
+  }
+  Move-Item $from out\android
+}
+
 # small sparkle line at the end (1.2 s), then the sign-off; console only
 function Celebrate {
   if (-not $script:Animated) { Write-Host '  ship it'; return }
@@ -201,15 +369,17 @@ try {
   Write-Host ''
   Write-Host "  $cA${cB}waarp$cR  $cM build$cR $cD v$ver$(if ($Demo) { ' · demo' })$cR"
   Write-Host ''
-  if ($Mode -notin '1', '2') {
+  if ($Mode -eq 'apk') { $Mode = '3' }
+  if ($Mode -notin '1', '2', '3') {
     $canAsk = $script:Animated -and -not [Console]::IsInputRedirected
     if ($canAsk) {
       Write-Host "  $cA 1$cR  $cT quick    $cR $cM unpacked folder, starts at once (local check)$cR"
       Write-Host "  $cA 2$cR  $cT portable $cR $cM portable exe for delivery$cR"
+      Write-Host "  $cA 3$cR  $cT apk      $cR $cM android apk (out\android)$cR"
       try { [Console]::CursorVisible = $true } catch { }
-      $k = Read-Host "`n  Choose 1 or 2 (Enter = 1)"
+      $k = Read-Host "`n  Choose 1, 2 or 3 (Enter = 1)"
       try { [Console]::CursorVisible = $false } catch { }
-      $Mode = if ($k -eq '2') { '2' } else { '1' }
+      $Mode = if ($k -in '2', '3') { $k } elseif ($k -eq 'apk') { '3' } else { '1' }
     } else { $Mode = '1' } # no interactive console: the safe local mode, never blocks on input
   }
   Out "  $cD mode:$cR $cT$Mode$cR"
@@ -220,6 +390,19 @@ try {
     Step 3 $of 'Build the app' 'ping -n 2 127.0.0.1'
     Step 4 $of 'Pack (unpacked folder)' 'ping -n 2 127.0.0.1'
     $result = 'dist\win-unpacked\Waarp.exe (demo)'
+  } elseif ($Mode -eq '3') {
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Write-Host "  $cErr Node.js is not installed: https://nodejs.org$cR"; throw 'no npm' }
+    PrepareAndroid
+    $of = 3
+    Step 1 $of 'Android engine' 'node scripts/android-core.mjs verify'
+    Step 2 $of 'Build the debug APK' 'android\gradlew.bat -p android --no-daemon --console=plain :app:assembleDebug'
+    $stage = StageDebugApks
+    $checks = @(Get-ChildItem $stage -Filter *.apk | ForEach-Object { "python scripts\android-verify.py `"$($_.FullName)`" --expect debug --report `"$($_.FullName).validation.json`"" }) -join ' && '
+    Step 3 $of 'Verify the APKs' "($checks)"
+    PublishApks $stage
+    # most phones are arm64; the debug apk installs on any phone of that ABI
+    $result = (Get-ChildItem out\android -Filter 'waarp-android-*-arm64-v8a-debug.apk' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+    if (-not $result) { $result = 'out\android' }
   } else {
     if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { Write-Host "  $cErr Node.js is not installed: https://nodejs.org$cR"; throw 'no npm' }
     # a running Waarp from this repo's dist locks the exe (EBUSY at pack): close processes whose full path is exactly
@@ -255,7 +438,7 @@ try {
 } catch {
   $code = 1
   # step failures already printed their log; anything else gets one visible line
-  if ($_.Exception.Message -ne 'build step failed') { Write-Host "  build script error: $($_.Exception.Message)" }
+  if ($_.Exception.Message -notin 'build step failed', 'android tools missing') { Write-Host "  build script error: $($_.Exception.Message)" }
 } finally {
   # one place restores the console: success, failure, exception or Ctrl+C
   try { [Console]::CursorVisible = $true } catch { }
