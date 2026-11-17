@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Illustrative recipe metadata for the existing helper; not executable configs and not a mandatory new DSL",
+  "asOf": "2026-11-17",
+  "readyForRuntime": false,
+  "status": "PROPOSAL",
+  "sharedGuards": ["keep imported original", "never mutate secrets", "keep TLS authentication", "require exact binary capability", "require server compatibility", "bind outcome to network generation and effective profile hash", "bounded cancellable tests", "no silent Direct fallback", "explicit apply and rollback", "no executable code or arbitrary file paths"],
+  "recipes": [
+    {"id":"original","version":1,"label":"Original imported profile","families":["all already supported"],"mutations":[],"preconditions":["current credentials","existing validation"],"measurements":["authenticated small exchange","download","upload when a permitted test target exists"],"fieldVerifiedByThisResearch":false,"sources":["L02","L03"]},
+    {"id":"tls-chrome155","version":1,"label":"Modern TLS fingerprint","families":["compatible TLS or REALITY profiles"],"mutations":[{"field":"tls.utls.fingerprint","candidate":"chrome_155"}],"preconditions":["pinned core and importer accept chrome_155","server and transport support the selected handshake"],"neverChange":["server_name","reality.public_key","reality.short_id","credentials","certificate validation"],"measurements":["authenticated handshake","payload","sustained bidirectional quality"],"fieldVerifiedByThisResearch":false,"sources":["P07","P08","L04","L05"]},
+    {"id":"masque-h3","version":1,"label":"MASQUE over QUIC","families":["validated MASQUE profile"],"mutations":[{"field":"vhttp","candidate":"h3"}],"preconditions":["N05 accepted","UDP path available","correct endpoint and credentials","inner addressing validated"],"measurements":["CONNECT-IP accepted","DNS","download","upload","cancel and network transition"],"fieldVerifiedByThisResearch":false,"sources":["P06","P23"]},
+    {"id":"masque-h2","version":1,"label":"MASQUE over TCP","families":["MASQUE profile with verified H2 support"],"mutations":[{"field":"vhttp","candidate":"h2"}],"preconditions":["N05 accepted","the specific implementation and server support H2","TCP and authenticated CONNECT-IP usable"],"exclusions":["do not assume H2 exists for the standard profile","Cloudflare web TCP success is insufficient"],"measurements":["CONNECT-IP accepted","DNS","download","upload","long-lived traffic"],"fieldVerifiedByThisResearch":false,"sources":["P06","P10","P23"]},
+    {"id":"metered-stable","version":1,"label":"Stable path with a small measurement budget","families":["existing working profiles"],"mutations":[],"preconditions":["existing healthy selected path","user knows the traffic budget"],"localPolicyCandidates":["reuse passive health evidence","bounded manual throughput test","retain existing traffic-aware selection hysteresis"],"exclusions":["no random AWG fields","no continuous speed tests"],"fieldVerifiedByThisResearch":false,"sources":["I01","L02","L03"]},
+    {"id":"trusted-alternate-entry","version":1,"label":"Previously configured independent entry","families":["user-owned or explicitly trusted compatible profiles"],"mutations":[],"preconditions":["user already supplied endpoint and authorization","candidate belongs to a different useful failure domain","successful current-context payload test"],"exclusions":["no unauthorised relay scan","no arbitrary SNI substitution","no automatic public-proxy promotion"],"fieldVerifiedByThisResearch":false,"sources":["G04","L02"]}
+  ],
+  "researchOnly": [
+    {"id":"xdrive","ordinaryAutoEligible":false,"reasons":["experimental version contract","cloud account and API secrets","remote exit still required","quotas and latency","not a completed Waarp import path"],"sources":["P04"]},
+    {"id":"naiveproxy","ordinaryAutoEligible":false,"reasons":["verify exact Android native build and compatible server","license and maintenance review","not equivalent to a uTLS preset"],"sources":["P12"]},
+    {"id":"quicstep","ordinaryAutoEligible":false,"reasons":["research threat model","migration and path reachability assumptions"],"sources":["F01"]},
+    {"id":"circumvolve-lab","ordinaryAutoEligible":false,"reasons":["offline research only","review results before any declarative recipe","never execute generated strategy code on user devices"],"sources":["F02"]}
+  ]
+}
