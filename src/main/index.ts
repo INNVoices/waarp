@@ -3,6 +3,7 @@ import { ConnectionControl } from './connection-control'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, net, Notification, powerMonitor, screen, Tray } from 'electron'
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
+import { writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { Notice, Profile, Settings, Snapshot, Status } from '../shared/types'
 import { compilePlan } from '../shared/plan'
@@ -28,6 +29,7 @@ import { createApply, onRoutingPatch, selectVia, type ApplyResult } from './appl
 import { defaultRoutes, TUN, tunPreflight, tunSnapshot } from './tun'
 import { isIP } from 'node:net'
 import { LogFile } from './logfile'
+import { configOf } from './techview'
 import { dedupeApps } from '../shared/appmatch'
 import { bounded } from './stop'
 import { createResume, underlayReady } from './resume'
@@ -829,6 +831,24 @@ function ipc() {
     return { target: parsed.shown, host, direct, paths, finding, at: now, stale }
   })
   secureHandle('log', () => engine.log())
+  secureHandle('profile:config', (_e, id: unknown) => {
+    const p = typeof id === 'string' ? store.profiles.find(x => x.id === id) : undefined
+    return p ? configOf(p) : null
+  })
+  secureHandle('diag:export', async () => {
+    const st = engine.status
+    const report = {
+      app: app.getVersion(), engine: engineExe, integrity: engineIntegrity, at: new Date().toISOString(),
+      status: { phase: st.phase, engine: st.engine, error: st.error, health: st.health, pings: st.pings, pingAt: st.pingAt, picked: st.picked, fallback: st.fallback },
+      profiles: store.views().map(({ clientPublicKey: _k, ...v }) => v),
+      routes: store.settings.routes.map(r => ({ name: r.name, kind: r.kind, on: r.on, via: r.via, fallback: r.fallback, exe: r.exe, wholeDir: r.wholeDir, preset: r.preset, value: r.value })),
+      settings: { rest: store.settings.rest, ruDirect: store.settings.ruDirect, lanDirect: store.settings.lanDirect, groups: store.settings.groups },
+      log: engine.log()
+    }
+    const r = await dialog.showSaveDialog({ defaultPath: `waarp-diagnostics-${Date.now()}.json`, filters: [{ name: 'JSON', extensions: ['json'] }] })
+    if (r.canceled || !r.filePath) return { ok: false }
+    try { writeFileSync(r.filePath, JSON.stringify(report, null, 1)); return { ok: true } } catch { return { ok: false, error: true } }
+  })
   secureHandle('net:reset', () => {
     connectionAction++
     setMaster(false)

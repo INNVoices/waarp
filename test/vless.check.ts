@@ -1,5 +1,6 @@
 import { ConfError } from '../src/main/conf-error'
 import { createConnection, createServer } from 'node:net'
+import { configOf, techOf } from '../src/main/techview'
 import { fetchSubscription, isSubscriptionUrl, looksLikeVless, parseSubscription, parseVless, pinnedAddressLookup, redactVless, vlessKey, vlessOutbound, vlessSecrets } from '../src/main/vless'
 
 let fails = 0, n = 0
@@ -172,6 +173,15 @@ export const TCP = `vless://${UUID}@1.2.3.4:8443?type=tcp&security=reality&pbk=$
     ok(allRequested, 'pinned lookup supports Node dual-stack all:true without ERR_INVALID_IP_ADDRESS')
   } finally { await new Promise<void>(resolve => local.close(() => resolve())) }
   try { await fetchSubscription('https://sub.example.org/secret-token', { fetchImpl: (async () => mk(500, '')) as unknown as typeof fetch }) } catch (e) { ok(!String((e as Error).message).includes('secret-token'), 'error text has no url') }
+
+  const base = parseVless(FULL)
+  const view = { ...base, vless: { ...base.vless, encryption: 'mlkem768x25519plus.native.secret-material' } }
+  const tech = techOf(view).tech
+  ok(tech.some(([k, v]) => k === 'fp' && v === 'firefox') && tech.some(([k, v]) => k === 'sni' && v === 'www.apple.com'), 'technical view shows fingerprint and SNI')
+  ok(!JSON.stringify(tech).includes(UUID) && !JSON.stringify(tech).includes('secret-material'), 'technical view has no UUID or encryption key')
+  const cfg = JSON.stringify(configOf(view))
+  ok(!cfg.includes(UUID) && !cfg.includes('secret-material') && cfg.includes('example.org'), 'developer config hides secrets, keeps endpoint')
+  ok(cfg.includes(PBK), 'REALITY public key stays visible: it is not a secret')
 
   console.log(fails ? `${fails}/${n} FAILED` : `all ${n} vless checks passed`)
   process.exit(fails ? 1 : 0)

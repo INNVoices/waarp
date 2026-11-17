@@ -88,6 +88,10 @@ export interface ProfileView {
   version: string
   members?: string[]
   policy?: GroupPolicy
+  /** non-secret technical fields, label key -> value */
+  tech?: [string, string][]
+  /** imported parameters the engine does not apply */
+  notApplied?: string[]
 }
 
 export type Via = 'direct' | string
@@ -154,6 +158,7 @@ export interface Status {
   error?: string
   pings: Record<string, number | undefined>
   pingRound?: number
+  pingAt?: number
   fallback: Record<string, Via>
   down: number
   up: number

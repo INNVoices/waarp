@@ -4,8 +4,10 @@ import { Btn, Icon, Toggle } from '../ui/kit'
 import { s } from '../lib/i18n'
 import { api } from '../bridge'
 import type { SettingsPatch, Toast } from '../lib/actions'
+import { useDev, writeDev } from '../lib/dev'
 
 export function SettingsPage({ snap, patch, toast }: { snap: Snapshot; patch: SettingsPatch; toast: Toast }) {
+  const dev = useDev()
   const st = snap.settings
   const [log, setLog] = useState<string[]>()
   const [resetting, setResetting] = useState(false)
@@ -79,6 +81,16 @@ export function SettingsPage({ snap, patch, toast }: { snap: Snapshot; patch: Se
             </div>
           </div>
           {log && <pre className="log selectable">{log.length ? log.join('\n') : s('set.log.empty')}</pre>}
+          <div className="opts">
+            <div className="opt static">
+              <div><b>{s('set.dev')}</b><p>{s('set.dev.text')}</p></div>
+              <Toggle on={dev} onChange={v => writeDev(v)} label={s('set.dev')} />
+            </div>
+            {dev && <div className="opt static">
+              <div><b>{s('set.diag')}</b><p>{s('set.diag.text')}</p></div>
+              <Btn onClick={async () => { try { const r = await api.exportDiag(); if (r.ok) toast(s('set.diag.done')); else if (r.error) toast(s('set.diag.error'), 'error') } catch { toast(s('set.diag.error'), 'error') } }}><Icon n="doc" />{s('set.diag.go')}</Btn>
+            </div>}
+          </div>
         </section>
         <section className="panel span2">
           <h3>{s('set.how')}</h3>

@@ -326,7 +326,7 @@ export class Engine extends EventEmitter {
         const noneYet = first && ids.length > 0 && ids.every(id => h[id] !== 'ok')
         const error = allDown ? 'Туннели не ответили на две проверки подряд. Проверь сеть или смени подключение' : noneYet ? 'Серверы пока не ответили, проверяю ещё раз' : undefined
         this.lastAutoPick = this.firstSelected.get(AUTO_ID) ?? this.lastAutoPick
-        this.set({ engine: 'up', pings, pingRound: ++this.pingSeq, health: h, fallback, error, picked: Object.fromEntries(this.firstSelected), autoPool: this.autoPool })
+        this.set({ engine: 'up', pings, pingRound: ++this.pingSeq, pingAt: Date.now(), health: h, fallback, error, picked: Object.fromEntries(this.firstSelected), autoPool: this.autoPool })
       } catch {
         if (this.child === child && !this.stopping && this.pollFailures < 2) this.set({ error: 'Не удалось обновить состояние туннелей; повторю проверку' })
       } finally { roundBusy = false }

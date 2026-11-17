@@ -1,5 +1,5 @@
 // Saved connections, their groups, and the explicitly refreshed public catalog share one destination.
-import { useRef, useState } from 'react'
+import { Fragment, useRef, useState } from 'react'
 import type { Group, ProfileView, Snapshot, Status } from '../../../shared/types'
 import { dropGroup, usersOf } from '../../../main/store-core'
 import { Modal } from '../ui/modal'
@@ -10,10 +10,12 @@ import type { SettingsPatch } from '../lib/actions'
 import { Mark, Ping } from '../parts'
 import { AddTunnel, importNote, type ImportResult } from './addtunnel'
 import { GroupDialog } from './groupdlg'
+import { useDev } from '../lib/dev'
 import { PublicCatalog } from './publiccat'
 
 
 export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status: Status; patch: SettingsPatch; toast: (x: string) => void }) {
+  const dev = useDev()
   const [edit, setEdit] = useState<string>()
   const [name, setName] = useState('')
   const [adding, setAdding] = useState(false)
@@ -175,7 +177,12 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
               {p.address.length > 0 && <><span className="m">{s('srv.addr')}</span><span className="selectable ell">{p.address.join(', ')}</span></>}
               {p.clientPublicKey && <><span className="m">{s('add.create.clientKey')}</span><Tooltip tip={p.clientPublicKey}><span className="selectable ell mono">{p.clientPublicKey}</span></Tooltip></>}
               <span className="m">{s('srv.proto')}</span><span>{p.version}</span>
-            </div></details>
+              {p.tech?.map(([k, v]) => <Fragment key={k}><span className="m">{s('tech.' + k)}</span><span className="selectable ell">{v}</span></Fragment>)}
+              {!!p.notApplied?.length && <><span className="m">{s('tech.notApplied')}</span><span className="warn ell">{p.notApplied.join(', ')}</span></>}
+              {live && status.pingAt !== undefined && uses(p.id) > 0 && <><span className="m">{s('tech.measured')}</span><span>{new Date(status.pingAt).toLocaleTimeString()}</span></>}
+            </div>
+            {dev && <DevConfig id={p.id} />}
+            </details>
             {foot(p)}
           </div>
         ))}
@@ -211,4 +218,12 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
         onSave={g => patch({ groups: st.groups.some(x => x.id === g.id) ? st.groups.map(x => (x.id === g.id ? g : x)) : [...st.groups, g] })} />}
     </div>
   )
+}
+
+/** developer mode: the engine config of one connection, secrets replaced, read-only */
+function DevConfig({ id }: { id: string }) {
+  const [cfg, setCfg] = useState<string>()
+  return cfg === undefined
+    ? <Btn sm kind="ghost" onClick={async () => { try { setCfg(JSON.stringify(await api.profileConfig(id), null, 1)) } catch { setCfg('') } }}><Icon n="doc" />{s('tech.config')}</Btn>
+    : <pre className="log selectable">{cfg || s('tech.config.none')}</pre>
 }
