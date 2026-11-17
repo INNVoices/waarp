@@ -76,12 +76,31 @@ internal class MobileStateMapper {
         val showAutoPool = autoReferenced && runtime.phase == RuntimePhase.ON
         fun pathAvailable(id: String) = id == DIRECT || id in available || id in availableGroups
         val systemDns = dnsPolicyCache.get(data) { RoutingCompiler.systemDnsPolicy(data) }
-        val systemDnsHint = systemDns.reason ?: when {
-            systemDns.via == DIRECT && data.settings.systemDnsVia == DIRECT -> "Системный DNS идёт напрямую: этот путь выбран явно. Правила доменов сохраняют приоритет."
-            systemDns.via == DIRECT -> "Системный DNS следует правилам доменов; остальные запросы идут напрямую. Защищённых маршрутов приложений пока нет."
+        // A saved policy is not evidence of an active VPN. In particular, OFF
+        // must never claim that this app is currently blocking DNS or traffic.
+        val policyActive = runtime.phase == RuntimePhase.ON
+        val policyContext = when (runtime.phase) {
+            RuntimePhase.ON -> ""
+            RuntimePhase.OFF -> "VPN выключен. Сохранённая настройка DNS: "
+            RuntimePhase.STARTING -> "VPN включается. Запланированная настройка DNS: "
+            RuntimePhase.STOPPING -> "VPN выключается. Настройка DNS для следующего включения: "
+            RuntimePhase.ERROR -> "Ошибка VPN. Настройка DNS для успешного включения: "
+        }
+        val systemDnsHint = policyContext + when {
+            systemDns.blocked -> systemDns.reason + " " + if (policyActive)
+                "Системные DNS-запросы, для которых Android не определил приложение, блокируются."
+            else "При работе VPN системные DNS-запросы, для которых Android не определил приложение, будут блокироваться."
+            systemDns.via == DIRECT && data.settings.systemDnsVia == DIRECT ->
+                (if (policyActive) "Системный DNS идёт напрямую" else "При работе VPN системный DNS пойдёт напрямую") +
+                    ": этот путь выбран явно. Правила доменов сохраняют приоритет."
+            systemDns.via == DIRECT ->
+                (if (policyActive) "Системный DNS следует правилам доменов; остальные запросы идут напрямую."
+                 else "При работе VPN системный DNS будет следовать правилам доменов; остальные запросы пойдут напрямую.") +
+                    " Защищённых маршрутов приложений пока нет."
             else -> "Общий DNS-путь: «${pathName(systemDns.via)}»" +
                 (systemDns.fallback?.let { "; резерв — «${pathName(it)}»" } ?: "") +
-                ". Применяется к системным запросам, для которых Android не передал приложение."
+                (if (policyActive) ". Применяется" else ". При работе VPN будет применяться") +
+                " к системным запросам, для которых Android не определил приложение."
         }
         val routeUi = routesCache.get(data.routes, available, availableGroups, input.nativeGroups, measured, runtime.phase, input.compiledRoutes) { data.routes.map { route ->
             val fallbackNative = nativeByTag["fb-${route.id}"]?.selected
@@ -126,7 +145,9 @@ internal class MobileStateMapper {
         } }
         val notices = noticesCache.get(data, routeUi, apps, input.loadError, runtime.phase, runtime.lockdown, systemDnsHint, input.blockedPaths) { buildList {
             input.loadError?.let { add(NoticeUi("store", NoticeLevel.BLOCK, "Хранилище недоступно", it)) }
-            if (!pathAvailable(data.settings.defaultVia)) add(NoticeUi("global-missing", NoticeLevel.BLOCK, "Общий маршрут недоступен", "Трафик без отдельного правила блокируется до выбора доступного пути."))
+            if (!pathAvailable(data.settings.defaultVia)) add(NoticeUi("global-missing", NoticeLevel.BLOCK, "Общий маршрут недоступен",
+                if (policyActive) "Трафик без отдельного правила блокируется до выбора доступного пути."
+                else "При работе VPN трафик без отдельного правила будет блокироваться до выбора доступного пути."))
             if (runtime.phase == RuntimePhase.ON && data.settings.defaultVia in input.blockedPaths) add(NoticeUi("global-budget", NoticeLevel.BLOCK,
                 "Общий путь не загружен", "Он не вошёл в текущую конфигурацию VPN. Трафик без отдельного правила заблокирован; выбери другой путь или уменьши число активных туннелей."))
             if (systemDns.blocked) add(NoticeUi("system-dns", NoticeLevel.WARNING, "Общий DNS требует выбора", systemDnsHint))

@@ -182,6 +182,7 @@ export interface Conn {
   net: string
   via: Via
   rule: string
+  route?: string
   down: number
   up: number
   start: number

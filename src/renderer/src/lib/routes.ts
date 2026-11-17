@@ -1,5 +1,6 @@
 import type { AppInfo, Conn, ProfileView, Route, Settings, Via } from '../../../shared/types'
 import { PRESETS } from '../../../shared/presets'
+import { routeHits } from '../../../shared/appmatch'
 
 export const HUES = ['#d97757', '#6f9bd1', '#7cb59a', '#b39ad6', '#c9a86a', '#8fb6c4', '#c38fa8']
 
@@ -34,19 +35,12 @@ export function upsert(s: Settings, r: Route): Route[] {
 export const patchRoute = (s: Settings, id: string, p: Partial<Route>) => s.routes.map(r => (r.id === id ? { ...r, ...p } : r))
 export const dropRoute = (s: Settings, id: string) => s.routes.filter(r => r.id !== id)
 
-const host = (h: string) => h.toLowerCase().replace(/\.$/, '')
-
 export function connsOf(r: Route, conns: Conn[]): Conn[] {
-  if (r.kind === 'app' && r.exe) {
-    const exe = r.exe.toLowerCase()
-    const dir = r.wholeDir === false ? undefined : r.matchDir?.toLowerCase()
-    return conns.filter(c => c.exe && (c.exe.toLowerCase() === exe || (dir && c.exe.toLowerCase().startsWith(dir + '\\'))))
-  }
-  const doms = r.kind === 'preset' ? PRESETS.find(p => p.id === r.preset)?.domains ?? [] : [r.value ?? '']
-  return conns.filter(c => { const h = host(c.host); return doms.some(d => d && (h === d || h.endsWith('.' + d))) })
+  return conns.filter(c => (c.route !== undefined ? c.route === r.id : routeHits(r, c)))
 }
 
 export function connRoute(c: Conn, routes: Route[]): Route | undefined {
+  if (c.route !== undefined) return routes.find(r => r.id === c.route)
   const on = routes.filter(r => r.on)
-  return on.find(r => r.kind !== 'app' && connsOf(r, [c]).length) ?? on.find(r => r.kind === 'app' && connsOf(r, [c]).length)
+  return on.find(r => r.kind === 'app' && routeHits(r, c)) ?? on.find(r => r.kind === 'custom' && routeHits(r, c)) ?? on.find(r => r.kind === 'preset' && routeHits(r, c))
 }

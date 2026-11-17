@@ -127,11 +127,18 @@ class MobileRepository(private val context: Context, val controller: VpnControll
         generation.incrementAndGet(); _requestedOpen.value = false; controller.stop()
     }
 
+    /** Transform only the supplied snapshot and captured immutable inputs; preparation runs off Main. */
     suspend fun edit(transform: (AppData) -> AppData): AppData {
       ready()
       return edits.withLock {
-        val before = _data.value ?: error("Хранилище не готово"); val after = transform(before).copy(revision = before.revision + 1).checked()
-        val next = withContext(Dispatchers.Default) { compile(after) }
+        val before = _data.value ?: error("Хранилище не готово")
+        val (after, next) = withContext(Dispatchers.Default) {
+            // Subscription reconciliation hashes/canonicalizes the whole library.
+            // Keep it and validation in the same cancellable preparation step;
+            // no state or runtime transition is published before this completes.
+            val prepared = transform(before).copy(revision = before.revision + 1).checked()
+            prepared to compile(prepared)
+        }
         controller.validateConfig(next.json)
         val token = generation.get()
         val phase = controller.status.value.phase

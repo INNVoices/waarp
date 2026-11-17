@@ -109,6 +109,75 @@ class MobileStateMapperTest {
         assertNull(off.status.autoPoolTotal)
     }
 
+    @Test fun savedBlockedDnsAndDefaultRouteDoNotClaimProtectionOutsideOn() {
+        val data = AppData(settings = AppSettings(defaultVia = "deleted", systemDnsVia = "deleted"))
+        val mapper = MobileStateMapper()
+        val input = snapshot(data)
+        // Reuse the projection across transitions, including an unfulfilled ON
+        // intent. The desired switch position must not determine protection.
+        for (phase in listOf(RuntimePhase.OFF, RuntimePhase.STARTING, RuntimePhase.ON,
+                RuntimePhase.STOPPING, RuntimePhase.ERROR, RuntimePhase.OFF, RuntimePhase.ON)) {
+            val state = mapper.map(input.copy(runtime = RuntimeStatus(phase), requestedOpen = true))
+            val dns = state.notices.single { it.id == "system-dns" }.detail
+            val route = state.notices.single { it.id == "global-missing" }.detail
+            assertTrue(state.settings.systemDnsBlocked)
+            assertEquals(state.settings.systemDnsHint, dns)
+            assertTrue(dns.contains("Общий DNS-путь недоступен"))
+            if (phase == RuntimePhase.ON) {
+                assertTrue(dns.contains("блокируются."))
+                assertTrue(route.contains("блокируется"))
+                assertFalse(dns.contains("будут блокироваться"))
+            } else {
+                assertTrue(dns.contains("будут блокироваться"))
+                assertFalse(dns.contains("блокируются."))
+                assertTrue(route.contains("будет блокироваться"))
+                assertFalse(route.contains("блокируется"))
+            }
+            if (phase == RuntimePhase.OFF) assertTrue(dns.startsWith("VPN выключен."))
+        }
+    }
+
+    @Test fun conflictingAppDnsRemainsAPlannedWarningWhenVpnIsOff() {
+        val data = AppData(profiles = listOf(profile("one"), profile("two")), routes = listOf(
+            TrafficRoute("r1", "Browser", "app", "test.browser", "one"),
+            TrafficRoute("r2", "Chat", "app", "test.chat", "two")))
+        val input = snapshot(data)
+        val mapper = MobileStateMapper()
+        val before = RoutingCompiler.compile(data).json
+        val on = mapper.map(input)
+        assertTrue(on.settings.systemDnsHint!!.contains("блокируются."))
+        val off = mapper.map(input.copy(runtime = RuntimeStatus()))
+        val notice = off.notices.single { it.id == "system-dns" }
+        assertTrue(notice.detail.startsWith("VPN выключен."))
+        assertTrue(notice.detail.contains("Приложения используют разные DNS-пути"))
+        assertTrue(notice.detail.contains("будут блокироваться"))
+        assertFalse(notice.detail.contains("блокируются."))
+        assertEquals(NoticeLevel.WARNING, notice.level)
+        assertEquals(before, RoutingCompiler.compile(data).json)
+    }
+
+    @Test fun availableDnsChoicesAlsoDistinguishSavedPolicyFromActiveRouting() {
+        val cases = listOf(
+            AppData(settings = AppSettings(systemDnsVia = DIRECT)) to ("идёт напрямую" to "пойдёт напрямую"),
+            AppData() to ("остальные запросы идут напрямую" to "остальные запросы пойдут напрямую"),
+            AppData(profiles = listOf(profile("one")), settings = AppSettings(systemDnsVia = "one")) to
+                ("Применяется к системным запросам" to "будет применяться к системным запросам"),
+        )
+        val mapper = MobileStateMapper()
+        for ((data, expected) in cases) {
+            val input = snapshot(data)
+            val on = mapper.map(input)
+            assertTrue(on.settings.systemDnsHint!!.contains(expected.first))
+            assertFalse(on.settings.systemDnsBlocked)
+            for (phase in listOf(RuntimePhase.OFF, RuntimePhase.STARTING, RuntimePhase.STOPPING, RuntimePhase.ERROR)) {
+                val inactive = mapper.map(input.copy(runtime = RuntimeStatus(phase)))
+                assertTrue(inactive.settings.systemDnsHint!!.contains(expected.second))
+                assertFalse(inactive.settings.systemDnsHint!!.contains(expected.first))
+                assertFalse(inactive.notices.any { it.id == "system-dns" })
+            }
+        }
+    }
+
     @Test fun profileAndGroupRenameAndCatalogDeletionInvalidateTheirOwnProjection() {
         val catalogProfile = profile("public", "public")
         val saved = catalogProfile.copy(id = "saved", name = "Imported")

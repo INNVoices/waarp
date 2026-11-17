@@ -113,6 +113,7 @@ def main():
     verify = module("android_release_verify", "android-verify.py")
     instrumentation = module("android_instrument_result", "android-instrument.py")
     evidence_validator = module("android_release_proof", "android-release-proof.py")
+    frame_validator = module("android_foreground_proof", "android-foreground-proof.py")
     metadata = json.loads((ROOT / "out/android/artifacts.json").read_text())
     selected = next((entry for entry in metadata["artifacts"] if entry["abi"] == device["abi"] and entry["variant"] == "release-unsigned"), None)
     require(selected is not None, "A verified unsigned release APK for this emulator is required.")
@@ -171,6 +172,11 @@ def main():
         report["passedGate"] = False
         report["evidenceError"] = str(error)
     try:
+        report["foregroundTraces"] = frame_validator.collect_traces(prefix, output / "app-evidence", output / "foreground-traces")
+    except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
+        report["passedGate"] = False
+        report["foregroundTraceCollectionError"] = str(error)
+    try:
         checked = evidence_validator.validate_device(output, options.mode, installed, options.duration_seconds, options.interval_seconds)
         report["deviceEvidence"] = {key: value for key, value in checked.items() if key != "summary"}
     except (OSError, ValueError, KeyError, TypeError) as error:
@@ -185,6 +191,8 @@ def main():
         result = subprocess.run(prefix + arguments, capture_output=True, text=True, timeout=30)
         observed = (result.stdout + result.stderr)[-2 * 1024 * 1024:]
         (output / name).write_text(observed)
+        if name == "gfxinfo.txt":
+            report["postScenarioGfxinfoScope"] = "Post-scenario diagnostic only. Smoke intentionally has no live process; use foregroundFrames for scoped UI observations."
         if name == "crash-buffer.txt":
             app_crash = bool(re.search(r'(?:Process:|Cmdline:)\s*local\.waarp\.android(?:,|\s|$)|>>>\s*local\.waarp\.android\s*<<<', observed))
             report["appCrashObserved"] = app_crash

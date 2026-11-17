@@ -178,8 +178,11 @@ def validate_device(directory, mode, installed, duration=7200, interval=15):
         screenshots = ("01-release-connected.png", "02-release-soak-finished-connected.png")
     for filename in screenshots:
         require(one(evidence, filename).read_bytes()[:8] == b"\x89PNG\r\n\x1a\n", "Missing actual UI screenshot.")
+    frame_spec = importlib.util.spec_from_file_location("android_foreground_proof", ROOT / "scripts/android-foreground-proof.py")
+    frames = importlib.util.module_from_spec(frame_spec); frame_spec.loader.exec_module(frames)
+    foreground = frames.validate(evidence, summary, directory / "foreground-traces")
     return {"summary": summary, "summarySha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-            "rawTrafficRows": len(traffic), "screenshots": list(screenshots), "passed": True}
+            "rawTrafficRows": len(traffic), "screenshots": list(screenshots), "foregroundFrames": foreground, "passed": True}
 
 
 def main():

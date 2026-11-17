@@ -27,13 +27,13 @@ object RoutingCompiler {
             (path == AUTO && available.values.any { it.source != "public" }) ||
             data.groups.any { it.id == path && it.members.any(available::containsKey) }
         fun chosen(path: String) = if (valid(path)) SystemDnsPolicy(path) else SystemDnsPolicy(path,
-            reason = "Общий DNS-путь недоступен. Выберите доступный туннель в настройках; системные DNS-запросы блокируются.")
+            reason = "Общий DNS-путь недоступен. Выберите доступный туннель в настройках.")
         data.settings.systemDnsVia?.let { return chosen(it) }
         if (data.settings.defaultVia != DIRECT) return chosen(data.settings.defaultVia)
         val appPaths = data.routes.filter { it.enabled && it.kind == "app" && it.via != DIRECT }
         if (appPaths.isEmpty()) return SystemDnsPolicy(DIRECT)
         if (appPaths.any { !valid(it.via) }) return SystemDnsPolicy(null,
-            reason = "DNS-путь одного из приложений недоступен. Выберите общий DNS в настройках; системные DNS-запросы блокируются.")
+            reason = "DNS-путь одного из приложений недоступен. Выберите общий DNS в настройках.")
         val distinct = appPaths.map { route -> route to route.fallback?.takeIf { it != DIRECT && it != route.via && valid(it) } }
             .distinctBy { (route, fallback) -> route.via to fallback }
         if (distinct.size != 1) return SystemDnsPolicy(null,

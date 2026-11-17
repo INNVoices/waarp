@@ -106,34 +106,30 @@ class VpnController(context: Context) {
         launchStart(RuntimeState.requestStart(config))
     }
 
-    private fun launchStart(request: StartRequest, newUserIntent: Boolean = true): Boolean {
-        try {
-            var enabled = false
-            if (!RuntimeState.whenCurrent(request.generation) {
-                    enabled = VpnRecoveryWatchdog.started(context, newUserIntent)
-                    if (enabled) RuntimeState.status.update {
-                        it.copy(phase = RuntimePhase.STARTING, message = null, telemetryAvailable = false)
-                    }
-                }) return false
-            check(enabled) { "Намерение включить VPN больше не действует" }
-            context.startForegroundService(
-                Intent(context, WaarpVpnService::class.java)
-                    .setAction(ACTION_START).putExtra(EXTRA_GENERATION, request.generation),
-            )
-            return true
-        } catch (error: Exception) {
-            failAtGeneration(request.generation, error)
-            throw error
-        }
-    }
+    /** Queue acceptance with the generation change; Activity cancellation cannot abandon the write. */
+    private fun launchStart(request: StartRequest, newUserIntent: Boolean = true): Boolean =
+        VpnControlLane.enqueueStart(request) { launchStartOnControlLane(request, newUserIntent) }
 
-    /** Invalidates in-flight starts immediately; cleanup runs on the service's native lane. */
+    private fun launchStartOnControlLane(request: StartRequest, newUserIntent: Boolean) =
+        VpnControlLane.completeStart(request,
+            persist = { VpnRecoveryWatchdog.started(context, newUserIntent) },
+            activate = {
+                context.startForegroundService(
+                    Intent(context, WaarpVpnService::class.java)
+                        .setAction(ACTION_START).putExtra(EXTRA_GENERATION, request.generation),
+                )
+            },
+            fail = { error -> failAtGeneration(request.generation, error) },
+        )
+
+    /** Invalidates in-flight starts immediately; durable OFF and cleanup finish asynchronously. */
     fun stop() { stopTransition() }
 
     /** A data update pauses the runtime without changing the user's persisted ON intent. */
     internal fun pauseForUpdate(expectedGeneration: Long): Long? =
         stopTransition(expectedGeneration, requireWanted = true, clearWanted = false, pausedForUpdate = true)
 
+    /** Accepts a generation-safe resume; asynchronous failures are reported by [status]. */
     internal fun resumeAfterUpdate(config: String, expectedIdleGeneration: Long): Boolean {
         require(config.isNotBlank())
         if (!RuntimeState.isIdleGeneration(expectedIdleGeneration)) return false
@@ -158,33 +154,49 @@ class VpnController(context: Context) {
         stopTransition(generation, error = error)
     }
 
-    /** Android's null-intent and Always-on starts use the same fuse as the alarm. */
-    internal fun restoreFromSystem(alwaysOn: Boolean): StartRequest? =
-        restoreRequest(deliveredEpoch = null, previousProcess = null, alwaysOn = alwaysOn)
-
-    internal fun recoverFromAlarm(epoch: String, previousProcess: String) {
-        val request = restoreRequest(epoch, previousProcess, alwaysOn = false) ?: return
-        launchStart(request, newUserIntent = false)
+    /** Android's null-intent and Always-on starts use the same worker and fuse as the alarm. */
+    internal fun restoreFromSystem(alwaysOn: Boolean, expectedGeneration: Long, accepted: (StartRequest?) -> Unit) {
+        VpnControlLane.execute {
+            val request = restoreRequest(null, null, alwaysOn, expectedGeneration)
+            accepted(request)
+        }
     }
 
-    private fun restoreRequest(deliveredEpoch: String?, previousProcess: String?, alwaysOn: Boolean): StartRequest? {
-        val expected = RuntimeState.sessionGeneration()
+    /** Receiver keeps its PendingResult alive until this worker has requested the foreground service. */
+    internal fun recoverFromAlarm(epoch: String, previousProcess: String) {
+        VpnControlLane.requireCurrent()
+        val request = restoreRequest(epoch, previousProcess, false, RuntimeState.sessionGeneration()) ?: return
+        launchStartOnControlLane(request, newUserIntent = false)
+    }
+
+    private fun restoreRequest(
+        deliveredEpoch: String?, previousProcess: String?, alwaysOn: Boolean, expected: Long,
+    ): StartRequest? {
+        VpnControlLane.requireCurrent()
         var request: StartRequest? = null
         var failure: Throwable? = null
         var deferredStop: Long? = null
         try {
+            // Preference operations are ordered with all user ON/OFF writes,
+            // but never hold the monitor that those user actions need.
+            if (!RuntimeState.isSessionGeneration(expected) || RuntimeState.isPausedForUpdate()) return null
+            if (deliveredEpoch != null && RuntimeState.wanted()) return null
+            if (!VpnRecoveryWatchdog.canConsider(context, deliveredEpoch, alwaysOn)) return null
+            val decision = VpnRecoveryWatchdog.claim(context, deliveredEpoch, previousProcess, alwaysOn,
+                prepare() == null, expected, RuntimeState.sessionGeneration())
             RuntimeState.whenGeneration(expected) {
-                // A platform restart may already have won the race with its
-                // fallback alarm. It must not replace that in-flight session.
-                if (deliveredEpoch != null && RuntimeState.wanted()) return@whenGeneration
-                if (RuntimeState.isPausedForUpdate()) return@whenGeneration
-                if (!VpnRecoveryWatchdog.canConsider(context, deliveredEpoch, alwaysOn)) return@whenGeneration
-                when (VpnRecoveryWatchdog.claim(context, deliveredEpoch, previousProcess, alwaysOn,
-                    prepare() == null, expected, RuntimeState.sessionGeneration())) {
-                    VpnRecoveryWatchdog.Claim.Start -> request = RuntimeState.requestStart()
+                // A newer OFF/ON arriving during disk or Binder work wins.
+                when (decision) {
+                    VpnRecoveryWatchdog.Claim.Start -> {
+                        request = RuntimeState.requestStart()
+                        RuntimeState.status.update {
+                            it.copy(phase = RuntimePhase.STARTING, message = null, telemetryAvailable = false)
+                        }
+                    }
                     VpnRecoveryWatchdog.Claim.Ignore -> Unit
                     VpnRecoveryWatchdog.Claim.Deferred -> {
                         deferredStop = RuntimeState.requestStop()
+                        RuntimeState.status.update { it.copy(phase = RuntimePhase.STOPPING, message = null) }
                     }
                     VpnRecoveryWatchdog.Claim.Exhausted -> failure = IOException(
                         "VPN несколько раз завершился. Автовосстановление остановлено; включите VPN вручную")
@@ -198,27 +210,41 @@ class VpnController(context: Context) {
         return request
     }
 
+    internal fun recoveryHeartbeat(generation: Long) {
+        VpnControlLane.execute {
+            if (!RuntimeState.isCurrent(generation) || RuntimeState.status.value.phase != RuntimePhase.ON) return@execute
+            try { VpnRecoveryWatchdog.heartbeat(context, generation) }
+            catch (error: Exception) { failAtGeneration(generation, error) }
+        }
+    }
+
+    internal fun recoveryInterrupted(generation: Long) {
+        VpnControlLane.execute {
+            if (!RuntimeState.isSessionGeneration(generation) || RuntimeState.status.value.phase == RuntimePhase.ON) return@execute
+            try { VpnRecoveryWatchdog.interrupted(context) }
+            catch (error: Exception) { failAtGeneration(generation, error) }
+        }
+    }
+
     private fun stopTransition(
         expectedGeneration: Long? = null,
         requireWanted: Boolean? = null,
         clearWanted: Boolean = true,
         pausedForUpdate: Boolean = false,
         error: Throwable? = null,
-    ): Long? {
-        var resultError = error
-        val token = RuntimeState.stopAndApply(expectedGeneration, requireWanted, pausedForUpdate) {
+    ): Long? = VpnControlLane.enqueueStop(expectedGeneration, requireWanted, pausedForUpdate,
+        persist = {
+            var resultError = error
             if (clearWanted) {
                 VpnRecoveryWatchdog.stopped(context, failed = error != null)?.let { persistenceError ->
-                    // Report the failed durable OFF even when another failure caused
-                    // this stop. Native cleanup must still run after a disk error.
                     if (resultError != null) persistenceError.addSuppressed(resultError!!)
                     resultError = persistenceError
                 }
             }
-        } ?: return null
-        finishStopTransition(token, resultError)
-        return token
-    }
+            resultError
+        },
+        finish = ::finishStopTransition,
+    )
 
     /** Native cancellation and callbacks are outside the persisted-intent transition. */
     private fun finishStopTransition(token: Long, error: Throwable?) {
@@ -337,15 +363,18 @@ internal object RuntimeState {
 
     @Synchronized fun isPausedForUpdate(): Boolean = pausedForUpdate
 
-    /** Persist OFF before another generation can observe this runtime as idle. */
+    /**
+     * Invalidate immediately and enqueue durable work before another command can
+     * enqueue its write. The action must never wait, perform I/O or call Binder.
+     */
     @Synchronized fun stopAndApply(
-        expectedGeneration: Long?, requireWanted: Boolean?, paused: Boolean, action: () -> Unit,
+        expectedGeneration: Long?, requireWanted: Boolean?, paused: Boolean, action: (Long) -> Unit,
     ): Long? {
         if (expectedGeneration != null && counter.get() != expectedGeneration) return null
         if (requireWanted != null && wanted() != requireWanted) return null
         val token = requestStop()
         pausedForUpdate = paused
-        action()
+        action(token)
         return token
     }
 

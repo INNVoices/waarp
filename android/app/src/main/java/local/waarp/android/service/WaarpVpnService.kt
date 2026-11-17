@@ -40,13 +40,14 @@ import java.util.concurrent.atomic.AtomicReference
 /** Foreground VPN lifecycle belongs to Android, not to a screen or Activity. */
 class WaarpVpnService : VpnService() {
     private val main = Handler(Looper.getMainLooper())
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val backend = AtomicReference<LibboxBackend?>()
     private val configurationLoad = AtomicReference<Job?>()
     private val destroyed = AtomicBoolean()
     private var foreground = false
     @Volatile private var latestStartId = 0
     @Volatile private var acceptedGeneration = -1L
+    private var restoringGeneration: Long? = null
     private lateinit var notificationManager: NotificationManager
 
     override fun onCreate() {
@@ -60,14 +61,19 @@ class WaarpVpnService : VpnService() {
             EVENTS_CHANNEL, "События VPN", NotificationManager.IMPORTANCE_DEFAULT,
         ).apply { setShowBadge(false) })
         scope.launch {
-            RuntimeState.status.collectLatest {
+            // Traffic counters do not appear in this notification; do not send
+            // the same Binder update for every telemetry sample.
+            RuntimeState.status.map { it.phase to it.message }.distinctUntilChanged().collectLatest { (phase, message) ->
+                if (destroyed.get() || RuntimeState.service.get() !== this@WaarpVpnService) return@collectLatest
+                val current = RuntimeState.status.value
+                if (current.phase != phase || current.message != message) return@collectLatest
                 if (foreground) runCatching { notificationManager.notify(NOTIFICATION_ID, notification()) }
-                if (it.phase == RuntimePhase.ERROR && RuntimeState.eventNotificationsEnabled) {
+                if (phase == RuntimePhase.ERROR && RuntimeState.eventNotificationsEnabled) {
                     runCatching {
                         notificationManager.notify(ERROR_NOTIFICATION_ID, Notification.Builder(this@WaarpVpnService, EVENTS_CHANNEL)
                             .setSmallIcon(local.waarp.android.R.drawable.ic_stat_waarp)
                             .setContentTitle("Waarp: VPN не запущен")
-                            .setContentText(RuntimeRedaction.redact(it.message.orEmpty()).take(500))
+                            .setContentText(RuntimeRedaction.redact(message.orEmpty()).take(500))
                             .setContentIntent(openAppIntent()).setVisibility(Notification.VISIBILITY_PRIVATE).setAutoCancel(true).build())
                     }
                 }
@@ -76,19 +82,12 @@ class WaarpVpnService : VpnService() {
         scope.launch {
             RuntimeState.status.map { it.phase }.distinctUntilChanged().collectLatest { phase ->
                 if (phase != RuntimePhase.ON) {
-                    try { VpnRecoveryWatchdog.interrupted(this@WaarpVpnService) }
-                    catch (error: Exception) {
-                        VpnController(this@WaarpVpnService).failAtGeneration(RuntimeState.sessionGeneration(), error)
-                    }
+                    VpnController(this@WaarpVpnService).recoveryInterrupted(RuntimeState.sessionGeneration())
                     return@collectLatest
                 }
                 while (true) {
                     val generation = RuntimeState.currentGeneration() ?: break
-                    try { VpnRecoveryWatchdog.heartbeat(this@WaarpVpnService) }
-                    catch (error: Exception) {
-                        VpnController(this@WaarpVpnService).failAtGeneration(generation, error)
-                        break
-                    }
+                    VpnController(this@WaarpVpnService).recoveryHeartbeat(generation)
                     delay(VpnRecoveryWatchdog.HEARTBEAT_MS)
                 }
             }
@@ -105,7 +104,7 @@ class WaarpVpnService : VpnService() {
                 val generation = if (intent?.action == VpnController.ACTION_START)
                     intent.getLongExtra(VpnController.EXTRA_GENERATION, -1) else RuntimeState.sessionGeneration()
                 VpnController(this).failAtGeneration(generation, error)
-                if (!RuntimeState.wanted()) stopSelfResult(startId)
+                if (settledOff()) stopSelfResult(startId)
                 return START_NOT_STICKY
             }
         }
@@ -119,19 +118,39 @@ class WaarpVpnService : VpnService() {
         if (intent?.action != VpnController.ACTION_START && RuntimeState.isCurrent(acceptedGeneration)) {
             return START_STICKY
         }
-        val request = if (intent?.action == VpnController.ACTION_START) {
-            RuntimeState.request(intent.getLongExtra(VpnController.EXTRA_GENERATION, -1))
-        } else {
-            VpnController(this).restoreFromSystem(isAlwaysOn)
+        if (intent?.action == VpnController.ACTION_START) {
+            return acceptStart(RuntimeState.request(intent.getLongExtra(VpnController.EXTRA_GENERATION, -1)))
         }
-        if (request == null) {
-            if (!RuntimeState.wanted()) finishForeground(startId)
+        val expected = RuntimeState.sessionGeneration()
+        // Duplicate platform deliveries must not consume the recovery fuse
+        // twice while the first durable claim is still running.
+        if (restoringGeneration == expected) return START_STICKY
+        restoringGeneration = expected
+        VpnController(this).restoreFromSystem(isAlwaysOn, expected) { request ->
+            main.post {
+                if (restoringGeneration == expected) restoringGeneration = null
+                if (!destroyed.get()) acceptStart(request)
+            }
+        }
+        // Foreground acknowledgement happened above, before any disk work.
+        // A rejected restoration stops this Service after its worker result.
+        return START_STICKY
+    }
+
+    private fun acceptStart(request: StartRequest?): Int {
+        if (request == null || !RuntimeState.isCurrent(request.generation)) {
+            if (settledOff()) finishForeground()
             return if (RuntimeState.wanted()) START_STICKY else START_NOT_STICKY
         }
         if (acceptedGeneration == request.generation) return START_STICKY
+        val alwaysOn: Boolean
+        val lockdown: Boolean
         try {
             check(prepare(this) == null) { "Разрешение VPN отсутствует. Откройте Waarp и разрешите подключение" }
             promoteToForeground()
+            // Binder calls must stay outside the runtime generation monitor.
+            alwaysOn = isAlwaysOn
+            lockdown = isLockdownEnabled
         } catch (error: Exception) {
             VpnController(this).failAtGeneration(request.generation, error)
             return START_NOT_STICKY
@@ -139,10 +158,10 @@ class WaarpVpnService : VpnService() {
         if (!RuntimeState.whenCurrent(request.generation) {
                 acceptedGeneration = request.generation
                 RuntimeState.status.update {
-                    it.copy(phase = RuntimePhase.STARTING, message = null, alwaysOn = isAlwaysOn, lockdown = isLockdownEnabled)
+                    it.copy(phase = RuntimePhase.STARTING, message = null, alwaysOn = alwaysOn, lockdown = lockdown)
                 }
             }) {
-            if (!RuntimeState.wanted()) finishForeground(startId)
+            if (settledOff()) finishForeground()
             return if (RuntimeState.wanted()) START_STICKY else START_NOT_STICKY
         }
         NativeLane.executor.execute { start(request) }
@@ -174,8 +193,16 @@ class WaarpVpnService : VpnService() {
                 onStop = { VpnController(this).stopIfCurrent(request.generation) },
                 onReload = { reloadFromRepository(request.generation) },
                 onFailure = { error -> failGeneration(request.generation, error) },
-                onNotification = { event -> postCoreNotification(event) },
-                onCancelNotification = { id, type -> notificationManager.cancel(notificationKey(id, type)) },
+                // Native publication holds only the short generation monitor.
+                // Post Binder notification calls and recheck after dispatch.
+                onNotification = { event -> main.post {
+                    if (!destroyed.get() && RuntimeState.service.get() === this &&
+                        RuntimeState.isCurrent(request.generation)) postCoreNotification(event)
+                } },
+                onCancelNotification = { id, type -> main.post {
+                    if (!destroyed.get() && RuntimeState.service.get() === this &&
+                        RuntimeState.isCurrent(request.generation)) notificationManager.cancel(notificationKey(id, type))
+                } },
             )
             backend.set(next)
             RuntimeState.backend.set(next)
@@ -200,19 +227,20 @@ class WaarpVpnService : VpnService() {
     /** Called after the global generation is invalidated, including during native start. */
     internal fun requestStop(token: Long, error: Throwable? = null) {
         var captured: LibboxBackend? = null
+        var loading: Job? = null
         if (!RuntimeState.whenStopped(token) {
-                // The provider may be waiting for a repository edit which is
-                // itself awaiting OFF. Release that wait before queuing cleanup.
-                configurationLoad.get()?.cancel()
+                loading = configurationLoad.get()
                 captured = backend.get()
-                captured?.cancel()
             }) return
+        // Cancel only the captured old generation, outside the runtime monitor.
+        // The provider may be waiting for an edit which is itself awaiting OFF.
+        loading?.cancel()
+        captured?.cancel()
         val current = captured
-        val startId = latestStartId
         NativeLane.executor.execute {
             val closeError = runCatching { closeBackend(current) }.exceptionOrNull()
             if (error != null && closeError != null && error !== closeError) error.addSuppressed(closeError)
-            if (RuntimeState.finishStop(token, error ?: closeError)) finishForeground(startId)
+            if (RuntimeState.finishStop(token, error ?: closeError)) finishForeground()
         }
     }
 
@@ -238,12 +266,11 @@ class WaarpVpnService : VpnService() {
         val current = backend.getAndSet(null)
         current?.cancel()
         if (RuntimeState.service.get() === this) {
-            runCatching { VpnRecoveryWatchdog.interrupted(this) }
-                .onFailure { RuntimeState.appendLog(3, "Не удалось обновить состояние восстановления VPN") }
             RuntimeState.currentGeneration()?.let { generation ->
                 RuntimeState.updateIfCurrent(generation) {
                     it.copy(phase = RuntimePhase.STARTING, message = "Android перезапускает VPN-сервис", telemetryAvailable = false)
                 }
+                VpnController(this).recoveryInterrupted(generation)
             }
         }
         NativeLane.executor.execute {
@@ -272,14 +299,18 @@ class WaarpVpnService : VpnService() {
         foreground = true
     }
 
-    private fun finishForeground(startId: Int) = main.post {
+    private fun finishForeground() = main.post {
         // A queued OFF must not remove a later ON's foreground notification.
-        if (!RuntimeState.wanted()) {
+        if (!destroyed.get() && RuntimeState.service.get() === this && settledOff()) {
             foreground = false
             stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelfResult(startId)
+            // Duplicate system deliveries can share one async recovery result.
+            stopSelfResult(latestStartId)
         }
     }
+
+    private fun settledOff(): Boolean = restoringGeneration == null && !RuntimeState.wanted() &&
+        RuntimeState.status.value.phase in setOf(RuntimePhase.OFF, RuntimePhase.ERROR)
 
     private fun notification(): Notification {
         val state = RuntimeState.status.value

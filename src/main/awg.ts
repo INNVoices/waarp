@@ -2,8 +2,10 @@ import { inflateSync } from 'node:zlib'
 import { generateKeyPairSync } from 'node:crypto'
 import { isIP } from 'node:net'
 import { domainToASCII } from 'node:url'
+import { join } from 'node:path'
 import type { AppPick, AwgParams, AwgProfile, Profile, Route, Settings, Via } from '../shared/types'
 import { PRESETS } from '../shared/presets'
+import { appPatterns } from '../shared/appmatch'
 import { ConfError } from './conf-error'
 import { vlessOutbound } from './vless'
 import { AUTO_ID, autoLivePool, grpTag, liveGroups, withAuto, type LiveGroup } from '../shared/groups'
@@ -235,14 +237,13 @@ export function matchDirFor(exe: string): string | undefined {
   return dir
 }
 
-const reEsc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
 export function appRules(apps: Pick<AppPick, 'exe' | 'matchDir'>[]) {
   const exact: string[] = []
   const regex: string[] = []
   for (const a of apps) {
-    if (a.matchDir) regex.push('(?i)^' + reEsc(a.matchDir) + '\\\\')
-    else exact.push(a.exe)
+    const p = appPatterns({ exe: a.exe, matchDir: a.matchDir, wholeDir: !!a.matchDir })
+    exact.push(...p.exact)
+    regex.push(...p.regex.map(x => '(?i)' + x))
   }
   return { exact, regex }
 }
@@ -269,10 +270,51 @@ export interface BuildOpts {
   selectors?: boolean
   /** HOTFIX-RUNTIME-01: what the running core already has loaded; kept so a live-apply candidate never drops a loaded path */
   keep?: Loaded
+  hostV6?: boolean
+  slots?: Slots
+  ruleDir?: string
+  preload?: readonly string[]
 }
 
 /** HOTFIX-RUNTIME-01: what one core run has loaded: profiles (ids, in profile order), live groups, fallback pairs */
-export interface Loaded { profiles: string[]; groups: LiveGroup[]; fbs: FbGroup[] }
+export interface Loaded { profiles: string[]; groups: LiveGroup[]; fbs: FbGroup[]; slots?: Slots }
+
+export interface Slots { app: string[]; dom: string[] }
+const appPool = (s: Settings) => s.routes.filter(r => r.kind === 'app' && r.exe).map(r => r.id)
+const domPool = (s: Settings) => [...s.routes.filter(r => r.kind === 'custom'), ...s.routes.filter(r => r.kind === 'preset')].map(r => r.id)
+const room = (n: number) => Math.ceil((n + 12) / 8) * 8
+const pad = (ids: string[], size: number) => [...ids, ...Array<string>(Math.max(0, size - ids.length)).fill('')]
+const repack = (ids: string[], size: number) => (ids.length > size ? undefined : pad(ids, size))
+
+function fit(ids: string[], prev: string[]): string[] | undefined {
+  const out = prev.map(id => (ids.includes(id) ? id : ''))
+  let last = -1
+  for (let i = 0; i < ids.length; i++) {
+    const at = out.indexOf(ids[i])
+    if (at >= 0) { if (at <= last) return repack(ids, prev.length); last = at; continue }
+    let next = out.length
+    for (let j = i + 1; j < ids.length; j++) { const k = out.indexOf(ids[j]); if (k >= 0) { next = k; break } }
+    let free = -1
+    for (let k = last + 1; k < next; k++) if (!out[k]) { free = k; break }
+    if (free < 0) return repack(ids, prev.length)
+    out[free] = ids[i]
+    last = free
+  }
+  return out
+}
+
+export function planSlots(s: Settings, prev?: Slots): Slots | undefined {
+  if (!prev) { const a = appPool(s), d = domPool(s); return { app: pad(a, room(a.length)), dom: pad(d, room(d.length)) } }
+  const app = fit(appPool(s), prev.app), dom = fit(domPool(s), prev.dom)
+  return app && dom ? { app, dom } : undefined
+}
+
+export const CANARY = 'wcanary'
+export const CANARY_IP = '127.0.0.9'
+export const canaryFile = (name: string) => JSON.stringify({ version: 3, rules: [{ domain: [name] }] })
+export const ruleFileOf = (tag: string) => tag.replace(/[^\w.-]/g, '_') + '.json'
+const ENGINE_LOG = /^(trace|debug|info|warn|error)$/.test(process.env.WAARP_ENGINE_LOG ?? '') ? process.env.WAARP_ENGINE_LOG! : 'warn'
+const VPN_CLIENT_DIRS = ['(?i)\\\\(?:ExitLag|WireGuard|AmneziaVPN|AmneziaWG|OpenVPN|OpenVPN Connect|Outline|Cloudflare WARP|Mullvad VPN|NordVPN|ProtonVPN|Proton\\\\VPN|Tailscale|ZeroTier|Hiddify|v2rayN|nekoray|Throne|Radmin VPN|LogMeIn Hamachi|WireSock[^\\\\]*)\\\\']
 /** the per-route selector of a route card; the rest has its own */
 export const routeSel = (id: string) => 'rt-' + id
 export const REST_SEL = 'rest-sel'
@@ -316,11 +358,11 @@ function mergeKept<T>(fresh: T[], kept: T[] | undefined, key: (x: T) => string):
 }
 
 /** the loaded sets of a build (profiles, live groups, fallback pairs); one source for buildConfig and the engine */
-export function loadedSets(profiles: Profile[], given: Settings, o: Pick<BuildOpts, 'autoLive' | 'keep'> = {}): { used: Profile[]; lg: LiveGroup[]; fbs: FbGroup[] } {
+export function loadedSets(profiles: Profile[], given: Settings, o: Pick<BuildOpts, 'autoLive' | 'keep' | 'preload'> = {}): { used: Profile[]; lg: LiveGroup[]; fbs: FbGroup[] } {
   const live = { autoLive: o.autoLive }
   const s = withAuto(given, profiles, o.autoLive)
   const base = new Set(usedProfiles(given, profiles, live).map(p => p.id))
-  const kept = new Set(o.keep?.profiles ?? [])
+  const kept = new Set([...(o.keep?.profiles ?? []), ...(o.preload ?? [])])
   const used = profiles.filter(p => !p.revoked && (base.has(p.id) || kept.has(p.id)))
   const have = new Set(used.map(p => p.id))
   const lg = mergeKept(liveGroups(s, new Set(profiles.filter(p => !p.revoked).map(p => p.id))), o.keep?.groups.filter(g => g.members.every(m => have.has(m))), g => g.id)
@@ -396,6 +438,10 @@ export function blockRules(rules: Record<string, unknown>[]) {
 }
 
 export function buildConfig(profiles: Profile[], given: Settings, o: BuildOpts) {
+  return buildRuntime(profiles, given, o).cfg
+}
+
+export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts) {
   const s = withAuto(given, profiles, o.autoLive)
   const { used, lg, fbs } = loadedSets(profiles, given, o)
   const known = new Set(used.map(p => p.id))
@@ -430,7 +476,7 @@ export function buildConfig(profiles: Profile[], given: Settings, o: BuildOpts) 
   const v6p = (p: Profile) => (p.kind === 'awg' ? p.address.some(a => a.includes(':')) && (!p.peer.allowedIPs || p.peer.allowedIPs.some(a => a.includes(':'))) : p.kind !== 'openvpn')
   const v6id = (id: string) => { const p = used.find(x => x.id === id); return !!p && v6p(p) }
   const v6 = (tag: string): boolean => {
-    if (tag === DIRECT) return true
+    if (tag === DIRECT) return o.hostV6 !== false
     const g = lg.find(x => grpTag(x.id) === tag)
     if (g) return g.members.every(v6id)
     const f = fbs.find(x => x.tag === tag)
@@ -451,14 +497,55 @@ export function buildConfig(profiles: Profile[], given: Settings, o: BuildOpts) 
   if (s.lanDirect) rules.push({ ip_is_private: true, outbound: DIRECT })
   if (o.selfExe) rules.push({ process_path: [o.selfExe], outbound: DIRECT })
   const dnsRules: Record<string, unknown>[] = []
+  const slotMode = !!(o.selectors && o.slots)
+  const files: Record<string, string> = {}
+  const sets: string[] = []
+  if (slotMode) dnsRules.push({ rule_set: [CANARY], action: 'predefined', rcode: 'NOERROR', answer: [`${CANARY}.invalid. IN A ${CANARY_IP}`] })
   // HOTFIX-RUNTIME-01 C: "Russian sites direct" is a global bypass: it wins over app and card routes, and its DNS stays local first
   if (s.ruDirect) {
     rules.push({ domain_suffix: RU_DIRECT, outbound: DIRECT })
     dnsRules.push({ domain_suffix: RU_DIRECT, server: 'local' })
   }
 
+  if (slotMode) {
+    const set = (tag: string, list: Record<string, unknown>[]) => { sets.push(tag); files[tag] = JSON.stringify({ version: 3, rules: list }) }
+    const appSet = (r: Route): Record<string, unknown>[] => {
+      const p = appPatterns(r)
+      const m: Record<string, unknown> = {}
+      if (p.exact.length) m.process_path = p.exact
+      if (p.regex.length) m.process_path_regex = p.regex.map(x => '(?i)' + x)
+      return Object.keys(m).length ? [m] : []
+    }
+    const domSet = (r: Route, ip: boolean): Record<string, unknown>[] => {
+      const t = routeTargets(r)
+      const d = [...new Set(t.domains)], c = [...new Set(t.cidrs)]
+      return [...(d.length ? [{ domain_suffix: d }] : []), ...(ip && c.length ? [{ ip_cidr: c }] : [])]
+    }
+    const dnsKey = (t: string) => (t === BLOCK ? 'dn-block' : t === DIRECT ? 'dn-direct' : 'dn-' + t)
+    const buckets = new Map<string, Record<string, unknown>[]>([['dn-block', []], ['dn-direct', []], ...loadedTags.filter(t => t !== DIRECT).map((t): [string, Record<string, unknown>[]] => ['dn-' + t, []])])
+    for (const [p, list] of [['a', o.slots!.app], ['d', o.slots!.dom]] as const) {
+      list.forEach((id, i) => {
+        const n = p + i
+        const r = id ? act.find(x => x.id === id) : undefined
+        const t = r ? outR(r) : DIRECT
+        const m = r ? (r.kind === 'app' ? appSet(r) : domSet(r, true)) : []
+        set('r' + n, t === BLOCK ? [] : m)
+        set('x' + n, t === BLOCK ? m : [])
+        set('v' + n, t !== BLOCK && !v6(t) ? m : [])
+        if (r) buckets.get(dnsKey(t))?.push(...(r.kind === 'app' ? appSet(r) : domSet(r, false)))
+        sels.push({ type: 'selector', tag: 'rt-' + n, outbounds: loadedTags, default: t === BLOCK ? DIRECT : t, interrupt_exist_connections: true })
+        rules.push({ rule_set: ['x' + n], action: 'reject' }, { ip_version: 6, rule_set: ['v' + n], action: 'reject' }, { rule_set: ['r' + n], outbound: 'rt-' + n })
+      })
+    }
+    for (const [tag, list] of buckets) set(tag, list)
+    dnsRules.push({ rule_set: ['dn-block'], action: 'reject' }, { rule_set: ['dn-direct'], server: 'local' })
+    for (const p of used) dnsRules.push({ rule_set: ['dn-' + tagOf(p.id)], server: 'dns-' + p.id })
+    for (const g of lg) dnsRules.push({ rule_set: ['dn-' + grpTag(g.id)], server: 'dns-' + g.id })
+    for (const g of fbs) dnsRules.push({ rule_set: ['dn-' + g.tag], server: 'dns-' + g.tag })
+  }
+
   // Explicit application intent wins before broader destination/service rules.
-  for (const [key, list] of byTarget(act.filter(r => r.kind === 'app' && r.exe))) {
+  if (!slotMode) for (const [key, list] of byTarget(act.filter(r => r.kind === 'app' && r.exe))) {
     const tag = targetOf(key, list)
     const { exact, regex } = appRules(list.map(r => ({ exe: r.exe!, matchDir: r.wholeDir === true ? r.matchDir : undefined })))
     const m: Record<string, unknown> = {}
@@ -466,7 +553,7 @@ export function buildConfig(profiles: Profile[], given: Settings, o: BuildOpts) 
     if (regex.length) m.process_path_regex = regex
     rules.push(...noV6(m, o.selectors ? outR(list[0]) : key), { ...m, outbound: tag })
   }
-  for (const kind of ['custom', 'preset'] as const) {
+  if (!slotMode) for (const kind of ['custom', 'preset'] as const) {
     for (const [key, list] of byTarget(act.filter(r => r.kind === kind))) {
       const tag = targetOf(key, list)
       const t = list.map(routeTargets)
@@ -483,6 +570,7 @@ export function buildConfig(profiles: Profile[], given: Settings, o: BuildOpts) 
   if (rest === BLOCK) dnsRules.push({ action: 'reject' })
   // G: everything else over an IPv4-only rest path: IPv6 is rejected, not leaked Direct
   rules.push(...noV6({}, rest))
+  rules.push({ process_path_regex: VPN_CLIENT_DIRS, outbound: DIRECT })
 
   // Card-only mode has no single tunnel that can honestly own global DNS.
   // Keep DNS local until the UI offers an explicit DNS route instead of choosing used[0].
@@ -508,8 +596,9 @@ export function buildConfig(profiles: Profile[], given: Settings, o: BuildOpts) 
   // a route's DNS follows the route's own selector: the same resolver as its target, detour = the route switch
   for (const d of routeDns) dnsServers.push({ ...dnsServers.find(x => x.tag === d.from)!, tag: d.tag, detour: d.detour })
 
-  return {
-    log: { level: 'info', timestamp: true },
+  const ruleSets = slotMode ? [...sets, CANARY].map(tag => ({ type: 'local', tag, format: 'source', path: join(o.ruleDir ?? '.', ruleFileOf(tag)) })) : []
+  const cfg = {
+    log: { level: ENGINE_LOG, timestamp: true },
     dns: { servers: dnsServers, rules: dnsRules, final: dnsFinal, strategy: 'ipv4_only' },
     inbounds: [{
       type: 'tun',
@@ -535,9 +624,10 @@ export function buildConfig(profiles: Profile[], given: Settings, o: BuildOpts) 
       ...fbs.map(g => ({ type: 'selector', tag: g.tag, outbounds: [tagOf(g.main), tagOf(g.fb)], default: tagOf(g.main), interrupt_exist_connections: true })),
       ...sels
     ],
-    route: { rules: blockRules(rest === BLOCK ? [...rules, { network: ['tcp', 'udp'], outbound: BLOCK }] : rules), final, auto_detect_interface: true, find_process: true, default_domain_resolver: 'local' },
+    route: { ...(ruleSets.length ? { rule_set: ruleSets } : {}), rules: blockRules(rest === BLOCK ? [...rules, { network: ['tcp', 'udp'], outbound: BLOCK }] : rules), final, auto_detect_interface: true, find_process: true, default_domain_resolver: 'local' },
     experimental: { clash_api: { external_controller: `127.0.0.1:${o.api.port}`, secret: o.api.secret } }
   }
+  return { cfg, files }
 }
 
 /** WRP-013 local checker config: no inbound, no TUN, userspace WireGuard, clash API on localhost only.

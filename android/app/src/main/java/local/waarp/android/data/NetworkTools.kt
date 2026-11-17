@@ -40,11 +40,16 @@ data class CatalogResult(val profiles: List<TunnelProfile>, val sources: List<Ca
 /** All probes are actual network operations. TCP reachability is never promoted to tunnel health. */
 class NetworkTools(context: Context) {
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
-    private val http = OkHttpClient.Builder()
-        .addNetworkInterceptor(CompromisedCaGuard())
-        .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false)
-        .connectTimeout(10, TimeUnit.SECONDS).readTimeout(12, TimeUnit.SECONDS)
-        .callTimeout(30, TimeUnit.SECONDS).build()
+    // The Application creates NetworkTools on Main. Defer TLS/provider setup
+    // until clientFor is called by fetch/diagnose on IO; concurrent catalog
+    // fetches still share exactly one client and its connection pool.
+    private val http: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        OkHttpClient.Builder()
+            .addNetworkInterceptor(CompromisedCaGuard())
+            .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false)
+            .connectTimeout(10, TimeUnit.SECONDS).readTimeout(12, TimeUnit.SECONDS)
+            .callTimeout(30, TimeUnit.SECONDS).build()
+    }
     fun physicalNetwork(): Network? {
         val active = connectivity.activeNetwork
         fun physical(n: Network) = connectivity.getNetworkCapabilities(n)?.let {

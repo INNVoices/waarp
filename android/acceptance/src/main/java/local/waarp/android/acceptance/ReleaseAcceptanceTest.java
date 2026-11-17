@@ -17,18 +17,22 @@ public final class ReleaseAcceptanceTest {
         try {
             h.setup();
             JSONArray resources = new JSONArray().put(h.observer.sample());
-            h.ui.stopVpn(h.probe);
-            h.probe.requireInnerTrafficBlocked(2500);
-            h.event("off", new JSONObject().put("vpnAbsent", true).put("innerReplyBlocked", true));
-
-            h.ui.startVpn(h.probe);
-            h.exchange(10000);
-            h.event("onAgain", new JSONObject().put("encryptedDnsAndHttp", true));
-
             String renamed = "Acceptance AWG2 renamed";
-            h.ui.rename(h.profileName, renamed);
-            h.recoverTraffic(30000);
-            h.event("edit", new JSONObject().put("renamedThroughUi", true).put("trafficAfterEdit", true));
+            try (ForegroundFrames capture = new ForegroundFrames(h, "control")) {
+                capture.action("off", () -> h.ui.stopVpn(h.probe));
+                h.probe.requireInnerTrafficBlocked(2500);
+                h.event("off", new JSONObject().put("vpnAbsent", true).put("innerReplyBlocked", true));
+
+                capture.action("on", () -> h.ui.startVpn(h.probe));
+                h.exchange(10000);
+                h.event("onAgain", new JSONObject().put("encryptedDnsAndHttp", true));
+
+                capture.action("rename", () -> h.ui.rename(h.profileName, renamed));
+                h.recoverTraffic(30000);
+                h.event("edit", new JSONObject().put("renamedThroughUi", true).put("trafficAfterEdit", true));
+                capture.finish();
+            }
+            h.observeForegroundNavigation();
 
             h.ui.launchProbe();
             h.ui.device.pressHome();

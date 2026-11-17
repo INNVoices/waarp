@@ -1,6 +1,7 @@
 package local.waarp.android.ui
 
 import android.os.SystemClock
+import android.os.Looper
 import android.view.View
 import android.view.WindowManager
 import android.view.inspector.WindowInspector
@@ -23,7 +24,9 @@ import androidx.test.uiautomator.UiDevice
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import local.waarp.android.MainActivity
 import local.waarp.android.WaarpApplication
@@ -197,10 +200,20 @@ class MobileUiInstrumentedTest {
 
     @Test fun tabsAndSectionsRetainFiltersScrollAndDiagnosticDraft() = withFailureCapture("failure-navigation-state") {
         runBlocking {
-            repository.edit { AppData(routes = List(120) { index ->
-                TrafficRoute("state-route-$index", "Route ${index.toString().padStart(3, '0')}",
-                    "custom", "host$index.example.test", DIRECT_PATH)
-            }) }
+            // Exercise a real Main caller, as the ViewModel does. Preparing a
+            // library edit must leave Main before any transform work and resume
+            // on Main only after validation and encrypted publication complete.
+            withContext(Dispatchers.Main.immediate) {
+                assertSame(Looper.getMainLooper(), Looper.myLooper())
+                repository.edit {
+                    assertNotSame("Library edit transform ran on Main", Looper.getMainLooper(), Looper.myLooper())
+                    AppData(routes = List(120) { index ->
+                        TrafficRoute("state-route-$index", "Route ${index.toString().padStart(3, '0')}",
+                            "custom", "host$index.example.test", DIRECT_PATH)
+                    })
+                }
+                assertSame(Looper.getMainLooper(), Looper.myLooper())
+            }
         }
         awaitData { it.routes.size == 120 }
         tab("Маршруты")

@@ -1,6 +1,8 @@
 # Waarp Android
 
-Android is implemented in this repository under `android/`. Build products go to **`out/android/`**. Version **0.5.0-rc.1** is the production-hardening candidate. Approval requires the actual release acceptance below; a version label alone does not establish stability.
+Android is implemented in this repository under `android/`. Build products go to **`out/android/`**. Version **0.5.0-rc.2** is the production-hardening candidate. Approval requires the actual release acceptance below; a version label alone does not establish stability.
+
+See [rc.2 hardening and its approval boundary](ANDROID-RC2-HARDENING.md) for the remaining Main-thread fixes, phase-correct UI notices, scoped frame evidence and the distinction between the passing rc.1 baseline and new-candidate acceptance.
 
 ## Platform
 

@@ -8,9 +8,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.SystemClock
+import android.os.Trace
 import android.provider.Settings
 import local.waarp.android.core.RuntimePhase
 import local.waarp.android.core.RuntimeState
+import local.waarp.android.core.VpnControlLane
 import local.waarp.android.core.VpnController
 import local.waarp.android.data.RecoveryDecision
 import local.waarp.android.data.RecoveryHistory
@@ -29,9 +31,9 @@ import java.util.UUID
  * 71d3379c8bb7a7d276d440be5ac3ada3a8cd9eef:
  * https://github.com/Leadaxe/LxBox/blob/71d3379c8bb7a7d276d440be5ac3ada3a8cd9eef/docs/spec/tasks/428-vpn-service-start-sticky.md
  *
- * Lock order is RuntimeState -> lock. Never enter RuntimeState, JNI, or a
- * configuration callback while holding lock. Durable writes are only control
- * transitions/attempt claims; periodic heartbeats do not commit to disk.
+ * All access runs on VpnControlLane, never under RuntimeState's monitor.
+ * Writes remain synchronous on that worker; heartbeat history is written only
+ * when it changes. No SharedPreferences.apply() lifecycle wait is left on Main.
  */
 internal object VpnRecoveryWatchdog {
     const val HEARTBEAT_MS = 10_000L
@@ -45,7 +47,6 @@ internal object VpnRecoveryWatchdog {
     private const val HEALTHY_SINCE = "recovery-healthy-since"
     private const val BOOT_COUNT = "recovery-boot-count"
     private const val REQUEST_CODE = 7_193
-    private val lock = Any()
     private val processIdentity = UUID.randomUUID().toString()
 
     sealed interface Claim {
@@ -56,20 +57,20 @@ internal object VpnRecoveryWatchdog {
         data object ConsentMissing : Claim
     }
 
-    /** Inspect before asking Android for consent state; claim rechecks under the same outer generation guard. */
-    fun canConsider(context: Context, deliveredEpoch: String?, alwaysOn: Boolean): Boolean = synchronized(lock) {
+    /** Inspect on the ordered worker before querying Android consent; callers recheck the runtime generation. */
+    fun canConsider(context: Context, deliveredEpoch: String?, alwaysOn: Boolean): Boolean = onControlLane {
         val prefs = preferences(context)
-        if (prefs.getBoolean(BLOCKED, false)) return@synchronized false
-        if (deliveredEpoch == null) return@synchronized prefs.getBoolean(VpnController.WANTED, false) || alwaysOn
+        if (prefs.getBoolean(BLOCKED, false)) return@onControlLane false
+        if (deliveredEpoch == null) return@onControlLane prefs.getBoolean(VpnController.WANTED, false) || alwaysOn
         RecoveryPolicy.accepts(prefs.getBoolean(VpnController.WANTED, false), prefs.getString(EPOCH, null),
             deliveredEpoch, false, 0, 0)
     }
 
-    /** Called only after the caller has won its runtime generation guard. */
-    fun started(context: Context, newUserIntent: Boolean): Boolean = synchronized(lock) {
+    /** Caller checks its generation before and after this durable operation. */
+    fun started(context: Context, newUserIntent: Boolean): Boolean = onControlLane {
         val prefs = preferences(context)
         if (!newUserIntent && (!prefs.getBoolean(VpnController.WANTED, false) || prefs.getBoolean(BLOCKED, false))) {
-            return@synchronized false
+            return@onControlLane false
         }
         val epoch = if (newUserIntent) UUID.randomUUID().toString()
             else prefs.getString(EPOCH, null) ?: UUID.randomUUID().toString()
@@ -78,7 +79,7 @@ internal object VpnRecoveryWatchdog {
             .putString(EPOCH, epoch).putBoolean(BLOCKED, false)
         writeHistory(editor, history)
         commit(editor, "Не удалось сохранить намерение включить VPN")
-        armLocked(context, epoch, processIdentity)
+        arm(context, epoch, processIdentity)
         true
     }
 
@@ -91,7 +92,7 @@ internal object VpnRecoveryWatchdog {
         hasConsent: Boolean,
         expectedGeneration: Long,
         actualGeneration: Long,
-    ): Claim = synchronized(lock) {
+    ): Claim = onControlLane {
         val prefs = preferences(context)
         val blocked = prefs.getBoolean(BLOCKED, false)
         val wanted = prefs.getBoolean(VpnController.WANTED, false)
@@ -101,8 +102,8 @@ internal object VpnRecoveryWatchdog {
         val epoch = prefs.getString(EPOCH, null) ?: if (systemEnabling || (wanted && deliveredEpoch == null))
             UUID.randomUUID().toString() else null
         if (!RecoveryPolicy.accepts(wanted || systemEnabling, epoch, deliveredEpoch, blocked,
-                expectedGeneration, actualGeneration)) return@synchronized Claim.Ignore
-        if (!hasConsent) return@synchronized Claim.ConsentMissing
+                expectedGeneration, actualGeneration)) return@onControlLane Claim.Ignore
+        if (!hasConsent) return@onControlLane Claim.ConsentMissing
         when (val decision = RecoveryPolicy.claim(readHistory(prefs), SystemClock.elapsedRealtime(), bootCount(context))) {
             is RecoveryDecision.Exhausted -> Claim.Exhausted
             is RecoveryDecision.Wait -> {
@@ -112,7 +113,7 @@ internal object VpnRecoveryWatchdog {
                     .putString(EPOCH, epoch).putBoolean(BLOCKED, false)
                 writeHistory(editor, decision.history)
                 commit(editor, "Не удалось сохранить ожидание восстановления VPN")
-                armLocked(context, epoch!!, previousProcess ?: "platform-restart", decision.delayMs)
+                arm(context, epoch!!, previousProcess ?: "platform-restart", decision.delayMs)
                 Claim.Deferred
             }
             is RecoveryDecision.Start -> {
@@ -120,14 +121,14 @@ internal object VpnRecoveryWatchdog {
                     .putString(EPOCH, epoch).putBoolean(BLOCKED, false)
                 writeHistory(editor, decision.history)
                 commit(editor, "Не удалось сохранить попытку восстановления VPN")
-                armLocked(context, epoch!!, processIdentity)
+                arm(context, epoch!!, processIdentity)
                 Claim.Start
             }
         }
     }
 
     /** Cancel even on a disk error; the caller must expose ERROR rather than a durable OFF. */
-    fun stopped(context: Context, failed: Boolean): IOException? = synchronized(lock) {
+    fun stopped(context: Context, failed: Boolean): IOException? = onControlLane {
         var failure: IOException? = null
         try {
             val editor = preferences(context).edit().putBoolean(VpnController.WANTED, false)
@@ -137,7 +138,7 @@ internal object VpnRecoveryWatchdog {
             failure = if (error is IOException) error else IOException(
                 "VPN остановлен, но не удалось сохранить выключенное состояние", error)
         } finally {
-            try { cancelLocked(context) }
+            try { cancel(context) }
             catch (error: Exception) {
                 if (failure != null) failure.addSuppressed(error)
                 else failure = IOException("VPN остановлен, но не удалось отменить его автовосстановление", error)
@@ -146,42 +147,46 @@ internal object VpnRecoveryWatchdog {
         failure
     }
 
-    fun heartbeat(context: Context) {
-        val generation = RuntimeState.currentGeneration() ?: return
-        RuntimeState.whenCurrent(generation) {
-            if (RuntimeState.status.value.phase != RuntimePhase.ON) return@whenCurrent
-            synchronized(lock) {
-                val prefs = preferences(context)
-                val epoch = prefs.getString(EPOCH, null) ?: return@synchronized
-                if (!prefs.getBoolean(VpnController.WANTED, false) || prefs.getBoolean(BLOCKED, false)) return@synchronized
-                val old = readHistory(prefs)
-                val next = RecoveryPolicy.healthy(old, SystemClock.elapsedRealtime(), bootCount(context))
-                if (next != old) prefs.edit().also { writeHistory(it, next) }.apply()
-                armLocked(context, epoch, processIdentity)
-            }
-        }
+    fun heartbeat(context: Context, generation: Long) = onControlLane {
+        if (!RuntimeState.isCurrent(generation) || RuntimeState.status.value.phase != RuntimePhase.ON) return@onControlLane
+        val prefs = preferences(context)
+        val epoch = prefs.getString(EPOCH, null) ?: return@onControlLane
+        if (!prefs.getBoolean(VpnController.WANTED, false) || prefs.getBoolean(BLOCKED, false)) return@onControlLane
+        val old = readHistory(prefs)
+        val next = RecoveryPolicy.healthy(old, SystemClock.elapsedRealtime(), bootCount(context))
+        if (next != old) commit(prefs.edit().also { writeHistory(it, next) },
+            "Не удалось сохранить состояние восстановления VPN")
+        arm(context, epoch, processIdentity)
     }
 
-    fun interrupted(context: Context) = synchronized(lock) {
+    fun interrupted(context: Context) = onControlLane {
         val prefs = preferences(context)
-        if (prefs.contains(HEALTHY_SINCE)) prefs.edit().remove(HEALTHY_SINCE).apply()
+        if (prefs.contains(HEALTHY_SINCE)) commit(prefs.edit().remove(HEALTHY_SINCE),
+            "Не удалось сохранить прерывание VPN")
     }
 
     fun receive(context: Context, intent: Intent) {
+        VpnControlLane.requireCurrent()
         if (intent.action != ACTION) return
         val epoch = intent.getStringExtra(EXTRA_EPOCH)?.takeIf { it.isNotBlank() } ?: return
         val owner = intent.getStringExtra(EXTRA_PROCESS)?.takeIf { it.isNotBlank() } ?: return
         if (owner == processIdentity) {
             // The originating process still exists, including while an edit
             // intentionally pauses its native runtime. Never undo that pause.
-            synchronized(lock) {
+            onControlLane {
+                if (!RuntimeState.wanted() && !RuntimeState.isPausedForUpdate()) return@onControlLane
                 val prefs = preferences(context)
                 if (RecoveryPolicy.accepts(prefs.getBoolean(VpnController.WANTED, false), prefs.getString(EPOCH, null),
-                        epoch, prefs.getBoolean(BLOCKED, false), 0, 0)) armLocked(context, epoch, owner)
+                        epoch, prefs.getBoolean(BLOCKED, false), 0, 0)) arm(context, epoch, owner)
             }
             return
         }
         VpnController(context).recoverFromAlarm(epoch, owner)
+    }
+
+    private inline fun <T> onControlLane(action: () -> T): T {
+        VpnControlLane.requireCurrent()
+        return action()
     }
 
     private fun preferences(context: Context): SharedPreferences =
@@ -210,10 +215,12 @@ internal object VpnRecoveryWatchdog {
     }
 
     private fun commit(editor: SharedPreferences.Editor, message: String) {
-        if (!editor.commit()) throw IOException(message)
+        Trace.beginSection("waarp.vpn.intent.commit")
+        try { if (!editor.commit()) throw IOException(message) }
+        finally { Trace.endSection() }
     }
 
-    private fun armLocked(context: Context, epoch: String, owner: String, delayMs: Long = ALARM_DELAY_MS) {
+    private fun arm(context: Context, epoch: String, owner: String, delayMs: Long = ALARM_DELAY_MS) {
         val operation = PendingIntent.getBroadcast(context, REQUEST_CODE,
             Intent(context, VpnRecoveryReceiver::class.java).setAction(ACTION)
                 .putExtra(EXTRA_EPOCH, epoch).putExtra(EXTRA_PROCESS, owner),
@@ -222,7 +229,7 @@ internal object VpnRecoveryWatchdog {
             SystemClock.elapsedRealtime() + delayMs, operation)
     }
 
-    private fun cancelLocked(context: Context) {
+    private fun cancel(context: Context) {
         val operation = PendingIntent.getBroadcast(context, REQUEST_CODE,
             Intent(context, VpnRecoveryReceiver::class.java).setAction(ACTION),
             PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE) ?: return
@@ -234,10 +241,18 @@ internal object VpnRecoveryWatchdog {
 /** Explicit, non-exported receiver; its Intent contains no profile or connection data. */
 class VpnRecoveryReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        try { VpnRecoveryWatchdog.receive(context, intent) }
-        catch (error: Exception) {
-            // The controller has already invalidated a failing automatic start.
-            RuntimeState.appendLog(3, "Ошибка восстановления VPN: ${error.message.orEmpty()}")
+        val pending = goAsync()
+        try {
+            VpnControlLane.execute {
+                try { VpnRecoveryWatchdog.receive(context.applicationContext, intent) }
+                catch (error: Exception) {
+                    RuntimeState.appendLog(3, "Ошибка восстановления VPN: ${error.message.orEmpty()}")
+                } finally { pending.finish() }
+            }
+        } catch (error: Exception) {
+            // No queued task owns the broadcast if submission failed.
+            try { RuntimeState.appendLog(3, "Не удалось поставить восстановление VPN в очередь") }
+            finally { pending.finish() }
         }
     }
 }

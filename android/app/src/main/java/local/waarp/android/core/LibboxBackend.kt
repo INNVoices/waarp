@@ -91,15 +91,18 @@ internal class LibboxBackend(
         check(current()) { "Запуск отменён" }
         started.set(true)
         val startedAt = client.get()?.startedAt ?: System.currentTimeMillis()
+        val coreVersion = Libbox.version()
+        val alwaysOn = vpn.isAlwaysOn
+        val lockdown = vpn.isLockdownEnabled
         RuntimeState.updateIfCurrent(generation) {
             it.copy(
                 phase = if (recovery.recovering) RuntimePhase.STARTING else RuntimePhase.ON,
                 message = if (recovery.recovering) "Восстанавливается связь с VPN-ядром" else null, startedAt = startedAt,
-                coreVersion = Libbox.version(), alwaysOn = vpn.isAlwaysOn,
-                lockdown = vpn.isLockdownEnabled,
+                coreVersion = coreVersion, alwaysOn = alwaysOn,
+                lockdown = lockdown,
             )
         }
-        publish { RuntimeState.appendLog(1, "VPN-ядро ${Libbox.version()} запущено; доступность сервера проверяется отдельно") }
+        publish { RuntimeState.appendLog(1, "VPN-ядро $coreVersion запущено; доступность сервера проверяется отдельно") }
     }
 
     private fun connectClient(): Long {

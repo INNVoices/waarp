@@ -151,6 +151,60 @@ process recovery. Smoke has at least five complete encrypted DNS+HTTP rounds and
 two real process-memory snapshots. UI actions have bounded readiness checks and
 one normal click each; a failed mutation is not silently retried.
 
+## Scoped foreground frame evidence
+
+The old post-scenario `gfxinfo.txt` was taken after smoke's deliberate
+OFF/SIGKILL/90-second absence window, when no target process could exist. It is
+retained as a late diagnostic, never as evidence of smoothness. Foreground
+collection now runs while the exact minified release PID is alive and visible:
+
+- `control` in smoke brackets the existing OFF, ON and rename interactions.
+- `navigation` in both smoke and soak visits Routes, Tunnels, Diagnostics and
+  Home once. Soak records this before its uninterrupted background/steady period.
+
+Each scope preserves the full `gfxinfo <package> framestats` dump before and after,
+the raw `gfxinfo <package> reset` output, the PID and exact interaction/time bounds.
+The [Android documented reset/read workflow](https://developer.android.com/topic/performance/memory/app-memory-budgets)
+is checked independently on the host: the first/global `Stats since` must fall
+inside the actual reset call's `CLOCK_MONOTONIC` interval, the same process must
+remain visible, the expected actions must finish in order, and completed raw
+frames must belong to that scope. Per-window totals are not added to process
+totals. `No process found`, stale counters, zero frames and unsupported/malformed
+output fail evidence collection. The counters are diagnostic measurements; no
+software-emulator jank percentage is relabelled a physical-device performance pass.
+
+The already-authorized disposable userdebug observer also attempts one bounded
+[Perfetto system trace](https://developer.android.com/tools/perfetto) per scope,
+with a 16MiB ring buffer and 180-second automatic lifetime. It records scheduler,
+frequency, graphics, View, Activity/window, Binder, ART and input categories for
+this synthetic fixture. The recorder's PID and `/proc` start ticks are verified
+before a single SIGINT; its exit must be observed within 15 seconds before the
+host copies the trace. Only its exact generated path may be copied, with a
+32MiB maximum file size. Production permissions, minification and debuggability
+remain unchanged. No real user connection or private configuration enters CI.
+
+Unsupported tracing records an explicit error and `available=false`. A claimed
+successful trace must contain a complete protobuf packet stream and actual
+timestamped or compact kernel scheduling data. The structural reader reports
+ftrace loss flags and does not assert complete coverage or a causal diagnosis.
+Raw files remain available for CPU/RenderThread analysis. Official Android
+[Macrobenchmark guidance](https://developer.android.com/topic/performance/benchmarking/macrobenchmark-overview)
+requires physical-device evidence for representative end-user performance;
+these emulator observations do not supply it. No existing functional, recovery,
+traffic, cold-start or resource threshold is weakened by this collection.
+
+The collector uses the legacy-compatible options and stop/flush behavior from
+[Perfetto v3.0 at `2e3c98a53d2132a767f61a6e16109d5817193d7a`](https://github.com/google/perfetto/blob/2e3c98a53d2132a767f61a6e16109d5817193d7a/src/perfetto_cmd/perfetto_cmd.cc).
+That source creates output with mode0600. The existing release runner verifies
+`adb shell id -u == 0` before installation and collection, including after the
+separate API29 framework preparation restores its initial shell identity, so no
+file-mode broadening is needed. Structural field IDs are checked against the
+same pinned [TracePacket](https://github.com/google/perfetto/blob/2e3c98a53d2132a767f61a6e16109d5817193d7a/protos/perfetto/trace/trace_packet.proto),
+[FtraceEvent](https://github.com/google/perfetto/blob/2e3c98a53d2132a767f61a6e16109d5817193d7a/protos/perfetto/trace/ftrace/ftrace_event.proto)
+and [FtraceEventBundle](https://github.com/google/perfetto/blob/2e3c98a53d2132a767f61a6e16109d5817193d7a/protos/perfetto/trace/ftrace/ftrace_event_bundle.proto)
+definitions. Android10's [ProfileData reset implementation](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-10.0.0_r1/libs/hwui/ProfileData.cpp)
+establishes the `CLOCK_MONOTONIC` origin used for the reset-bound check.
+
 ## Two-hour soak contract
 
 The steady period starts at a successful encrypted request after setup and ends
@@ -215,6 +269,10 @@ Files live under the acceptance APK's external files directory:
   check so an unexpected restart remains in the evidence.
 - PNG screenshots; on failure, `failure-release-<mode>.xml` with keys redacted.
   Private configuration input remains masked, and is never copied into reports.
+- `foreground-<phase>-before.txt`, `-reset.txt` and `-after.txt`: the original
+  scoped HWUI dumps; `-trace-start.txt` and `-trace-stop.txt`: recorder output.
+  The host retains available `foreground-<phase>.perfetto-trace` files in its
+  `foreground-traces/` directory after the writer has exited.
 
 Common summary keys (`schemaVersion=1`):
 
@@ -225,7 +283,11 @@ observer {disposableEmulator, rootAvailable, observerUid, rootTransport,
           requiredProcMetrics},
 elapsedMs, successfulRounds, httpBytes,
 firstTrafficElapsedMs, lastTrafficElapsedMs, trafficSpanMs,
-events [{name, elapsedRealtimeMs, facts}]
+events [{name, elapsedRealtimeMs, facts}],
+foregroundFrames [{phase, pid, pidAtFinish, startedElapsedMs, finishedElapsedMs,
+                   resetRequestedNs, resetCompletedNs, dumpCompletedNs,
+                   foregroundAtStart, foregroundAtFinish, completed,
+                   physicalDevicePerformanceApproved=false, actions, trace}]
 ```
 
 The failure branch additionally records sanitized `failureClass` and `failure`.

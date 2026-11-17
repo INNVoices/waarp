@@ -25,6 +25,7 @@ public final class ReleaseSoakTest {
             TrafficProbe.require(h.observer.requireProc, "soak_requires_proc_metrics");
             h.report.put("requestedDurationSeconds", duration).put("intervalSeconds", interval).put("warmupSeconds", 300);
             h.setup();
+            h.observeForegroundNavigation();
             h.ui.launchProbe(); h.ui.device.pressHome();
             TrafficProbe.require(!ReleaseUi.TARGET.equals(h.ui.device.getCurrentPackageName()), "soak_target_must_be_background");
 

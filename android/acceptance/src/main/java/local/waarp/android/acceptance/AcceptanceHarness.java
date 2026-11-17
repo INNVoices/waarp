@@ -21,6 +21,7 @@ final class AcceptanceHarness {
     final DeviceObserver observer;
     final JSONObject report = new JSONObject();
     final JSONArray events = new JSONArray();
+    final JSONArray frames = new JSONArray();
     final File output;
     final String mode;
     final String profileName;
@@ -46,7 +47,7 @@ final class AcceptanceHarness {
                 .put("targetVersion", target.versionName).put("targetVersionCode", target.getLongVersionCode())
                 .put("targetDebuggable", false).put("targetUid", application.uid).put("probeUid", ownUid)
                 .put("probePackage", instrumentation.getContext().getPackageName()).put("independentUid", true)
-                .put("observer", observer.capabilities()).put("events", events).put("passed", false);
+                .put("observer", observer.capabilities()).put("events", events).put("foregroundFrames", frames).put("passed", false);
         writeReport();
     }
 
@@ -86,6 +87,17 @@ final class AcceptanceHarness {
             SystemClock.sleep(500);
         }
         throw new AssertionError("bounded_traffic_recovery_timeout:" + (last == null ? "vpn_absent" : last.getClass().getSimpleName()));
+    }
+
+    void observeForegroundNavigation() throws Exception {
+        ui.navigate("Главная");
+        try (ForegroundFrames capture = new ForegroundFrames(this, "navigation")) {
+            capture.action("routes", () -> ui.navigate("Маршруты"));
+            capture.action("tunnels", () -> ui.navigate("Туннели"));
+            capture.action("diagnostics", () -> ui.navigate("Диагностика"));
+            capture.action("home", () -> ui.navigate("Главная"));
+            capture.finish();
+        }
     }
 
     void event(String name, JSONObject facts) throws Exception {
@@ -132,7 +144,7 @@ final class AcceptanceHarness {
         }
     }
 
-    private void write(String file, String value) throws Exception {
+    void write(String file, String value) throws Exception {
         File temporary = new File(output, file + ".tmp");
         try (FileOutputStream stream = new FileOutputStream(temporary)) {
             stream.write(value.getBytes(StandardCharsets.UTF_8)); stream.getFD().sync();

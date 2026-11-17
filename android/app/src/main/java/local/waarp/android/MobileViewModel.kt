@@ -221,6 +221,9 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
         }; "Общий маршрут сохранён"
     }
     override suspend fun saveRoute(route: RouteDraft) = mutation {
+        // Repository edit transforms run on Default. Capture the current scan
+        // on Main so a concurrent refresh never exposes mutable ViewModel state.
+        val availableApps = apps
         repository.edit { value ->
             require(route.name.isNotBlank() && route.name.length <= 80) { "Укажите название до 80 символов" }
             require(validPath(value, route.viaId)) { "Выбранный путь недоступен" }
@@ -228,7 +231,7 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
             require(fallback == null || (fallback != DIRECT && validPath(value, fallback))) { "Резерв должен быть доступным туннелем или группой" }
             val kind = when (route.kind) { RouteKind.APP -> "app"; RouteKind.SERVICE -> "preset"; RouteKind.CUSTOM -> "custom" }
             val match = when (route.kind) {
-                RouteKind.APP -> route.packageName?.also { name -> require(apps.any { it.packageName == name }) { "Приложение не найдено" } }
+                RouteKind.APP -> route.packageName?.also { name -> require(availableApps.any { it.packageName == name }) { "Приложение не найдено" } }
                 RouteKind.SERVICE -> route.presetId?.also { id -> require(Presets.all.any { it.id == id }) { "Сервис не найден" } }
                 RouteKind.CUSTOM -> route.selector?.trim()?.also { text -> require(text.length <= 16_384) }
             } ?: error("Не указана цель маршрута")

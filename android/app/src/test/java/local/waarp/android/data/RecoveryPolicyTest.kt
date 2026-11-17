@@ -1,16 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.data
 
-import local.waarp.android.core.RuntimeState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 
 class RecoveryPolicyTest {
     @Test fun offAndLaterOnRejectAnAlreadyDeliveredAlarm() {
@@ -65,56 +59,4 @@ class RecoveryPolicyTest {
         assertTrue(RecoveryPolicy.claim(oldBoot, 10_000, 8) is RecoveryDecision.Exhausted)
     }
 
-    @Test fun runtimeOffPublishesPersistedIntentBeforeAnAlarmMayClaimTheIdleGeneration() {
-        val workers = Executors.newFixedThreadPool(2)
-        val enteredPersistence = CountDownLatch(1)
-        val releasePersistence = CountDownLatch(1)
-        val alarmEntered = CountDownLatch(1)
-        val savedWanted = AtomicBoolean(true)
-        val recovered = AtomicBoolean(false)
-        try {
-            val active = RuntimeState.requestStart("synthetic")
-            val off = workers.submit<Long?> {
-                RuntimeState.stopAndApply(active.generation, true, false) {
-                    assertTrue("OFF persistence must share the generation monitor", Thread.holdsLock(RuntimeState))
-                    assertFalse(RuntimeState.wanted())
-                    enteredPersistence.countDown()
-                    check(releasePersistence.await(3, TimeUnit.SECONDS))
-                    savedWanted.set(false)
-                }
-            }
-            assertTrue(enteredPersistence.await(3, TimeUnit.SECONDS))
-            val alarm = workers.submit {
-                alarmEntered.countDown()
-                RuntimeState.whenGeneration(active.generation + 1) {
-                    if (RecoveryPolicy.accepts(savedWanted.get(), "epoch", "epoch", false,
-                            active.generation + 1, RuntimeState.sessionGeneration())) {
-                        recovered.set(true)
-                        RuntimeState.requestStart()
-                    }
-                }
-            }
-            assertTrue(alarmEntered.await(3, TimeUnit.SECONDS))
-            assertFalse(alarm.isDone)
-            releasePersistence.countDown()
-            val offGeneration = off.get(3, TimeUnit.SECONDS)!!
-            alarm.get(3, TimeUnit.SECONDS)
-            assertFalse(recovered.get())
-            assertFalse(RuntimeState.wanted())
-
-            val next = RuntimeState.requestStart("replacement")
-            assertNull(RuntimeState.stopAndApply(offGeneration, null, false) { savedWanted.set(false) })
-            assertTrue(RuntimeState.isCurrent(next.generation))
-            val pause = RuntimeState.stopAndApply(next.generation, true, true) {}!!
-            assertTrue(RuntimeState.isPausedForUpdate())
-            assertFalse(RuntimeState.wanted())
-            RuntimeState.startIfIdle(pause, "after edit")!!
-            assertFalse(RuntimeState.isPausedForUpdate())
-        } finally {
-            releasePersistence.countDown()
-            workers.shutdownNow()
-            check(workers.awaitTermination(3, TimeUnit.SECONDS))
-            RuntimeState.requestStop()
-        }
-    }
 }

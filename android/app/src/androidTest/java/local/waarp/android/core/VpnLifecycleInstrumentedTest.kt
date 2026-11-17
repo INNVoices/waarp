@@ -9,9 +9,12 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Rect
 import android.net.VpnService
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import android.os.StrictMode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.core.app.ActivityScenario
 import androidx.core.content.ContextCompat
@@ -43,6 +46,8 @@ import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -134,6 +139,157 @@ class VpnLifecycleInstrumentedTest {
             assertEquals(null, RuntimeState.backend.get())
         }
     }
+
+    @Test fun warmOnOffDoesNotReadOrWriteDiskOnMain() = runBlocking {
+        val configuration = tunConfiguration()
+        // Isolate control transitions from first-time framework class/resource
+        // loading. The production recovery guard also checks cold I/O ownership.
+        controller.start(configuration)
+        withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.ON || it.phase == RuntimePhase.ERROR } }
+        assertEquals(controller.status.value.message, RuntimePhase.ON, controller.status.value.phase)
+        controller.stop()
+        withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.OFF } }
+        withTimeout(20_000) { while (RuntimeState.service.get() != null) delay(25) }
+        instrumentation.waitForIdleSync()
+
+        val count = AtomicInteger()
+        val violations = ConcurrentLinkedQueue<String>()
+        val previous = AtomicReference<StrictMode.ThreadPolicy>()
+        val callbackDurations = org.json.JSONArray()
+        var completedCycles = 0
+        instrumentation.runOnMainSync {
+            previous.set(StrictMode.getThreadPolicy())
+            StrictMode.setThreadPolicy(StrictMode.ThreadPolicy.Builder()
+                .detectDiskReads().detectDiskWrites()
+                .penaltyListener(Executor { it.run() }) { violation ->
+                    if (count.incrementAndGet() <= 32) violations.add(
+                        (violation.javaClass.simpleName + "\n" + violation.stackTrace.take(12).joinToString("\n")).take(3000))
+                }.build())
+        }
+        try {
+            repeat(2) { cycle ->
+                instrumentation.runOnMainSync {
+                    val began = SystemClock.elapsedRealtimeNanos()
+                    controller.start(configuration)
+                    callbackDurations.put(JSONObject().put("cycle", cycle).put("action", "ON")
+                        .put("nanoseconds", SystemClock.elapsedRealtimeNanos() - began))
+                }
+                withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.ON || it.phase == RuntimePhase.ERROR } }
+                assertEquals(controller.status.value.message, RuntimePhase.ON, controller.status.value.phase)
+                instrumentation.runOnMainSync {
+                    val began = SystemClock.elapsedRealtimeNanos()
+                    controller.stop()
+                    callbackDurations.put(JSONObject().put("cycle", cycle).put("action", "OFF")
+                        .put("nanoseconds", SystemClock.elapsedRealtimeNanos() - began))
+                }
+                withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.OFF || it.phase == RuntimePhase.ERROR } }
+                assertEquals(controller.status.value.message, RuntimePhase.OFF, controller.status.value.phase)
+                assertFalse(context.getSharedPreferences(VpnController.PREFERENCES, Context.MODE_PRIVATE)
+                    .getBoolean(VpnController.WANTED, true))
+                completedCycles++
+            }
+            withTimeout(20_000) { while (RuntimeState.service.get() != null) delay(25) }
+            instrumentation.waitForIdleSync()
+        } finally {
+            instrumentation.runOnMainSync { StrictMode.setThreadPolicy(previous.get()) }
+            val directory = File(context.getExternalFilesDir(null), "ui-screenshots").apply { mkdirs() }
+            File(directory, "vpn-main-thread-io.json").writeText(JSONObject()
+                .put("scope", "Warm debug ON/OFF transitions, including asynchronous service lifecycle; not a frame-rate benchmark")
+                .put("warmUpCycles", 1).put("requestedCycles", 2).put("measuredCycles", completedCycles)
+                .put("mainThreadDiskViolationCount", count.get())
+                .put("violations", org.json.JSONArray(violations.toList()))
+                .put("callbackDurations", callbackDurations).toString(2))
+        }
+        assertEquals("Main-thread disk violations: $violations", 0, count.get())
+    }
+
+    @Test fun duplicateRejectedSystemStartsDoNotLeaveAnOffServiceRunning() = runBlocking {
+        withTimeout(20_000) { while (RuntimeState.service.get() != null) delay(25) }
+        assertEquals(RuntimePhase.OFF, controller.status.value.phase)
+        assertFalse(context.getSharedPreferences(VpnController.PREFERENCES, Context.MODE_PRIVATE)
+            .getBoolean(VpnController.WANTED, true))
+        val component = ComponentName(context, WaarpVpnService::class.java).flattenToShortString()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val workerFailure = AtomicReference<Throwable?>()
+        val raw = linkedMapOf<String, String>()
+        val report = JSONObject().put("scope", "Two real Android system-style Service starts while the durable control worker is held")
+        val began = SystemClock.elapsedRealtime()
+        val deadline = began + 20_000L
+
+        fun observe(stage: String): ServiceDeliverySnapshot {
+            val text = ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(
+                "dumpsys -t 5 activity services $component"
+            )).bufferedReader().use { it.readText() }
+            check(text.length <= 128 * 1024) { "Scoped service evidence exceeds its bound" }
+            raw[stage] = text
+            check(text.contains("ACTIVITY MANAGER SERVICES") && !text.contains("DUMP TIMEOUT", ignoreCase = true) &&
+                !text.contains("Permission Denial", ignoreCase = true)) { "Scoped service dump did not complete" }
+            val owners = text.lineSequence().filter {
+                it.trimStart().startsWith("* ServiceRecord{") && it.contains(component)
+            }.count()
+            check(owners <= 1) { "Service evidence contains ambiguous owners" }
+            val ids = Regex("\\blastStartId=(\\d+)\\b").findAll(text).map { it.groupValues[1].toInt() }.toList()
+            val pending = Regex("\\bexecuteNesting=([1-9]\\d*)\\b").containsMatchIn(text) || text.contains("Pending Starts:")
+            return ServiceDeliverySnapshot(owners == 1, ids.singleOrNull(),
+                owners == 1 && ids.size == 1 && text.contains("startRequested=true") && !pending)
+        }
+        suspend fun delivered(stage: String, after: Int): Int {
+            while (true) {
+                check(SystemClock.elapsedRealtime() < deadline) { "Two Service deliveries did not settle within the existing 20-second deadline" }
+                val observation = observe(stage)
+                check(SystemClock.elapsedRealtime() < deadline) { "Service observation exceeded the existing 20-second deadline" }
+                val id = observation.lastStartId
+                if (observation.callbacksSettled && id != null && id > after) return id
+                delay(25)
+            }
+        }
+        try {
+            assertFalse(observe("before").present)
+            VpnControlLane.execute {
+                entered.countDown()
+                try { check(release.await(20, TimeUnit.SECONDS)) { "Test control-worker latch was not released" } }
+                catch (error: Throwable) { workerFailure.set(error) }
+            }
+            assertTrue(entered.await(3, TimeUnit.SECONDS))
+            // No ACTION_START and no config payload: exercise the platform
+            // restore path, which must reject the already persisted OFF.
+            context.startForegroundService(Intent(context, WaarpVpnService::class.java))
+            val first = delivered("first", 0)
+            assertFalse(checkNotNull(RuntimeState.service.get()).isAlwaysOn)
+            context.startForegroundService(Intent(context, WaarpVpnService::class.java))
+            val second = delivered("second", first)
+            report.put("deliveredStartIds", org.json.JSONArray(listOf(first, second)))
+                .put("frameworkCallbacksSettledBeforeRelease", true)
+            release.countDown()
+            val connectivity = context.getSystemService(ConnectivityManager::class.java)
+            var serviceAbsent: Boolean
+            var vpnAbsent: Boolean
+            do {
+                check(SystemClock.elapsedRealtime() < deadline) { "Rejected duplicate start left a Service or VPN alive beyond 20 seconds" }
+                serviceAbsent = RuntimeState.service.get() == null && !observe("after").present
+                vpnAbsent = connectivity.allNetworks.none {
+                    connectivity.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+                }
+                if (!serviceAbsent || !vpnAbsent) delay(25)
+            } while (!serviceAbsent || !vpnAbsent)
+            assertEquals(null, workerFailure.get())
+            assertFalse(RuntimeState.wanted())
+            assertEquals(null, RuntimeState.backend.get())
+            assertEquals(RuntimePhase.OFF, controller.status.value.phase)
+            val elapsed = SystemClock.elapsedRealtime() - began
+            check(elapsed <= 20_000L) { "Duplicate-start cleanup observation exceeded the existing 20-second deadline" }
+            report.put("serviceAbsent", serviceAbsent).put("vpnAbsent", vpnAbsent)
+                .put("elapsedMs", elapsed)
+        } finally {
+            release.countDown()
+            val directory = File(context.getExternalFilesDir(null), "ui-screenshots").apply { mkdirs() }
+            raw.forEach { (stage, text) -> File(directory, "vpn-duplicate-system-starts-$stage.txt").writeText(text) }
+            File(directory, "vpn-duplicate-system-starts.json").writeText(report.toString(2))
+        }
+    }
+
+    private data class ServiceDeliverySnapshot(val present: Boolean, val lastStartId: Int?, val callbacksSettled: Boolean)
 
     @Test fun encryptedAwg2DnsRoundTripSurvivesOffOn() = runBlocking {
         val keys = controller.generateWireGuardKeyPair()
