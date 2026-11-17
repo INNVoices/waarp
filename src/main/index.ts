@@ -3,7 +3,7 @@ import { ConnectionControl } from './connection-control'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, net, Notification, powerMonitor, screen, Tray } from 'electron'
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { Notice, Profile, Settings, Snapshot, Status } from '../shared/types'
 import { compilePlan } from '../shared/plan'
@@ -30,6 +30,7 @@ import { defaultRoutes, TUN, tunPreflight, tunSnapshot } from './tun'
 import { isIP } from 'node:net'
 import { LogFile } from './logfile'
 import { configOf } from './techview'
+import { applyTune, profileSig, pruneTunes, tuned, variants, type Tunes } from './tune'
 import { dedupeApps } from '../shared/appmatch'
 import { bounded } from './stop'
 import { createResume, underlayReady } from './resume'
@@ -124,7 +125,7 @@ async function chooseConfig(): Promise<{ text: string; name: string } | { error:
 }
 
 function snapshot(): Snapshot {
-  return { admin, profiles: store.views(), settings: store.settings, status: statusView(engine.status), notices }
+  return { admin, profiles: store.views().map(v => (tunes[v.id] ? { ...v, tune: tunes[v.id].label } : v)), settings: store.settings, status: statusView(engine.status), notices }
 }
 
 /** HOTFIX-RUNTIME-01 E: the master switch's intent, owned here. Only the master (and a hard block / quit) changes it;
@@ -134,7 +135,7 @@ const master = new ConnectionControl({
   error: () => engine.status.error,
   demandsTunnel: () => demandsTunnel(store.settings),
   prepare: prepareConnection,
-  start: () => engine.start(store.profiles, store.settings),
+  start: async () => engine.start(await runtimeProfiles(), store.settings),
   stop: () => engine.stop(),
   serial: work => intentWrites.run(work),
   changed: () => { send('status', statusView(engine.status)); updateTray() }
@@ -495,7 +496,7 @@ function ipc() {
       // Owner OFF wins immediately even if this settings write entered the FIFO earlier/later.
       // Save the new intent, but leave engine shutdown to the master toggle and apply it on the next open.
       if (!master.open) { updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true } }
-      if (engine.status.phase === 'on' && demandsTunnel(store.settings) && (await engine.applyLive(store.profiles, store.settings))) { updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true } }
+      if (engine.status.phase === 'on' && demandsTunnel(store.settings) && (await engine.applyLive(await runtimeProfiles(), store.settings))) { updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true } }
       const currentNotices = await refreshNotices()
       if (!master.current(revision)) return { ...snapshot(), saved: true }
       const action = onRoutingPatch(engine.status.phase, currentNotices.some(n => n.level === 'block'))
@@ -831,6 +832,51 @@ function ipc() {
     return { target: parsed.shown, host, direct, paths, finding, at: now, stale }
   })
   secureHandle('log', () => engine.log())
+  secureHandle('tune:run', async (_e, id: unknown) => {
+    const p = typeof id === 'string' ? store.profiles.find(x => x.id === id && !x.revoked) : undefined
+    if (!p) return { error: 'gone' }
+    if (engine.status.phase !== 'off' || master.open) return { error: 'open' }
+    if (!checker) return { error: 'engine' }
+    const run = ++tuneRun
+    const end = Date.now() + TUNE_MS
+    const list = [{ label: '', patch: {} }, ...variants(p)]
+    const results: { label: string; ms: number | null }[] = []
+    for (const v of list) {
+      if (run !== tuneRun || Date.now() > end) break
+      const probe = applyTune(p, v.patch)
+      try {
+        const ok = await checker.ensure([probe], await adapters())
+        const r = ok ? await checker.probe(TUNE_URL, [p.id]) : {}
+        results.push({ label: v.label, ms: r[p.id] ?? null })
+      } catch { results.push({ label: v.label, ms: null }) }
+    }
+    void checker.stop()
+    if (run !== tuneRun) return { error: 'canceled' }
+    return { results, complete: results.length === list.length }
+  })
+  secureHandle('tune:cancel', () => { tuneRun++; return true })
+  secureIntentHandle('tune:apply', async (_e, id: unknown, label: unknown) => {
+    const p = typeof id === 'string' ? store.profiles.find(x => x.id === id && !x.revoked) : undefined
+    const v = p && typeof label === 'string' ? variants(p).find(x => x.label === label) : undefined
+    if (!p || !v) return { ok: false, error: 'gone' }
+    netCache = undefined
+    const net = await currentNet()
+    if (!net) return { ok: false, error: 'net' }
+    tunes = { ...tunes, [p.id]: { net, sig: profileSig(p), label: v.label, patch: v.patch, at: Date.now() } }
+    saveTunes()
+    if (engine.status.phase === 'on') { const r = await master.reconnect(master.revision, { restart: true }); if (!r.ok) send('toast', r.error) }
+    send('snapshot', snapshot())
+    return { ok: true }
+  })
+  secureIntentHandle('tune:reset', async (_e, id: unknown) => {
+    if (typeof id !== 'string' || !tunes[id]) return { ok: false }
+    const { [id]: _gone, ...rest } = tunes
+    tunes = rest
+    saveTunes()
+    if (engine.status.phase === 'on') { const r = await master.reconnect(master.revision, { restart: true }); if (!r.ok) send('toast', r.error) }
+    send('snapshot', snapshot())
+    return { ok: true }
+  })
   secureHandle('profile:config', (_e, id: unknown) => {
     const p = typeof id === 'string' ? store.profiles.find(x => x.id === id) : undefined
     return p ? configOf(p) : null
@@ -884,6 +930,7 @@ app.whenReady().then(async () => {
   if (waitingForParent && !app.requestSingleInstanceLock()) { app.quit(); return }
   store = new Store(app.getPath('userData'))
   loadNetMem(app.getPath('userData'))
+  loadTunes(app.getPath('userData'))
   const logFile = new LogFile(join(app.getPath('userData'), 'logs'))
   const portable = process.env.PORTABLE_EXECUTABLE_FILE && process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Waarp', 'engine') : undefined
   engineExe = stableEngine(engineExe, portable)
@@ -1057,6 +1104,31 @@ const COMPANION_SAFE = 'Для маршрута приложения можно 
 /** companion targets waiting for a path chosen in the picker (bridge routes.open); bounded, in memory only */
 const pendingPicks = createPending()
 let diagnoseRun = 0
+let tunes: Tunes = {}
+let tuneFile = ''
+let tuneRun = 0
+let netCache: { at: number; net?: string } | undefined
+const TUNE_URL = 'https://www.gstatic.com/generate_204'
+const TUNE_MS = 60_000
+async function currentNet(): Promise<string | undefined> {
+  if (netCache && Date.now() - netCache.at < 60_000) return netCache.net
+  const net = await networkFingerprint(netMem.salt)
+  netCache = { at: Date.now(), net }
+  return net
+}
+/** the profiles the core runs: stored ones, with a tune applied only on the network it was chosen for */
+async function runtimeProfiles() {
+  if (!Object.keys(tunes).length) return store.profiles
+  return tuned(store.profiles, tunes, await currentNet(), Date.now())
+}
+function loadTunes(dir: string) {
+  tuneFile = join(dir, 'tune.json')
+  try { tunes = existsSync(tuneFile) ? JSON.parse(readFileSync(tuneFile, 'utf8')) as Tunes : {} } catch { tunes = {} }
+}
+function saveTunes() {
+  tunes = pruneTunes(tunes, store.profiles, Date.now())
+  try { writeFileSync(tuneFile, JSON.stringify(tunes)) } catch {}
+}
 const DIAGNOSE_MS = 20_000
 /** R5: rotation cursor for tunnel-closed probes (bounded checker set) */
 let probeCursor = 0
@@ -1076,9 +1148,9 @@ const applyRouting = createApply({
     const revision = master.revision
     const stopped = await pauseMeasurements()
     if (!master.current(revision) || quitting || !(await runtimeRecovery.ensure(!stopped))) return
-    if (master.current(revision) && !quitting) await engine.start(store.profiles, s)
+    if (master.current(revision) && !quitting) await engine.start(await runtimeProfiles(), s)
   },
-  live: s => engine.applyLive(store.profiles, s),
+  live: async s => engine.applyLive(await runtimeProfiles(), s),
   stop: () => engine.stop(),
   changed: () => send('snapshot', snapshot())
 })

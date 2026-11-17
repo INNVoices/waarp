@@ -92,6 +92,8 @@ export interface ProfileView {
   tech?: [string, string][]
   /** imported parameters the engine does not apply */
   notApplied?: string[]
+  /** label of a stored network-scoped tune */
+  tune?: string
 }
 
 export type Via = 'direct' | string

@@ -181,6 +181,7 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
               {!!p.notApplied?.length && <><span className="m">{s('tech.notApplied')}</span><span className="warn ell">{p.notApplied.join(', ')}</span></>}
               {live && status.pingAt !== undefined && uses(p.id) > 0 && <><span className="m">{s('tech.measured')}</span><span>{new Date(status.pingAt).toLocaleTimeString()}</span></>}
             </div>
+            {p.kind !== 'group' && p.kind !== 'openvpn' && <Tune p={p} open={status.phase !== 'off' || !!status.open} toast={toast} />}
             {dev && <DevConfig id={p.id} />}
             </details>
             {foot(p)}
@@ -226,4 +227,43 @@ function DevConfig({ id }: { id: string }) {
   return cfg === undefined
     ? <Btn sm kind="ghost" onClick={async () => { try { setCfg(JSON.stringify(await api.profileConfig(id), null, 1)) } catch { setCfg('') } }}><Icon n="doc" />{s('tech.config')}</Btn>
     : <pre className="log selectable">{cfg || s('tech.config.none')}</pre>
+}
+
+/** manual tune: a small fixed set of client-side variants, checked one by one by the separate checker while Waarp is closed */
+function Tune({ p, open, toast }: { p: ProfileView; open: boolean; toast: (x: string) => void }) {
+  const [busy, setBusy] = useState(false)
+  const [res, setRes] = useState<{ label: string; ms: number | null }[]>()
+  const run = async () => {
+    setBusy(true); setRes(undefined)
+    try {
+      const r = await api.tuneRun(p.id)
+      if (r.error) { if (r.error !== 'canceled') toast(s('tune.err.' + r.error)) }
+      else setRes(r.results)
+    } catch { toast(s('tune.err.engine')) } finally { setBusy(false) }
+  }
+  const apply = async (label: string) => {
+    try { const r = await api.tuneApply(p.id, label); toast(r.ok ? s('tune.applied') : s('tune.err.' + (r.error ?? 'engine'))) } catch { toast(s('tune.err.engine')) }
+  }
+  const base = res?.[0]
+  return (
+    <div className="tune">
+      <div className="ph-row">
+        <b>{s('tune.title')}</b>
+        {p.tune && <span className="badge">{s('tune.active', { v: p.tune })}</span>}
+        <div className="grow" />
+        {busy ? <Btn sm kind="ghost" onClick={() => void api.tuneCancel()}>{s('tune.cancel')}</Btn>
+          : <Btn sm disabled={open} title={open ? s('tune.closed') : undefined} onClick={() => void run()}><Icon n="bolt" />{s('tune.go')}</Btn>}
+        {p.tune && !busy && <Btn sm kind="ghost" onClick={async () => { try { await api.tuneReset(p.id) } catch {} }}>{s('tune.reset')}</Btn>}
+      </div>
+      {open && !p.tune && <p className="hint">{s('tune.closed')}</p>}
+      {res && <div className="kv mono">
+        {res.map(r => <Fragment key={r.label || 'base'}>
+          <span className="m">{r.label || s('tune.base')}</span>
+          <span>{r.ms === null ? s('tune.fail') : s('meter.ms', { n: r.ms })}{r.label && r.ms !== null && (!base || base.ms === null) && <> <Btn sm onClick={() => void apply(r.label)}>{s('tune.apply')}</Btn></>}</span>
+        </Fragment>)}
+      </div>}
+      {res && base?.ms !== null && base !== undefined && <p className="hint">{s('tune.base_ok')}</p>}
+      {res && res.every(r => r.ms === null) && <p className="hint">{s('tune.none')}</p>}
+    </div>
+  )
 }

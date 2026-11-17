@@ -1,6 +1,8 @@
 import { ConfError } from '../src/main/conf-error'
 import { createConnection, createServer } from 'node:net'
 import { configOf, techOf } from '../src/main/techview'
+import { applyTune, profileSig, pruneTunes, tuned, variants, TUNE_MAX_VARIANTS, TUNE_TTL_MS } from '../src/main/tune'
+import { parseConf } from '../src/main/awg'
 import { fetchSubscription, isSubscriptionUrl, looksLikeVless, parseSubscription, parseVless, pinnedAddressLookup, redactVless, vlessKey, vlessOutbound, vlessSecrets } from '../src/main/vless'
 
 let fails = 0, n = 0
@@ -182,6 +184,44 @@ export const TCP = `vless://${UUID}@1.2.3.4:8443?type=tcp&security=reality&pbk=$
   const cfg = JSON.stringify(configOf(view))
   ok(!cfg.includes(UUID) && !cfg.includes('secret-material') && cfg.includes('example.org'), 'developer config hides secrets, keeps endpoint')
   ok(cfg.includes(PBK), 'REALITY public key stays visible: it is not a secret')
+
+  // ---- network-scoped tune (E3)
+  const vs = variants(base)
+  ok(vs.length > 0 && vs.length <= TUNE_MAX_VARIANTS, 'a bounded set of variants')
+  ok(vs.every(v => !v.patch.fp || ['firefox', 'chrome', 'safari'].includes(v.patch.fp)) && !vs.some(v => v.patch.fp === base.vless.fp), 'only supported fingerprints, never the current one again')
+  const tunedOut = vlessOutbound(applyTune(base, { fp: 'safari', recordFragment: true }) as typeof base, 'p') as any
+  ok(tunedOut.tls.utls.fingerprint === 'safari' && tunedOut.tls.record_fragment === true && tunedOut.tls.reality.public_key === base.vless.pbk, 'tune changes only client TLS knobs, REALITY stays')
+  eq(base.vless.fp, 'firefox', 'the stored profile is never modified')
+  const entry = { net: 'netA', sig: profileSig(base), label: 'fp safari', patch: { fp: 'safari' }, at: 1000 }
+  eq((tuned([base], { [base.id]: entry }, 'netA', 2000)[0] as typeof base).vless.fp, 'safari', 'tune applies on its network')
+  eq((tuned([base], { [base.id]: entry }, 'netB', 2000)[0] as typeof base).vless.fp, 'firefox', 'another network uses the profile as is')
+  eq((tuned([base], { [base.id]: entry }, undefined, 2000)[0] as typeof base).vless.fp, 'firefox', 'unknown network: no tune')
+  eq((tuned([base], { [base.id]: entry }, 'netA', 1000 + TUNE_TTL_MS + 1)[0] as typeof base).vless.fp, 'firefox', 'an old tune expires')
+  const changed = { ...base, vless: { ...base.vless, sni: 'other.example' } }
+  eq((tuned([changed], { [base.id]: entry }, 'netA', 2000)[0] as typeof base).vless.fp, 'firefox', 'a changed profile (subscription update) drops the tune')
+  eq(Object.keys(pruneTunes({ [base.id]: entry }, [changed], 2000)), [], 'stale tunes are pruned')
+  const awg = parseConf(`[Interface]
+PrivateKey = gB5c0VMuG6oZ3FqzJHLqX7RCkv4cC4m23OIlriNib0U=
+Address = 10.8.0.7/32
+Jc = 4
+Jmin = 10
+Jmax = 50
+S1 = 20
+S2 = 30
+H1 = 1
+H2 = 2
+H3 = 3
+H4 = 4
+
+[Peer]
+PublicKey = q9MMmIcttvDr6uEcmpRFioaJZ5sHOAannstz3+5cwBM=
+AllowedIPs = 0.0.0.0/0
+Endpoint = 203.0.113.10:51820
+`, 'A')
+  const av = variants(awg)
+  ok(av.length > 0 && av.every(v => Object.keys(v.patch).every(k => ['jc', 'jmin', 'jmax', 'mtu'].includes(k))), 'AWG variants touch only client-side junk and MTU')
+  const ta = applyTune(awg, av[0].patch) as typeof awg
+  ok(ta.awg.s1 === 20 && ta.awg.h1 === awg.awg.h1 && ta.privateKey === awg.privateKey, 'server-matched S/H fields and keys never change')
 
   console.log(fails ? `${fails}/${n} FAILED` : `all ${n} vless checks passed`)
   process.exit(fails ? 1 : 0)

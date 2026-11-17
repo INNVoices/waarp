@@ -27,6 +27,8 @@ export interface VlessFields {
   serviceName?: string
   extra?: VlessXhttpExtra
   notApplied: string[]
+  /** set only by a network-scoped tune; never imported */
+  recordFragment?: boolean
 }
 
 export interface VlessProfile {
