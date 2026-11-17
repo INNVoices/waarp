@@ -56,6 +56,7 @@ export class Engine extends EventEmitter {
   private run?: { cfg: ReturnType<typeof buildConfig>; loaded: Loaded; autoLive: string[]; files: Record<string, string>; settings: Settings; hostV6?: boolean }
   /** count of live route applies in this process (tests, log) */
   liveApplies = 0
+  private pingSeq = 0
   /** R1.4: read-only Windows check before a TUN start (set by main); absent in offline tests */
   preflight?: () => Promise<Preflight>
   /** pause between preflight re-checks right after our own stop (Windows may still be removing the adapter) */
@@ -325,7 +326,7 @@ export class Engine extends EventEmitter {
         const noneYet = first && ids.length > 0 && ids.every(id => h[id] !== 'ok')
         const error = allDown ? 'Туннели не ответили на две проверки подряд. Проверь сеть или смени подключение' : noneYet ? 'Серверы пока не ответили, проверяю ещё раз' : undefined
         this.lastAutoPick = this.firstSelected.get(AUTO_ID) ?? this.lastAutoPick
-        this.set({ engine: 'up', pings, health: h, fallback, error, picked: Object.fromEntries(this.firstSelected), autoPool: this.autoPool })
+        this.set({ engine: 'up', pings, pingRound: ++this.pingSeq, health: h, fallback, error, picked: Object.fromEntries(this.firstSelected), autoPool: this.autoPool })
       } catch {
         if (this.child === child && !this.stopping && this.pollFailures < 2) this.set({ error: 'Не удалось обновить состояние туннелей; повторю проверку' })
       } finally { roundBusy = false }
@@ -357,7 +358,7 @@ export class Engine extends EventEmitter {
     this.fbRoutes = new Map(run.loaded.fbs.map(g => [g.tag, activeRoutes(s).filter(r => r.via === g.main && r.fallback === g.fb).map(r => ({ id: r.id, name: r.name }))]))
     this.liveApplies++
     const closed = await this.closeTouched(run.settings.routes, s.routes)
-    this.push(`live route apply: ${switches.length} selector switch(es), ${changed.length} rule file(s), ${closed} connection(s) reopened; core and TUN kept`)
+    this.push(`live route apply: ${switches.length} selector switch(es), ${changed.length} rule file(s) written, canary confirmed; connections closed ${closed.closed}/${closed.tried}; core and TUN kept`)
     this.set({ error: undefined })
     return true
   }
@@ -388,27 +389,31 @@ export class Engine extends EventEmitter {
     return false
   }
 
-  private async closeTouched(before: Route[], after: Route[]): Promise<number> {
+  private async closeTouched(before: Route[], after: Route[]): Promise<{ tried: number; closed: number }> {
     const key = (r: Route) => JSON.stringify([r.on, r.kind, r.exe, r.matchDir, r.wholeDir, r.preset, r.value])
     const was = new Map(before.map(r => [r.id, r]))
     const now = new Map(after.map(r => [r.id, r]))
     const touched: Route[] = []
     for (const r of after) { const o = was.get(r.id); if (!o ? r.on : key(o) !== key(r)) touched.push(r, ...(o ? [o] : [])) }
     for (const o of before) if (!now.has(o.id) && o.on) touched.push(o)
-    if (!touched.length) return 0
+    const kept = after.filter(r => was.has(r.id)).map(r => r.id)
+    const prior = before.filter(r => now.has(r.id)).map(r => r.id)
+    kept.forEach((id, i) => { if (prior[i] !== id) touched.push(now.get(id)!, was.get(id)!) })
+    if (!touched.length) return { tried: 0, closed: 0 }
     const ids = this.conns.filter(c => touched.some(r => routeHits(r, c))).map(c => c.id)
-    await this.bounded(ids, async id => { await this.drop(id) })
-    return ids.length
+    let closed = 0
+    await this.bounded(ids, async id => { if (await this.drop(id)) closed++ })
+    return { tried: ids.length, closed }
   }
 
-  private async drop(id: string): Promise<void> {
+  private async drop(id: string): Promise<boolean> {
     const child = this.child, api = this.api
-    if (!child || this.stopping) return
+    if (!child || this.stopping) return false
     const ctl = new AbortController()
     this.requests.add(ctl)
     const t = setTimeout(() => ctl.abort(), 2000)
-    try { await fetch(`http://127.0.0.1:${api.port}/connections/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${api.secret}` }, signal: ctl.signal }) }
-    catch {} finally { clearTimeout(t); this.requests.delete(ctl) }
+    try { return (await fetch(`http://127.0.0.1:${api.port}/connections/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${api.secret}` }, signal: ctl.signal })).ok }
+    catch { return false } finally { clearTimeout(t); this.requests.delete(ctl) }
   }
 
   private abortRequests() {

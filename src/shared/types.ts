@@ -153,6 +153,7 @@ export interface Status {
   since?: number
   error?: string
   pings: Record<string, number | undefined>
+  pingRound?: number
   fallback: Record<string, Via>
   down: number
   up: number

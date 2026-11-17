@@ -83,13 +83,13 @@ export function App() {
       snapshotVersion.current++; statusVersion.current++
       setSnap(x); setStatus(x.status); setBootError(false)
     })
-    let lastPing: Status['pings'] | undefined
+    let lastRound: number | undefined
     const b = api.onStatus((x: Status) => {
       statusVersion.current++
       setStatus(x)
-      if (x.phase === 'starting' || x.phase === 'stopping') { hist.current = {}; lastPing = undefined; return }
-      if (x.pings !== lastPing) {
-        lastPing = x.pings
+      if (x.phase === 'starting' || x.phase === 'stopping') { hist.current = {}; lastRound = undefined; return }
+      if (x.pingRound !== undefined && x.pingRound !== lastRound) {
+        lastRound = x.pingRound
         for (const [id, v] of Object.entries(x.pings)) {
           // A queued measurement from a deleted profile must not recreate its history.
           if (historyProfiles.current && !historyProfiles.current.has(id)) continue

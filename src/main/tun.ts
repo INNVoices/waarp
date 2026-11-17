@@ -173,10 +173,11 @@ $ErrorActionPreference='Stop'
 $id='${id}'
 $pnp=Join-Path $env:SystemRoot 'System32\\pnputil.exe'
 if (@(Get-NetAdapter -IncludeHidden | Where-Object { $_.Name -eq '${TUN.name}' }).Count -gt 0) { [pscustomobject]@{ok=1;state='adapter'} | ConvertTo-Json -Compress; return }
-if ($null -eq (Get-PnpDevice -InstanceId $id -ErrorAction SilentlyContinue)) { [pscustomobject]@{ok=1;state='none'} | ConvertTo-Json -Compress; return }
+function Has-Dev { try { $null -ne (Get-PnpDevice -InstanceId $id -ErrorAction Stop) } catch { if ($_.CategoryInfo.Category -eq 'ObjectNotFound') { $false } else { throw } } }
+if (-not (Has-Dev)) { [pscustomobject]@{ok=1;state='none'} | ConvertTo-Json -Compress; return }
 $null = & $pnp /remove-device $id
-for ($i=0; $i -lt 20 -and $null -ne (Get-PnpDevice -InstanceId $id -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 150 }
-$left = $null -ne (Get-PnpDevice -InstanceId $id -ErrorAction SilentlyContinue)
+for ($i=0; $i -lt 20 -and (Has-Dev); $i++) { Start-Sleep -Milliseconds 150 }
+$left = Has-Dev
 [pscustomobject]@{ok=1;state=$(if($left){'left'}else{'removed'})} | ConvertTo-Json -Compress
 `
 

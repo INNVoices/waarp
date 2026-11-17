@@ -1,6 +1,8 @@
 import { buildRuntime, liveSwitches, parseConf, planSlots, ruleFileOf, CANARY, canaryFile } from '../src/main/awg'
 import { appKey, appPatterns, dedupeApps, exeHits, routeHits } from '../src/shared/appmatch'
 import { migrate } from '../src/main/store-core'
+import { Engine } from '../src/main/engine'
+import { CANARY_IP } from '../src/main/awg'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -112,5 +114,23 @@ if (process.platform === 'win32' && existsSync(join(process.cwd(), 'engine', 'si
   } finally { rmSync(dir, { recursive: true, force: true }) }
 }
 
+const rulesCheck = async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'waarp-rules-apply-'))
+  try {
+    const e = new Engine(process.execPath, dir, process.execPath) as any
+    e.req = async () => ({ Answer: [{ data: CANARY_IP }] })
+    eq(await e.writeRules(['ra0'], { ra0: '{"version":3,"rules":[]}' }, () => true), true, 'written rule files with a confirmed canary apply')
+    writeFileSync(join(dir, 'blocked'), 'x')
+    const blocked = new Engine(process.execPath, join(dir, 'blocked'), process.execPath) as any
+    blocked.req = async () => ({ Answer: [{ data: CANARY_IP }] })
+    eq(await blocked.writeRules(['ra0'], { ra0: '{}' }, () => true), false, 'a failed rule file write is never reported as applied, even if the canary would answer')
+    const silent = new Engine(process.execPath, mkdtempSync(join(tmpdir(), 'waarp-rules-silent-')), process.execPath) as any
+    silent.req = async () => undefined
+    eq(await silent.writeRules(['ra0'], { ra0: '{}' }, () => false), false, 'no canary answer means not applied')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+}
+
+void rulesCheck().then(() => {
 console.log(`slots: ${n - fails}/${n} passed`)
 if (fails) process.exit(1)
+})

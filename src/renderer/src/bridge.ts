@@ -53,11 +53,11 @@ function mock(): Api {
       status = { ...status, phase: 'starting', open: true }; emit('status', status)
       await new Promise(r => setTimeout(r, 1400))
       if (version !== toggleVersion) return { ok: false }
-      status = { ...status, phase: 'on', since: Date.now(), pings: { a: fbDemo ? undefined : 48, b: 112, 'g-auto': fbDemo ? 112 : 48, direct: 9 }, picked: { 'g-auto': fbDemo ? 'b' : 'a' }, fallback: fbDemo ? { 'app:d': 'b' } : {} }; emit('status', status)
+      status = { ...status, phase: 'on', since: Date.now(), pings: { a: fbDemo ? undefined : 48, b: 112, 'g-auto': fbDemo ? 112 : 48, direct: 9 }, pingRound: (status.pingRound ?? 0) + 1, picked: { 'g-auto': fbDemo ? 'b' : 'a' }, fallback: fbDemo ? { 'app:d': 'b' } : {} }; emit('status', status)
       timer = setInterval(() => {
         const d = 40000 + Math.random() * 900000, u = 5000 + Math.random() * 90000
         const pa = fbDemo ? undefined : 40 + Math.round(Math.random() * 20), pb = 100 + Math.round(Math.random() * 40)
-        status = { ...status, pings: { a: pa, b: pb, 'g-auto': fbDemo ? pb : pa, direct: 8 + Math.round(Math.random() * 4) }, down: d, up: u, downTotal: status.downTotal + d, upTotal: status.upTotal + u }
+        status = { ...status, pings: { a: pa, b: pb, 'g-auto': fbDemo ? pb : pa, direct: 8 + Math.round(Math.random() * 4) }, pingRound: (status.pingRound ?? 0) + 1, down: d, up: u, downTotal: status.downTotal + d, upTotal: status.upTotal + u }
         emit('status', status)
         const conns: Conn[] = [['Discord', 'gateway.discord.gg', true], ['chrome', 'rr3---sn-4g5e.googlevideo.com', true], ['chrome', 'yandex.ru', false], ['Steam', 'steamcdn-a.akamaihd.net', false], ['Claude', 'claude.ai', true]].map(([a, h, v], i) => ({
           id: String(i), app: a as string, exe: i === 0 ? apps[0].exe : '', host: h as string, port: 443, net: 'tcp', via: v ? (i === 1 ? 'b' : 'a') : 'direct', rule: '', down: Math.random() * 9e6, up: Math.random() * 4e5, start: Date.now() - i * 61000
