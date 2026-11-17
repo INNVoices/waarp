@@ -390,7 +390,7 @@ export class Engine extends EventEmitter {
   }
 
   private async closeTouched(before: Route[], after: Route[]): Promise<{ tried: number; closed: number }> {
-    const key = (r: Route) => JSON.stringify([r.on, r.kind, r.exe, r.matchDir, r.wholeDir, r.preset, r.value, r.via === 'direct' && r.dpi === true])
+    const key = (r: Route) => JSON.stringify([r.on, r.kind, r.exe, r.matchDir, r.wholeDir, r.preset, r.value, r.list, r.via === 'direct' && r.dpi === true])
     const was = new Map(before.map(r => [r.id, r]))
     const now = new Map(after.map(r => [r.id, r]))
     const touched: Route[] = []

@@ -2,6 +2,9 @@ import { buildRuntime, liveSwitches, parseConf, planSlots, ruleFileOf, CANARY, c
 import { appKey, appPatterns, dedupeApps, exeHits, routeHits } from '../src/shared/appmatch'
 import { migrate } from '../src/main/store-core'
 import { Engine } from '../src/main/engine'
+import { Lists, parseDomainList } from '../src/main/lists'
+import { setListResolver } from '../src/main/awg'
+import { checkedPatch } from '../src/main/validate'
 import { CANARY_IP } from '../src/main/awg'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -136,7 +139,49 @@ const rulesCheck = async () => {
   } finally { rmSync(dir, { recursive: true, force: true }) }
 }
 
-void rulesCheck().then(() => {
+const listCheck = async () => {
+  const parsed = parseDomainList('# comment\nExample.org\n*.cdn.example.net\n.short.io\ndomain:a.example\ncom\nnot a domain\n// x\n')
+  eq(parsed.domains, ['example.org', 'cdn.example.net', 'short.io', 'a.example'], 'domain list: comments, prefixes, lower case')
+  eq(parsed.skipped, 2, 'single labels and junk are skipped, not routed')
+  let threw = ''; try { parseDomainList('# only comments\n') } catch (e) { threw = (e as Error).message }
+  eq(threw, 'empty', 'an empty list is an error, not an empty route')
+  const dir = mkdtempSync(join(tmpdir(), 'waarp-lists-'))
+  try {
+    const store = new Lists(dir)
+    const src = store.add('Test', 'https://lists.example.org/a.txt')
+    const ok200 = (body: string) => (async () => new Response(body, { status: 200 })) as unknown as typeof fetch
+    eq(await store.refresh(src.id, { fetchImpl: ok200('a.example\nb.example\n') }), true, 'list downloads')
+    eq(store.domains(src.id), ['a.example', 'b.example'], 'domains are kept')
+    eq(await store.refresh(src.id, { fetchImpl: (async () => new Response('', { status: 500 })) as unknown as typeof fetch }), false, 'failed download reports failure')
+    eq(store.domains(src.id), ['a.example', 'b.example'], 'a failed download keeps the last good list')
+    eq(await store.refresh(src.id, { fetchImpl: ok200('nothing here') }), false, 'garbage is refused')
+    eq([store.domains(src.id).length, store.data[0].error], [2, 'empty'], 'garbage never replaces the list')
+    store.save()
+    eq(new Lists(dir).domains(src.id), ['a.example', 'b.example'], 'restart without network keeps the list')
+    store.patch(src.id, { enabled: false })
+    eq(store.domains(src.id), [], 'a disabled list routes nothing')
+    let bad = ''; try { store.add('x', 'http://plain.example/') } catch (e) { bad = (e as Error).message }
+    eq(bad, 'url', 'only https sources')
+
+    const listId = src.id
+    let doms = ['a.example']
+    setListResolver(id => (id === listId ? doms : []))
+    const withList = [...base, { id: 'list:' + listId, kind: 'list' as const, name: 'L', list: listId, via: 'pa', on: true }]
+    const sl = planSlots(S(withList), slots)!
+    const before = buildRuntime(profiles, S(withList), opts(sl))
+    const lslot = 'rd' + sl.dom.indexOf('list:' + listId)
+    ok(before.files[lslot].includes('a.example'), 'a list card fills its slot from the list snapshot')
+    doms = ['a.example', 'z.example']
+    const after = buildRuntime(profiles, S(withList), opts(sl))
+    ok(!!liveSwitches(before.cfg, after.cfg) && after.files[lslot].includes('z.example'), 'a list update is a live rule-file change, not a restart')
+    ok(after.files['dn-p-pa'].includes('z.example'), 'list domains resolve DNS through the card tunnel')
+    const patch = checkedPatch({ routes: withList })
+    ok(patch.ok, 'settings accept a list card')
+    ok(!checkedPatch({ routes: [{ id: 'list:x', kind: 'list', name: 'L', list: '../evil', via: 'pa', on: true }] }).ok, 'a malformed list id is refused')
+  } finally { rmSync(dir, { recursive: true, force: true }); setListResolver(() => []) }
+}
+
+void rulesCheck().then(listCheck).then(() => {
 console.log(`slots: ${n - fails}/${n} passed`)
 if (fails) process.exit(1)
 })

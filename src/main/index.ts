@@ -30,6 +30,8 @@ import { defaultRoutes, TUN, tunPreflight, tunSnapshot } from './tun'
 import { isIP } from 'node:net'
 import { LogFile } from './logfile'
 import { configOf } from './techview'
+import { Lists } from './lists'
+import { setListResolver } from './awg'
 import { applyTune, profileSig, pruneTunes, tuned, variants, type Tunes } from './tune'
 import { dedupeApps } from '../shared/appmatch'
 import { bounded } from './stop'
@@ -125,7 +127,7 @@ async function chooseConfig(): Promise<{ text: string; name: string } | { error:
 }
 
 function snapshot(): Snapshot {
-  return { admin, profiles: store.views().map(v => (tunes[v.id] ? { ...v, tune: tunes[v.id].label } : v)), settings: store.settings, status: statusView(engine.status), notices }
+  return { admin, profiles: store.views().map(v => (tunes[v.id] ? { ...v, tune: tunes[v.id].label } : v)), settings: store.settings, status: statusView(engine.status), notices, lists: lists?.views() ?? [] }
 }
 
 /** HOTFIX-RUNTIME-01 E: the master switch's intent, owned here. Only the master (and a hard block / quit) changes it;
@@ -832,6 +834,48 @@ function ipc() {
     return { target: parsed.shown, host, direct, paths, finding, at: now, stale }
   })
   secureHandle('log', () => engine.log())
+  /** a list change reaches the core through the same confirmed live apply as a card edit */
+  const reapplyLists = async () => {
+    send('snapshot', snapshot())
+    if (engine.status.phase === 'on' && store.settings.routes.some(r => r.kind === 'list' && r.on)) {
+      if (!(await engine.applyLive(await runtimeProfiles(), store.settings))) { const r = await master.reconnect(master.revision, { restart: true }); if (!r.ok) send('toast', r.error) }
+    }
+  }
+  const saveLists = () => { try { lists?.save(); return true } catch { return false } }
+  secureIntentHandle('lists:add', async (_e, name: unknown, url: unknown) => {
+    if (!lists || typeof url !== 'string' || url.length > 1000 || (name !== undefined && typeof name !== 'string')) return { ok: false, error: 'url' }
+    let id: string
+    try { id = lists.add(typeof name === 'string' ? name : '', url.trim()).id } catch (e) { return { ok: false, error: (e as Error).message === 'limit' ? 'limit' : 'url' } }
+    await lists.refresh(id)
+    if (!saveLists()) return { ok: false, error: 'save' }
+    await reapplyLists()
+    return { ok: true, id }
+  })
+  secureIntentHandle('lists:refresh', async (_e, id: unknown) => {
+    if (!lists || typeof id !== 'string') return { ok: false }
+    const ok = await lists.refresh(id)
+    saveLists()
+    await reapplyLists()
+    return { ok }
+  })
+  secureIntentHandle('lists:toggle', async (_e, id: unknown, on: unknown) => {
+    if (!lists || typeof id !== 'string' || typeof on !== 'boolean') return { ok: false }
+    lists.patch(id, { enabled: on })
+    if (!saveLists()) return { ok: false }
+    await reapplyLists()
+    return { ok: true }
+  })
+  secureIntentHandle('lists:remove', async (_e, id: unknown) => {
+    if (!lists || typeof id !== 'string') return { ok: false }
+    if (store.settings.routes.some(r => r.kind === 'list' && r.list === id)) return { ok: false, error: 'used' }
+    lists.remove(id)
+    if (!saveLists()) return { ok: false }
+    send('snapshot', snapshot())
+    return { ok: true }
+  })
+  void (async () => {
+    for (const l of lists?.data ?? []) if (l.enabled && Date.now() - (l.checkedAt ?? 0) > LIST_STALE_MS) await intentWrites.run(async () => { if (await lists!.refresh(l.id)) { saveLists(); await reapplyLists() } else saveLists() })
+  })()
   secureHandle('tune:run', async (_e, id: unknown) => {
     const p = typeof id === 'string' ? store.profiles.find(x => x.id === id && !x.revoked) : undefined
     if (!p) return { error: 'gone' }
@@ -931,6 +975,8 @@ app.whenReady().then(async () => {
   store = new Store(app.getPath('userData'))
   loadNetMem(app.getPath('userData'))
   loadTunes(app.getPath('userData'))
+  lists = new Lists(app.getPath('userData'))
+  setListResolver(id => lists?.domains(id) ?? [])
   const logFile = new LogFile(join(app.getPath('userData'), 'logs'))
   const portable = process.env.PORTABLE_EXECUTABLE_FILE && process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Waarp', 'engine') : undefined
   engineExe = stableEngine(engineExe, portable)
@@ -1105,6 +1151,8 @@ const COMPANION_SAFE = 'Для маршрута приложения можно 
 const pendingPicks = createPending()
 let diagnoseRun = 0
 let tunes: Tunes = {}
+let lists: Lists | undefined
+const LIST_STALE_MS = 24 * 3600_000
 let tuneFile = ''
 let tuneRun = 0
 let netCache: { at: number; net?: string } | undefined

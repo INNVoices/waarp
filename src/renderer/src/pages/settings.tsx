@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import type { Settings, Snapshot } from '../../../shared/types'
-import { Btn, Icon, Toggle } from '../ui/kit'
+import { Btn, Icon, Input, Toggle } from '../ui/kit'
+import { firstServer } from '../lib/routes'
 import { s } from '../lib/i18n'
 import { api } from '../bridge'
 import type { SettingsPatch, Toast } from '../lib/actions'
@@ -92,11 +93,52 @@ export function SettingsPage({ snap, patch, toast }: { snap: Snapshot; patch: Se
             </div>}
           </div>
         </section>
+        <ListsPanel snap={snap} patch={patch} toast={toast} />
         <section className="panel span2">
           <h3>{s('set.how')}</h3>
           <ul className="how">{[1, 2, 3, 4, 5].map(i => <li key={i}>{s(`set.how.${i}`)}</li>)}</ul>
         </section>
       </div>
     </div>
+  )
+}
+
+/** domain lists are data: added by address, kept as the last good snapshot; a card uses one only when the user makes it */
+function ListsPanel({ snap, patch, toast }: { snap: Snapshot; patch: SettingsPatch; toast: Toast }) {
+  const [name, setName] = useState('')
+  const [url, setUrl] = useState('')
+  const [busy, setBusy] = useState('')
+  const lists = snap.lists ?? []
+  const act = async (key: string, f: () => Promise<{ ok: boolean; error?: string }>, fail: string) => {
+    setBusy(key)
+    try { const r = await f(); if (!r.ok) toast(s(r.error ? 'lists.err.' + r.error : fail), 'error') } catch { toast(s(fail), 'error') } finally { setBusy('') }
+  }
+  const used = (id: string) => snap.settings.routes.some(r => r.kind === 'list' && r.list === id)
+  const card = (id: string, n: string) => void patch({ routes: [...snap.settings.routes, { id: 'list:' + id, kind: 'list', name: n, list: id, via: firstServer(snap.profiles), on: true }] })
+  return (
+    <section className="panel span2">
+      <h3>{s('lists.title')}</h3>
+      <p className="hint">{s('lists.text')}</p>
+      <div className="addrow">
+        <Input className="inp" value={name} placeholder={s('lists.name')} onChange={e => setName(e.target.value)} />
+        <Input className="inp" value={url} placeholder={s('lists.url')} onChange={e => setUrl(e.target.value)} />
+        <Btn kind="primary" disabled={!!busy || !url.trim()} onClick={() => void act('add', async () => { const r = await api.listAdd(name, url.trim()); if (r.ok) { setName(''); setUrl('') } return r }, 'lists.err.url')}><Icon n="plus" />{s('lists.add')}</Btn>
+      </div>
+      <div className="opts">
+        {lists.map(l => (
+          <div key={l.id} className="opt static">
+            <div>
+              <b>{l.name}</b>
+              <p className="mono ell">{l.url}</p>
+              <p className={l.error ? 'warn' : 'm'}>{l.count ? s('lists.count', { n: l.count, t: l.updatedAt ? new Date(l.updatedAt).toLocaleString() : '—' }) : s('lists.never')}{l.error ? ' · ' + s('lists.err.' + l.error) : ''}</p>
+            </div>
+            <Toggle on={l.enabled} disabled={!!busy} onChange={v => void act(l.id, () => api.listToggle(l.id, v), 'lists.err.save')} label={l.name} />
+            <Btn kind="ghost" disabled={!!busy} title={s('lists.refresh')} onClick={() => void act(l.id, () => api.listRefresh(l.id), 'lists.err.fetch')}><span className={busy === l.id ? 'spin' : ''}><Icon n="refresh" /></span></Btn>
+            {!used(l.id) && l.count > 0 && <Btn kind="ghost" onClick={() => card(l.id, l.name)}><Icon n="plus" />{s('lists.card')}</Btn>}
+            <Btn kind="danger" disabled={!!busy || used(l.id)} title={used(l.id) ? s('lists.err.used') : s('set.remove')} onClick={() => void act(l.id, () => api.listRemove(l.id), 'lists.err.save')}><Icon n="trash" /></Btn>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }

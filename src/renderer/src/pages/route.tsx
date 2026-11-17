@@ -152,6 +152,7 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
           <div className="path mono selectable">{r.exe}</div>
         </>}
         {preset && <div className="chips">{[...preset.domains, ...(preset.cidrs ?? [])].map(d => <span key={d} className="chip mono">{d}</span>)}</div>}
+        {r.kind === 'list' && (() => { const l = snap.lists?.find(x => x.id === r.list); return <p className="hint">{l ? s('lists.route', { n: l.count, name: l.name }) + (l.enabled ? '' : ' · ' + s('lists.disabled')) : s('lists.gone')}</p> })()}
         {r.kind === 'custom' && <>
           <div className="path mono selectable">{r.value}</div>
           <p className="hint">{s('custom.dest.note')}</p>

@@ -295,7 +295,7 @@ export interface Loaded { profiles: string[]; groups: LiveGroup[]; fbs: FbGroup[
 
 export interface Slots { app: string[]; dom: string[] }
 const appPool = (s: Settings) => s.routes.filter(r => r.kind === 'app' && r.exe).map(r => r.id)
-const domPool = (s: Settings) => [...s.routes.filter(r => r.kind === 'custom'), ...s.routes.filter(r => r.kind === 'preset')].map(r => r.id)
+const domPool = (s: Settings) => [...s.routes.filter(r => r.kind === 'custom'), ...s.routes.filter(r => r.kind === 'list'), ...s.routes.filter(r => r.kind === 'preset')].map(r => r.id)
 const room = (n: number) => Math.ceil((n + 12) / 8) * 8
 const pad = (ids: string[], size: number) => [...ids, ...Array<string>(Math.max(0, size - ids.length)).fill('')]
 const repack = (ids: string[], size: number) => (ids.length > size ? undefined : pad(ids, size))
@@ -322,6 +322,9 @@ export function planSlots(s: Settings, prev?: Slots): Slots | undefined {
   const app = fit(appPool(s), prev.app), dom = fit(domPool(s), prev.dom)
   return app && dom ? { app, dom } : undefined
 }
+
+let listDomains: (id: string) => string[] = () => []
+export function setListResolver(fn: (id: string) => string[]) { listDomains = fn }
 
 export const CANARY = 'wcanary'
 export const CANARY_IP = '127.0.0.9'
@@ -438,6 +441,7 @@ function group<T>(items: T[], key: (x: T) => string) {
 
 export function routeTargets(r: Route) {
   if (r.kind === 'custom') return splitCustom([r.value ?? ''])
+  if (r.kind === 'list') return { domains: listDomains(r.list ?? ''), cidrs: [] }
   if (r.kind === 'preset') {
     const p = PRESETS.find(x => x.id === r.preset)
     return { domains: p?.domains ?? [], cidrs: p?.cidrs ?? [] }
@@ -570,7 +574,7 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
     if (regex.length) m.process_path_regex = regex
     rules.push(...noV6(m, o.selectors ? outR(list[0]) : key), { ...m, outbound: tag })
   }
-  if (!slotMode) for (const kind of ['custom', 'preset'] as const) {
+  if (!slotMode) for (const kind of ['custom', 'list', 'preset'] as const) {
     for (const [key, list] of byTarget(act.filter(r => r.kind === kind))) {
       const tag = targetOf(key, list)
       const t = list.map(routeTargets)

@@ -27,6 +27,7 @@ export function migrate(raw: any, firstProfile?: string): Settings {
       if (r.kind === 'app') return typeof r.exe === 'string' && /^(?:[A-Za-z]:\\|\\\\[^\\]+\\[^\\]+\\).+\.exe$/i.test(r.exe)
       if (r.kind === 'preset') return typeof r.preset === 'string' && PRESETS.some(p => p.id === r.preset)
       if (r.kind === 'custom') return typeof r.value === 'string' && !validateCustom(r.value)
+      if (r.kind === 'list') return typeof r.list === 'string' && /^l-[a-z0-9]{8}$/.test(r.list)
       return false
     }
     // The persisted file is data, not a trusted IPC peer. Apply the same semantic limits as live patches.

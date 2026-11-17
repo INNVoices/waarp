@@ -106,7 +106,7 @@ export interface AppPick {
   matchDir?: string
 }
 
-export type RouteKind = 'app' | 'preset' | 'custom'
+export type RouteKind = 'app' | 'preset' | 'custom' | 'list'
 
 export interface Route {
   id: string
@@ -124,6 +124,8 @@ export interface Route {
   dpi?: boolean
   preset?: string
   value?: string
+  /** list source id for kind list */
+  list?: string
   icon?: string
 }
 
@@ -219,4 +221,5 @@ export interface Snapshot {
   settings: Settings
   status: Status
   notices: Notice[]
+  lists?: { id: string; name: string; url: string; enabled: boolean; updatedAt?: number; checkedAt?: number; error?: string; count: number }[]
 }
