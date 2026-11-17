@@ -141,6 +141,64 @@ Main-thread StrictMode disk detection, and two actual rejected system-service
 deliveries followed by observed service/VPN absence. All 21 named cases must
 pass on each required API; merely compiling them does not satisfy that gate.
 
+## First rc.2 gate: observed failures and subsequent corrections
+
+[Android run 44058621038](https://github.com/INNVoices/waarp/actions/runs/44058621038)
+tested source `767e25dc57c103ba4c7dc8d19b11982e42bca80b` through merge
+`41a1a76dee79991f006f808d6f258d9277925b5a`, tree
+`edb5d07f18f1d75f83693b5fe8d0bb7b03cc89c2`. It is **not an accepted run**.
+Its build passed 122 JVM cases and 34 host native race-enabled cases; both lint
+variants had zero errors, 19 warnings and one hint. Both desktop jobs in
+[run 44058621080](https://github.com/INNVoices/waarp/actions/runs/44058621080)
+passed on that same merge tree.
+
+All three native Android jobs rejected the lifecycle test class during JUnit
+initialization. The new duplicate-start test used an expression-bodied
+`runBlocking` whose final `JSONObject.put(...)` inferred a non-void return type.
+The Kotlin compiler accepted it, but AndroidJUnit4 did not. Each raw protocol
+contains ten successful cases and one class-initialization error; none of that
+class's eleven lifecycle cases ran. These failures must not be represented as
+21 executed cases or as evidence about the new ON/OFF behavior.
+
+Both new tests now explicitly return `Unit`, preserving every assertion, case
+identity and deadline. The actual original instrumentation APK was rejected by
+the new `android-junit-signatures.py` packaging check; the corrected locally
+assembled APK passed with all 21 test methods and five lifecycle hooks having
+valid compiled signatures. The unchanged release acceptance APK passed its two
+method checks. This is an APK packaging check, not another product JVM case or
+a replacement for Android execution. It uses pinned Build Tools 35.0.0 DEX XML,
+binds the APK/DEX/source hashes, and checks the source-declared method scope.
+Actual runtime annotation membership and test execution remain device gates.
+Its failed report survives staging cleanup in the existing build-reports
+artifact; only successful reports are copied into the published output set.
+
+Release API 29 stopped during framework preparation, before app installation.
+Binder probes returned `Broken pipe`, followed by missing process names. The
+underlying cause is not established. The [API 29 follow-up](ANDROID-API29-EMULATOR.md#follow-up-preserve-diagnostics-when-preparation-fails)
+records the exact evidence and the failed-only bounded diagnostic collector;
+readiness rules, mutations and phase budgets are unchanged.
+
+The optimized release scenario and independent proof passed on API 35. On API
+36 the scenario itself passed, but host verification rejected a system trace
+without kernel scheduling events. The actual trace processor reported
+`FTRACE_STATUS_PARTIAL_PAGE_READ`; it is a capture failure, not permission to
+ignore the trace or claim a successful gate. Its correction and subsequent
+runtime evidence must remain separate from the application scenario result.
+The [16 KiB capture follow-up](ANDROID-PERFETTO-16K.md) records why the base
+`android-36` revision 7 image cannot use the initially considered tracefs
+correction: its exact kernel lacks that interface. That draft was rejected
+before publication or device execution. Subsequent API 36 jobs explicitly use
+the official `android-36.1` revision 4 image (Android 16 QPR2, runtime SDK 36 / full
+SDK 36.1). Its exact kernel source supports the required sub-buffer control.
+Image identity, inactive tracing, the original geometry and the readback must
+be observed before capture. This is a maintenance-image change with a bounded
+observer preparation, not a change to the APK's minimum/target SDK, test page
+size, functional assertions or resource budgets. Source inspection establishes
+the available interface; it does not establish that a new runtime gate passed.
+The first rc.2 run's mandatory two-hour soak was skipped because short gates failed. A fresh
+complete acceptance is required after these corrections; old APK results do
+not approve newly built inputs.
+
 ## What rc.1 actually established
 
 [Android run 44031796227](https://github.com/INNVoices/waarp/actions/runs/44031796227)

@@ -114,6 +114,12 @@ def main():
     instrumentation = module("android_instrument_result", "android-instrument.py")
     evidence_validator = module("android_release_proof", "android-release-proof.py")
     frame_validator = module("android_foreground_proof", "android-foreground-proof.py")
+    image_verifier = module("android_emulator_image", "android-emulator-image.py")
+    image_verifier.capture(prefix, output / "emulator-image.json", page_size, options.disposable_emulator, sdk_root=sdk)
+    image_proof = image_verifier.validate_report(output / "emulator-image.json", page_size)
+    ftrace_preparer = module("android_ftrace_prepare", "android-ftrace-prepare.py")
+    ftrace_preparer.prepare(prefix, output / "ftrace-preparation.json", page_size, options.disposable_emulator)
+    ftrace_preparation = ftrace_preparer.validate_report(output / "ftrace-preparation.json", page_size)
     metadata = json.loads((ROOT / "out/android/artifacts.json").read_text())
     selected = next((entry for entry in metadata["artifacts"] if entry["abi"] == device["abi"] and entry["variant"] == "release-unsigned"), None)
     require(selected is not None, "A verified unsigned release APK for this emulator is required.")
@@ -159,7 +165,8 @@ def main():
     (output / "instrumentation.txt").write_text(transcript)
     parsed = instrumentation.parse_instrumentation(transcript, exit_code, timed_out)
     report = {"schemaVersion": 1, "checkedAtUtc": datetime.now(timezone.utc).isoformat(), "mode": options.mode,
-              "device": device, "preflight": preflight, "wallSeconds": elapsed,
+              "device": device, "preflight": preflight, "emulatorImage": image_proof,
+              "ftracePreparation": ftrace_preparation, "wallSeconds": elapsed,
               "requestedDurationSeconds": options.duration_seconds if options.mode == "soak" else None,
               "requestedIntervalSeconds": options.interval_seconds, "installedApk": installed, **parsed}
     # A global Google/system broadcast backlog is observed, not used as a proxy
@@ -177,7 +184,8 @@ def main():
         report["passedGate"] = False
         report["foregroundTraceCollectionError"] = str(error)
     try:
-        checked = evidence_validator.validate_device(output, options.mode, installed, options.duration_seconds, options.interval_seconds)
+        checked = evidence_validator.validate_device(output, options.mode, installed, options.duration_seconds, options.interval_seconds,
+                                                     expected_page_size=page_size)
         report["deviceEvidence"] = {key: value for key, value in checked.items() if key != "summary"}
     except (OSError, ValueError, KeyError, TypeError) as error:
         report["passedGate"] = False

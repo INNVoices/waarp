@@ -45,7 +45,7 @@ def capture(phase):
             "actions": [{"name": name, "startedElapsedMs": 1100 + index * 100,
                          "finishedElapsedMs": 1150 + index * 100, "completed": True}
                         for index, name in enumerate(PROOF.ACTIONS[phase])],
-            "trace": {"attempted": True, "available": False, "started": False,
+            "trace": {"attempted": True, "startAttempted": False, "available": False, "started": False,
                       "maxDurationMs": 180000, "bufferBytes": 16 * 1024 * 1024,
                       "remotePath": f"/data/misc/perfetto-traces/waarp-soak-{phase}-1234-1000.perfetto-trace",
                       "error": "Observed unsupported trace category on the fixture image"}}
@@ -83,13 +83,160 @@ class ForegroundEvidenceChecks(unittest.TestCase):
     def validate(self):
         return PROOF.validate(self.directory, self.summary, self.directory)
 
-    def trace_available(self):
-        self.observation["trace"].update(available=True, started=True, completed=True,
-                                         startedElapsedMs=1000, stopRequestedElapsedMs=2000, finishedElapsedMs=2100)
+    def write_command(self, suffix, command, output, exit_code=0):
+        stem = self.directory / f"foreground-navigation-{suffix}"
+        stem.with_suffix(".sh").write_text(f"#!/system/bin/sh\n{command} 2>&1\n"
+            "waarp_trace_command_status=$?\n"
+            "printf '\\nWAARP_TRACE_COMMAND_EXIT=%s\\n' \"$waarp_trace_command_status\"\n"
+            "exit \"$waarp_trace_command_status\"\n")
+        stem.with_suffix(".txt").write_text(f"{output}\nWAARP_TRACE_COMMAND_EXIT={exit_code}\n")
+
+    def trace_available(self, wait=True):
+        mode = "--background-wait" if wait else "--background"
+        remote = self.observation["trace"]["remotePath"]
+        command = (f"perfetto {mode} --out {remote} --time 180s --buffer 16mb --app local.waarp.android"
+                   " sched freq idle am wm gfx view binder_driver dalvik input")
+        self.observation["trace"].update(available=True, startAttempted=True, started=True, completed=True, pid=5678,
+                                         startedElapsedMs=1000, stopRequestedElapsedMs=2000, finishedElapsedMs=2100,
+                                         startMode=mode, sourceReadinessAcknowledged=wait,
+                                         startAcknowledgedElapsedMs=1050, command=command, helpExitCode=0, startExitCode=0)
         self.observation["trace"].pop("error", None)
+        help_text = "Usage: perfetto --background --background-wait" if wait else "Usage: perfetto --background"
+        self.write_command("trace-help", "perfetto --help", help_text)
+        self.write_command("trace-start", command, "5678\n")
         path = self.directory / "foreground-navigation.perfetto-trace"
         path.write_bytes(valid_trace())
         return path
+
+    def test_supported_wait_must_be_used_before_actions(self):
+        self.trace_available()
+        self.observation["trace"].update(startMode="--background", sourceReadinessAcknowledged=False)
+        with self.assertRaisesRegex(ValueError, "readiness"):
+            self.validate()
+
+    def test_legacy_background_is_explicit_when_help_has_no_wait_flag(self):
+        self.trace_available(wait=False)
+        self.assertFalse(self.validate()["physicalDevicePerformanceApproved"])
+
+    def test_pid_before_failed_readiness_ack_is_not_success(self):
+        self.trace_available()
+        self.observation["trace"]["startExitCode"] = 1
+        self.write_command("trace-start", self.observation["trace"]["command"], "5678\n", 1)
+        with self.assertRaisesRegex(ValueError, "ACK failed"):
+            self.validate()
+
+    def test_failed_ack_cannot_be_relabelled_as_unavailable(self):
+        self.trace_available()
+        self.observation["trace"].update(available=False, started=False, completed=False, startExitCode=1,
+                                         sourceReadinessAcknowledged=False, error="trace_start_command_failed")
+        self.write_command("trace-start", self.observation["trace"]["command"], "5678\n", 1)
+        with self.assertRaisesRegex(ValueError, "ACK failed"):
+            self.validate()
+
+    def test_summary_zero_exit_cannot_override_raw_nonzero_exit(self):
+        self.trace_available()
+        self.write_command("trace-start", self.observation["trace"]["command"], "5678\n", 1)
+        with self.assertRaisesRegex(ValueError, "ACK failed"):
+            self.validate()
+
+    def test_suppressing_attempt_flag_cannot_hide_start_evidence(self):
+        self.trace_available()
+        self.observation["trace"].update(startAttempted=False, available=False, error="unsupported")
+        with self.assertRaisesRegex(ValueError, "relabelled"):
+            self.validate()
+
+    def test_missing_command_exit_marker_fails(self):
+        self.trace_available()
+        (self.directory / "foreground-navigation-trace-start.txt").write_text("5678\n")
+        with self.assertRaisesRegex(ValueError, "exit status is missing"):
+            self.validate()
+
+    def test_multiple_command_exit_markers_fail(self):
+        self.trace_available()
+        (self.directory / "foreground-navigation-trace-start.txt").write_text(
+            "5678\nWAARP_TRACE_COMMAND_EXIT=1\nWAARP_TRACE_COMMAND_EXIT=0\n")
+        with self.assertRaisesRegex(ValueError, "exit status is missing or ambiguous"):
+            self.validate()
+
+    def test_status_marker_outside_exit_range_fails(self):
+        self.trace_available()
+        self.write_command("trace-start", self.observation["trace"]["command"], "5678\n", 256)
+        with self.assertRaisesRegex(ValueError, "exit status is invalid"):
+            self.validate()
+
+    def test_help_failure_cannot_prove_capability(self):
+        self.trace_available()
+        self.write_command("trace-help", "perfetto --help", "Usage: perfetto --background-wait", 1)
+        with self.assertRaisesRegex(ValueError, "help command"):
+            self.validate()
+
+    def test_modified_wrapper_cannot_claim_fixed_command(self):
+        self.trace_available()
+        wrapper = self.directory / "foreground-navigation-trace-start.sh"
+        wrapper.write_text(wrapper.read_text().replace("waarp_trace_command_status=$?", "waarp_trace_command_status=0"))
+        with self.assertRaisesRegex(ValueError, "wrapper differs"):
+            self.validate()
+
+    def test_changed_capture_limits_cannot_rebind_the_command(self):
+        self.trace_available()
+        self.observation["trace"]["command"] = self.observation["trace"]["command"].replace("--time 180s", "--time 300s")
+        self.write_command("trace-start", self.observation["trace"]["command"], "5678\n")
+        with self.assertRaisesRegex(ValueError, "fixed capture limits"):
+            self.validate()
+
+    def test_command_pid_must_match_recorded_child(self):
+        self.trace_available()
+        self.write_command("trace-start", self.observation["trace"]["command"], "9876\n")
+        with self.assertRaisesRegex(ValueError, "PID differs"):
+            self.validate()
+
+    def test_command_pid_must_not_be_target_app(self):
+        self.trace_available()
+        self.observation["trace"]["pid"] = 1234
+        self.write_command("trace-start", self.observation["trace"]["command"], "1234\n")
+        with self.assertRaisesRegex(ValueError, "PID differs"):
+            self.validate()
+
+    def test_trace_start_path_must_belong_to_this_scope(self):
+        self.trace_available()
+        self.observation["trace"]["remotePath"] = "/data/misc/perfetto-traces/another.perfetto-trace"
+        with self.assertRaisesRegex(ValueError, "does not belong"):
+            self.validate()
+
+    def test_late_readiness_ack_cannot_cover_an_earlier_action(self):
+        self.trace_available()
+        self.observation["trace"]["startAcknowledgedElapsedMs"] = 1200
+        with self.assertRaisesRegex(ValueError, "readiness"):
+            self.validate()
+
+    def test_invalid_first_trace_does_not_prevent_later_raw_copy_but_gate_still_fails(self):
+        summary = {"mode": "smoke", "foregroundFrames": []}
+        for phase in ("control", "navigation"):
+            observed = capture(phase)
+            observed["trace"].update(available=True,
+                remotePath=f"/data/misc/perfetto-traces/waarp-smoke-{phase}-1234-1000.perfetto-trace")
+            summary["foregroundFrames"].append(observed)
+        (self.directory / "release-smoke.json").write_text(json.dumps(summary))
+        output = self.directory / "traces"
+        raw = {"control": blob(1, b""), "navigation": valid_trace()}
+        def adb(arguments, **kwargs):
+            phase = "control" if "control" in " ".join(arguments) else "navigation"
+            if "stat" in arguments:
+                return type("Result", (), {"returncode": 0, "stdout": str(len(raw[phase]))})()
+            Path(arguments[-1]).write_bytes(raw[phase])
+            return type("Result", (), {"returncode": 0})()
+        with patch.object(PROOF.subprocess, "run", side_effect=adb):
+            with self.assertRaisesRegex(ValueError, "control.*scheduling"):
+                PROOF.collect_traces(["adb", "-s", "emulator-fixture"], self.directory, output)
+        self.assertEqual(raw["control"], (output / "foreground-control.perfetto-trace").read_bytes())
+        self.assertEqual(raw["navigation"], (output / "foreground-navigation.perfetto-trace").read_bytes())
+        error = json.loads((output / "trace-collection-errors.json").read_text())
+        self.assertFalse(error["passed"])
+        self.assertEqual("control", error["errors"][0]["phase"])
+        self.assertEqual(len(raw["control"]), error["errors"][0]["bytes"])
+        self.assertEqual("foreground-control.perfetto-trace", error["errors"][0]["rawFile"])
+        self.assertEqual(PROOF.hashlib.sha256(raw["control"]).hexdigest(), error["errors"][0]["sha256"])
+        self.assertEqual("foreground-navigation.perfetto-trace", error["validTraces"][0]["file"])
 
     def test_global_section_is_not_replaced_by_window_or_summed(self):
         parsed = PROOF.gfx(dump(), 1234, require_frames=True)

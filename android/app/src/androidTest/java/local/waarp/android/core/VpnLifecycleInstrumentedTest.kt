@@ -140,7 +140,7 @@ class VpnLifecycleInstrumentedTest {
         }
     }
 
-    @Test fun warmOnOffDoesNotReadOrWriteDiskOnMain() = runBlocking {
+    @Test fun warmOnOffDoesNotReadOrWriteDiskOnMain(): Unit = runBlocking {
         val configuration = tunConfiguration()
         // Isolate control transitions from first-time framework class/resource
         // loading. The production recovery guard also checks cold I/O ownership.
@@ -203,7 +203,7 @@ class VpnLifecycleInstrumentedTest {
         assertEquals("Main-thread disk violations: $violations", 0, count.get())
     }
 
-    @Test fun duplicateRejectedSystemStartsDoNotLeaveAnOffServiceRunning() = runBlocking {
+    @Test fun duplicateRejectedSystemStartsDoNotLeaveAnOffServiceRunning(): Unit = runBlocking {
         withTimeout(20_000) { while (RuntimeState.service.get() != null) delay(25) }
         assertEquals(RuntimePhase.OFF, controller.status.value.phase)
         assertFalse(context.getSharedPreferences(VpnController.PREFERENCES, Context.MODE_PRIVATE)

@@ -32,6 +32,52 @@ def one(directory, name):
     return paths[0]
 
 
+def command_result(evidence, phase, suffix, command):
+    """Bind the executed fixed wrapper and terminal status to the raw output."""
+    stem = f"foreground-{phase}-{suffix}"
+    expected_script = (f"#!/system/bin/sh\n{command} 2>&1\n"
+                       "waarp_trace_command_status=$?\n"
+                       "printf '\\nWAARP_TRACE_COMMAND_EXIT=%s\\n' \"$waarp_trace_command_status\"\n"
+                       "exit \"$waarp_trace_command_status\"\n")
+    require(one(evidence, stem + ".sh").read_bytes() == expected_script.encode("utf-8"),
+            "Trace command wrapper differs from the fixed observed command.")
+    raw = one(evidence, stem + ".txt").read_bytes().decode("utf-8")
+    matched = re.fullmatch(r"(.*)\nWAARP_TRACE_COMMAND_EXIT=([0-9]{1,3})\n?", raw, re.S)
+    require(raw.count("WAARP_TRACE_COMMAND_EXIT=") == 1 and matched is not None,
+            "Trace command exit status is missing or ambiguous.")
+    exit_code = int(matched.group(2))
+    require(exit_code <= 255, "Trace command exit status is invalid.")
+    return matched.group(1), exit_code
+
+
+def trace_start_proof(evidence, summary, observed):
+    trace, phase = observed["trace"], observed["phase"]
+    expected_path = (f"{TRACE_DIRECTORY}/waarp-{summary['mode']}-{phase}-{observed['pid']}-"
+                     f"{observed['startedElapsedMs']}.perfetto-trace")
+    require(trace.get("remotePath") == expected_path, "Trace start path does not belong to this foreground scope.")
+    help_text, help_exit = command_result(evidence, phase, "trace-help", "perfetto --help")
+    require(help_exit == trace.get("helpExitCode") == 0 and help_text.strip(),
+            "Trace help command did not complete successfully.")
+    supports_wait = "--background-wait" in help_text
+    mode = "--background-wait" if supports_wait else "--background"
+    require(trace.get("startMode") == mode,
+            "Trace start mode/readiness differs from the observed device CLI.")
+    command = (f"perfetto {mode} --out {expected_path} --time 180s --buffer 16mb --app {APP}"
+               " sched freq idle am wm gfx view binder_driver dalvik input")
+    require(trace.get("command") == command, "Trace start command differs from the fixed capture limits or categories.")
+    output, start_exit = command_result(evidence, phase, "trace-start", command)
+    # --background-wait prints a PID before its readiness ACK can fail. A
+    # numeric PID (or a still-live child) is not a successful CLI exit.
+    require(start_exit == trace.get("startExitCode") == 0, "Trace start command/readiness ACK failed.")
+    require(re.fullmatch(r"[0-9]{1,8}", output.strip()) is not None, "Trace start PID is missing or ambiguous.")
+    trace_pid = int(output.strip())
+    require(trace_pid > 1 and trace_pid != observed["pid"] and trace.get("pid") == trace_pid,
+            "Trace start PID differs from the independent command output.")
+    require(trace.get("sourceReadinessAcknowledged") is supports_wait,
+            "Trace start readiness differs from the observed device CLI and successful exit.")
+    return supports_wait
+
+
 def gfx(text, expected_pid, *, require_frames):
     owners = re.findall(r"^\*\* Graphics info for pid (\d+) \[([^\]]+)\] \*\*$", text, re.M)
     require(owners == [(str(expected_pid), APP)], "Frame dump owner does not match the observed release PID.")
@@ -160,6 +206,7 @@ def collect_traces(prefix, evidence, output):
     require(mode in ("smoke", "soak"), "Invalid foreground trace mode.")
     output.mkdir(parents=True, exist_ok=True)
     copied = []
+    errors = []
     for observation in summary.get("foregroundFrames", []):
         phase = observation["phase"]
         require(phase in ACTIONS, "Invalid foreground trace phase.")
@@ -171,14 +218,29 @@ def collect_traces(prefix, evidence, output):
         if trace.get("available") is not True:
             continue
         path = output / f"foreground-{phase}.perfetto-trace"
-        observed = subprocess.run(prefix + ["shell", "stat", "-c", "%s", expected], text=True,
-                                  capture_output=True, timeout=10)
-        require(observed.returncode == 0 and re.fullmatch(r"\d+\s*", observed.stdout)
-                and 0 < int(observed.stdout) <= TRACE_LIMIT, "Remote trace size is missing or exceeds its cap.")
-        result = subprocess.run(prefix + ["pull", expected, str(path)], capture_output=True, text=True, timeout=60)
-        require(result.returncode == 0 and path.is_file() and path.stat().st_size == int(observed.stdout),
-                "Foreground trace copy did not preserve the recorded size.")
-        copied.append(trace_structure(path))
+        try:
+            observed = subprocess.run(prefix + ["shell", "stat", "-c", "%s", expected], text=True,
+                                      capture_output=True, timeout=10)
+            require(observed.returncode == 0 and re.fullmatch(r"\d+\s*", observed.stdout)
+                    and 0 < int(observed.stdout) <= TRACE_LIMIT, "Remote trace size is missing or exceeds its cap.")
+            result = subprocess.run(prefix + ["pull", expected, str(path)], capture_output=True, text=True, timeout=60)
+            require(result.returncode == 0 and path.is_file() and path.stat().st_size == int(observed.stdout),
+                    "Foreground trace copy did not preserve the recorded size.")
+            copied.append(trace_structure(path))
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            # Keep this invalid raw file and collect every other owned scope.
+            # A bad first trace must not erase the later diagnostic evidence.
+            failure = {"phase": phase, "error": str(error)}
+            if path.is_file():
+                failure.update(rawFile=path.name, bytes=path.stat().st_size)
+                if path.stat().st_size <= TRACE_LIMIT:
+                    failure["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+            errors.append(failure)
+    if errors:
+        (output / "trace-collection-errors.json").write_text(json.dumps(
+            {"passed": False, "errors": errors, "validTraces": copied}, indent=2) + "\n")
+        raise ValueError("Foreground trace collection/validation failed: " + "; ".join(
+            item["phase"] + ": " + item["error"] for item in errors))
     return copied
 
 
@@ -222,9 +284,24 @@ def validate(evidence, summary, traces):
         trace = observed["trace"]
         require(trace.get("attempted") is True and trace.get("maxDurationMs") == 180000
                 and trace.get("bufferBytes") == 16 * 1024 * 1024, "Trace capture limits or attempt are missing.")
+        require(type(trace.get("startAttempted")) is bool, "Trace start attempt evidence is missing.")
+        if trace.get("startAttempted") is True:
+            # A failed/malformed startup after discovering this device's CLI
+            # cannot be relabelled as an unsupported tracing capability.
+            trace_start_proof(evidence, summary, observed)
+            require(trace.get("available") is True, "Attempted trace capture did not complete successfully.")
+        else:
+            require(not any(name in trace for name in ("command", "startExitCode", "pid", "startAcknowledgedElapsedMs"))
+                    and not list(Path(evidence).rglob(f"foreground-{phase}-trace-start.sh"))
+                    and not list(Path(evidence).rglob(f"foreground-{phase}-trace-start.txt")),
+                    "Recorded trace startup cannot be relabelled as unavailable capability.")
         if trace.get("available") is True:
-            require(trace.get("started") is True and trace.get("completed") is True, "Trace completion is unproven.")
+            require(trace.get("startAttempted") is True and trace.get("started") is True
+                    and trace.get("completed") is True, "Trace completion is unproven.")
             trace_start = number(trace["startedElapsedMs"], "trace start")
+            acknowledged = number(trace["startAcknowledgedElapsedMs"], "trace start acknowledgement")
+            require(trace_start <= acknowledged <= actions[0]["startedElapsedMs"],
+                    "Trace start mode/readiness differs from the observed device CLI or action order.")
             trace_stop = number(trace["stopRequestedElapsedMs"], "trace stop")
             trace_finish = number(trace["finishedElapsedMs"], "trace finish")
             require(start <= trace_start <= actions[0]["startedElapsedMs"] and end <= trace_stop <= trace_finish

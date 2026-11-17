@@ -171,6 +171,8 @@ def main():
     parser.add_argument("--expect-page-size", type=int, choices=(4096, 16384), required=True)
     parser.add_argument("--output", type=Path, default=Path("out/android/device-tests"))
     parser.add_argument("--timeout", type=int, default=900)
+    parser.add_argument("--disposable-emulator", action="store_true",
+                        help="Read-only verification of the explicitly selected owned CI emulator image")
     options = parser.parse_args()
     sdk = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
     adb = shutil.which("adb") or (str(Path(sdk) / "platform-tools" / ("adb.exe" if os.name == "nt" else "adb")) if sdk else None)
@@ -189,6 +191,12 @@ def main():
         raise ValueError(f"Expected {options.expect_page_size}-byte pages, device reports {page_size}.")
     device = {"sdk": shell("getprop", "ro.build.version.sdk"), "release": shell("getprop", "ro.build.version.release"), "abi": shell("getprop", "ro.product.cpu.abi"), "pageSize": page_size}
     options.output.mkdir(parents=True, exist_ok=True)
+    image_proof = None
+    if options.disposable_emulator:
+        image_spec = importlib.util.spec_from_file_location("android_emulator_image", Path(__file__).with_name("android-emulator-image.py"))
+        image_verifier = importlib.util.module_from_spec(image_spec); image_spec.loader.exec_module(image_verifier)
+        image_verifier.capture(prefix, options.output / "emulator-image.json", page_size, True, sdk_root=sdk)
+        image_proof = image_verifier.validate_report(options.output / "emulator-image.json", page_size)
     preflight = capture_preflight(prefix, options.output)
     started = time.monotonic()
     timed_out = False
@@ -211,6 +219,8 @@ def main():
     if not success:
         capture_test_failure_logs(prefix, options.output)
     report = {"schemaVersion": 1, "checkedAtUtc": datetime.now(timezone.utc).isoformat(), "device": device, "preflight": preflight, "wallSeconds": elapsed, **parsed}
+    if image_proof is not None:
+        report["emulatorImage"] = image_proof
     native = capture_logs(prefix, options.output, failed=not success)
     report["nativeCrashEvidence"] = native
     if not native["passed"]:

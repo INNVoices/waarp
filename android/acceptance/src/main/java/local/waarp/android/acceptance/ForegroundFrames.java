@@ -80,24 +80,77 @@ final class ForegroundFrames implements AutoCloseable {
         // trace this synthetic fixture. No production profiling permission,
         // test hook, debuggable flag or user connection is involved.
         String path = "/data/misc/perfetto-traces/waarp-" + harness.mode + "-" + phase + "-" + targetPid + "-" + started + ".perfetto-trace";
-        String command = "perfetto --background --out " + path
-                + " --time 180s --buffer 16mb --app " + ReleaseUi.TARGET
-                + " sched freq idle am wm gfx view binder_driver dalvik input";
-        trace.put("attempted", true).put("available", false).put("remotePath", path)
+        trace.put("attempted", true).put("startAttempted", false).put("available", false).put("remotePath", path)
                 .put("maxDurationMs", TRACE_LIMIT_MS).put("bufferBytes", 16 * 1024 * 1024)
-                .put("command", command).put("startedElapsedMs", SystemClock.elapsedRealtime());
+                .put("startedElapsedMs", SystemClock.elapsedRealtime());
         try {
-            String output = harness.observer.root(command);
-            harness.write("foreground-" + phase + "-trace-start.txt", output);
+            CommandResult helpResult = commandWithExit("trace-help", "perfetto --help");
+            trace.put("helpExitCode", helpResult.exitCode);
+            TrafficProbe.require(helpResult.exitCode == 0 && !helpResult.output.trim().isEmpty(), "trace_help_failed");
+            String help = helpResult.output;
+            // The flag is selected from this actual image's advertised CLI;
+            // there is no failed-start retry on older Perfetto versions.
+            boolean waitForSources = help.contains("--background-wait");
+            String startMode = waitForSources ? "--background-wait" : "--background";
+            String command = "perfetto " + startMode + " --out " + path
+                    + " --time 180s --buffer 16mb --app " + ReleaseUi.TARGET
+                    + " sched freq idle am wm gfx view binder_driver dalvik input";
+            trace.put("command", command).put("startMode", startMode)
+                    .put("sourceReadinessAcknowledged", false).put("startAttempted", true);
+            CommandResult startedCommand = commandWithExit("trace-start", command);
+            String output = startedCommand.output;
+            trace.put("startExitCode", startedCommand.exitCode);
+            // --background-wait can print the child PID before reporting a
+            // failed readiness ACK. Keep a verified child identity for cleanup,
+            // but never infer readiness from the numeric PID alone.
+            Matcher reported = Pattern.compile("(?m)^([0-9]{1,8})$").matcher(output.trim());
+            if (reported.find()) {
+                int candidate = Integer.parseInt(reported.group(1));
+                if (!reported.find() && candidate > 1 && candidate != targetPid) {
+                    tracePid = candidate;
+                    traceIdentity = processIdentity(tracePid);
+                }
+            }
+            TrafficProbe.require(startedCommand.exitCode == 0, "trace_start_command_failed");
             TrafficProbe.require(output.trim().matches("[0-9]{1,8}"), "trace_start_pid_missing");
             tracePid = Integer.parseInt(output.trim());
             TrafficProbe.require(tracePid > 1 && tracePid != targetPid, "trace_start_pid_invalid");
             traceIdentity = processIdentity(tracePid);
             TrafficProbe.require(traceIdentity != null, "trace_start_process_missing");
-            trace.put("pid", tracePid).put("started", true);
+            trace.put("pid", tracePid).put("started", true)
+                    .put("startAcknowledgedElapsedMs", SystemClock.elapsedRealtime())
+                    .put("sourceReadinessAcknowledged", waitForSources);
         } catch (Exception | AssertionError failure) {
-            trace.put("started", false).put("error", AcceptanceHarness.redact(String.valueOf(failure)));
+            String error = AcceptanceHarness.redact(String.valueOf(failure));
+            trace.put("started", false).put("error", error).put("startError", error);
+            stopTrace(); // stop only our captured PID/starttime; no retry
         }
+    }
+
+    private static final class CommandResult {
+        final String output;
+        final int exitCode;
+        CommandResult(String output, int exitCode) { this.output = output; this.exitCode = exitCode; }
+    }
+
+    private CommandResult commandWithExit(String suffix, String command) throws Exception {
+        TrafficProbe.require(command.matches("[A-Za-z0-9_ /.-]+"), "trace_command_tokens");
+        String stem = "foreground-" + phase + "-" + suffix;
+        // UiAutomation's Runtime.exec tokenization is not shell quoting. Use
+        // this acceptance-owned fixed script, retaining its bytes and output.
+        harness.write(stem + ".sh", "#!/system/bin/sh\n" + command + " 2>&1\n"
+                + "waarp_trace_command_status=$?\n"
+                + "printf '\\nWAARP_TRACE_COMMAND_EXIT=%s\\n' \"$waarp_trace_command_status\"\n"
+                + "exit \"$waarp_trace_command_status\"\n");
+        String script = new java.io.File(harness.output, stem + ".sh").getAbsolutePath();
+        String raw = harness.observer.root("sh " + script);
+        harness.write(stem + ".txt", raw);
+        Matcher result = Pattern.compile("(?s)^(.*)\\nWAARP_TRACE_COMMAND_EXIT=([0-9]{1,3})\\n?$").matcher(raw);
+        TrafficProbe.require(raw.indexOf("WAARP_TRACE_COMMAND_EXIT=") == raw.lastIndexOf("WAARP_TRACE_COMMAND_EXIT=")
+                && result.matches(), "trace_command_exit_status_missing_or_ambiguous");
+        int exit = Integer.parseInt(result.group(2));
+        TrafficProbe.require(exit <= 255, "trace_command_exit_status_invalid");
+        return new CommandResult(result.group(1), exit);
     }
 
     private String processIdentity(int pid) throws Exception {
@@ -125,7 +178,9 @@ final class ForegroundFrames implements AutoCloseable {
             TrafficProbe.require(SystemClock.elapsedRealtime() <= deadline, "trace_flush_exit_timeout");
             // Perfetto's output is copied by the host only after its writer has
             // exited. A nonempty protobuf is independently checked there.
-            trace.put("completed", true).put("available", true).put("finishedElapsedMs", SystemClock.elapsedRealtime());
+            boolean started = trace.optBoolean("started", false);
+            trace.put("cleanupCompleted", true).put("completed", started).put("available", started)
+                    .put("finishedElapsedMs", SystemClock.elapsedRealtime());
         } catch (Exception | AssertionError failure) {
             trace.put("completed", false).put("available", false).put("error", AcceptanceHarness.redact(String.valueOf(failure)));
         }

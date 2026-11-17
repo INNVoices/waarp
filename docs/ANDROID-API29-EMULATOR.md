@@ -66,6 +66,39 @@ The correction preserves the raw exit code and issues `unroot` at most once. Onl
 
 Acceptance requires the original shell UID, fresh ActivityManager/PackageManager Binder calls through that restored identity, the same accepted framework PIDs with no old owners, and unchanged heap/growth-limit properties. A second UID read confirms the final identity. The new `shellIdentityRestoration` object records the original command outcome, observations and all postconditions; it is marked verified only after every check succeeds. Original-UID-0 devices issue no `unroot` and still require fresh postconditions. Offline regression fixtures cover both branches, ambiguous closure, generic errors, persistent root, Binder failure and process replacement. Actual CI evidence is still mandatory.
 
+## Follow-up: preserve diagnostics when preparation fails
+
+In [run 44058621038, release API 29](https://github.com/INNVoices/waarp/actions/runs/44058621038/job/133961309323), preparation failed before app installation or guest AWG startup. The retained [artifact 14317458362](https://github.com/INNVoices/waarp/actions/runs/44058621038/artifacts/14317458362) records this sequence:
+
+| Preparation time | Observation |
+| --- | --- |
+| 9.904–9.960 s | The old named processes and `/proc/1664`, `/proc/1665`, `/proc/1919` were absent. |
+| 9.962–10.047 s | `dalvik.vm.heapsize=512m` was set and read back before new framework processes appeared. |
+| 10.048 s | The one planned `start` command was issued. |
+| 10.898–10.935 s | A unique name snapshot identified `zygote=3394`, `zygote64=3393`, `system_server=3443`. |
+| 10.953–10.986 s | Both actual Binder commands returned exit code 224 and `Broken pipe (32)`. |
+| 10.985–11.033 s | `pidof` still found `zygote=3394`, but no `zygote64` or `system_server` name. |
+
+This evidence proves a failed readiness check, not the underlying crash mechanism. There is no subsequent `/proc` identity check for PIDs 3393/3443, so a missing process name is not independent proof that the numeric process died. The original guard also observed extra zygote-name PIDs 2740 and 2965; fork specialization is a possible explanation, not an observed identity timeline. The old 16 MiB OOM diagnosis from another run must not be assigned to this failure without its crash/VM evidence.
+
+The [same run's native API 29 preparation](https://github.com/INNVoices/waarp/actions/runs/44058621038/artifacts/14317663091) completed in 15.543 seconds with fresh PIDs 4076/4073/4108, both Binder probes ready and shell UID 2000 restored; it recorded 19 incomplete name snapshots. That observation demonstrates that this preparation can succeed on the same source. It does not identify the cause of the failed release job or approve the candidate.
+
+The failure report was returned at 10:01:05.707 UTC and the action requested emulator termination at 10:01:05.716 UTC. Consequently, later workflow artifact steps had no live guest from which to obtain a crash log. The concrete correction is to collect diagnostics **inside the failed preparation**, after saving the permanent failure and before returning to the action. It does not retry readiness or replace the failed result.
+
+The failed-only collector has a separate **12-second command budget**, with at most two seconds per read-only command. Existing preparation phase budgets remain unchanged. It first reads `/proc/<accepted-pid>/stat` even when name lookup no longer finds that owner, then captures the crash/recent logcat buffers, bounded kernel output, process names/command lines, properties, memory/uptime, accepted-PID status/command lines, and relevant system-server DropBox entries. Snapshots are sequential observations, not an atomic process-identity proof. No new owner can become accepted during diagnostics.
+
+Raw stdout and stderr are saved separately under `emulator-preparation-diagnostics/`, including empty outputs and errors, with exact command, exit code, elapsed time, byte count and SHA-256. Each output stream has an explicit cap of at most 1 MiB enforced by the host process's file-size limit; reaching the cap is visible. Timeouts and unattempted commands after deadline exhaustion remain explicit. Unsupported commands, missing `/proc` paths, unavailable Binder services or collector exceptions cannot erase the original preparation error. Existing raw bundles are preserved. A failed guest guard produces no diagnostic device access; a successful preparation runs no failure collector.
+
+The command behavior is grounded in Android 10 r47 primary sources:
+
+- [Toybox `pidof.c`](https://android.googlesource.com/platform/external/toybox/+/refs/tags/android-10.0.0_r47/toys/lsb/pidof.c) delegates name matching to [`names_to_pid`](https://android.googlesource.com/platform/external/toybox/+/refs/tags/android-10.0.0_r47/lib/lib.c). Name matching is not an immutable owner-lifetime record.
+- [Zygote specialization and child handling](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-10.0.0_r47/core/jni/com_android_internal_os_Zygote.cpp) sets the system-server name and logs child termination. Zygote can terminate when its system-server child terminates; that is a possible mechanism to investigate from future raw logs, not a proved explanation for this run.
+- [`logcat.cpp`](https://github.com/aosp-mirror/platform_system_core/blob/android-10.0.0_r47/logcat/logcat.cpp) defines bounded recent output with `-t`, and [`dmesg.c`](https://android.googlesource.com/platform/external/toybox/+/refs/tags/android-10.0.0_r47/toys/lsb/dmesg.c) supports a sized read of the kernel buffer. Neither dump clears history.
+- [`DropBoxManagerService.java`](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-10.0.0_r47/services/core/java/com/android/server/DropBoxManagerService.java) supports printing entries filtered by a tag. Each tag is requested separately because multiple filters are conjunctive; a dead system server may make this evidence unavailable.
+- The first-hand [emulator-runner issue 264](https://github.com/ReactiveCircus/android-emulator-runner/issues/264) describes a different API 29 startup-heap race. It supports investigating VM startup evidence, not guessing that every later Binder failure has that cause.
+
+Offline fixtures preserve the actual run11 PID/code/message pattern while explicitly labeling their new diagnostic bytes as synthetic. They verify that an apparently successful later diagnostic observation cannot turn the failure into readiness, that the original error survives timeouts/collector errors, that the diagnostic deadline cannot extend a preparation phase, and that raw bytes, hashes and output caps are preserved. Real guest diagnostic evidence remains pending a new run; the old failed artifact remains unchanged.
+
 ## Approval remains separate
 
 Correct preparation is a prerequisite, not a stability result. The candidate must still pass the source-built native regressions and exact binary pins, APK/JVM/lint verification, all six short Android jobs, the complete two-hour optimized-release AWG2 soak, and desktop regression gates. The acceptance criteria and physical-device limitations remain in [ANDROID.md](ANDROID.md).

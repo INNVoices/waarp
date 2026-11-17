@@ -8,10 +8,12 @@ existing VM's Runtime.maxMemory().
 """
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import resource
 import shutil
 import subprocess
 import sys
@@ -36,6 +38,9 @@ PROPERTIES = (
     "sys.boot_completed", "init.svc.zygote", "init.svc.zygote_secondary",
 )
 MAX_COMMAND_OUTPUT = 16 * 1024
+FAILURE_DIAGNOSTIC_SECONDS = 12
+FAILURE_DIAGNOSTIC_COMMAND_SECONDS = 2
+FAILURE_DIAGNOSTIC_BYTES = 1024 * 1024
 
 
 class PreparationError(ValueError):
@@ -52,20 +57,41 @@ def run_command(arguments, timeout):
                           errors="replace", timeout=timeout)
 
 
+def run_diagnostic_command(arguments, timeout, stdout_path, stderr_path, output_limit):
+    """Bound each raw stream on disk; never buffer an unbounded guest dump."""
+    def limit_files():
+        resource.setrlimit(resource.RLIMIT_FSIZE, (output_limit, output_limit))
+
+    outcome = {"exitCode": None, "timedOut": False}
+    with stdout_path.open("xb") as stdout, stderr_path.open("xb") as stderr:
+        try:
+            result = subprocess.run(arguments, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
+                                    timeout=timeout, preexec_fn=limit_files)
+            outcome["exitCode"] = result.returncode
+        except subprocess.TimeoutExpired:
+            outcome.update(timedOut=True, error="TimeoutExpired")
+        except OSError as error:
+            outcome["error"] = type(error).__name__ + ": " + str(error)
+    return outcome
+
+
 class Preparation:
     def __init__(self, serial, disposable, report_path, *, adb="adb",
-                 command_runner=run_command, monotonic=time.monotonic, sleep=time.sleep):
+                 command_runner=run_command, diagnostic_runner=run_diagnostic_command,
+                 monotonic=time.monotonic, sleep=time.sleep):
         self.serial = serial
         self.disposable = disposable
         self.report_path = Path(report_path)
         self.prefix = [adb, "-s", serial or ""]
         self.command_runner = command_runner
+        self.diagnostic_runner = diagnostic_runner
         self.monotonic = monotonic
         self.sleep = sleep
         self.started = monotonic()
         self.deadline = self.started
         self.expected_zygotes = ()
         self.old_ids = set()
+        self.diagnostics_allowed = False
         self.report = {
             "schemaVersion": 1, "checkedAtUtc": datetime.now(timezone.utc).isoformat(),
             "passed": False, "serial": serial, "disposableEmulator": disposable,
@@ -232,6 +258,9 @@ class Preparation:
         require(props["ro.debuggable"] == "1", "The selected emulator is not debuggable")
         require(props["ro.zygote"] in ZYGOTES, "Unsupported ro.zygote configuration")
         self.expected_zygotes = ZYGOTES[props["ro.zygote"]]
+        # Only this positively identified disposable API29 guest may contribute
+        # failure logs. A bad serial/API/QEMU/debuggable guard performs no dump.
+        self.diagnostics_allowed = True
         self.report["expectedZygoteProcesses"] = list(self.expected_zygotes)
         self.unique_pids("beforePids", "Initial zygote/system_server processes did not become unique")
         uid = self.shell("id", "-u").stdout.strip()
@@ -386,6 +415,86 @@ class Preparation:
         }
         return result.returncode == 1 and not result.stdout.strip() and result.stderr.strip() in messages
 
+    def failure_diagnostic_plan(self):
+        # These are observations after a permanent failure. In particular, cat
+        # the accepted numeric PIDs even when pidof no longer finds their name:
+        # a missing name alone does not independently prove process death.
+        accepted = sorted({pid for group in self.report["newPids"].values() for pid in group})
+        require(len(accepted) <= 3 and all(type(pid) is int and 1 < pid <= 2**31 - 1 for pid in accepted),
+                "Invalid accepted PID set for failure diagnostics")
+        plan = []
+        if accepted:
+            plan.append(("accepted-pids-stat", ("shell", "cat", *(f"/proc/{pid}/stat" for pid in accepted)), 16384))
+        plan.extend([
+            ("logcat-crash", ("shell", "logcat", "-b", "crash", "-v", "threadtime", "-t", "256"), FAILURE_DIAGNOSTIC_BYTES),
+            ("logcat-recent", ("shell", "logcat", "-b", "all", "-v", "threadtime", "-t", "2000"), FAILURE_DIAGNOSTIC_BYTES),
+            ("kernel", ("shell", "dmesg", "-S", "-s", "262144"), 512 * 1024),
+            ("processes", ("shell", "ps", "-A", "-o", "PID,PPID,NAME,CMDLINE"), 128 * 1024),
+            ("properties", ("shell", "getprop"), 128 * 1024),
+            ("memory-and-uptime", ("shell", "cat", "/proc/meminfo", "/proc/uptime"), 16384),
+        ])
+        for pid in accepted:
+            plan.append((f"accepted-pid-{pid}", ("shell", "cat", f"/proc/{pid}/stat", f"/proc/{pid}/status",
+                                                f"/proc/{pid}/cmdline"), 16384))
+        for tag in ("system_server_crash", "system_server_native_crash", "system_server_watchdog", "SYSTEM_TOMBSTONE"):
+            plan.append(("dropbox-" + tag, ("shell", "dumpsys", "-t", "1", "dropbox", "--print", tag), 256 * 1024))
+        return plan
+
+    def collect_failure_diagnostics(self):
+        require(self.report["passed"] is False and self.report.get("error"), "Diagnostics require a recorded failure")
+        if not self.diagnostics_allowed:
+            self.report["failureDiagnostics"] = {"attempted": False, "reason": "Disposable API29 guest guards were not confirmed"}
+            return
+        started = self.monotonic()
+        deadline = started + FAILURE_DIAGNOSTIC_SECONDS
+        directory = self.report_path.with_name(self.report_path.stem + "-diagnostics")
+        evidence = {"attempted": True, "collectionFinished": False,
+                    "triggerPhase": self.report.get("phase"), "triggerError": self.report["error"],
+                    "startedSeconds": self.elapsed(), "timeoutSeconds": FAILURE_DIAGNOSTIC_SECONDS,
+                    "perCommandTimeoutSeconds": FAILURE_DIAGNOSTIC_COMMAND_SECONDS,
+                    "commands": [], "scope": "Read-only observations after permanent setup failure; not readiness, recovery or an application test."}
+        self.report["failureDiagnostics"] = evidence
+        self.save()
+        try:
+            # A second invocation cannot overwrite the first failure's raw logs.
+            directory.mkdir(exist_ok=False)
+            for name, arguments, limit in self.failure_diagnostic_plan():
+                entry = {"name": name, "arguments": list(arguments), "attempted": False,
+                         "outputLimitBytesPerStream": limit}
+                evidence["commands"].append(entry)
+                remaining = deadline - self.monotonic()
+                if remaining <= 0:
+                    entry["skipped"] = "Diagnostic deadline exhausted"
+                    continue
+                entry.update(attempted=True, startedSeconds=self.elapsed(),
+                             timeoutSeconds=min(FAILURE_DIAGNOSTIC_COMMAND_SECONDS, remaining))
+                self.save()
+                command_started = self.monotonic()
+                paths = {stream: directory / (name + "." + stream + ".txt") for stream in ("stdout", "stderr")}
+                try:
+                    outcome = self.diagnostic_runner(self.prefix + list(arguments), entry["timeoutSeconds"],
+                                                     paths["stdout"], paths["stderr"], limit)
+                    entry.update(outcome)
+                except (Exception, KeyboardInterrupt) as error:
+                    entry["collectorError"] = type(error).__name__ + ": " + str(error)
+                finally:
+                    entry["seconds"] = round(self.monotonic() - command_started, 3)
+                    for stream, path in paths.items():
+                        if not path.is_file():
+                            entry[stream] = {"available": False}
+                            continue
+                        size = path.stat().st_size
+                        require(size <= limit, "Diagnostic runner exceeded its raw output cap")
+                        entry[stream] = {"available": True, "file": str(path.relative_to(self.report_path.parent)),
+                                         "bytes": size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                                         "limitReached": size == limit}
+                    self.save()
+            evidence["collectionFinished"] = True
+        finally:
+            evidence["seconds"] = round(self.monotonic() - started, 3)
+            evidence["deadlineExhausted"] = self.monotonic() >= deadline
+            self.save()
+
     def run(self):
         self.save()
         try:
@@ -398,6 +507,15 @@ class Preparation:
             self.report["passed"] = True
         except (Exception, KeyboardInterrupt) as error:
             self.report["error"] = f"{type(error).__name__}: {error}"[:4096]
+            self.report["failedAfterSeconds"] = self.elapsed()
+            # Persist the original failure before observing logs. Diagnostic
+            # errors cannot replace it, extend a phase, or enter readiness again.
+            self.save()
+            try:
+                self.collect_failure_diagnostics()
+            except (Exception, KeyboardInterrupt) as diagnostic_error:
+                self.report.setdefault("failureDiagnostics", {})["collectorError"] = (
+                    type(diagnostic_error).__name__ + ": " + str(diagnostic_error))[:4096]
         finally:
             self.report["wallSeconds"] = self.elapsed()
             self.save()

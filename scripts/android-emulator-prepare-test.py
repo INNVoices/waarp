@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Exercise API 29 preparation ordering and failures without a real ADB device."""
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -38,6 +40,10 @@ class FakeAdb:
         self.restoring = False
         self.restore_waits = 0
         self.restore_uid_reads = 0
+        self.names_lost = False
+        self.diagnostic_mode = "ok"
+        self.diagnostic_events = []
+        self.report_path = None
         self.old = {"zygote": [101], "zygote64": [102], "system_server": [103]}
         self.new = {"zygote": [201], "zygote64": [202], "system_server": [203]}
         self.props = {
@@ -67,6 +73,8 @@ class FakeAdb:
             return self.old
         if self.scenario == "new_server_missing":
             return {"zygote": [201], "zygote64": [202], "system_server": []}
+        if self.names_lost:
+            return {"zygote": self.new["zygote"], "zygote64": [], "system_server": []}
         if self.restoring and self.scenario == "restore_pid_changed":
             return {**self.new, "system_server": [204]}
         return self.new
@@ -182,16 +190,41 @@ class FakeAdb:
                 self.props["sys.boot_completed"] = "0"
             return self.result(arguments)
         if args == ("shell", "cmd", "activity", "get-config"):
+            if self.scenario == "run11_binder_name_loss":
+                return self.result(arguments, 224, stderr="cmd: Failure calling service activity: Broken pipe (32)\n")
             if self.scenario == "activity_error" or (self.restoring and self.scenario == "restore_binder_error"):
                 return self.result(arguments, stdout="Error dumping service info: (Unknown error -32) activity\n")
             return self.result(arguments, stdout="config: en-rUS-port-night-xhdpi\nabi: x86_64,x86\n")
         if args == ("shell", "cmd", "package", "path", "android"):
+            if self.scenario == "run11_binder_name_loss":
+                self.names_lost = True
+                return self.result(arguments, 224, stderr="cmd: Failure calling service package: Broken pipe (32)\n")
             if self.scenario == "package_error":
                 return self.result(arguments, stdout="Error: package service is not ready\n")
             if self.scenario == "pid_changes_during_binder":
                 self.new = {**self.new, "system_server": [204]}
             return self.result(arguments, stdout="package:/system/framework/framework-res.apk\n")
         raise AssertionError("Unexpected ADB command: " + repr(args))
+
+    def diagnose(self, arguments, timeout, stdout_path, stderr_path, output_limit):
+        assert arguments[:3] == ["fake-adb", "-s", "emulator-5554"], arguments
+        # Collector must start only after the original failure was durable.
+        persisted = json.loads(self.report_path.read_text())
+        assert persisted["passed"] is False and persisted.get("error")
+        args = tuple(arguments[3:])
+        self.diagnostic_events.append((args, timeout, persisted["error"]))
+        if self.diagnostic_mode == "collector_error":
+            raise OSError("synthetic diagnostic transport failure")
+        if self.diagnostic_mode == "timeout":
+            self.clock.sleep(timeout)
+            stdout_path.write_bytes(b"synthetic partial observation before timeout\n")
+            stderr_path.write_bytes(b"")
+            return {"exitCode": None, "timedOut": True, "error": "TimeoutExpired"}
+        self.clock.sleep(min(0.01, timeout))
+        raw = b"synthetic diagnostic fixture\x00raw bytes\xff\n"
+        stdout_path.write_bytes(raw[:output_limit])
+        stderr_path.write_bytes(b"synthetic stderr\n")
+        return {"exitCode": 0, "timedOut": False}
 
     def commands(self):
         return [args for args, _, _ in self.events]
@@ -206,14 +239,24 @@ class EmulatorPreparationTests(unittest.TestCase):
     def execute(self, fake, *, serial="emulator-5554", disposable=True):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "nested/preparation.json"
+            fake.report_path = path
             task = prepare.Preparation(serial, disposable, path, adb="fake-adb",
-                                       command_runner=fake.run, monotonic=fake.clock.monotonic,
+                                       command_runner=fake.run, diagnostic_runner=fake.diagnose,
+                                       monotonic=fake.clock.monotonic,
                                        sleep=fake.clock.sleep)
             report = task.run()
             self.assertEqual(json.loads(path.read_text()), report)
             self.assertIsNone(report["actualRuntimeMaxHeapBytes"])
             self.assertLessEqual(len(report["recentCommands"]), 128)
             self.assertTrue(all(len(item.get("output", "")) <= 2048 for item in report["recentCommands"]))
+            for entry in report.get("failureDiagnostics", {}).get("commands", []):
+                for stream in ("stdout", "stderr"):
+                    raw = entry.get(stream, {})
+                    if raw.get("available"):
+                        captured = path.parent / raw["file"]
+                        self.assertEqual(raw["bytes"], captured.stat().st_size)
+                        self.assertEqual(raw["sha256"], hashlib.sha256(captured.read_bytes()).hexdigest())
+                        self.assertLessEqual(raw["bytes"], entry["outputLimitBytesPerStream"])
             return report
 
     def assert_no_start(self, fake):
@@ -552,6 +595,120 @@ class EmulatorPreparationTests(unittest.TestCase):
         self.assertFalse(report["passed"])
         self.assertEqual(fake.mutations(), [])
         self.assertIn("bound", report["error"])
+
+    def test_run11_binder_and_name_loss_stay_failed_before_read_only_diagnostics(self):
+        fake = FakeAdb("run11_binder_name_loss")
+        # Actual run11 codes, messages and PID/name observations. Subsequent
+        # diagnostic bytes are explicit synthetic fixtures, not recovered logs.
+        fake.old = {"zygote": [1665], "zygote64": [1664], "system_server": [1919]}
+        fake.new = {"zygote": [3394], "zygote64": [3393], "system_server": [3443]}
+        report = self.execute(fake)
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["error"], "PreparationError: Framework PIDs changed during Binder readiness checks")
+        self.assertEqual(report["newPids"], fake.new)
+        self.assertEqual(report["lastReadyPids"], {"zygote": [3394], "zygote64": [], "system_server": []})
+        binder = [row for row in report["recentCommands"] if row["arguments"][:2] == ["shell", "cmd"]]
+        self.assertEqual([row["exitCode"] for row in binder], [224, 224])
+        evidence = report["failureDiagnostics"]
+        self.assertEqual(evidence["triggerError"], report["error"])
+        self.assertTrue(evidence["collectionFinished"])
+        self.assertGreaterEqual(evidence["startedSeconds"], report["failedAfterSeconds"])
+        commands = [row["arguments"] for row in evidence["commands"]]
+        self.assertEqual(commands[0], ["shell", "cat", "/proc/3393/stat", "/proc/3394/stat", "/proc/3443/stat"])
+        self.assertIn(["shell", "cat", "/proc/3393/stat", "/proc/3393/status", "/proc/3393/cmdline"], commands)
+        self.assertTrue(all(args[0] == "shell" and args[1] in ("cat", "logcat", "dmesg", "ps", "getprop", "dumpsys") for args in commands))
+        self.assertTrue(all("-c" not in args and "--clear" not in args for args in commands))
+        self.assertEqual(fake.mutations(), [("root",), ("shell", "stop"),
+                                           ("shell", "setprop", "dalvik.vm.heapsize", "512m"), ("shell", "start")])
+        self.assertEqual(fake.commands().count(("shell", "cmd", "activity", "get-config")), 1)
+        self.assertEqual(fake.commands().count(("shell", "cmd", "package", "path", "android")), 1)
+        self.assertEqual(fake.pid_polls["started"], 2)
+        raw = b"synthetic diagnostic fixture\x00raw bytes\xff\n"
+        self.assertEqual(evidence["commands"][0]["stdout"]["sha256"], hashlib.sha256(raw).hexdigest())
+
+    def test_failed_diagnostic_timeout_has_separate_fixed_budget_and_never_retries_setup(self):
+        fake = FakeAdb("run11_binder_name_loss")
+        fake.diagnostic_mode = "timeout"
+        report = self.execute(fake)
+        evidence = report["failureDiagnostics"]
+        self.assertFalse(report["passed"])
+        self.assertIn("PIDs changed", report["error"])
+        self.assertEqual(evidence["timeoutSeconds"], 12)
+        self.assertAlmostEqual(evidence["seconds"], 12, places=3)
+        self.assertTrue(evidence["deadlineExhausted"])
+        attempted = [row for row in evidence["commands"] if row["attempted"]]
+        skipped = [row for row in evidence["commands"] if not row["attempted"]]
+        self.assertEqual(len(attempted), 6)
+        self.assertTrue(all(row["timedOut"] for row in attempted))
+        self.assertTrue(skipped and all(row["skipped"] == "Diagnostic deadline exhausted" for row in skipped))
+        self.assertTrue(all(timeout <= 2 for _, timeout, _ in fake.diagnostic_events))
+        self.assertEqual(report["phase"], "start-and-readiness")
+        self.assertEqual(report["phases"][-1]["timeoutSeconds"], 120)
+        self.assertLess(report["phases"][-1]["seconds"], 1)
+        self.assertEqual(fake.commands().count(("shell", "start")), 1)
+        self.assertNotIn(("unroot",), fake.commands())
+
+    def test_diagnostic_errors_do_not_mask_original_failure_or_claim_empty_logs(self):
+        fake = FakeAdb("run11_binder_name_loss")
+        fake.diagnostic_mode = "collector_error"
+        report = self.execute(fake)
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["error"], "PreparationError: Framework PIDs changed during Binder readiness checks")
+        entries = report["failureDiagnostics"]["commands"]
+        self.assertTrue(entries)
+        for entry in entries:
+            self.assertIn("synthetic diagnostic transport failure", entry["collectorError"])
+            self.assertEqual(entry["stdout"], {"available": False})
+            self.assertEqual(entry["stderr"], {"available": False})
+        self.assertEqual(fake.commands().count(("shell", "start")), 1)
+
+    def test_success_and_unconfirmed_guest_guards_never_collect_failure_logs(self):
+        fake = FakeAdb()
+        report = self.execute(fake)
+        self.assertTrue(report["passed"])
+        self.assertNotIn("failureDiagnostics", report)
+        self.assertEqual(fake.diagnostic_events, [])
+        for serial, disposable in (("physical-device", True), ("emulator-5554", False)):
+            fake = FakeAdb()
+            report = self.execute(fake, serial=serial, disposable=disposable)
+            self.assertFalse(report["passed"])
+            self.assertFalse(report["failureDiagnostics"]["attempted"])
+            self.assertEqual(fake.diagnostic_events, [])
+        fake = FakeAdb()
+        fake.props["ro.build.version.sdk"] = "35"
+        report = self.execute(fake)
+        self.assertFalse(report["failureDiagnostics"]["attempted"])
+        self.assertEqual(fake.diagnostic_events, [])
+
+    def test_existing_failure_bundle_is_preserved_without_masking_failure(self):
+        fake = FakeAdb("run11_binder_name_loss")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "preparation.json"
+            raw = Path(directory) / "preparation-diagnostics"
+            raw.mkdir()
+            previous = raw / "previous.txt"
+            previous.write_bytes(b"earlier immutable failure evidence")
+            fake.report_path = path
+            task = prepare.Preparation("emulator-5554", True, path, adb="fake-adb", command_runner=fake.run,
+                                       diagnostic_runner=fake.diagnose, monotonic=fake.clock.monotonic, sleep=fake.clock.sleep)
+            report = task.run()
+            self.assertFalse(report["passed"])
+            self.assertIn("PIDs changed", report["error"])
+            self.assertIn("FileExistsError", report["failureDiagnostics"]["collectorError"])
+            self.assertEqual(previous.read_bytes(), b"earlier immutable failure evidence")
+            self.assertEqual(fake.diagnostic_events, [])
+
+    def test_raw_diagnostic_subprocess_cannot_exceed_file_limit(self):
+        # A local Python writer exercises the actual file cap; no ADB or app runs.
+        with tempfile.TemporaryDirectory() as directory:
+            out, err = Path(directory) / "out.bin", Path(directory) / "err.bin"
+            outcome = prepare.run_diagnostic_command(
+                [sys.executable, "-c", "import os; os.write(1, b'x'*65536); os.write(2, b'y'*65536)"],
+                2, out, err, 1024)
+            self.assertFalse(outcome["timedOut"])
+            self.assertLessEqual(out.stat().st_size, 1024)
+            self.assertLessEqual(err.stat().st_size, 1024)
+            self.assertEqual(out.read_bytes(), b"x" * 1024)
 
 
 if __name__ == "__main__":

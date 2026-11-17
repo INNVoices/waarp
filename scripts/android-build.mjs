@@ -72,6 +72,17 @@ async function main() {
   }
   const acceptanceName = 'waarp-android-release-acceptance.apk';
   await copyFile(resolve(acceptanceDirectory, acceptanceMetadata.elements[0].outputFile), resolve(output, acceptanceName));
+  const signatureReports = resolve(repositoryRoot, 'android/app/build/reports/junit-signatures');
+  await mkdir(signatureReports, { recursive: true });
+  for (const [name, suite] of [[testName, 'debug'], [acceptanceName, 'release']]) {
+    // Failure diagnostics must survive removal of the unpublished staging set.
+    const report = resolve(signatureReports, `${name}.json`);
+    await run(process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3'), [
+      'scripts/android-junit-signatures.py', resolve(output, name), '--suite', suite,
+      '--report', report,
+    ]);
+    await copyFile(report, resolve(output, `${name}.junit-signatures.json`));
+  }
   await run(process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3'), [
     'scripts/android-test-report.py', 'android/app/build/test-results/testDebugUnitTest', '--report', resolve(output, 'unit-tests.json'),
   ]);

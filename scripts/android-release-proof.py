@@ -73,7 +73,10 @@ def validate_explicit_off(rows, observed):
             "Explicit OFF summary and raw observations disagree.")
 
 
-def validate_device(directory, mode, installed, duration=7200, interval=15):
+def validate_device(directory, mode, installed, duration=7200, interval=15, *, expected_page_size):
+    preparation_spec = importlib.util.spec_from_file_location("android_ftrace_prepare", ROOT / "scripts/android-ftrace-prepare.py")
+    preparation = importlib.util.module_from_spec(preparation_spec); preparation_spec.loader.exec_module(preparation)
+    ftrace_preparation = preparation.validate_report(directory / "ftrace-preparation.json", expected_page_size)
     evidence = directory / "app-evidence"
     kind = "smoke" if mode == "journeys" else "soak"
     source = one(evidence, f"release-{kind}.json")
@@ -182,7 +185,8 @@ def validate_device(directory, mode, installed, duration=7200, interval=15):
     frames = importlib.util.module_from_spec(frame_spec); frame_spec.loader.exec_module(frames)
     foreground = frames.validate(evidence, summary, directory / "foreground-traces")
     return {"summary": summary, "summarySha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-            "rawTrafficRows": len(traffic), "screenshots": list(screenshots), "foregroundFrames": foreground, "passed": True}
+            "rawTrafficRows": len(traffic), "screenshots": list(screenshots), "foregroundFrames": foreground,
+            "emulatorImage": ftrace_preparation["imageProof"], "ftracePreparation": ftrace_preparation, "passed": True}
 
 
 def main():
@@ -194,7 +198,14 @@ def main():
     require(run["passedGate"] is True and run["tests"] == run["passed"] == 1 and run["failed"] == run["skipped"] == 0,
             "The release instrumentation did not pass exactly one complete scenario.")
     checked = validate_device(directory, run["mode"], run["installedApk"], run.get("requestedDurationSeconds") or 7200,
-                              run["requestedIntervalSeconds"])
+                              run["requestedIntervalSeconds"], expected_page_size=run["device"]["pageSize"])
+    require(run["ftracePreparation"] == checked["ftracePreparation"]
+            and run["deviceEvidence"]["ftracePreparation"] == checked["ftracePreparation"]
+            and run["emulatorImage"] == run["deviceEvidence"]["emulatorImage"] == checked["emulatorImage"],
+            "Recorded image/ftrace preparation differs from independent raw verification.")
+    image_device = checked["emulatorImage"]["device"]
+    require(int(run["device"]["sdk"]) == image_device["sdk"] and run["device"]["abi"] == image_device["abi"]
+            and run["device"]["pageSize"] == image_device["pageSize"], "Release run and image identity disagree.")
     spec = importlib.util.spec_from_file_location("awg_proof_reader", ROOT / "scripts/android-awg-control.py")
     peer = importlib.util.module_from_spec(spec); spec.loader.exec_module(peer)
     proof = peer.read_proof(directory / "awg-proof.json")
@@ -208,7 +219,8 @@ def main():
         require(host_span >= run["requestedDurationSeconds"] * 1000, "The peer did not observe two actual hours of encrypted traffic.")
     result = {"schemaVersion": 1, "passed": True, "mode": run["mode"], "summarySha256": checked["summarySha256"],
               "deviceRounds": summary["successfulRounds"], "deviceHttpBytes": summary["httpBytes"],
-              "hostTrafficSpanMs": host_span, "hostProof": proof}
+              "hostTrafficSpanMs": host_span, "hostProof": proof, "emulatorImage": checked["emulatorImage"],
+              "ftracePreparation": checked["ftracePreparation"]}
     (directory / "reconciled-proof.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps({key: value for key, value in result.items() if key != "hostProof"}))
 
