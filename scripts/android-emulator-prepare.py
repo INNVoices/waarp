@@ -305,16 +305,86 @@ class Preparation:
         self.wait_for_retained_pids("Framework PIDs changed before preparation completed")
 
     def restore_shell(self):
+        evidence = {
+            "unrootIssued": False, "unrootExitCode": None,
+            "unrootTransportClosed": False, "waitTimeouts": 0,
+            "transportDisconnectObservations": 0, "uidObservations": 0,
+            "originalUidObserved": False, "finalUidConfirmed": False,
+            "binderReady": {"activity": False, "package": False},
+            "pidsRetained": False, "heapPreserved": False, "verified": False,
+        }
+        self.report["shellIdentityRestoration"] = evidence
         if self.report["originalShellUid"] == 2000:
-            self.command("unroot", mutation=True)
-            self.command("wait-for-device")
-        uid = self.shell("id", "-u").stdout.strip()
+            evidence["unrootIssued"] = True
+            result = self.command("unroot", allowed=None, mutation=True)
+            evidence["unrootExitCode"] = result.returncode
+            # Android 10 restart_unroot_service sets service.adb.root=0 before
+            # writing its reply. This exact EOF can leave the mutation outcome
+            # unknown; it is never success without the read-only proof below.
+            evidence["unrootTransportClosed"] = (
+                result.returncode == 1 and not result.stdout.strip()
+                and result.stderr.strip() == "adb: unable to connect for unroot: closed")
+            require((result.returncode == 0 and not result.stderr.strip())
+                    or evidence["unrootTransportClosed"],
+                    "ADB unroot failed without a recognized transport closure")
+
+        def observed_original_uid():
+            if evidence["unrootIssued"]:
+                try:
+                    result = self.command("wait-for-device", allowed=None)
+                except PreparationError as error:
+                    # Only this read-only transport wait can use another slice
+                    # of the existing 30-second phase. Never resend unroot.
+                    if isinstance(error.__cause__, subprocess.TimeoutExpired):
+                        evidence["waitTimeouts"] += 1
+                        return False
+                    raise
+                if self.restore_transport_disconnected(result):
+                    evidence["transportDisconnectObservations"] += 1
+                    return False
+                require(result.returncode == 0 and not result.stdout.strip() and not result.stderr.strip(),
+                        "ADB reconnect observation failed")
+            result = self.shell("id", "-u", allowed=None)
+            if evidence["unrootIssued"] and self.restore_transport_disconnected(result):
+                evidence["transportDisconnectObservations"] += 1
+                return False
+            require(result.returncode == 0 and not result.stderr.strip(), "ADB shell UID observation failed")
+            uid = result.stdout.strip()
+            self.report["finalShellUid"] = int(uid) if uid.isdigit() else uid
+            require(uid in ("0", "2000"), "Unexpected ADB shell UID while restoring identity")
+            evidence["uidObservations"] += 1
+            evidence["originalUidObserved"] = uid == str(self.report["originalShellUid"])
+            return evidence["originalUidObserved"]
+
+        self.poll(observed_original_uid, "Original ADB shell UID was not restored")
+        # Require fresh Binder transactions through the restored shell, retaining
+        # every accepted framework owner. Earlier root-side readiness is not proof.
+        self.poll(self.ready, "Framework did not retain Binder readiness after ADB identity restoration")
+        evidence["binderReady"] = dict(self.report["binderReady"])
+        result = self.shell("id", "-u")
+        require(not result.stderr.strip(), "Final ADB shell UID observation returned an error")
+        uid = result.stdout.strip()
         self.report["finalShellUid"] = int(uid) if uid.isdigit() else uid
         require(uid == str(self.report["originalShellUid"]), "Original ADB shell UID was not restored")
+        evidence["finalUidConfirmed"] = True
         self.wait_for_retained_pids("Framework PIDs changed while restoring ADB identity")
+        evidence["pidsRetained"] = True
         require(self.prop(HEAP_PROPERTY) == HEAP_VALUE, "Heap property changed while restoring ADB identity")
         require(self.prop("dalvik.vm.heapgrowthlimit") == self.report["beforeProperties"]["dalvik.vm.heapgrowthlimit"],
                 "Heap growth limit changed while restoring ADB identity")
+        evidence["heapPreserved"] = True
+        evidence["verified"] = True
+
+    def restore_transport_disconnected(self, result):
+        # Exact ADB transport diagnostics only. Permission/auth/service/unknown
+        # failures must not be turned into reconnect polling or a successful UID.
+        messages = {
+            "error: closed", "adb: error: closed",
+            "error: device offline", "adb: error: device offline",
+            f"error: device '{self.serial}' not found",
+            f"adb: error: device '{self.serial}' not found",
+        }
+        return result.returncode == 1 and not result.stdout.strip() and result.stderr.strip() in messages
 
     def run(self):
         self.save()

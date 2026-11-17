@@ -182,13 +182,16 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    // 5.5.x requires compileSdk 37; retain the validated API36/AGP8 toolchain.
-    implementation("com.squareup.okhttp3:okhttp:5.3.2")
+    // 5.4.0 bounds HTTP/2 headers and supports compileSdk 36. CompromisedCaGuard
+    // applies the 5.5.1 SPKI blocklist without the 5.5.x compileSdk 37 requirement.
+    implementation("com.squareup.okhttp3:okhttp:5.4.0")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.google.zxing:core:3.5.3")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:okhttp-tls:5.4.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver3:5.4.0")
     testImplementation("org.json:json:20240303")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     androidTestImplementation("androidx.test:runner:1.7.0")

@@ -41,6 +41,7 @@ data class CatalogResult(val profiles: List<TunnelProfile>, val sources: List<Ca
 class NetworkTools(context: Context) {
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
     private val http = OkHttpClient.Builder()
+        .addNetworkInterceptor(CompromisedCaGuard())
         .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false)
         .connectTimeout(10, TimeUnit.SECONDS).readTimeout(12, TimeUnit.SECONDS)
         .callTimeout(30, TimeUnit.SECONDS).build()

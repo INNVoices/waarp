@@ -35,6 +35,9 @@ class FakeAdb:
         self.pid_polls = {"original": 0, "started": 0}
         self.pid_sequences = {"original": [], "started": []}
         self.events = []
+        self.restoring = False
+        self.restore_waits = 0
+        self.restore_uid_reads = 0
         self.old = {"zygote": [101], "zygote64": [102], "system_server": [103]}
         self.new = {"zygote": [201], "zygote64": [202], "system_server": [203]}
         self.props = {
@@ -64,6 +67,8 @@ class FakeAdb:
             return self.old
         if self.scenario == "new_server_missing":
             return {"zygote": [201], "zygote64": [202], "system_server": []}
+        if self.restoring and self.scenario == "restore_pid_changed":
+            return {**self.new, "system_server": [204]}
         return self.new
 
     def old_pid_exists(self, pid):
@@ -86,17 +91,62 @@ class FakeAdb:
                 self.uid = 0
             return self.result(arguments, stdout="restarting adbd as root\n")
         if args == ("unroot",):
-            if self.scenario != "restore_denied":
+            self.restoring = True
+            if self.scenario not in ("restore_denied", "unroot_closed_stays_root"):
                 self.uid = 2000
+            if self.scenario in ("unroot_closed", "unroot_closed_stays_root", "restore_transient_transport"):
+                # Actual run9 command outcome. Any later UID/transport state is
+                # an explicit synthetic fixture, never an inferred run9 result.
+                return self.result(arguments, 1, stderr="adb: unable to connect for unroot: closed\n")
+            if self.scenario == "unroot_generic_error":
+                return self.result(arguments, 1, stderr="adb: unable to connect for unroot: permission denied\n")
+            if self.scenario == "unroot_other_closed":
+                return self.result(arguments, 1, stderr="adb: unable to connect for unroot: closed: permission denied\n")
+            if self.scenario == "unroot_stdout_closed":
+                return self.result(arguments, 1, stdout="adb: unable to connect for unroot: closed\n")
+            if self.scenario == "unroot_timeout":
+                self.clock.sleep(timeout - 0.01)
+                raise subprocess.TimeoutExpired(arguments, timeout)
             return self.result(arguments, stdout="restarting adbd as non root\n")
         if args == ("wait-for-device",):
+            if self.restoring:
+                self.restore_waits += 1
+                if self.scenario == "restore_wait_timeout" or (
+                        self.scenario == "restore_transient_transport" and self.restore_waits == 1):
+                    self.clock.sleep(timeout - 0.01)
+                    raise subprocess.TimeoutExpired(arguments, timeout)
+                if self.scenario == "restore_transient_transport" and self.restore_waits == 2:
+                    return self.result(arguments, 1, stderr="error: device offline\n")
+                if self.scenario == "restore_wait_error":
+                    return self.result(arguments, 1, stderr="error: device unauthorized\n")
             return self.result(arguments)
         if args == ("shell", "id", "-u"):
+            if self.restoring:
+                self.restore_uid_reads += 1
+                if self.scenario == "restore_transient_transport":
+                    if self.restore_uid_reads == 1:
+                        return self.result(arguments, 1, stderr="error: closed\n")
+                    if self.restore_uid_reads == 2:
+                        return self.result(arguments, stdout="0\n")
+                if self.scenario == "restore_uid_unexpected":
+                    return self.result(arguments, stdout="1000\n")
+                if self.scenario == "restore_uid_malformed":
+                    return self.result(arguments, stdout="2000 0\n")
+                if self.scenario == "restore_uid_error":
+                    return self.result(arguments, 1, stderr="id: permission denied\n")
+                if self.scenario == "restore_final_uid_changed" and self.restore_uid_reads > 1:
+                    return self.result(arguments, stdout="0\n")
+                if self.scenario == "restore_final_uid_stderr" and self.restore_uid_reads > 1:
+                    return self.result(arguments, stdout="2000\n", stderr="id: permission denied\n")
             return self.result(arguments, stdout=str(self.uid) + "\n")
         if args[:2] == ("shell", "getprop"):
             value = self.props.get(args[2], "")
             if self.scenario == "oversized_property" and args[2] == "ro.build.version.sdk":
                 value = "x" * (prepare.MAX_COMMAND_OUTPUT + 1)
+            if self.restoring and self.scenario == "restore_heap_changed" and args[2] == prepare.HEAP_PROPERTY:
+                value = "256m"
+            if self.restoring and self.scenario == "restore_growth_changed" and args[2] == "dalvik.vm.heapgrowthlimit":
+                value = "256m"
             return self.result(arguments, stdout=value + "\n")
         if args[:2] == ("shell", "pidof"):
             name = args[2]
@@ -132,7 +182,7 @@ class FakeAdb:
                 self.props["sys.boot_completed"] = "0"
             return self.result(arguments)
         if args == ("shell", "cmd", "activity", "get-config"):
-            if self.scenario == "activity_error":
+            if self.scenario == "activity_error" or (self.restoring and self.scenario == "restore_binder_error"):
                 return self.result(arguments, stdout="Error dumping service info: (Unknown error -32) activity\n")
             return self.result(arguments, stdout="config: en-rUS-port-night-xhdpi\nabi: x86_64,x86\n")
         if args == ("shell", "cmd", "package", "path", "android"):
@@ -263,6 +313,119 @@ class EmulatorPreparationTests(unittest.TestCase):
         self.assertEqual(report["finalShellUid"], 0)
         self.assertEqual(fake.commands().count(("unroot",)), 1)
         self.assertEqual(fake.commands().count(("shell", "start")), 1)
+
+    def test_observed_unroot_closed_requires_fresh_identity_and_framework_proof(self):
+        fake = FakeAdb("unroot_closed")
+        report = self.execute(fake)
+        self.assertTrue(report["passed"], report.get("error"))
+        mutation = next(row for row in report["mutations"] if row["arguments"] == ["unroot"])
+        self.assertEqual(mutation["exitCode"], 1)
+        self.assertEqual(mutation["output"], "adb: unable to connect for unroot: closed\n")
+        evidence = report["shellIdentityRestoration"]
+        self.assertTrue(evidence["unrootTransportClosed"])
+        self.assertEqual(evidence["unrootExitCode"], 1)
+        self.assertTrue(evidence["originalUidObserved"])
+        self.assertTrue(evidence["finalUidConfirmed"])
+        self.assertEqual(evidence["binderReady"], {"activity": True, "package": True})
+        self.assertTrue(evidence["pidsRetained"] and evidence["heapPreserved"] and evidence["verified"])
+        self.assertEqual(report["newPids"], fake.new)
+        commands = fake.commands()
+        restored = commands[commands.index(("unroot",)) + 1:]
+        first_uid = restored.index(("shell", "id", "-u"))
+        binder = restored.index(("shell", "cmd", "activity", "get-config"))
+        self.assertLess(first_uid, binder)
+        self.assertIn(("shell", "id", "-u"), restored[binder + 1:])
+        self.assertEqual(commands.count(("unroot",)), 1)
+        self.assertEqual(commands.count(("root",)), 1)
+        self.assertEqual(commands.count(("shell", "stop")), 1)
+        self.assertEqual(commands.count(("shell", "start")), 1)
+
+    def test_closed_without_observed_uid_restoration_reaches_original_deadline(self):
+        fake = FakeAdb("unroot_closed_stays_root")
+        report = self.execute(fake)
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["finalShellUid"], 0)
+        self.assertFalse(report["shellIdentityRestoration"]["verified"])
+        phase = report["phases"][-1]
+        self.assertEqual((phase["name"], phase["timeoutSeconds"]), ("restore-shell-identity", 30))
+        self.assertAlmostEqual(phase["seconds"], 30, places=2)
+        commands = fake.commands()
+        restored = commands[commands.index(("unroot",)) + 1:]
+        self.assertNotIn(("shell", "cmd", "activity", "get-config"), restored)
+        self.assertEqual(commands.count(("unroot",)), 1)
+        self.assertEqual(commands.count(("shell", "start")), 1)
+
+    def test_generic_unroot_failures_are_not_reclassified_as_disconnects(self):
+        for scenario in ("unroot_generic_error", "unroot_other_closed", "unroot_stdout_closed"):
+            with self.subTest(scenario=scenario):
+                fake = FakeAdb(scenario)
+                report = self.execute(fake)
+                self.assertFalse(report["passed"])
+                self.assertIsNone(report["finalShellUid"])
+                self.assertFalse(report["shellIdentityRestoration"]["unrootTransportClosed"])
+                self.assertEqual(fake.restore_waits, 0)
+                self.assertEqual(fake.restore_uid_reads, 0)
+                self.assertEqual(fake.commands().count(("unroot",)), 1)
+
+    def test_unroot_mutation_timeout_is_not_retried_or_turned_into_readiness(self):
+        fake = FakeAdb("unroot_timeout")
+        report = self.execute(fake)
+        self.assertFalse(report["passed"])
+        self.assertFalse(report["shellIdentityRestoration"]["verified"])
+        self.assertEqual(fake.restore_waits, 0)
+        self.assertEqual(fake.restore_uid_reads, 0)
+        self.assertEqual(fake.commands().count(("unroot",)), 1)
+
+    def test_read_only_reconnection_can_observe_timeout_closed_and_old_uid(self):
+        fake = FakeAdb("restore_transient_transport")
+        report = self.execute(fake)
+        self.assertTrue(report["passed"], report.get("error"))
+        evidence = report["shellIdentityRestoration"]
+        self.assertEqual(evidence["waitTimeouts"], 1)
+        self.assertEqual(evidence["transportDisconnectObservations"], 2)
+        self.assertEqual(evidence["uidObservations"], 2)
+        self.assertTrue(evidence["verified"])
+        self.assertEqual(fake.commands().count(("unroot",)), 1)
+        self.assertEqual(fake.commands().count(("root",)), 1)
+        self.assertEqual(fake.commands().count(("shell", "stop")), 1)
+        self.assertEqual(fake.commands().count(("shell", "start")), 1)
+        self.assertLess(report["phases"][-1]["seconds"], 30)
+
+    def test_reconnection_waits_cannot_extend_original_phase_budget(self):
+        fake = FakeAdb("restore_wait_timeout")
+        report = self.execute(fake)
+        self.assertFalse(report["passed"])
+        self.assertIsNone(report["finalShellUid"])
+        self.assertEqual(report["phases"][-1]["timeoutSeconds"], 30)
+        self.assertAlmostEqual(report["phases"][-1]["seconds"], 30, places=2)
+        self.assertFalse(report["shellIdentityRestoration"]["verified"])
+        self.assertEqual(fake.commands().count(("unroot",)), 1)
+
+    def test_unknown_reconnect_errors_and_malformed_uids_fail_without_waiting_into_success(self):
+        for scenario in ("restore_wait_error", "restore_uid_error", "restore_uid_unexpected", "restore_uid_malformed"):
+            with self.subTest(scenario=scenario):
+                fake = FakeAdb(scenario)
+                report = self.execute(fake)
+                self.assertFalse(report["passed"])
+                self.assertFalse(report["shellIdentityRestoration"]["verified"])
+                self.assertLessEqual(fake.restore_uid_reads, 1)
+                self.assertEqual(fake.restore_waits, 1)
+                self.assertEqual(fake.commands().count(("unroot",)), 1)
+
+    def test_observed_uid_does_not_hide_changed_framework_heap_binder_or_final_identity(self):
+        for scenario in ("restore_pid_changed", "restore_binder_error", "restore_heap_changed", "restore_growth_changed",
+                         "restore_final_uid_changed", "restore_final_uid_stderr"):
+            with self.subTest(scenario=scenario):
+                fake = FakeAdb(scenario)
+                report = self.execute(fake)
+                self.assertFalse(report["passed"])
+                self.assertTrue(report["shellIdentityRestoration"]["originalUidObserved"])
+                self.assertFalse(report["shellIdentityRestoration"]["verified"])
+                self.assertEqual(report["phase"], "restore-shell-identity")
+                self.assertLessEqual(report["phases"][-1]["seconds"], 30)
+                self.assertEqual(fake.commands().count(("unroot",)), 1)
+                self.assertEqual(fake.commands().count(("shell", "stop")), 1)
+                self.assertEqual(fake.commands().count(("shell", "start")), 1)
 
     def test_initial_root_is_preserved_and_not_unrooted(self):
         fake = FakeAdb(uid=0)

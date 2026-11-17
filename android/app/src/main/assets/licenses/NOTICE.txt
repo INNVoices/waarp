@@ -66,10 +66,16 @@ https://github.com/journeyapps/zxing-android-embedded/tree/v4.3.0
 ZXing Core 3.5.3: Apache-2.0, ZXing authors.
 https://github.com/zxing/zxing/tree/zxing-3.5.3
 
-OkHttp 5.3.2 and Okio: Apache-2.0, Square, Inc. and contributors.
+OkHttp 5.4.0 and Okio: Apache-2.0, Square, Inc. and contributors.
 https://github.com/lysine-dev/okhttp
 https://github.com/lysine-dev/okio
 The resolved Okio version is recorded in Maven-runtime-components.json.
+CompromisedCaGuard adapts OkHttp's eight compromised SPKI fingerprints from
+CertificateBlocklist.kt, Copyright (c) 2026 OkHttp Authors, Apache-2.0.
+Source commit: 6db98026dfb817a23c0282aa4e53d8187b309052 (CVE-2026-111943).
+https://github.com/lysine-dev/okhttp/commit/6db98026dfb817a23c0282aa4e53d8187b309052
+Waarp applies this blocklist to the validated connection chain before sending
+HTTP request headers, and fails closed when that chain is unavailable.
 
 The full Apache License 2.0 is included in Apache-2.0.txt.
 Maven-runtime-components.json contains the exact resolved Maven component
