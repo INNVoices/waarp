@@ -530,11 +530,14 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
         const t = r ? outR(r) : DIRECT
         const m = r ? (r.kind === 'app' ? appSet(r) : domSet(r, true)) : []
         set('r' + n, t === BLOCK ? [] : m)
+        set('f' + n, t === DIRECT && r?.dpi === true ? m : [])
         set('x' + n, t === BLOCK ? m : [])
         set('v' + n, t !== BLOCK && !v6(t) ? m : [])
         if (r) buckets.get(dnsKey(t))?.push(...(r.kind === 'app' ? appSet(r) : domSet(r, false)))
         sels.push({ type: 'selector', tag: 'rt-' + n, outbounds: loadedTags, default: t === BLOCK ? DIRECT : t, interrupt_exist_connections: true })
-        rules.push({ rule_set: ['x' + n], action: 'reject' }, { ip_version: 6, rule_set: ['v' + n], action: 'reject' }, { rule_set: ['r' + n], outbound: 'rt-' + n })
+        rules.push({ rule_set: ['x' + n], action: 'reject' }, { ip_version: 6, rule_set: ['v' + n], action: 'reject' },
+          { rule_set: ['f' + n], network: 'udp', port: 443, action: 'reject' }, { rule_set: ['f' + n], action: 'route', outbound: 'rt-' + n, tls_record_fragment: true },
+          { rule_set: ['r' + n], outbound: 'rt-' + n })
       })
     }
     for (const [tag, list] of buckets) set(tag, list)

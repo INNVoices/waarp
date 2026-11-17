@@ -117,6 +117,8 @@ export interface Route {
   exe?: string
   matchDir?: string
   wholeDir?: boolean
+  /** with via direct: fragment TLS records and refuse QUIC for this card only */
+  dpi?: boolean
   preset?: string
   value?: string
   icon?: string

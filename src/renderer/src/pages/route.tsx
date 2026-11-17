@@ -142,6 +142,9 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
 
       <section className="panel">
         <h3>{s('route.more')}</h3>
+        <Row title={s('route.dpi')} text={r.via === 'direct' ? s('route.dpi.text') : s('route.dpi.off')}>
+          <Toggle on={r.via === 'direct' && r.dpi === true} disabled={locked || r.via !== 'direct'} onChange={v => set({ dpi: v })} label={s('route.dpi')} />
+        </Row>
         {r.kind === 'app' && <>
           <Row title={s('route.dir')} text={r.matchDir ? s('route.dir.text', { d: r.matchDir }) : s('route.dir.none')}>
             <Toggle on={!!r.matchDir && r.wholeDir === true} disabled={locked || !r.matchDir} onChange={v => set({ wholeDir: v })} label={s('route.dir')} />

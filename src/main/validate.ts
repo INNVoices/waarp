@@ -28,6 +28,7 @@ function route(r: any): Route | null {
     out[k] = r[k]
   }
   if (r.wholeDir !== undefined) { if (!bool(r.wholeDir)) return null; out.wholeDir = r.wholeDir }
+  if (r.dpi !== undefined) { if (!bool(r.dpi)) return null; if (r.dpi) out.dpi = true }
   if (r.fallback !== undefined) { if (!via(r.fallback)) return null; out.fallback = r.fallback }
   if (r.owner !== undefined) { if (r.owner !== 'companion') return null; out.owner = r.owner }
   // a reserved ext: id or an owner must be a well-formed companion route; main checks it against the stored one

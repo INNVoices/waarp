@@ -59,7 +59,8 @@ const cases: [string, Route[]][] = [
   ['card target changed', base.map(r => (r.id === 'preset:chatgpt' ? { ...r, via: 'pb' } : r))],
   ['card edited', base.map(r => (r.id === 'app:codex' ? { ...r, wholeDir: true } : r))],
   ['card to direct', base.map(r => (r.id === 'app:chrome' ? { ...r, via: 'direct' } : r))],
-  ['cards reordered', [base[1], base[0], ...base.slice(2)]]
+  ['cards reordered', [base[1], base[0], ...base.slice(2)]],
+  ['DPI bypass on a Direct card', base.map(r => (r.id === 'app:uprof' ? { ...r, dpi: true } : r))]
 ]
 for (const [name, routes] of cases) {
   const sl = planSlots(S(routes), slots)
@@ -95,6 +96,11 @@ eq(JSON.parse(buildRuntime(profiles, S(base), opts(slots, true)).files[uprofV6])
 ok(run0.cfg.route.rules.some((r: any) => r.ip_version === 6 && r.action === 'reject' && !r.rule_set), 'everything else over IPv6 is refused fast without host IPv6')
 ok(run0.cfg.route.rules.some((r: any) => r.outbound === 'direct' && (r.process_path_regex ?? []).some((x: string) => x.includes('ExitLag'))), 'other VPN clients never get tunnelled twice')
 eq(run0.cfg.log.level, 'warn', 'engine log is warn by default')
+const dpiFiles = files(base.map(r => (r.id === 'app:uprof' ? { ...r, dpi: true } : r.id === 'app:chrome' ? { ...r, dpi: true } : r)))
+ok(dpiFiles['fa' + slots.app.indexOf('app:uprof')].includes('uprof.exe'), 'DPI bypass fills the fragment file of that Direct card')
+eq(JSON.parse(dpiFiles['fa' + slots.app.indexOf('app:chrome')]).rules, [], 'DPI flag on a tunnelled card does nothing')
+eq(JSON.parse(f0['fa' + slots.app.indexOf('app:uprof')]).rules, [], 'without the flag the fragment file stays empty')
+ok(run0.cfg.route.rules.some((r: any) => r.action === 'route' && r.tls_record_fragment === true) && run0.cfg.route.rules.some((r: any) => r.network === 'udp' && r.port === 443 && r.action === 'reject' && r.rule_set), 'every slot has a fragment rule and a QUIC refusal tied to its own file')
 const blocked = buildRuntime(profiles, S(base.map(r => (r.id === 'app:chrome' ? { ...r, via: 'gone' } : r))), opts(slots)).files
 ok(blocked['xa' + slots.app.indexOf('app:chrome')].includes('chrome.exe') && JSON.parse(blocked[chromeSlot]).rules.length === 0, 'a card with a missing tunnel is blocked, never direct')
 ok(blocked['dn-block'].includes('chrome.exe'), 'its DNS is refused too')
