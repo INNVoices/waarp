@@ -10,6 +10,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
@@ -42,6 +43,7 @@ sealed interface MobileEvent {
     data object ClipboardImport : MobileEvent
     data object SystemVpnSettings : MobileEvent
     data object ShareDiagnostics : MobileEvent
+    data class RestartApproval(val response: CompletableDeferred<Boolean>) : MobileEvent
 }
 
 class MobileViewModel(application: Application, private val savedState: SavedStateHandle) : AndroidViewModel(application), MobileActions {
@@ -57,6 +59,11 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
     val state = _state.asStateFlow()
     private val eventsChannel = Channel<MobileEvent>(Channel.BUFFERED)
     val events = eventsChannel.receiveAsFlow()
+    private val restartApprovalRequest: suspend () -> Boolean = {
+        val response = CompletableDeferred<Boolean>()
+        eventsChannel.send(MobileEvent.RestartApproval(response))
+        response.await()
+    }
     private val updates = Channel<Unit>(Channel.CONFLATED)
     private val mapper = MobileStateMapper()
     private val messageIds = AtomicLong()
@@ -90,6 +97,7 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
         { text, name, replacement -> if (replacement == null) importText(text, name) else replaceTunnel(replacement, text) }, ::notifyUser)
 
     init {
+        repository.confirmStructuralRestart = restartApprovalRequest
         // Remove unrelated values restored from an older Activity state before
         // workers/callbacks can use it or Android saves it again. Only these two
         // typed, nonsecret picker fields belong in SavedStateHandle.
@@ -221,7 +229,10 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
         viewModelScope.launch { controller.refreshSystemStatus() }
         changed()
     }
-    override fun onCleared() { cancelTuning(); cancelTransfer(); imports.clearSensitiveInput(); super.onCleared() }
+    override fun onCleared() {
+        if (repository.confirmStructuralRestart === restartApprovalRequest) repository.confirmStructuralRestart = null
+        cancelTuning(); cancelTransfer(); imports.clearSensitiveInput(); super.onCleared()
+    }
     override fun requestClipboardImport() = event(MobileEvent.ClipboardImport)
     override fun openSystemVpnSettings() = event(MobileEvent.SystemVpnSettings)
     override fun shareDiagnostics() = event(MobileEvent.ShareDiagnostics)

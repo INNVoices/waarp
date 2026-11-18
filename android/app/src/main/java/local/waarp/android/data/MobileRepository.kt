@@ -22,6 +22,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import local.waarp.android.core.LiveRoutingFiles
 import local.waarp.android.core.RuntimePhase
 import local.waarp.android.core.RuntimeProbeResult
@@ -45,6 +46,8 @@ class MobileRepository(private val context: Context, val controller: VpnControll
     val requestedOpen = _requestedOpen.asStateFlow()
     private val _applying = MutableStateFlow(false)
     val applying = _applying.asStateFlow()
+    /** UI callback only: structural changes cannot pause an active VPN without explicit user consent. */
+    @Volatile var confirmStructuralRestart: (suspend () -> Boolean)? = null
     private val _compiled = MutableStateFlow<CompiledConfiguration?>(null)
     val compiled = _compiled.asStateFlow()
     private val _health = MutableStateFlow<Map<String, ProbeHealth>>(emptyMap())
@@ -172,6 +175,15 @@ class MobileRepository(private val context: Context, val controller: VpnControll
             withContext(Dispatchers.IO) { next.live?.let { LiveRoutingFiles.initialize(it); LiveRoutingFiles.cleanupObsolete(it, previousCompiled?.live?.directory) } }
             controller.validateConfig(next.json)
         }
+        if (requiresRestart) {
+            val approved = withTimeoutOrNull(45_000L) {
+                StructuralRestartApproval.allowed(true,
+                    current = { generation.get() == token && controller.isSessionGeneration(nativeGeneration) &&
+                        _requestedOpen.value && controller.status.value.phase == RuntimePhase.ON },
+                    request = confirmStructuralRestart)
+            } == true
+            check(approved) { "Изменение отменено: перезапуск VPN не подтверждён. Действующий туннель сохранён." }
+        }
         _applying.value = true
         var committed = false
         var appliedLive = false
@@ -184,10 +196,9 @@ class MobileRepository(private val context: Context, val controller: VpnControll
                     appliedLive = true
                 } else if (requiresRestart) {
                     pausedGeneration = controller.pauseForUpdate(nativeGeneration)
-                    if (pausedGeneration != null) {
-                        val stopped = withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.OFF || it.phase == RuntimePhase.ERROR } }
-                        check(stopped.phase == RuntimePhase.OFF) { stopped.message ?: "Не удалось завершить предыдущий VPN" }
-                    }
+                    check(pausedGeneration != null) { "Сессия VPN изменилась после подтверждения; изменение отменено" }
+                    val stopped = withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.OFF || it.phase == RuntimePhase.ERROR } }
+                    check(stopped.phase == RuntimePhase.OFF) { stopped.message ?: "Не удалось завершить предыдущий VPN" }
                 }
                 store.write(saved)
                 _data.value = saved; _loadError.value = null; _compiled.value = next

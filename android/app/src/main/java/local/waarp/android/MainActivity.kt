@@ -20,6 +20,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.DEFAULT_ARGS_KEY
@@ -39,6 +41,11 @@ import local.waarp.android.ui.WaarpTheme
 import java.io.File
 
 class MainActivity : ComponentActivity() {
+    private var pendingRestart by mutableStateOf<MobileEvent.RestartApproval?>(null)
+    private fun answerRestart(approved: Boolean) {
+        pendingRestart?.response?.complete(approved)
+        pendingRestart = null
+    }
     private val model: MobileViewModel by viewModels(extrasProducer = {
         MutableCreationExtras(defaultViewModelCreationExtras).apply {
             // ComponentActivity otherwise copies all incoming Intent extras into
@@ -68,6 +75,15 @@ class MainActivity : ComponentActivity() {
             val state by model.state.collectAsStateWithLifecycle()
             val incoming by model.imports.state.collectAsStateWithLifecycle()
             WaarpApp(state, model)
+            if (pendingRestart != null) WaarpTheme {
+                AlertDialog(
+                    onDismissRequest = { answerRestart(false) },
+                    title = { Text("Перезапуск VPN") },
+                    text = { Text("Для этого изменения требуется перезапустить VPN. Это временно прервёт работающие соединения.\n\nОтмена сохранит текущий туннель и прежние правила.") },
+                    confirmButton = { TextButton(onClick = { answerRestart(true) }) { Text("Перезапустить VPN") } },
+                    dismissButton = { TextButton(onClick = { answerRestart(false) }) { Text("Отмена") } },
+                )
+            }
             if (incoming.confirmationAvailable) WaarpTheme {
                 AlertDialog(
                     onDismissRequest = model.imports::dismiss,
@@ -103,11 +119,16 @@ class MainActivity : ComponentActivity() {
                             }
                             MobileEvent.SystemVpnSettings -> startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
                             MobileEvent.ShareDiagnostics -> shareDiagnostics()
+                            is MobileEvent.RestartApproval -> {
+                                pendingRestart?.response?.complete(false)
+                                pendingRestart = event
+                            }
                         }
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) {
                         if (event is MobileEvent.FileImport || event is MobileEvent.QrImport) model.cancelImportPicker()
                         if (event is MobileEvent.Consent) model.onConsentResult(false)
+                        if (event is MobileEvent.RestartApproval) event.response.complete(false)
                         model.notifyUser("Android не смог открыть запрошенный экран", true)
                     }
                 }
@@ -119,6 +140,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); model.imports.receive(intent) }
 
     override fun onResume() { super.onResume(); model.onForeground() }
+    override fun onDestroy() { answerRestart(false); super.onDestroy() }
 
     private fun needsNotificationPermission() = Build.VERSION.SDK_INT >= 33 &&
         ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
