@@ -1,0 +1,57 @@
+{
+  "run": 44300906714,
+  "attempt": 2,
+  "job": 134795668292,
+  "commit": "230578139014639be497d10c30bd9da4d631cb28",
+  "baseBrowserChecks": 31,
+  "atlasChecks": 4,
+  "qualityChecks": 7,
+  "rendererCycles": 100,
+  "result": "UI passed",
+  "screenshotScope": "Production renderer with synthetic isolated IPC fixtures; no live tunnel or system routing started by the UI suite",
+  "jobConclusion": "failure",
+  "jobFailures": [
+    "GitHub artifact storage quota in steps24/25"
+  ],
+  "nativeLifecycle": "50/50 passed",
+  "packageBuild": "passed",
+  "packageVerification": "passed",
+  "priorAttempt": "../windows-44300906714/native-lifecycle-failure.json",
+  "screenshots": [
+    {
+      "name": "atlas-picker-active-preview-1240.png",
+      "bytes": 150216,
+      "sha256": "98fa3d54bed8a451cbc625f0e5986f578de8572ee84507823fe88f2152432747"
+    },
+    {
+      "name": "atlas-picker-900.png",
+      "bytes": 152550,
+      "sha256": "3892dfcb5d9c054351fb03e779004f89a526dc7c931852ea8e70d8f49e50f31c"
+    },
+    {
+      "name": "atlas-public-full-pool-unknown.png",
+      "bytes": 157087,
+      "sha256": "ce1e5a1b75b32c9f75f8cdb34b65d4689eb74398d607fc6db0fadbacc40dc687"
+    },
+    {
+      "name": "atlas-fallback-list.png",
+      "bytes": 73603,
+      "sha256": "2d64319f9ce6a25d24b8183e4f2f5cd63413f557999d9527560e0a2fc8a498bc"
+    },
+    {
+      "name": "atlas-file-origin.png",
+      "bytes": 151568,
+      "sha256": "610bf697eca2a0df573da2f6bb064fc990c72a37d9fa731a1c80e843d88f07c3"
+    },
+    {
+      "name": "quality-context-1240.png",
+      "bytes": 120003,
+      "sha256": "cb609f92c4dc113ba336010aefc220fa8d8fbc961454f72447a13618ace87bc0"
+    },
+    {
+      "name": "quality-context-900.png",
+      "bytes": 108841,
+      "sha256": "baf37a37555529e88cc9c4b1b65b36ff22de6393c42b238749b541d15a4fcde5"
+    }
+  ]
+}

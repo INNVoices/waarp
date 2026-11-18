@@ -1,0 +1,181 @@
+{
+  "schemaVersion": 1,
+  "platform": "android",
+  "sourceCommit": "230578139014639be497d10c30bd9da4d631cb28",
+  "runId": 44300906671,
+  "runUrl": "https://github.com/INNVoices/waarp/actions/runs/44300906671",
+  "attempt": 1,
+  "jobId": 134790064761,
+  "jobUrl": "https://github.com/INNVoices/waarp/actions/runs/44300906671/job/134790064761",
+  "uiResult": "PASS",
+  "overallJobResult": "FAILURE",
+  "overallFailure": "Only artifact upload steps 29 and 31 failed: GitHub Actions artifact storage quota was exceeded. Functional steps and post-job cleanup completed successfully.",
+  "device": {
+    "apiLevel": 35,
+    "androidRelease": "15",
+    "abi": "x86_64",
+    "pageSizeBytes": 4096,
+    "emulator": true
+  },
+  "functionalSteps": [
+    {
+      "number": 20,
+      "name": "Verify restored or newly built native provenance and AAR",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 22,
+      "name": "Build actual APKs and verify their signatures, engine and 16 KB alignment",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 23,
+      "name": "Require real passing JVM regression results",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 24,
+      "name": "Enable KVM for focused native route and feedback acceptance",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 25,
+      "name": "Prepare the pinned emulator action for focused acceptance",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 26,
+      "name": "Require actual TUN continuity and stable success feedback before uploading artifacts",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 27,
+      "name": "Retain actual Android gallery captures in the job log",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 28,
+      "name": "Print build evidence before artifact upload",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "deliverySteps": [
+    {
+      "number": 29,
+      "name": "Upload installable debug APKs and explicitly unsigned release APKs",
+      "status": "completed",
+      "conclusion": "failure",
+      "reason": "Artifact storage quota has been hit"
+    },
+    {
+      "number": 30,
+      "name": "Upload emulator inputs once for all API levels",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 31,
+      "name": "Upload build diagnostics",
+      "status": "completed",
+      "conclusion": "failure",
+      "reason": "Artifact storage quota has been hit"
+    },
+    {
+      "number": 32,
+      "name": "Upload optimized release acceptance inputs",
+      "status": "completed",
+      "conclusion": "skipped"
+    }
+  ],
+  "downstreamAcceptance": "Full native API matrix, optimized release API matrix and API 36/16 KB two-hour AWG2 soak were skipped after the artifact upload failure. This is not a full release acceptance result.",
+  "testResults": {
+    "jvm": {
+      "tests": 204,
+      "passed": 204,
+      "failed": 0,
+      "skipped": 0
+    },
+    "nativeRouteAndFeedback": {
+      "tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "timedOut": false,
+      "nativeSession": 6,
+      "acknowledgedRouteMutations": 8
+    },
+    "uiGallery": {
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "timedOut": false,
+      "wallSeconds": 125.43255906900004,
+      "capturedPngCount": 10,
+      "namedGalleryPngCount": 6
+    }
+  },
+  "scope": "Unmodified screenshots from the real Compose application and MapLibre Native renderer on the API 35 emulator, using synthetic saved profiles. The Atlas test verifies a fully rendered map, initial-viewport control geometry at font scales 1.0 and 1.5, a real touch on Probe with closed loopback fixtures, unchanged VPN OFF and revision before the single route Save. No external server reachability, UDP, game QoE or session migration is established.",
+  "visualNote": "Both frames were visually reviewed. Probe is fully visible above the map; the import FAB has reserved space below the scrolling map viewport. Country geometry and DE/FR markers render. The larger font wraps the tabs, search text and explanation. Existing bottom NavigationBar labels remain crowded at 150%; this is a known prior global-navigation limitation, not fixed or claimed resolved by the Atlas change.",
+  "extraction": "Decoded the named WAARP_ANDROID_PREVIEW PNG records and the five printed JSON reports from the completed GitHub job log. PNGs and JSON reports were copied byte-for-byte, without image editing, recompression, montage or result filtering.",
+  "screenshots": [
+    {
+      "file": "android-atlas-local.png",
+      "sourceFrame": "05-atlas-local.png",
+      "fontScale": 1.0,
+      "widthPx": 1080,
+      "heightPx": 2400,
+      "bytes": 191809,
+      "sha256": "87392536bb88066b0d49d928b1782e39b2e5670a98824842cb4dfcccdfcf2d0f"
+    },
+    {
+      "file": "android-atlas-large-font.png",
+      "sourceFrame": "06-atlas-large-font.png",
+      "fontScale": 1.5,
+      "widthPx": 1080,
+      "heightPx": 2400,
+      "bytes": 204642,
+      "sha256": "cd3b729d7e8fcc55b74000eb9d1c06d680546cd19b344d9414c2777c3e85ebbd"
+    }
+  ],
+  "reports": [
+    {
+      "file": "../../planning/WAARP-NEXT-2026-11-18/evidence/2305781/android-unit-tests.json",
+      "sourceReport": "out-android-unit-tests.json",
+      "bytes": 40801,
+      "sha256": "5116467a6957361d266a810da0f4b8a69af9849848b9ebd1a5be923225353128"
+    },
+    {
+      "file": "../../planning/WAARP-NEXT-2026-11-18/evidence/2305781/android-artifacts.json",
+      "sourceReport": "out-android-artifacts.json",
+      "bytes": 1669,
+      "sha256": "0b808af6c6671e384ac84d88d75de5011ca70340e92d50c936c510670120bfc1"
+    },
+    {
+      "file": "../../planning/WAARP-NEXT-2026-11-18/evidence/2305781/android-core-build-report.json",
+      "sourceReport": "out-android-core-build-report.json",
+      "bytes": 458,
+      "sha256": "89222878afb1dcc703daf9d50401fd3f87951a7e0769aac0d7e5d838fe1dafd5"
+    },
+    {
+      "file": "../../planning/WAARP-NEXT-2026-11-18/evidence/2305781/android-route-smoke.json",
+      "sourceReport": "out-android-route-smoke-result.json",
+      "bytes": 3988,
+      "sha256": "e3519a228dd0d448ef7d09cc1e285a3e5e627804921ab2270ef4d05df446a3f5"
+    },
+    {
+      "file": "../../planning/WAARP-NEXT-2026-11-18/evidence/2305781/android-gallery.json",
+      "sourceReport": "out-android-gallery-result.json",
+      "bytes": 3497,
+      "sha256": "408830ffae1c0f7fc43072c53bb74ddba8983b36ab96561c186cee6ab7b7ce2e"
+    }
+  ]
+}

@@ -1,0 +1,1235 @@
+{
+  "schemaVersion": 1,
+  "checkedAtUtc": "2026-11-18T12:21:06.395742+00:00",
+  "tests": 204,
+  "passed": 204,
+  "failed": 0,
+  "skipped": 0,
+  "summedTestSeconds": 5.506,
+  "cases": [
+    {
+      "class": "local.waarp.android.ConnectionCheckSharingTest",
+      "name": "identicalWaitersShareTheOneOwnersExactResult",
+      "seconds": 0.046,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.ConnectionCheckSharingTest",
+      "name": "differentDraftTargetPurposeOrRuntimeNeverJoins",
+      "seconds": 0.019,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.ConnectionCheckSharingTest",
+      "name": "explicitCancellationRejectsLateJoinersUntilNativeCleanupFinishes",
+      "seconds": 0.026,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.ConnectionCheckSharingTest",
+      "name": "cancellingAJoinerLeavesTheOwnerAndOtherWaiterAlive",
+      "seconds": 0.003,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.MobileStateMapperTest",
+      "name": "telemetryKeepsLargeUnchangedSectionsWhileUpdatingCounters",
+      "seconds": 1.091,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.MobileStateMapperTest",
+      "name": "compiledBudgetRejectionIsBlockedOnlyForTheRunningConfiguration",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.MobileStateMapperTest",
+      "name": "availableDnsChoicesAlsoDistinguishSavedPolicyFromActiveRouting",
+      "seconds": 0.006,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.MobileStateMapperTest",
+      "name": "newLatencyDoesNotRebuildProtocolDetailsAndHelperCandidates",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.MobileStateMapperTest",
+      "name": "logRingPreservesSurvivingRowsAndDistinguishesEqualEvents",
+      "seconds": 0.01,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.MobileStateMapperTest",
+      "name": "failedPublicProbesDoNotBlockOrDisableAnExplicitPrivateRoute",
+      "seconds": 0.013,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.MobileStateMapperTest",
+      "name": "routingScopeAndAutoPoolFollowActualAssignments",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.MobileStateMapperTest",
+      "name": "activeStaticFallbackExplainsWhyRouteEditsNeedReconnect",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.MobileStateMapperTest",
+      "name": "liveSlotFallbackDisplaysTheActualActivePath",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.MobileStateMapperTest",
+      "name": "conflictingAppDnsRemainsAPlannedWarningWhenVpnIsOff",
+      "seconds": 0.004,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.MobileStateMapperTest",
+      "name": "savedBlockedDnsAndDefaultRouteDoNotClaimProtectionOutsideOn",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.MobileStateMapperTest",
+      "name": "profileAndGroupRenameAndCatalogDeletionInvalidateTheirOwnProjection",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.MobileStateMapperTest",
+      "name": "fallbackCannotClaimWorkingWhenItsLastMeasurementsAreDown",
+      "seconds": 0.003,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.LiveRoutingFilesTest",
+      "name": "missingAcknowledgementIsNotSuccessAndUnconfirmedRollbackMarksPolicyUncertain",
+      "seconds": 0.091,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.LiveRoutingFilesTest",
+      "name": "failedSelectorRestoresFilesAndPreviousSelectionWithoutStoppingTheCore",
+      "seconds": 0.02,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.LiveRoutingFilesTest",
+      "name": "productionTransactionAcknowledgesGuardThenFilesThenSelectorThenGuardRemoval",
+      "seconds": 0.024,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.LiveRoutingFilesTest",
+      "name": "explicitOffStopsOldWritesAndNeverMutatesAReplacementSession",
+      "seconds": 0.017,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.LiveRoutingFilesTest",
+      "name": "unchangedPlanDoesNoNativeWork",
+      "seconds": 0.016,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.LiveRoutingFilesTest",
+      "name": "initialFilesArePrivateAtomicDocumentsWithDistinctWitnesses",
+      "seconds": 0.367,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RoutingWitnessTest",
+      "name": "onlyExactQuestionIdAndLocalAnswerAcknowledgeTheFile",
+      "seconds": 0.003,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RoutingWitnessTest",
+      "name": "malformedDnsIsRejectedWithoutThrowingOrCallingExternalResolvers",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RuntimeRegressionTest",
+      "name": "wireGuardPublicKeyMatchesRfc7748KnownAnswer",
+      "seconds": 0.013,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RuntimeRegressionTest",
+      "name": "failedNativeCleanupCannotBeAcknowledgedAsSafeToResume",
+      "seconds": 0.003,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RuntimeRegressionTest",
+      "name": "lateOffCompletionAndFailureCannotOverwriteNewStart",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RuntimeRegressionTest",
+      "name": "updatePauseOwnsForegroundUntilConfirmedResumeOrExplicitOff",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RuntimeRegressionTest",
+      "name": "completedOrAbandonedEditCannotOverrideAReplacementSession",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RuntimeRegressionTest",
+      "name": "offDuringStartRejectsLateSuccess",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RuntimeRegressionTest",
+      "name": "staleNativeStopCannotReplaceNewUserIntent",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RuntimeRegressionTest",
+      "name": "aNativeCloseFailureStillReleasesEveryOtherResourceAndIsReported",
+      "seconds": 0.005,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RuntimeRegressionTest",
+      "name": "finishingAnEditCannotReconnectAfterAnExplicitNotificationOff",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RuntimeRegressionTest",
+      "name": "masqueUriAndPrivateKeyAreRedactedFromNativeErrors",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RuntimeRegressionTest",
+      "name": "generatedKeysAreClampedAndNeverPrinted",
+      "seconds": 0.009,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RuntimeRegressionTest",
+      "name": "queuedCommandCannotCrossAnApprovedRestartWithTheSameUiState",
+      "seconds": 0.003,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RuntimeRegressionTest",
+      "name": "openVpnArrayKeysAndIndividualPemLinesAreRedacted",
+      "seconds": 0.004,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RuntimeRegressionTest",
+      "name": "diagnosticRingIsBoundedAndSecretsAreRedacted",
+      "seconds": 0.029,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RuntimeRegressionTest",
+      "name": "offInvalidatesAnIdleProbeEvenWhenItHasNotEnteredTheNativeLane",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.RuntimeRegressionTest",
+      "name": "oldGenerationCannotReplaceNewConnectionState",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.StreamRecoveryGateTest",
+      "name": "failureAfterAHealthyConnectionSchedulesOneWorkerForAllLostStreams",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.StreamRecoveryGateTest",
+      "name": "aSubscriptionFailureDuringConnectCannotBeOverwrittenByConnectReturning",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.VpnControlLaneTest",
+      "name": "offInvalidatesBlockedStartWithoutWaitingForDiskAndCannotPublishBeforeItsOwnCommit",
+      "seconds": 0.024,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.VpnControlLaneTest",
+      "name": "failedDurableOffStillCleansUpAndReportsErrorInsteadOfOff",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.VpnControlLaneTest",
+      "name": "replacementOnKeepsWriteOrderAndRejectsLateOffCompletion",
+      "seconds": 0.009,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.VpnControlLaneTest",
+      "name": "persistenceGuardRejectsTheCallerThreadAndRuntimeMonitor",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.VpnControlLaneTest",
+      "name": "cancellingTheCallingCoroutineDoesNotAbandonAcceptedOff",
+      "seconds": 0.011,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.core.VpnControlLaneTest",
+      "name": "staleStopAndEditResumeCannotChangeReplacementIntent",
+      "seconds": 0.003,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.CompromisedCaGuardTest",
+      "name": "blockedValidatedRootCannotSendAnHttp2Request",
+      "seconds": 0.584,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.CompromisedCaGuardTest",
+      "name": "productionPolicyRejectsThePublishedCompromisedIntermediate",
+      "seconds": 0.009,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.CompromisedCaGuardTest",
+      "name": "trustedTlsWithMatchingHostnameStillSendsTheRequest",
+      "seconds": 0.204,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.CompromisedCaGuardTest",
+      "name": "cleartextDiagnosticsDoNotRequireATlsHandshake",
+      "seconds": 0.008,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.CompromisedCaGuardTest",
+      "name": "blockedLeafIntermediateAndOmittedRootFailBeforeHttpRequestHeaders",
+      "seconds": 0.278,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.CompromisedCaGuardTest",
+      "name": "httpsWithoutConnectionHandshakeOrCertificatesNeverProceeds",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.CompromisedCaGuardTest",
+      "name": "blockedKeyIsRejectedAtEveryValidatedChainPosition",
+      "seconds": 0.04,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.CompromisedCaGuardTest",
+      "name": "http2RejectsAnOversizedAggregateHeaderListBeforeReturningAResponse",
+      "seconds": 0.204,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.CompromisedCaGuardTest",
+      "name": "trustedRootDoesNotBypassHostnameVerification",
+      "seconds": 0.088,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.CompromisedCaGuardTest",
+      "name": "untrustedRootIsRejectedByTlsEvenWithNoMatchingBlocklistEntry",
+      "seconds": 0.159,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ConnectionQualityTest",
+      "name": "oldAndUnknownMetadataLoadSafelyAndKnownPurposeRoundTrips",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ConnectionQualityTest",
+      "name": "proofCannotBeAppliedToAnotherDraftOrUnmeasuredPath",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ConnectionQualityTest",
+      "name": "latencySummaryIncludesOnlyActualReplies",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ConnectionQualityTest",
+      "name": "proofExpiresAndEveryNetworkPolicyAndSessionChangeInvalidatesIt",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ConnectionQualityTest",
+      "name": "healthyCurrentWinsEvenWhenAnotherHttpCheckIsMuchFaster",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ConnectionQualityTest",
+      "name": "skippedAndCancelledCallsDoNotBecomeFailedChecks",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ConnectionQualityTest",
+      "name": "unknownOrOneFailureNeverBecomesAnOutage",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ConnectionQualityTest",
+      "name": "confirmedFailedChecksNeedAConsistentAlternative",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.HealthProbeTest",
+      "name": "stoppedOrChangedSessionCannotStartTheSecondaryProbeOrPublishOldResults",
+      "seconds": 0.011,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.HealthProbeTest",
+      "name": "coroutineCancellationNeverBecomesAFailedMeasurementOrRetry",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.HealthProbeTest",
+      "name": "bothIndependentSitesMustFailBeforeTheRoundCountsAsAFailure",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.HealthProbeTest",
+      "name": "onlyFailedPathsUseTheIndependentTargetAndZeroLatencyIsPreserved",
+      "seconds": 0.005,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.HealthProbeTest",
+      "name": "explicitDiagnosticsNeverReplaceTheRequestedSiteEvenWhenItIsTheHealthUrl",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.HttpCancellationTest",
+      "name": "successfulBoundedResponseClosesBodyWithoutCancellingUnrelatedCall",
+      "seconds": 0.03,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.HttpCancellationTest",
+      "name": "totalDeadlineStopsTrickleBodyEvenThoughEachReadArrivesInTime",
+      "seconds": 0.954,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.HttpCancellationTest",
+      "name": "parentCancellationClosesHttpSocketWhileServerStallsHeaders",
+      "seconds": 0.007,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.Hysteria2PortsTest",
+      "name": "invalidPortListsNeverBecomeSinglePorts",
+      "seconds": 0.004,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.Hysteria2PortsTest",
+      "name": "preservesSinglePortSecurityAndServerProvidedRanges",
+      "seconds": 0.008,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.LastSessionEvidenceTest",
+      "name": "transferEvidenceNeverPersistsEndpointBodyOrCredentials",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.LastSessionEvidenceTest",
+      "name": "reloadAllowlistDropsInjectedRawDataAndClampsCounts",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.LastSessionEvidenceTest",
+      "name": "nativeStatusAndLogsAreReducedToBoundedCategories",
+      "seconds": 0.023,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.MasqueImporterTest",
+      "name": "helperPreservesEndpointKeysAndSourceUntilExplicitApply",
+      "seconds": 0.019,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.MasqueImporterTest",
+      "name": "importsOnlyNodeExportsWithoutLosingCredentialsOrMode",
+      "seconds": 0.011,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.MasqueImporterTest",
+      "name": "standardHasOnlyTheImplementedTransportAndRequiresUri",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.MasqueImporterTest",
+      "name": "rejectsIgnoredFieldsUnsafeTlsInvalidKeysAndRuntimeSettings",
+      "seconds": 0.022,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.MobileLiveRoutingTest",
+      "name": "disabledCardsBeyondSpareCapacityDoNotConsumeNativeSlots",
+      "seconds": 0.015,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.MobileLiveRoutingTest",
+      "name": "maximumActivePolicyFallsBackBeforeBuildingQuadraticDnsExclusions",
+      "seconds": 0.147,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.MobileLiveRoutingTest",
+      "name": "actualCredentialEditAndUnloadedDefinitionRequireExplicitStructuralChange",
+      "seconds": 0.015,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.MobileLiveRoutingTest",
+      "name": "fallbackUsesTheExistingRouteSelectorAndDoesNotAddANativeEndpoint",
+      "seconds": 0.009,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.MobileLiveRoutingTest",
+      "name": "witnessCannotBeAcknowledgedByBroadBusinessRulesAndUnknownOwnerInversionIsScoped",
+      "seconds": 0.004,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.MobileLiveRoutingTest",
+      "name": "autoWinnerIsPreservedAcrossNoOpEditsWithoutReorderingThePool",
+      "seconds": 0.008,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.MobileLiveRoutingTest",
+      "name": "cosmeticInactiveAndLibraryRemovalDoNotGrowOrReplaceLivePool",
+      "seconds": 0.017,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.MobileLiveRoutingTest",
+      "name": "connectionUseMetadataDoesNotChangeTheNativeSessionOrRoutingFiles",
+      "seconds": 0.017,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.MobileLiveRoutingTest",
+      "name": "missingOrRevokedPathsRejectTrafficAndDnsRatherThanSelectingDirect",
+      "seconds": 0.006,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.MobileLiveRoutingTest",
+      "name": "directToRealAndRealToRealUseTheSameNativeCoreAndEndpointDefinitions",
+      "seconds": 0.009,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.MobileLiveRoutingTest",
+      "name": "watcherBudgetIsBoundedAndLargePoliciesUseTheOrdinaryCompiler",
+      "seconds": 0.007,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.MobileLiveRoutingTest",
+      "name": "defaultsSystemDnsAndServiceRouteSwitchWithoutStructuralReload",
+      "seconds": 0.02,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.MobileLiveRoutingTest",
+      "name": "toggleDeleteLastRouteAddAndReorderFitTheRunningSlots",
+      "seconds": 0.027,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.NetworkOperationTest",
+      "name": "cancellationClosesTheBlockedResourceAwayFromTheCancellingThread",
+      "seconds": 0.004,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.NetworkOperationTest",
+      "name": "completedCallsKeepTheirResultAndDoNotScheduleCancellation",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.NetworkOperationTest",
+      "name": "overallDeadlineInterruptsAResourceThatNeverFinishesItsBody",
+      "seconds": 0.079,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.NetworkOperationTest",
+      "name": "parentTimeoutRemainsCancellationInsteadOfBecomingAnObservationFailure",
+      "seconds": 0.079,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.NetworkOperationTest",
+      "name": "transportFailureRetainsItsOriginalType",
+      "seconds": 0.006,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.OpenVpnImporterTest",
+      "name": "incompleteAndConflictingInlineBlocksAreRejected",
+      "seconds": 0.012,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.OpenVpnImporterTest",
+      "name": "multipleRemotesKeepPerRemoteTransport",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.OpenVpnImporterTest",
+      "name": "inlineAuthenticationRetainsSignificantSpaces",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.OpenVpnImporterTest",
+      "name": "executableExternalAndUnmappedVerificationDirectivesAreRejected",
+      "seconds": 0.005,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.OpenVpnImporterTest",
+      "name": "aClientWithoutCaOrFingerprintCannotBeImported",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.OpenVpnImporterTest",
+      "name": "inlineControlChannelKeyAndDirectionAreMapped",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.OpenVpnImporterTest",
+      "name": "tlsConstraintsAndProtocolArePreserved",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.OpenVpnImporterTest",
+      "name": "emptyVerificationNameAndMalformedCompressionAreRejected",
+      "seconds": 0.003,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileImporterTest",
+      "name": "unsupportedSecurityAndTransportNeverDisappearSilently",
+      "seconds": 0.004,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileImporterTest",
+      "name": "unsafeOrAmbiguousWireGuardConfigurationsAreRejected",
+      "seconds": 0.011,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileImporterTest",
+      "name": "amneziaNestedJsonStillHonorsTheDepthLimit",
+      "seconds": 0.004,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileImporterTest",
+      "name": "boundedMixedImportReportsInvalidAndTruncatedLinks",
+      "seconds": 0.004,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileImporterTest",
+      "name": "importBoundsRejectOversizedAndDeepInputs",
+      "seconds": 0.007,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileImporterTest",
+      "name": "supportedProxyCredentialsAreDecodedExactlyOnce",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileImporterTest",
+      "name": "awg2PreservesCaseSensitiveSignatureAndMagicRanges",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileImporterTest",
+      "name": "wireGuardNormalizesBareAddressesAndPreservesExplicitPeerParameters",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileImporterTest",
+      "name": "xhttpPreservesSupportedHeadersRangesAndMux",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileImporterTest",
+      "name": "profileIdentityPreservesDnsPolicyButIgnoresJsonKeyOrderAndLocalLabels",
+      "seconds": 0.003,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileImporterTest",
+      "name": "vmessDoesNotCoerceInvalidAlterIdToAValidCredential",
+      "seconds": 0.004,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileImporterTest",
+      "name": "amneziaQCompressContainerImportsNestedConfiguration",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileImporterTest",
+      "name": "unrecognizedSecondEntryCannotPassTheSingleProfileReplacementGuard",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileImporterTest",
+      "name": "realityTlsAndWebSocketTransportSurviveImport",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileImporterTest",
+      "name": "shadowsocksSupportsBothFormsButRejectsEncodedPlugins",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileImporterTest",
+      "name": "vlessDefaultFingerprintIsSingleSegmentButExplicitOneIsKept",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileImporterTest",
+      "name": "nativeAmneziaLastConfigRetainsAwgOptionsThroughStorageAndCompilation",
+      "seconds": 0.008,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileTuningTest",
+      "name": "publicManagedRevokedAndMissingProfilesHaveNoMutableHelperVariants",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileTuningTest",
+      "name": "quicProfilesDoNotGetTlsOverTcpKnobs",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileTuningTest",
+      "name": "clientOnlyVariantsPreserveServerAuthenticationAndConfiguration",
+      "seconds": 0.004,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.ProfileTuningTest",
+      "name": "chrome155IsExplicitAndDoesNotChangeIosDefault",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.PublicCatalogTest",
+      "name": "refreshKeepsUsefulOldCandidatesAndNeverCopiesPrivateOrRevokedProfilesIntoThePool",
+      "seconds": 0.007,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.PublicCatalogTest",
+      "name": "aLargeFirstSourceCannotStarveSmallerFeedsAndDuplicatesDoNotConsumeSlots",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.PublicCatalogTest",
+      "name": "linksAndBase64HaveTheSameIdentityAndNoRemoteRuntimeConfigurationIsImported",
+      "seconds": 0.006,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.PublicCatalogTest",
+      "name": "registryIsExplicitAndMirrorsAreNotAdditionalSources",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.PublicCatalogTest",
+      "name": "legacyCacheIsRevalidatedBeforeItCanPopulateTheNewPool",
+      "seconds": 0.003,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.PublicCatalogTest",
+      "name": "invalidHttp200BodyUsesTheDocumentedMirrorAndCancellationDoesNot",
+      "seconds": 0.005,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.PublicCatalogTest",
+      "name": "groupingUsesOnlySuccessfulMeasuredNodesAndPrefersDifferentNetworksOverTheLowestPings",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.PublicCatalogTest",
+      "name": "healthExpiresInItsMeasuredNetworkWithoutDeletingColdStartCandidates",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.PublicSourcePolicyTest",
+      "name": "redirectsMustStayWithinTheSameRegisteredPublication",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.PublicSourcePolicyTest",
+      "name": "privateLocalReservedAndEmbeddedPrivateAddressesAreRejected",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.PublicSourcePolicyTest",
+      "name": "parsingHostnamesPerformsNoDnsLookupAndRejectsLocalNames",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.PublicSourcePolicyTest",
+      "name": "explicitWebsocketHostSurvivesPinningAndAnImplicitHostIsNotGuessed",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.PublicSourcePolicyTest",
+      "name": "everyOpenVpnRemoteMustBePublicAndFamilyPortNetworkAndVerificationArePreserved",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.PublicSourcePolicyTest",
+      "name": "temporaryProbePinPreservesOriginalTlsIdentityAndRejectsMixedDnsAnswers",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RecoveryPolicyTest",
+      "name": "onlyContinuousConfirmedUptimeResetsHealthHistory",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RecoveryPolicyTest",
+      "name": "rebootAndMonotonicRollbackNeverCreateAnInfiniteBackoff",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RecoveryPolicyTest",
+      "name": "offAndLaterOnRejectAnAlreadyDeliveredAlarm",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RecoveryPolicyTest",
+      "name": "rollingBudgetCannotBeResetByStraddlingABucketBoundary",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RecoveryPolicyTest",
+      "name": "consecutiveProcessDeathsConsumeOneSharedBoundedBudget",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RoutingCompilerTest",
+      "name": "selfPackageExemptionUsesActualBuildApplicationId",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RoutingCompilerTest",
+      "name": "autoPoolIsBoundedStableAndNeverIncludesPublicOrUnavailableProfiles",
+      "seconds": 0.034,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RoutingCompilerTest",
+      "name": "disabledRoutesDoNotStartUnneededTunnelsOrAuto",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RoutingCompilerTest",
+      "name": "fallbackGroupMembersAreLoadedAndMissingMembersAreExcluded",
+      "seconds": 0.003,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RoutingCompilerTest",
+      "name": "addressValidationRejectsAmbiguousIpAndInvalidCidr",
+      "seconds": 0.055,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RoutingCompilerTest",
+      "name": "wireGuardDnsUsesItsOwnResolverThroughTheSameTunnel",
+      "seconds": 0.009,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RoutingCompilerTest",
+      "name": "fallbackIsAnExplicitTunnelSelectorWithMatchingDnsDetour",
+      "seconds": 0.003,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RoutingCompilerTest",
+      "name": "wireGuardAndBothAmneziaVersionsBlockIpv6UnlessAddressAndAllowedIpsSupportIt",
+      "seconds": 0.021,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RoutingCompilerTest",
+      "name": "endpointBudgetCapsAutoAndRejectsExplicitHeavyGroupOverflow",
+      "seconds": 0.013,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RoutingCompilerTest",
+      "name": "totalLiveBudgetRejectsExplicitOverflowAndCapsAutoWithoutDroppingRequiredProfiles",
+      "seconds": 0.011,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RoutingCompilerTest",
+      "name": "directFallbackNeverBecomesAnAutomaticEscapePath",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RoutingCompilerTest",
+      "name": "appRulesPrecedeAddressAndPresetRulesRegardlessOfCreationOrder",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RoutingCompilerTest",
+      "name": "revokedMissingSubscriptionAndEmptyGroupCannotAcquireDirectRoutes",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.RoutingCompilerTest",
+      "name": "missingPrimaryAndMissingDefaultAreExplicitlyRejectedForDnsAndTraffic",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SelectionPolicyTest",
+      "name": "switchingForSpeedRequiresFiveFreshSustainedRounds",
+      "seconds": 0.004,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SelectionPolicyTest",
+      "name": "twoFailuresAreRequiredAndZeroMillisecondsIsSuccessful",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SelectionPolicyTest",
+      "name": "activeConnectionsHoldAWorkingPathButDoNotPinAConfirmedFailedPath",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SelectionPolicyTest",
+      "name": "aBusyUnmeasuredPathSurvivesTheFirstProbeFailureButCanFailOverAfterTheSecond",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SelectionPolicyTest",
+      "name": "unmeasuredRoundsCannotAdvanceSpeedStreakOrSelectAnUnmeasuredChallenger",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.StructuralRestartApprovalTest",
+      "name": "missingUiAndDenialPreserveOriginalSession",
+      "seconds": 0.005,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.StructuralRestartApprovalTest",
+      "name": "staleIntentCannotAskOrApplyOldApproval",
+      "seconds": 0.003,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.StructuralRestartApprovalTest",
+      "name": "cancellingPresentationClosesVisiblePromptAndRejectsLateTap",
+      "seconds": 0.005,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.StructuralRestartApprovalTest",
+      "name": "timedOutQueuedPromptBecomesDeniedAndCannotBeAcceptedLater",
+      "seconds": 0.053,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.StructuralRestartApprovalTest",
+      "name": "approvedAndDismissedPromptsCompleteExactlyOnce",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.StructuralRestartApprovalTest",
+      "name": "noApprovalNeededForCompatibleLiveOrInertChanges",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SubscriptionsTest",
+      "name": "exactEndpointsWinBeforeAmbiguousSharedProviderNames",
+      "seconds": 0.015,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SubscriptionsTest",
+      "name": "legacyUniqueCredentialCanRecoverLocalRenameButNotTlsDowngrade",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SubscriptionsTest",
+      "name": "duplicateIncomingEndpointsAreAddedOnlyOnce",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SubscriptionsTest",
+      "name": "failedEmptyResponseDoesNotMutateOrEraseTheSavedSubscription",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SubscriptionsTest",
+      "name": "unrelatedSubscriptionsAndPersonalProfilesRemainUntouched",
+      "seconds": 0.004,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SubscriptionsTest",
+      "name": "partialRefreshCannotMarkUnparsedProfilesMissingThroughEitherImportEntryPoint",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SubscriptionsTest",
+      "name": "uniqueEndpointRotationPreservesRouteIdentityAndLocalName",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SubscriptionsTest",
+      "name": "ambiguousRotationDoesNotStealExistingRouteIds",
+      "seconds": 0.003,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SubscriptionsTest",
+      "name": "tlsDowngradeCannotReuseTlsRouteIdentity",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SystemDnsPolicyTest",
+      "name": "oldStoresDefaultToAutomaticAndExplicitDirectSurvivesRoundTrip",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SystemDnsPolicyTest",
+      "name": "whenAutoCannotFitAFullNativeBudgetSharedDnsKeepsTheRealPrimary",
+      "seconds": 0.013,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SystemDnsPolicyTest",
+      "name": "serviceOnlyTunnelProtectsSharedDnsAndUnattributedTraffic",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SystemDnsPolicyTest",
+      "name": "temporarilyUnknownOwnersUseTheSameProtectedOrBlockedDnsPolicyAsNetd",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SystemDnsPolicyTest",
+      "name": "explicitDnsCannotBypassTheNativeResourceBudget",
+      "seconds": 0.008,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SystemDnsPolicyTest",
+      "name": "explicitDnsOnlyProfileAndGroupAreLoadedAndKeepTheirDetour",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SystemDnsPolicyTest",
+      "name": "deletedRevokedAndEmptyExplicitDnsPathsStayBlocked",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SystemDnsPolicyTest",
+      "name": "differentAppPathsBlockOnlyUnattributedDnsUntilAnExplicitChoice",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SystemDnsPolicyTest",
+      "name": "domainRulesKeepPriorityAndWholeDevicePathSuppliesSharedDns",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SystemDnsPolicyTest",
+      "name": "aSingleProtectedAppPathAlsoProtectsNetdWithoutInventingItsPackage",
+      "seconds": 0.0,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SystemDnsPolicyTest",
+      "name": "unknownTrafficCannotEscapeProtectedAppRulesThroughDefaultDirect",
+      "seconds": 0.001,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SystemDnsPolicyTest",
+      "name": "differentServiceAndAppDnsRequireAnExplicitCommonChoice",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.SystemDnsPolicyTest",
+      "name": "commonPrimaryAndFallbackUseTheSameLiveSelectorForSystemDns",
+      "seconds": 0.003,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.TransferProofTest",
+      "name": "exactPayloadPassesOnlyWithSuccessfulCompleteResponse",
+      "seconds": 0.002,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.TransferProofTest",
+      "name": "sendingBytesIsNotSuccessWithoutServerSizeAndDigestAcknowledgement",
+      "seconds": 0.008,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.TransferProofTest",
+      "name": "headersShortRepliesAndSameSizeWrongContentNeverProvePayload",
+      "seconds": 0.007,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.TuningProofTest",
+      "name": "evidenceExpiresOnEveryConnectionRelevantChange",
+      "seconds": 0.008,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.data.TuningProofTest",
+      "name": "encryptedModelRoundTripRetainsExactOriginalAndConcealsItInDebugStrings",
+      "seconds": 0.004,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.ui.ModalSessionTest",
+      "name": "retainedModalKeepsDraftAndSinglePendingSubmissionThenCompletesOnce",
+      "seconds": 0.017,
+      "status": "passed"
+    },
+    {
+      "class": "local.waarp.android.ui.ModalSessionTest",
+      "name": "refreshIsNotAFormCompletionAndRejectedSubmitRetainsTheDraft",
+      "seconds": 0.002,
+      "status": "passed"
+    }
+  ]
+}

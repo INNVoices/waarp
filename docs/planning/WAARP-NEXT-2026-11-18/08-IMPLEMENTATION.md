@@ -1,6 +1,6 @@
 # Выполнение подготовленного плана
 
-**Статус: IN_PROGRESS.** 18 ноября 2026 года владелец явно разрешил начало сообщением «Иди работай» после завершения соседнего preview. Условие ожидания старта из исходного ТЗ выполнено. Актуальная очередь — [task-status.json](task-status.json).
+**Статус: первый реализованный срез функционально проверен; исходный план частично выполнен, полный выпуск заблокирован.** 18 ноября 2026 года владелец явно разрешил начало сообщением «Иди работай» после завершения соседнего preview. Условие ожидания старта из исходного ТЗ выполнено. Итог и точные границы — [09-ACCEPTANCE.md](09-ACCEPTANCE.md), актуальная очередь — [task-status.json](task-status.json). Записи ниже сохраняют хронологию, включая первоначальные ошибки и ожидания.
 
 ## Сверка WN-00
 
@@ -106,3 +106,27 @@ Android `44295048650` дал 200/200 JVM tests, 5/5 focused native/UI regression
 Android присоединяет к существующему Deferred только полностью совпадающие target, draft, purpose и private ConnectionProofContext при отсутствии apply. Иной контекст сохраняет прежний busy-контракт до отмены/завершения владельца. Отмена присоединившегося ожидания не отменяет владельца; explicit cancel и закрытие исходного владельца продолжают отменять операцию. Сохранённые результаты повторно не используются.
 
 Перед повторным CI прошли Windows typecheck и focused diagnosis-requests/diagnostic-owner/connection-quality/netmemory; новый тест проверяет ровно четыре настоящих Engine HTTP запроса для двух subscribers, один proof token, cancel/stale/out-of-order и cyclic native token. Android ConnectionCheckSharing + ConnectionQuality — 12/12 JVM, Kotlin PSI — 96 файлов без ошибок, instrumentation evidence runner — 10/10. Полная сборка и визуальная приёмка этого заключительного diff выполняются отдельным checkpoint.
+
+### Checkpoint 2305781 и проверка воспроизводимости Windows snapshot timeout
+
+Код, notices и руководство записаны в `main` как `230578139014639be497d10c30bd9da4d631cb28`, tree `d9a9b9b6a8d54d24833724bd5fe6b68efc761e41`; все 32 записанных файла и полное tree совпали с локальным проверенным срезом. Полные локальные typecheck/check/build и 62/62 offline suites прошли. Новые штатные прогоны: Windows/general `44300906714`, Android `44300906671`.
+
+Первый Windows job `134790064653` на этом SHA прошёл UI, native selector и отдельную проверку сохранения процесса/соседнего TCP. Но 50-cycle gate остановился на 16-м цикле: 15/50 PASS, PowerShell snapshot timeout, elapsed 152464 ms из budget 600000. Packaging из-за этого не запускался. Этот результат не сводится к quota и не объявляется PASS.
+
+Исходник локализует сообщение в `snapshot()` (`test/live.stress.ts`): пакет чтения NetAdapter/IPAddress/NetRoute/DNS и optional process-memory CIM, per-call limit 10 s. По сохранённому журналу нельзя определить конкретный cmdlet или отличить snapshot при ожидании ready от snapshot при ожидании removal. Исходный lifecycle JSON не попал в log; artifact upload отказал по quota. Успешный cleanup этого первого job не заявляется по generic runner cleanup.
+
+Сам harness и его runtime-зависимости не менялись относительно предыдущих 50/50. Новый `index.ts`/`diagnosis.ts` в этот standalone executable не входят. Первые 15 циклов были примерно на 31.5% медленнее предыдущего runner по сумме start+stop; это наблюдение, не установленная причина сбоя. Штатным GitHub API запрошен один повтор выбранного Windows job на том же SHA, с теми же 50 циклами и deadlines: attempt 2, job `134795668292`. Gates и таймауты не изменены; результат повторной проверки фиксируется отдельно.
+
+### Финальная приёмка 2305781 и завершение первого среза
+
+Windows job `134795668292`, attempt 2 того же run `44300906714`, завершил renderer 31+4 Atlas+7 quality, 100 UI cycles, real-core selector, live route и **50/50 TUN lifecycle**. Lifecycle занял 428056 ms при неизменном budget 600000 ms. Portable EXE собран и проверен: 130518198 bytes, SHA-256 `b19f42adc911a9291b41081e90e9f42a3cdebd5dd154b5a9329ecfb52358c509`, packaged core соответствует pin. Этот успех не устанавливает причину первого snapshot timeout. Его журнал и derived report сохранены отдельно.
+
+Android run `44300906671`, job `134790064761`: build/lint/R8/APK integrity/manifest/notices/16 KB compatibility gates, **204/204 JVM**, **5/5 native/feedback**, **4/4 gallery** прошли. Восемь native mutations использовали одну TUN/session. Эмулятор — Android 15/API35 x86_64 с 4096-byte страницами; это не runtime test на 16 KB устройстве. Исправленный map/FAB сценарий исполнен с fontScale1.5; настоящий touch обновил результат, сохранил revision/VPN OFF, затем маршрут сохранён единственной кнопкой.
+
+Финальные нормальный и увеличенный Android кадры просмотрены вместе с Windows renderer. Карта и маркеры действительно отрисованы; кнопка «Проверить» доступна, FAB расположен вне scroll viewport. Осталось прежнее ограничение общей Android NavigationBar: при 150% подписи тесные, особенно «Диагностика». Полная accessibility/performance/physical-handover матрица не объявляется пройденной.
+
+Оба final build jobs имеют overall FAILURE из-за `Artifact storage quota has been hit`; у Windows attempt 1 был также реальный lifecycle failure. Полные зависимые Android API matrix, optimized-release acceptance и двухчасовой soak пропущены из-за доставки artifacts. Runtime JS audit и полный audit toolchain различаются; имеющийся picomatch advisory остаётся документированным blocker. Release/tag и новые скачиваемые EXE/APK не публиковались, версии не повышались. Старый r3 не содержит новых функций.
+
+Перед сохранением итоговых документов обнаружен входящий `main@abaa754eb3d14316bc594b960bc569d03355a1ef` с единственным изменением `test/payload.check.ts` — поиском OpenSSL из Git for Windows. Входящий файл сохранён без изменения; blob `22438517bf214e1851190c575191e8de0a90c1ce` и полное tree `2c02275073035ba258eca47f5402f9bc30932515` совпали. Продуктовый код принятого среза не изменился. Документация и изображения записываются поверх актуального main без перезаписи соседней работы.
+
+Полный WN-план не закрыт: HTTP(S)-основа, Atlas и hold-policy приняты в указанном объёме; QoE/UDP, часть native capabilities, versioned method/source metadata, product drain и дополнительные UX/performance измерения остаются открытыми. Итоговая карта статусов и дальнейших границ — в [09-ACCEPTANCE.md](09-ACCEPTANCE.md). User guide, contributor path, отчёты и неизменённые screenshot evidence сохранены в Git.

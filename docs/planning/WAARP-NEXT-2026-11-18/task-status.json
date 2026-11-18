@@ -11,75 +11,83 @@
       "title": "Сверить актуальный main после команды владельца",
       "status": "COMPLETE",
       "dependsOn": [],
-      "additionalScopeDecision": null
+      "additionalScopeDecision": null,
+      "result": "Fresh main reconciled; later incoming test-only commit abaa754 preserved without product overwrite."
     },
     {
       "id": "WN-01",
       "title": "Проверить ограниченный набор готовых native/map возможностей",
-      "status": "IN_PROGRESS",
+      "status": "PARTIAL_CAPABILITIES_VERIFIED",
       "dependsOn": [
         "WN-00"
       ],
-      "additionalScopeDecision": null
+      "additionalScopeDecision": null,
+      "result": "Desktop real-core TCP/UDP soft/strict and both map SDKs verified. Android ConnectionTest witness, Android soft TCP/UDP and sidecar retained-worker experiments remain open; compatible fallbacks are explicit."
     },
     {
       "id": "WN-02",
       "title": "Объединить наблюдения и контекст приложения",
-      "status": "IMPLEMENTED_AWAITING_ACCEPTANCE",
+      "status": "IMPLEMENTED_VERIFIED",
       "dependsOn": [
         "WN-01"
       ],
-      "additionalScopeDecision": null
+      "additionalScopeDecision": null,
+      "result": "Bounded, cancellable context checks, fresh proof and exact in-flight sharing verified. Different Android scopes retain the existing busy-owner lifecycle."
     },
     {
       "id": "WN-03",
       "title": "Встроить локальный Atlas в существующий UX",
-      "status": "IMPLEMENTED_AWAITING_ACCEPTANCE",
+      "status": "FUNCTIONAL_ACCEPTANCE_COMPLETE",
       "dependsOn": [
         "WN-01",
         "WN-02"
       ],
-      "additionalScopeDecision": null
+      "additionalScopeDecision": null,
+      "result": "Local maps integrated on both platforms; renderer/emulator screenshots reviewed, including Android fontScale1.5. Reference-device performance and full accessibility matrix remain unverified."
     },
     {
       "id": "WN-04",
       "title": "Добавить ограниченные профили и объяснимые рекомендации",
-      "status": "IMPLEMENTED_AWAITING_ACCEPTANCE",
+      "status": "PARTIAL_HTTP_BASELINE",
       "dependsOn": [
         "WN-02"
       ],
-      "additionalScopeDecision": null
+      "additionalScopeDecision": null,
+      "result": "Four purpose labels and explained HTTP(S) availability recovery verified. Real UDP/QoE and versioned per-app method/source metadata remain open."
     },
     {
       "id": "WN-05",
       "title": "Сократить влияние смен маршрутов на активную работу",
-      "status": "IMPLEMENTED_AWAITING_ACCEPTANCE",
+      "status": "PARTIAL_HOLD_POLICY",
       "dependsOn": [
         "WN-01",
         "WN-02"
       ],
-      "additionalScopeDecision": null
+      "additionalScopeDecision": null,
+      "result": "Active/unknown hold, explicit-intent priority and lifecycle guards verified. Production soft drain, WAN handover and reserve recovery timing remain open."
     },
     {
       "id": "WN-06",
       "title": "Пройти сквозную UI/UX и native-приёмку",
-      "status": "IN_PROGRESS",
+      "status": "PARTIAL_RELEASE_GATES_BLOCKED",
       "dependsOn": [
         "WN-03",
         "WN-04",
         "WN-05"
       ],
-      "additionalScopeDecision": null
+      "additionalScopeDecision": null,
+      "result": "Scoped Windows UI/native/50TUN/package and Android build/204JVM/native5/gallery4 passed. First Windows lifecycle timeout is retained separately; full Android matrix/optimized release/soak are blocked by artifact delivery."
     },
     {
       "id": "WN-07",
       "title": "Подготовить простой путь контрибуции профилей",
-      "status": "IMPLEMENTED_AWAITING_ACCEPTANCE",
+      "status": "CONTRIBUTOR_GUIDE_COMPLETE",
       "dependsOn": [
         "WN-04",
         "WN-06"
       ],
-      "additionalScopeDecision": null
+      "additionalScopeDecision": null,
+      "result": "Existing preset contribution path, testable examples and actual policies documented. A new versioned importable profile schema is not claimed."
     },
     {
       "id": "WN-08",
@@ -89,12 +97,32 @@
         "WN-06",
         "WN-07"
       ],
-      "additionalScopeDecision": "Community service and opt-in data policy require a separate concrete implementation decision."
+      "additionalScopeDecision": "Community service and opt-in data policy require a separate concrete implementation decision.",
+      "result": "Separate opt-in Community Atlas service remains future scope; local Atlas has no backend dependency."
     }
   ],
   "spec": "05-PLAN-AND-ACCEPTANCE.md",
   "authorizedOn": "2026-11-18",
   "authorization": "Explicit owner instruction: Иди работай",
   "execution": "08-IMPLEMENTATION.md",
-  "implementationStatus": "INTEGRATING"
+  "implementationStatus": "SCOPED_IMPLEMENTATION_VERIFIED_RELEASE_BLOCKED",
+  "verifiedSourceCommit": "230578139014639be497d10c30bd9da4d631cb28",
+  "acceptance": "09-ACCEPTANCE.md",
+  "fullPlanComplete": false,
+  "releasePublished": false,
+  "acceptanceRuns": {
+    "windows": 44300906714,
+    "windowsFinalAttempt": 2,
+    "android": 44300906671
+  },
+  "releaseBlockers": [
+    "GitHub Actions artifact storage quota prevents delivery and dependent Android matrix/release/soak gates.",
+    "Existing full build-toolchain audit has the documented picomatch advisory; runtime JavaScript audit is separate."
+  ],
+  "planStatus": "PARTIAL_IMPLEMENTATION",
+  "notRunAcceptance": [
+    "Reference-device input/frame latency and map memory delta/ceiling.",
+    "Full Android fontScale1.0/1.3/2.0, TalkBack and landscape matrix.",
+    "Physical network handover, application-level UDP/QoE and measured flow-gap/reserve-recovery targets."
+  ]
 }

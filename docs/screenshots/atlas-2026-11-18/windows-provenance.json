@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "platform": "windows",
+  "sourceCommit": "230578139014639be497d10c30bd9da4d631cb28",
+  "runId": 44300906714,
+  "attempt": 1,
+  "jobId": 134790064653,
+  "uiResult": "PASS",
+  "overallJobResult": "FAILURE",
+  "overallFailure": "Native lifecycle snapshot timeout after 15/50; artifact quota also failed. Windows job retried unchanged separately.",
+  "scope": "Real compiled renderer in Chromium and real MapLibre WebGL; synthetic IPC profiles, selections and latency. Does not prove public connectivity.",
+  "visualNote": "900px picker includes the settled FR device dot and JP highlight. The 1240px picker frame precedes the coalesced marker paint; filter and list already reflect JP.",
+  "screenshots": [
+    {
+      "file": "windows-atlas-file-origin.png",
+      "bytes": 151568,
+      "sha256": "610bf697eca2a0df573da2f6bb064fc990c72a37d9fa731a1c80e843d88f07c3"
+    },
+    {
+      "file": "windows-atlas-picker-active-preview-1240.png",
+      "bytes": 150216,
+      "sha256": "98fa3d54bed8a451cbc625f0e5986f578de8572ee84507823fe88f2152432747"
+    },
+    {
+      "file": "windows-atlas-picker-900.png",
+      "bytes": 152550,
+      "sha256": "3892dfcb5d9c054351fb03e779004f89a526dc7c931852ea8e70d8f49e50f31c"
+    },
+    {
+      "file": "windows-atlas-public-full-pool-unknown.png",
+      "bytes": 157087,
+      "sha256": "ce1e5a1b75b32c9f75f8cdb34b65d4689eb74398d607fc6db0fadbacc40dc687"
+    },
+    {
+      "file": "windows-atlas-fallback-list.png",
+      "bytes": 73603,
+      "sha256": "2d64319f9ce6a25d24b8183e4f2f5cd63413f557999d9527560e0a2fc8a498bc"
+    },
+    {
+      "file": "windows-quality-context-1240.png",
+      "bytes": 120074,
+      "sha256": "746f4aae0ec955df485c1ffbfb01d1c3c11c36454a81cbea2ff9ffe9afca0035"
+    },
+    {
+      "file": "windows-quality-context-900.png",
+      "bytes": 108890,
+      "sha256": "e34cf231e758723641645f93a3f0b18352c28f88a0468b324e53ee3f259531e0"
+    }
+  ]
+}

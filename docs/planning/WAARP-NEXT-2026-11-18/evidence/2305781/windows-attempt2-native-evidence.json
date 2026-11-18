@@ -1,0 +1,56 @@
+{
+  "run": 44300906714,
+  "attempt": 2,
+  "job": 134795668292,
+  "commit": "230578139014639be497d10c30bd9da4d631cb28",
+  "scope": "Bounded reports and exact whitelisted lines from completed job log",
+  "selectorContinuity": "passed",
+  "routeNative": "passed",
+  "nativeLifecycle": "50/50 passed",
+  "packageBuild": "passed",
+  "packageVerification": "passed",
+  "artifactUpload": "failed: quota",
+  "priorAttempt": "../windows-44300906714/native-lifecycle-failure.json",
+  "files": [
+    {
+      "name": "continuity-native.json",
+      "bytes": 8285,
+      "sha256": "8f2da20986e367616d6e9d2408dc79fbc14c6e11203ca2be268fd8293d580164"
+    },
+    {
+      "name": "continuity-stages.log",
+      "bytes": 6134,
+      "sha256": "dd6b977da59e052ad8c1fcce07a1ddabbeb9ba8e023f5b46f45cc34966037bf8"
+    },
+    {
+      "name": "native-acceptance.log",
+      "bytes": 6798,
+      "sha256": "efa2ca745cd37782f08634ab3ee9d63d79350a8945dcdf810e28f4c3c4ca7d5a"
+    },
+    {
+      "name": "native-lifecycle-50.log",
+      "bytes": 5189,
+      "sha256": "e7fd1d6d45882db9d6da039bfd2b1671e93b04ea7811592391a792e33c7c294b"
+    },
+    {
+      "name": "package-integrity.json",
+      "bytes": 411,
+      "sha256": "ba10b359e07ee21481b09ee2419de63b1dfb81f8eb81cd564de8be8076b860b6"
+    },
+    {
+      "name": "package-verification.log",
+      "bytes": 769,
+      "sha256": "ec8a9f6df693d186710f0600f6911543cbb7fc9030f962ee99afdb0a52405006"
+    },
+    {
+      "name": "job-status.json",
+      "bytes": 4824,
+      "sha256": "b92b04b06752bad1fa00661fddf8b5db35eb53811d7f082a1b517cd2bfc0bccb"
+    },
+    {
+      "name": "source-checkout.log",
+      "bytes": 403,
+      "sha256": "93dc39260348daa7828318fb24e65cb54ac8bb3cc0c9aedc99dda4b24656c2f3"
+    }
+  ]
+}

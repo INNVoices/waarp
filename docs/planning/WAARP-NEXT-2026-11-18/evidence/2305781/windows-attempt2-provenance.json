@@ -1,0 +1,113 @@
+{
+  "run": 44300906714,
+  "attempt": 2,
+  "job": 134795668292,
+  "sourceCommit": "230578139014639be497d10c30bd9da4d631cb28",
+  "jobUrl": "https://github.com/INNVoices/waarp/actions/runs/44300906714/job/134795668292",
+  "sourceVerification": "Exact checkout lines and the package integrity report name the same source commit.",
+  "rawVsDerived": "Native-report JSON retains the fields emitted by the native/package checks, parsed and pretty-printed from the completed job log. Log excerpts preserve the exact selected lines. Manifests, job summaries, hashes and visual inspection notes are derived and labelled separately.",
+  "fileMapping": "Copies are byte-identical to extracted local evidence. Original filenames inside the copied manifests refer to the original names shown in this mapping; they are not rewritten to the repository prefix.",
+  "screenshots": "Seven PNGs were decoded from WAARP_UI_PREVIEW lines in this exact job and reviewed during execution. Their original names, sizes and hashes are recorded in windows-attempt2-ui-evidence.json. The durable repository gallery at ../../../../screenshots/atlas-2026-11-18/ retains the already-reviewed attempt-1 images from this same source commit, with its own explicit provenance; it does not relabel them as attempt 2. Screenshots use synthetic isolated IPC fixtures and do not measure live VPN quality.",
+  "results": {
+    "ui": "passed:31 base+4 Atlas+7 quality scenarios;100 renderer cycles",
+    "selectorContinuity": "passed",
+    "routeNative": "passed",
+    "nativeLifecycle": "50/50 passed;428056ms/600000ms",
+    "packageBuild": "passed",
+    "packageVerification": "passed",
+    "jobConclusion": "failure",
+    "artifactUpload": "failed:storage quota in steps24/25;portable upload step26 skipped"
+  },
+  "priorAttempt": {
+    "attempt": 1,
+    "job": 134790064653,
+    "result": "Native lifecycle failed after15/50 with Windows PowerShell timeout;package build/verification skipped. Its evidence remains separately preserved and is not replaced by this retry.",
+    "nativeFailureJsonInRetainedLog": false
+  },
+  "files": [
+    {
+      "file": "windows-attempt2-continuity-native.json",
+      "originalFile": "continuity-native.json",
+      "evidenceKind": "native-report-extracted-json",
+      "bytes": 8285,
+      "sha256": "8f2da20986e367616d6e9d2408dc79fbc14c6e11203ca2be268fd8293d580164"
+    },
+    {
+      "file": "windows-attempt2-continuity-stages.log",
+      "originalFile": "continuity-stages.log",
+      "evidenceKind": "exact-selected-job-log-lines",
+      "bytes": 6134,
+      "sha256": "dd6b977da59e052ad8c1fcce07a1ddabbeb9ba8e023f5b46f45cc34966037bf8"
+    },
+    {
+      "file": "windows-attempt2-native-acceptance.log",
+      "originalFile": "native-acceptance.log",
+      "evidenceKind": "exact-selected-job-log-lines",
+      "bytes": 6798,
+      "sha256": "efa2ca745cd37782f08634ab3ee9d63d79350a8945dcdf810e28f4c3c4ca7d5a"
+    },
+    {
+      "file": "windows-attempt2-native-lifecycle-50.log",
+      "originalFile": "native-lifecycle-50.log",
+      "evidenceKind": "exact-selected-job-log-lines",
+      "bytes": 5189,
+      "sha256": "e7fd1d6d45882db9d6da039bfd2b1671e93b04ea7811592391a792e33c7c294b"
+    },
+    {
+      "file": "windows-attempt2-package-integrity.json",
+      "originalFile": "package-integrity.json",
+      "evidenceKind": "native-report-extracted-json",
+      "bytes": 411,
+      "sha256": "ba10b359e07ee21481b09ee2419de63b1dfb81f8eb81cd564de8be8076b860b6"
+    },
+    {
+      "file": "windows-attempt2-package-verification.log",
+      "originalFile": "package-verification.log",
+      "evidenceKind": "exact-selected-job-log-lines",
+      "bytes": 769,
+      "sha256": "ec8a9f6df693d186710f0600f6911543cbb7fc9030f962ee99afdb0a52405006"
+    },
+    {
+      "file": "windows-attempt2-ui-acceptance.log",
+      "originalFile": "ui-acceptance.log",
+      "evidenceKind": "exact-selected-job-log-lines",
+      "bytes": 1750,
+      "sha256": "a42dcc7fc7d73cd130e96215f1a79e9c6fc713bc8a409bbdfa787943f8c2e368"
+    },
+    {
+      "file": "windows-attempt2-ui-evidence.json",
+      "originalFile": "ui-evidence.json",
+      "evidenceKind": "derived-manifest",
+      "bytes": 1818,
+      "sha256": "3323b2febd21db4134d7dfc60a397b581242b5c9763677fac29476651c91bdf1"
+    },
+    {
+      "file": "windows-attempt2-native-evidence.json",
+      "originalFile": "native-evidence.json",
+      "evidenceKind": "derived-manifest",
+      "bytes": 1734,
+      "sha256": "275a8e96308e9925570eb29a1c5e3800baf7668ccc34bb04205520d39dfed865"
+    },
+    {
+      "file": "windows-attempt2-job-status.json",
+      "originalFile": "job-status.json",
+      "evidenceKind": "derived-from-github-job-metadata-and-log",
+      "bytes": 4824,
+      "sha256": "b92b04b06752bad1fa00661fddf8b5db35eb53811d7f082a1b517cd2bfc0bccb"
+    },
+    {
+      "file": "windows-attempt2-source-checkout.log",
+      "originalFile": "source-checkout.log",
+      "evidenceKind": "exact-selected-job-log-lines",
+      "bytes": 403,
+      "sha256": "93dc39260348daa7828318fb24e65cb54ac8bb3cc0c9aedc99dda4b24656c2f3"
+    },
+    {
+      "file": "windows-attempt2-visual-review.json",
+      "originalFile": "visual-review.json",
+      "evidenceKind": "derived-visual-inspection",
+      "bytes": 2053,
+      "sha256": "b43cab8f69d79af074c2c5146ac8c75ec0ff78feffb345f1426630019ffefe39"
+    }
+  ]
+}

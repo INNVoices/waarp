@@ -55,3 +55,7 @@ The four original files remain available. They predate the current server picker
 3. Keep original PNG contents. A larger viewport may expose a full list; do not hide errors, replace results, or recolor the interface to improve the picture.
 4. Review the exact files that will be committed, check that all README image links resolve, and update the build, platform and capture mapping above when they change.
 5. Update both language READMEs together. Keep screenshot descriptions separate from test conclusions and download availability.
+
+## New Atlas and contextual checks in main
+
+[Windows and Android gallery, 2026-11-18](atlas-2026-11-18/README.md) records the actual `2305781` renderer/emulator frames, including Android map controls at fontScale 1.5. The gallery includes source/run provenance and SHA-256 for each image. This code is newer than the published r3 preview; the [acceptance record](../planning/WAARP-NEXT-2026-11-18/09-ACCEPTANCE.md) distinguishes functional checks, the first Windows timeout and blocked artifact delivery.

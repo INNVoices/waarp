@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "checkedAtUtc": "2026-11-18T12:25:56.376509+00:00",
+  "device": {
+    "sdk": "35",
+    "release": "15",
+    "abi": "x86_64",
+    "pageSize": 4096
+  },
+  "preflight": {
+    "hostCpuCount": 2,
+    "commands": {
+      "broadcast-idle.txt": {
+        "exitCode": null,
+        "timedOut": true,
+        "seconds": 30.004
+      },
+      "device-meminfo-before.txt": {
+        "exitCode": 0,
+        "timedOut": false,
+        "seconds": 0.034
+      },
+      "device-process-memory-before.txt": {
+        "exitCode": 0,
+        "timedOut": false,
+        "seconds": 9.074
+      }
+    },
+    "broadcastQueuesIdle": false,
+    "scope": "Observational framework broadcast-queue idle and memory snapshots; global background work is not app readiness. No dialogs dismissed, crash records cleared, or tests skipped."
+  },
+  "wallSeconds": 77.17564942299987,
+  "tests": 5,
+  "expectedTests": 5,
+  "passed": 5,
+  "failed": 0,
+  "skipped": 0,
+  "timedOut": false,
+  "passedGate": true,
+  "cases": [
+    {
+      "class": "local.waarp.android.core.VpnLifecycleInstrumentedTest",
+      "name": "nativeLifecycleCommandsCannotReplaceMasterOwnership",
+      "status": "passed",
+      "statusCode": 0
+    },
+    {
+      "class": "local.waarp.android.core.VpnLifecycleInstrumentedTest",
+      "name": "watchedRouteMutationsKeepOneRealTunAndAcknowledgeInsideTheNativeCore",
+      "status": "passed",
+      "statusCode": 0
+    },
+    {
+      "class": "local.waarp.android.ui.OperationFeedbackInstrumentedTest",
+      "name": "successInOpenSheetDoesNotMoveFormControls",
+      "status": "passed",
+      "statusCode": 0
+    },
+    {
+      "class": "local.waarp.android.ui.OperationFeedbackInstrumentedTest",
+      "name": "repeatedSuccessDoesNotMoveFollowingControlAndRemainsAnnounced",
+      "status": "passed",
+      "statusCode": 0
+    },
+    {
+      "class": "local.waarp.android.ui.OperationFeedbackInstrumentedTest",
+      "name": "blockingFailureStillAppearsNextToAction",
+      "status": "passed",
+      "statusCode": 0
+    }
+  ],
+  "scope": "focused real-TUN route mutations, lifecycle ownership and feedback UI; no external tunnel reachability claim",
+  "emulatorImage": {
+    "passed": true,
+    "reportSha256": "5f6067a97ff0e36ac64980be3019328f0f364056c4d02d30ec698bd886f4288a",
+    "device": {
+      "qemu": "1",
+      "buildType": "userdebug",
+      "observerUid": 2000,
+      "pageSize": 4096,
+      "sdk": 35,
+      "sdkFull": "",
+      "abi": "x86_64",
+      "kernel": "6.6.50-android15-8-g8adecb593e9b-ab12525588",
+      "fingerprint": "google/sdk_gphone64_x86_64/emu64xa:15/AE3A.240806.043/12960925:userdebug/dev-keys",
+      "buildId": "AE3A.240806.043",
+      "incremental": "12960925"
+    },
+    "serial": "emulator-5554",
+    "maintenanceImageRequired": false,
+    "package": null,
+    "revision": null,
+    "installedSourcePropertiesSha256": null,
+    "deviceModified": false
+  },
+  "nativeCrashEvidence": {
+    "schemaVersion": 1,
+    "package": "local.waarp.android.debug",
+    "currentFileAvailable": true,
+    "archiveEnumerationAvailable": true,
+    "archiveCount": 0,
+    "files": [
+      {
+        "path": "CrashReport-waarp-android.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "panicObserved": false
+      }
+    ],
+    "errors": [],
+    "bytes": 0,
+    "panicObserved": false,
+    "available": true,
+    "passed": true
+  },
+  "uiScreenshotCount": 0,
+  "routeContinuity": {
+    "nativeSession": 6,
+    "completed": [
+      "direct to real profile",
+      "real profile to another",
+      "disable card",
+      "delete last disabled card",
+      "add card",
+      "delete last active card",
+      "change default route",
+      "restore default direct"
+    ]
+  },
+  "coldActivityLaunchMs": [
+    5686,
+    5694,
+    6407
+  ],
+  "performanceScope": "Three measured am force-stop/start Activity launches on this emulator; this is a baseline, not a device-independent speed guarantee."
+}

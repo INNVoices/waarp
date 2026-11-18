@@ -71,7 +71,7 @@ Public checks can run while Waarp is on. Changing a card's server updates the ro
 
 The current source embeds a local map in the existing Windows and Android connection pickers. Search and filters stay in place; choosing a region filters the selectable rows. A check opened from a card compares responses from its target through eligible connections, explains the result and applies a chosen path to that card. On Android, the result stays in the draft until the single Save route action.
 
-Windows also holds active paths during optional changes and gives explicit user actions priority. These changes are being prepared for the next release; the download links above refer to the published `r3` preview. [Usage](docs/CONNECTION-TOOLS.md) · [Actual checks and limits](docs/planning/WAARP-NEXT-2026-11-18/08-IMPLEMENTATION.md) · [Contribute a profile](docs/CONNECTION-PROFILES.md).
+Windows also holds active paths during optional changes and gives explicit user actions priority. These changes are being prepared for the next release; the download links above refer to the published `r3` preview. [Usage](docs/CONNECTION-TOOLS.md) · [Actual checks and limits](docs/planning/WAARP-NEXT-2026-11-18/09-ACCEPTANCE.md) · [Actual screenshots](docs/screenshots/atlas-2026-11-18/README.md) · [Contribute a profile](docs/CONNECTION-PROFILES.md).
 
 ## How it works
 

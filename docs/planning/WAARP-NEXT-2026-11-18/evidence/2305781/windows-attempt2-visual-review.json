@@ -1,0 +1,44 @@
+{
+  "run": 44300906714,
+  "attempt": 2,
+  "job": 134795668292,
+  "commit": "230578139014639be497d10c30bd9da4d631cb28",
+  "sourceEvidence": "source-checkout.log",
+  "fixtureScope": "Production renderer, synthetic isolated IPC fixtures. Screenshot server names, addresses, timings and route data are test fixtures.",
+  "reviewed": [
+    {
+      "file": "atlas-picker-900.png",
+      "viewport": {
+        "width": 900,
+        "height": 1200
+      },
+      "observations": "All controls and Select action fit horizontally. Personal A remains current while JP filter shows Personal B. Japan marker is highlighted and the manually selected France region has a white device dot."
+    },
+    {
+      "file": "atlas-picker-active-preview-1240.png",
+      "viewport": {
+        "width": 1240,
+        "height": 900
+      },
+      "observations": "List/filter show Japan and Personal B; current route remains Personal A. Layout is readable. Map markers and device layer have not yet repainted to the new selection in this frame.",
+      "paintTimingInference": "Capture occurred before the coalesced 250 ms map update settled; the subsequent 900 px frame shows the updated marker/device layers. No source edit was made."
+    },
+    {
+      "file": "quality-context-900.png",
+      "viewport": {
+        "width": 900,
+        "height": 900
+      },
+      "observations": "Long heading truncates within the page, primary action wraps inside its card, evidence uses a single column without horizontal overflow."
+    },
+    {
+      "file": "quality-context-1240.png",
+      "viewport": {
+        "width": 1240,
+        "height": 900
+      },
+      "observations": "Two evidence columns fit; primary action remains inside its card and the endpoint and coverage limitations are visible."
+    }
+  ],
+  "conclusion": "Requested 900/1240 px map and quality screenshots were inspected again for attempt2. No blocking visual layout defect observed. The 900 px Atlas frame shows the settled regional highlight/device dot; the 1240 px frame precedes that coalesced paint."
+}

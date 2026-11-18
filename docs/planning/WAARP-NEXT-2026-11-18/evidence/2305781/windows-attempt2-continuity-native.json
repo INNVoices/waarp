@@ -1,0 +1,367 @@
+{
+  "platform": "win32",
+  "arch": "x64",
+  "core": "1.14.2-lx.11",
+  "sourceRevision": "3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d",
+  "at": "2026-11-18T12:22:20.976Z",
+  "contract": {
+    "scope": "Loopback SOCKS/TCP/UDP selector semantics; no TUN, WAN failover or Android AAR claim",
+    "selector": "https://github.com/Leadaxe/sing-box-lx/blob/3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d/protocol/group/selector.go",
+    "socksAssociation": "https://github.com/SagerNet/sing/blob/0ad23b637bd4/protocol/socks/packet.go",
+    "strict": "Closes both old TCP and SOCKS UDP association; a new association must use B",
+    "soft": "Preserves old TCP/UDP through A; new TCP/UDP must use B"
+  },
+  "status": "passed",
+  "results": [
+    {
+      "interruptExisting": false,
+      "retainedTcp": true,
+      "retainedUdp": true,
+      "oldUdpAssociationClosed": false,
+      "newHttpExit": "B",
+      "newUdpExit": "B",
+      "selectorAckMs": 11.13,
+      "udpRequests": {
+        "a": 7,
+        "b": 1
+      },
+      "stages": [
+        {
+          "stage": "prepare-fixtures",
+          "ms": 0
+        },
+        {
+          "stage": "core-ready",
+          "ms": 24
+        },
+        {
+          "stage": "initial-http/socks/connect",
+          "ms": 197
+        },
+        {
+          "stage": "initial-http/socks/auth",
+          "ms": 198
+        },
+        {
+          "stage": "initial-http/socks/request-reply",
+          "ms": 200
+        },
+        {
+          "stage": "initial-http/socks/bound-address",
+          "ms": 204
+        },
+        {
+          "stage": "initial-http/request-body",
+          "ms": 204
+        },
+        {
+          "stage": "tcp-open/connect",
+          "ms": 207
+        },
+        {
+          "stage": "tcp-open/auth",
+          "ms": 208
+        },
+        {
+          "stage": "tcp-open/request-reply",
+          "ms": 209
+        },
+        {
+          "stage": "tcp-open/bound-address",
+          "ms": 211
+        },
+        {
+          "stage": "udp-open/bind",
+          "ms": 211
+        },
+        {
+          "stage": "udp-open/socks/connect",
+          "ms": 212
+        },
+        {
+          "stage": "udp-open/socks/auth",
+          "ms": 213
+        },
+        {
+          "stage": "udp-open/socks/request-reply",
+          "ms": 214
+        },
+        {
+          "stage": "udp-open/socks/bound-address",
+          "ms": 214
+        },
+        {
+          "stage": "tcp-echo-before",
+          "ms": 214
+        },
+        {
+          "stage": "udp-open/exchange-before",
+          "ms": 216
+        },
+        {
+          "stage": "selector-put",
+          "ms": 220
+        },
+        {
+          "stage": "selector-get-ack",
+          "ms": 227
+        },
+        {
+          "stage": "selector-acknowledged-b",
+          "ms": 231
+        },
+        {
+          "stage": "tcp-echo-after-0",
+          "ms": 231
+        },
+        {
+          "stage": "udp-open/exchange-after-0",
+          "ms": 232
+        },
+        {
+          "stage": "tcp-echo-after-1",
+          "ms": 232
+        },
+        {
+          "stage": "udp-open/exchange-after-1",
+          "ms": 233
+        },
+        {
+          "stage": "tcp-echo-after-2",
+          "ms": 234
+        },
+        {
+          "stage": "udp-open/exchange-after-2",
+          "ms": 234
+        },
+        {
+          "stage": "tcp-echo-after-3",
+          "ms": 235
+        },
+        {
+          "stage": "udp-open/exchange-after-3",
+          "ms": 235
+        },
+        {
+          "stage": "tcp-echo-after-4",
+          "ms": 236
+        },
+        {
+          "stage": "udp-open/exchange-after-4",
+          "ms": 237
+        },
+        {
+          "stage": "tcp-echo-after-5",
+          "ms": 237
+        },
+        {
+          "stage": "udp-open/exchange-after-5",
+          "ms": 238
+        },
+        {
+          "stage": "new-udp-association/bind",
+          "ms": 238
+        },
+        {
+          "stage": "new-udp-association/socks/connect",
+          "ms": 238
+        },
+        {
+          "stage": "new-udp-association/socks/auth",
+          "ms": 239
+        },
+        {
+          "stage": "new-udp-association/socks/request-reply",
+          "ms": 239
+        },
+        {
+          "stage": "new-udp-association/socks/bound-address",
+          "ms": 240
+        },
+        {
+          "stage": "new-udp-association/exchange-new-flow",
+          "ms": 240
+        },
+        {
+          "stage": "new-http/socks/connect",
+          "ms": 241
+        },
+        {
+          "stage": "new-http/socks/auth",
+          "ms": 242
+        },
+        {
+          "stage": "new-http/socks/request-reply",
+          "ms": 242
+        },
+        {
+          "stage": "new-http/socks/bound-address",
+          "ms": 244
+        },
+        {
+          "stage": "new-http/request-body",
+          "ms": 244
+        },
+        {
+          "stage": "passed",
+          "ms": 245
+        }
+      ]
+    },
+    {
+      "interruptExisting": true,
+      "retainedTcp": false,
+      "retainedUdp": false,
+      "oldUdpAssociationClosed": true,
+      "newHttpExit": "B",
+      "newUdpExit": "B",
+      "selectorAckMs": 8.18,
+      "udpRequests": {
+        "a": 1,
+        "b": 1
+      },
+      "stages": [
+        {
+          "stage": "prepare-fixtures",
+          "ms": 0
+        },
+        {
+          "stage": "core-ready",
+          "ms": 8
+        },
+        {
+          "stage": "initial-http/socks/connect",
+          "ms": 134
+        },
+        {
+          "stage": "initial-http/socks/auth",
+          "ms": 134
+        },
+        {
+          "stage": "initial-http/socks/request-reply",
+          "ms": 135
+        },
+        {
+          "stage": "initial-http/socks/bound-address",
+          "ms": 137
+        },
+        {
+          "stage": "initial-http/request-body",
+          "ms": 137
+        },
+        {
+          "stage": "tcp-open/connect",
+          "ms": 138
+        },
+        {
+          "stage": "tcp-open/auth",
+          "ms": 139
+        },
+        {
+          "stage": "tcp-open/request-reply",
+          "ms": 139
+        },
+        {
+          "stage": "tcp-open/bound-address",
+          "ms": 141
+        },
+        {
+          "stage": "udp-open/bind",
+          "ms": 141
+        },
+        {
+          "stage": "udp-open/socks/connect",
+          "ms": 142
+        },
+        {
+          "stage": "udp-open/socks/auth",
+          "ms": 142
+        },
+        {
+          "stage": "udp-open/socks/request-reply",
+          "ms": 143
+        },
+        {
+          "stage": "udp-open/socks/bound-address",
+          "ms": 143
+        },
+        {
+          "stage": "tcp-echo-before",
+          "ms": 144
+        },
+        {
+          "stage": "udp-open/exchange-before",
+          "ms": 144
+        },
+        {
+          "stage": "selector-put",
+          "ms": 147
+        },
+        {
+          "stage": "selector-get-ack",
+          "ms": 152
+        },
+        {
+          "stage": "selector-acknowledged-b",
+          "ms": 155
+        },
+        {
+          "stage": "strict-close-old-tcp",
+          "ms": 155
+        },
+        {
+          "stage": "strict-close-old-udp-association",
+          "ms": 155
+        },
+        {
+          "stage": "new-udp-association/bind",
+          "ms": 155
+        },
+        {
+          "stage": "new-udp-association/socks/connect",
+          "ms": 156
+        },
+        {
+          "stage": "new-udp-association/socks/auth",
+          "ms": 156
+        },
+        {
+          "stage": "new-udp-association/socks/request-reply",
+          "ms": 157
+        },
+        {
+          "stage": "new-udp-association/socks/bound-address",
+          "ms": 157
+        },
+        {
+          "stage": "new-udp-association/exchange-new-flow",
+          "ms": 157
+        },
+        {
+          "stage": "new-http/socks/connect",
+          "ms": 159
+        },
+        {
+          "stage": "new-http/socks/auth",
+          "ms": 160
+        },
+        {
+          "stage": "new-http/socks/request-reply",
+          "ms": 160
+        },
+        {
+          "stage": "new-http/socks/bound-address",
+          "ms": 162
+        },
+        {
+          "stage": "new-http/request-body",
+          "ms": 162
+        },
+        {
+          "stage": "passed",
+          "ms": 163
+        }
+      ]
+    }
+  ]
+}

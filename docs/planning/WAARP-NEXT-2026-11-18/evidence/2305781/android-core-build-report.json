@@ -1,0 +1,10 @@
+{
+  "aarSha256": "1edc7454a993ad72de084e294c16a87797a1a8d1a51a7ee2b71fec6802245eaf",
+  "bootstrap": false,
+  "classesJarSha256": "d15ef5430296ec0315486cc3bba108660a77bf09b35a2b47c65f4345c6e51302",
+  "installed": true,
+  "passed": true,
+  "schemaVersion": 1,
+  "scope": "Reproducible native source build, DNS and WireGuard regressions; no APK build or deployment.",
+  "sourceInputsSha256": "fb3201511b806d7f277daf8aba4ff155770ccbb56e93c37222468e59ba1e1c49"
+}

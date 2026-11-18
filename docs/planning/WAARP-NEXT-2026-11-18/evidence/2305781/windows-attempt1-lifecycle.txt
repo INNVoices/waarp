@@ -1,0 +1,27 @@
+2026-11-18T12:12:30.7477819Z ##[group]Run npm run test:live -- --disposable-windows
+2026-11-18T12:12:30.7478499Z [36;1mnpm run test:live -- --disposable-windows[0m
+2026-11-18T12:12:30.7594824Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-11-18T12:12:30.7595175Z ##[endgroup]
+2026-11-18T12:12:31.7155984Z
+2026-11-18T12:12:31.7159068Z > waarp@0.4.1-rc.3 test:live
+2026-11-18T12:12:31.7161714Z > node scripts/test-live.mjs --disposable-windows
+2026-11-18T12:12:31.7162317Z
+2026-11-18T12:12:49.3628189Z Windows lifecycle 1/50: PASS (no-console-force; start 4204 ms; stop 4049 ms)
+2026-11-18T12:12:56.4519322Z Windows lifecycle 2/50: PASS (crash; start 3940 ms; stop 3057 ms)
+2026-11-18T12:13:04.4672939Z Windows lifecycle 3/50: PASS (no-console-force; start 3881 ms; stop 4054 ms)
+2026-11-18T12:13:12.2574741Z Windows lifecycle 4/50: PASS (crash; start 4009 ms; stop 3689 ms)
+2026-11-18T12:13:21.6164522Z Windows lifecycle 5/50: PASS (no-console-force; start 4213 ms; stop 5060 ms)
+2026-11-18T12:13:29.9497697Z Windows lifecycle 6/50: PASS (crash; start 4010 ms; stop 4207 ms)
+2026-11-18T12:13:39.6224458Z Windows lifecycle 7/50: PASS (no-console-force; start 4398 ms; stop 5085 ms)
+2026-11-18T12:13:46.7312261Z Windows lifecycle 8/50: PASS (crash; start 3942 ms; stop 3084 ms)
+2026-11-18T12:13:55.1232918Z Windows lifecycle 9/50: PASS (no-console-force; start 4212 ms; stop 4096 ms)
+2026-11-18T12:14:03.0152996Z Windows lifecycle 10/50: PASS (crash; start 4210 ms; stop 3590 ms)
+2026-11-18T12:14:10.8886585Z Windows lifecycle 11/50: PASS (no-console-force; start 3836 ms; stop 3954 ms)
+2026-11-18T12:14:17.9276967Z Windows lifecycle 12/50: PASS (crash; start 3726 ms; stop 3221 ms)
+2026-11-18T12:14:26.8301416Z Windows lifecycle 13/50: PASS (no-console-force; start 4781 ms; stop 4043 ms)
+2026-11-18T12:14:33.9964001Z Windows lifecycle 14/50: PASS (crash; start 3893 ms; stop 3179 ms)
+2026-11-18T12:14:45.5501028Z Windows lifecycle 15/50: PASS (no-console-force; start 4893 ms; stop 6582 ms)
+2026-11-18T12:15:04.4710629Z Native Windows lifecycle: FAIL; 15/50 cycles; Windows PowerShell не завершил проверку за отведённое время; elapsed 152464 ms / budget 600000 ms
+2026-11-18T12:15:04.5569597Z ##[error]Process completed with exit code 1.
+2026-11-18T12:15:12.6827267Z Post job cleanup.
+2026-11-18T12:15:24.6309573Z Cleaning up orphan processes

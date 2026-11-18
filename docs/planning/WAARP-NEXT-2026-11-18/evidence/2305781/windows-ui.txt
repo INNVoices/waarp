@@ -1,0 +1,16 @@
+2026-11-18T12:08:39.6132160Z Atlas: 10k projection, privacy boundary, unknown geography, health truth and catalogue page integration passed
+2026-11-18T12:10:09.4268126Z PASS  diagnosis applies the proven profile through its token and refuses a stale result
+2026-11-18T12:10:17.0988044Z PASS  Atlas production file origin, local worker, CSP and actual WebGL source/render
+2026-11-18T12:10:21.8536162Z PASS  Atlas real canvas selection, current/preview separation, unknown geography, 900 px and worker disposal
+2026-11-18T12:10:28.1421971Z PASS  Atlas public full-pool counts, paging, query and region persistence
+2026-11-18T12:10:29.2112969Z PASS  Atlas unavailable WebGL preserves the selectable list and filters
+2026-11-18T12:10:30.4934138Z PASS quality UI: unknown app has no guessed endpoint; cancel rejects late result; Back returns to card
+2026-11-18T12:10:31.7077275Z PASS quality UI: candidate applies only to the inspected app; native ACK determines success
+2026-11-18T12:10:32.8538025Z PASS quality UI: responding current path is retained even when another HTTP timing is lower
+2026-11-18T12:10:34.0484131Z PASS quality UI: route changes invalidate visible evidence; purpose saves as metadata
+2026-11-18T12:10:35.2556727Z PASS quality UI: long names and proof layout at 900 px
+2026-11-18T12:10:36.4798035Z PASS quality UI: long names and proof layout at 1240 px
+2026-11-18T12:10:37.7892518Z PASS quality UI: long names and proof layout at 1600 px
+2026-11-18T12:10:37.7993458Z Connection quality browser checks: 7 passed
+2026-11-18T12:12:09.3884305Z PASS  100 production renderer cycles keep state, subscriptions and retained memory bounded
+2026-11-18T12:12:09.4038222Z 31 browser regressions passed; no engine or system routing was started.
