@@ -18,6 +18,10 @@ interface P { snap: Snapshot; status: Status; conns: Conn[]; apps: AppInfo[]; id
 export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }: P) {
   const [applying, setApplying] = useState<Via>()
   const [saving, setSaving] = useState(false)
+  const [serverQuery, setServerQuery] = useState('')
+  const [serverExpanded, setServerExpanded] = useState(false)
+  const [backupQuery, setBackupQuery] = useState('')
+  const [backupExpanded, setBackupExpanded] = useState(false)
   const changing = useRef(false)
   const st = snap.settings
   const r = st.routes.find(x => x.id === id)
@@ -64,6 +68,20 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
   const eff = (live && status.fallback[r.id]) || r.via
   const onFb = eff !== r.via
   const fbOpts = snap.profiles.filter(p => !p.revoked && p.id !== r.via && p.kind !== 'group').map(p => p.id).filter(safe)
+  // Keep the currently selected path and Direct/Auto visible without rendering an
+  // unbounded grid. Filtering is local and never changes routes or starts a tunnel.
+  const matches = (v: Via, term: string) => {
+    const p = snap.profiles.find(x => x.id === v)
+    return [viaName(snap.profiles, v), p?.host ?? '', p ? subOf(p) : ''].join(' ').toLocaleLowerCase().includes(term.trim().toLocaleLowerCase())
+  }
+  const pinned = new Set<Via>([r.via, AUTO_ID, 'direct'])
+  const filtered = opts.filter(v => matches(v, serverQuery))
+  const sorted = [...filtered.filter(v => pinned.has(v)), ...filtered.filter(v => !pinned.has(v))]
+  const visible = sorted.slice(0, serverExpanded ? 100 : 8)
+  const filteredBackup = [undefined, ...fbOpts].filter(v => v === undefined ? !backupQuery.trim() || 'без запасного'.includes(backupQuery.trim().toLocaleLowerCase()) : matches(v, backupQuery))
+  const selectedBackup = filteredBackup.filter(v => v === r.fallback)
+  const orderedBackup = [...selectedBackup, ...filteredBackup.filter(v => v !== r.fallback)]
+  const visibleBackup = orderedBackup.slice(0, backupExpanded ? 100 : 8)
   return (
     <div className="page">
       <div className="page-head">
@@ -82,20 +100,27 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
       </div>}
       <section className="panel">
         <h3>{s('route.server')}</h3>
-        <div className="vgrid">
-          {opts.map(v => {
+        {opts.length > 8 && <div className="route-choice-tools">
+          <input className="inp" type="search" value={serverQuery} onChange={e => { setServerQuery(e.target.value); setServerExpanded(false) }} placeholder="Найти подключение по имени, протоколу или адресу" aria-label="Поиск подключений" />
+          <span className="hint">{sorted.length} из {opts.length}</span>
+        </div>}
+        <div className={'vgrid route-choices' + (serverExpanded ? ' expanded' : '')}>
+          {visible.map(v => {
             const on = !draft && r.via === v
             const p = snap.profiles.find(x => x.id === v)
             return (
               <Plain key={v} disabled={locked} aria-busy={applying === v} aria-pressed={on} className={'vopt' + (on ? ' on' : '') + (applying === v ? ' applying' : '')} onClick={() => void select(v)}>
                 <span className="radio" />
-                <span className="vo-t"><span className="vo-n"><Mark profiles={snap.profiles} via={v} />{viaName(snap.profiles, v)}</span>
-                  <small className="m ell">{v === 'direct' ? s('via.direct.hint') : v === AUTO_ID ? <AutoHint profiles={snap.profiles} bare /> : subOf(p)}</small></span>
-                <Ping ms={status.pings[v]} live={live} down={v === r.via ? e?.reason === 'path_down' : status.health?.[v] === 'down'} />
+                <span className="vo-t"><span className="vo-n"><Mark profiles={snap.profiles} via={v} /><span className="vo-name" title={viaName(snap.profiles, v)}>{viaName(snap.profiles, v)}</span></span>
+                  <span className="vo-meta"><small className="m ell" title={v === 'direct' ? s('via.direct.hint') : v === AUTO_ID ? 'Автоматический выбор' : subOf(p)}>{v === 'direct' ? s('via.direct.hint') : v === AUTO_ID ? <AutoHint profiles={snap.profiles} bare /> : subOf(p)}</small>
+                    <span className="vo-metric"><Ping ms={status.pings[v]} live={live} down={v === r.via ? e?.reason === 'path_down' : status.health?.[v] === 'down'} /></span></span></span>
               </Plain>
             )
           })}
         </div>
+        {sorted.length > visible.length && <Btn kind="ghost" onClick={() => setServerExpanded(true)}>Показать ещё ({sorted.length - visible.length})</Btn>}
+        {serverExpanded && sorted.length > 8 && <Btn kind="ghost" onClick={() => setServerExpanded(false)}>Свернуть список</Btn>}
+        {serverQuery && sorted.length === 0 && <p className="hint">Ничего не найдено. Попробуй другой запрос.</p>}
         {!snap.profiles.length && <p className="hint">{s('route.noservers')}</p>}
       </section>
 
@@ -108,20 +133,27 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
         <section className="panel">
           <h3>{s('route.fb')}</h3>
           <p className="hint">{s('route.fb.hint')}</p>
-          <div className="vgrid">
-            {[undefined, ...fbOpts].map(v => {
+          {fbOpts.length > 7 && <div className="route-choice-tools">
+            <input className="inp" type="search" value={backupQuery} onChange={e => { setBackupQuery(e.target.value); setBackupExpanded(false) }} placeholder="Найти резервное подключение" aria-label="Поиск резервных подключений" />
+            <span className="hint">{orderedBackup.length} из {fbOpts.length + 1}</span>
+          </div>}
+          <div className={'vgrid route-choices' + (backupExpanded ? ' expanded' : '')}>
+            {visibleBackup.map(v => {
               const on = r.fallback === v
               const p = snap.profiles.find(x => x.id === v)
               return (
                 <Plain disabled={locked} aria-pressed={on} key={v ?? 'none'} className={'vopt' + (on ? ' on' : '')} onClick={() => set({ fallback: v })}>
                   <span className="radio" />
-                  <span className="vo-t"><span className="vo-n">{v ? <><Mark profiles={snap.profiles} via={v} />{viaName(snap.profiles, v)}</> : s('route.fb.none')}</span>
-                    <small className="m ell">{v ? subOf(p) : s('route.fb.none.hint')}</small></span>
-                  {v && <Ping ms={status.pings[v]} live={live} down={status.health?.[v] === 'down'} />}
+                  <span className="vo-t"><span className="vo-n">{v && <Mark profiles={snap.profiles} via={v} />}<span className="vo-name" title={v ? viaName(snap.profiles, v) : s('route.fb.none')}>{v ? viaName(snap.profiles, v) : s('route.fb.none')}</span></span>
+                    <span className="vo-meta"><small className="m ell" title={v ? subOf(p) : s('route.fb.none.hint')}>{v ? subOf(p) : s('route.fb.none.hint')}</small>
+                      {v && <span className="vo-metric"><Ping ms={status.pings[v]} live={live} down={status.health?.[v] === 'down'} /></span>}</span></span>}
                 </Plain>
               )
             })}
           </div>
+          {orderedBackup.length > visibleBackup.length && <Btn kind="ghost" onClick={() => setBackupExpanded(true)}>Показать ещё ({orderedBackup.length - visibleBackup.length})</Btn>}
+          {backupExpanded && orderedBackup.length > 8 && <Btn kind="ghost" onClick={() => setBackupExpanded(false)}>Свернуть список</Btn>}
+          {backupQuery && orderedBackup.length === 0 && <p className="hint">Резервных подключений по запросу нет.</p>}
         </section>
       )}
 

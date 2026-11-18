@@ -182,6 +182,16 @@
 .vo-t { display: flex; flex-direction: column; min-width: 0; }
 .vo-n { display: flex; align-items: center; gap: 8px; font-weight: 500; }
 .vo-t small { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.route-choice-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.route-choice-tools .inp { flex: 1 1 260px; max-width: 520px; min-width: 0; }
+.route-choices .vopt { grid-template-columns: 16px minmax(0, 1fr); gap: 10px; min-width: 0; min-height: 76px; }
+.route-choices .vo-n { min-width: 0; overflow: hidden; }
+.route-choices .vo-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.route-choices .vo-meta { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 8px; width: 100%; min-width: 0; }
+.route-choices .vo-meta > small { min-width: 0; }
+.route-choices .vo-metric { justify-self: end; min-width: 0; max-width: 96px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.route-choices.expanded { max-height: 440px; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
+@media (max-width: 840px) { .route-choices { grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); } }
 .scheme { display: grid; grid-template-columns: auto minmax(48px, 1fr) auto minmax(48px, 1fr) auto; align-items: center; padding: 16px 8px; }
 .scheme.short { grid-template-columns: auto minmax(48px, 1fr) auto; }
 .node { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 96px; max-width: 200px; text-align: center; }
@@ -485,3 +495,21 @@
 .payload-check summary { cursor: pointer; }
 .payload-result { min-height: 108px; overflow-wrap: anywhere; }
 .payload-result .kv { grid-template-columns: minmax(80px, auto) minmax(0, 1fr); }
+
+/* Keep long imported labels and live status words in their assigned columns. */
+.srv-top, .srv-foot, .lg, .dg-row, .pr, .rc-top { min-width: 0; }
+.srv-top > .srv-n, .srv-n.ell { display: block; min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.legend { grid-template-columns: repeat(auto-fit, minmax(min(100%, 285px), 1fr)); }
+.lg { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.lg b, .lg .m { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr { grid-template-columns: auto minmax(0, 1fr) auto; }
+.pr b { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dg-n { flex: 1 1 auto; min-width: 0; }
+.dg-n > span, .dg-row > span { min-width: 0; overflow-wrap: anywhere; }
+.node b { overflow-wrap: anywhere; line-height: 1.25; }
+.node small { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 700px) {
+  .page { padding: 16px 12px 32px; }
+  .vgrid { grid-template-columns: 1fr; }
+  .srv-grid, .cards, .set-grid { grid-template-columns: minmax(0, 1fr); }
+}
