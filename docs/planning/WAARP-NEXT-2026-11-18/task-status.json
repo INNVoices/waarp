@@ -1,22 +1,22 @@
 {
   "schemaVersion": 1,
   "preparedOn": "2026-11-18",
-  "implementationAuthorized": false,
-  "startCondition": "Explicit owner command, followed by WN-00 current-main reconciliation.",
+  "implementationAuthorized": true,
+  "startCondition": "Satisfied: explicit owner start and completed WN-00 reconciliation against main 827a62bf6e9dfc45784a9ecfd50f5e1e72927924.",
   "automaticTrigger": false,
   "preparationStatus": "PREPARED",
   "tasks": [
     {
       "id": "WN-00",
       "title": "Сверить актуальный main после команды владельца",
-      "status": "WAIT_OWNER_START",
+      "status": "COMPLETE",
       "dependsOn": [],
       "additionalScopeDecision": null
     },
     {
       "id": "WN-01",
       "title": "Проверить ограниченный набор готовых native/map возможностей",
-      "status": "WAIT_OWNER_START",
+      "status": "IN_PROGRESS",
       "dependsOn": [
         "WN-00"
       ],
@@ -25,7 +25,7 @@
     {
       "id": "WN-02",
       "title": "Объединить наблюдения и контекст приложения",
-      "status": "WAIT_OWNER_START",
+      "status": "IN_PROGRESS",
       "dependsOn": [
         "WN-01"
       ],
@@ -34,7 +34,7 @@
     {
       "id": "WN-03",
       "title": "Встроить локальный Atlas в существующий UX",
-      "status": "WAIT_OWNER_START",
+      "status": "IN_PROGRESS",
       "dependsOn": [
         "WN-01",
         "WN-02"
@@ -44,7 +44,7 @@
     {
       "id": "WN-04",
       "title": "Добавить ограниченные профили и объяснимые рекомендации",
-      "status": "WAIT_OWNER_START",
+      "status": "IN_PROGRESS",
       "dependsOn": [
         "WN-02"
       ],
@@ -53,7 +53,7 @@
     {
       "id": "WN-05",
       "title": "Сократить влияние смен маршрутов на активную работу",
-      "status": "WAIT_OWNER_START",
+      "status": "IN_PROGRESS",
       "dependsOn": [
         "WN-01",
         "WN-02"
@@ -63,7 +63,7 @@
     {
       "id": "WN-06",
       "title": "Пройти сквозную UI/UX и native-приёмку",
-      "status": "WAIT_OWNER_START",
+      "status": "QUEUED",
       "dependsOn": [
         "WN-03",
         "WN-04",
@@ -74,7 +74,7 @@
     {
       "id": "WN-07",
       "title": "Подготовить простой путь контрибуции профилей",
-      "status": "WAIT_OWNER_START",
+      "status": "QUEUED",
       "dependsOn": [
         "WN-04",
         "WN-06"
@@ -84,7 +84,7 @@
     {
       "id": "WN-08",
       "title": "Отдельный пилот Community Atlas",
-      "status": "WAIT_OWNER_START",
+      "status": "WAIT_SCOPE_DECISION",
       "dependsOn": [
         "WN-06",
         "WN-07"
@@ -92,5 +92,8 @@
       "additionalScopeDecision": "Community service and opt-in data policy require a separate concrete implementation decision."
     }
   ],
-  "spec": "05-PLAN-AND-ACCEPTANCE.md"
+  "spec": "05-PLAN-AND-ACCEPTANCE.md",
+  "authorizedOn": "2026-11-18",
+  "authorization": "Explicit owner instruction: Иди работай",
+  "execution": "08-IMPLEMENTATION.md"
 }

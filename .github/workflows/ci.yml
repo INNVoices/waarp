@@ -34,6 +34,10 @@ jobs:
           WAARP_UI_SCREENSHOTS: out/ui
       - name: Fetch and verify pinned Windows engine
         run: npm run engine:fetch
+      - name: Verify actual TCP and UDP selector continuity on the pinned core
+        run: node out/test/continuity-native.check.js
+        env:
+          WAARP_CONTINUITY_NATIVE_TEST: '1'
       - name: Validate live card slot configs with the pinned engine
         run: node out/test/slots.check.js
       - name: Validate Hysteria2 import with the pinned engine
