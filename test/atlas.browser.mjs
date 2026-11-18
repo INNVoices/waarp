@@ -12,9 +12,14 @@ const actionCalls = page => page.evaluate(() => {
 const mapReady = page => page.locator('.atlas-canvas[data-map-ready="true"]').waitFor()
 const worldPoint = (anchor, size) => {
   const mercatorY = latitude => (1 - Math.log(Math.tan(Math.PI / 4 + latitude * Math.PI / 360)) / Math.PI) / 2
-  const world = 512 * 2 ** .65
-  return { x: size.width / 2 + (anchor.longitude - 15) / 360 * world,
-    y: size.height / 2 + (mercatorY(anchor.latitude) - mercatorY(25)) * world }
+  // With renderWorldCopies=false, MapLibre constrains the camera to one world:
+  // a wider viewport raises the zoom and clamps the requested [15, 25] center.
+  const world = Math.max(512 * 2 ** .65, size.width, size.height)
+  const clamp = (value, half) => Math.max(half, Math.min(1 - half, value))
+  const centerX = clamp((15 + 180) / 360, size.width / world / 2)
+  const centerY = clamp(mercatorY(25), size.height / world / 2)
+  return { x: size.width / 2 + ((anchor.longitude + 180) / 360 - centerX) * world,
+    y: size.height / 2 + (mercatorY(anchor.latitude) - centerY) * world }
 }
 
 export async function runAtlasChecks({ browser, url, fileUrl, screenshotDir, fixture }) {
@@ -64,6 +69,8 @@ export async function runAtlasChecks({ browser, url, fileUrl, screenshotDir, fix
     if (runtime.origin === 'null') assert.ok(runtime.sources.some(source => source.startsWith('data:')), 'opaque file origin uses the local-code data worker')
     assert.equal(await page.locator('.maplibregl-canvas').count(), 1)
     assert.equal(await page.getByText(strings['atlas.unavailable'], { exact: true }).count(), 0, 'file-origin worker does not fall back to List')
+    assert.equal(await page.locator('.saved-server-list .server-row').filter({ hasText: 'Personal A' }).locator('.server-row-health').innerText(),
+      strings['srv.ping.unmeasured'], 'acknowledged active path without measurements is never called unused')
     assert.deepEqual(external, [], 'production file map makes no HTTP requests')
     assert.deepEqual(await actionCalls(page), before, 'file-origin map starts no route control or network check')
     await capture(page, 'atlas-file-origin.png')
@@ -86,7 +93,10 @@ export async function runAtlasChecks({ browser, url, fileUrl, screenshotDir, fix
     const size = await canvas.boundingBox()
     assert.ok(size)
     // Interact with the actual rendered regional circle, not a test-only map API.
-    await canvas.click({ position: worldPoint(anchors.JP, size) })
+    const position = worldPoint(anchors.JP, size)
+    await canvas.hover({ position })
+    assert.equal(await canvas.evaluate(element => element.style.cursor), 'pointer', 'the physical pointer hits a rendered country marker')
+    await canvas.click({ position })
     await page.waitForFunction(() => document.querySelector('.atlas-region-filter select')?.value === 'JP')
     assert.equal(await page.locator('.saved-server-list .server-row').count(), 1)
     await page.locator('.saved-server-list').getByText('Personal B', { exact: true }).waitFor()

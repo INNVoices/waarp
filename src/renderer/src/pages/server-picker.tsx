@@ -52,7 +52,8 @@ export function ServerPicker({ snap, status, route, applying, disabled, onSelect
   const health = (profile: ProfileView) => {
     const measured = status.pings[profile.id]
     if (measured !== undefined || live && status.health?.[profile.id] === 'down') return <Ping ms={measured} live down={status.health?.[profile.id] === 'down'} />
-    return <span className="m">{s(live && status.health?.[profile.id] === 'unknown' ? 'ping.check' : live ? 'srv.ping.unused' : 'srv.ping.closed')}</span>
+    return <span className="m">{s(live && status.health?.[profile.id] === 'unknown' ? 'ping.check'
+      : live && active?.id === profile.id ? 'srv.ping.unmeasured' : live ? 'srv.ping.unused' : 'srv.ping.closed')}</span>
   }
 
   return <section className="server-picker" aria-label={s('server.title')}>
