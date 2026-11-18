@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import type { AppInfo, Conn, Route, Snapshot, Status, Via } from '../../../shared/types'
 import { PRESETS } from '../../../shared/presets'
-import { Btn, fmtBytes, Icon, Plain, Toggle } from '../ui/kit'
+import { Btn, fmtBytes, Icon, Input, Plain, Toggle } from '../ui/kit'
 import { s } from '../lib/i18n'
 import { connsOf, dropRoute, hueOf, patchRoute } from '../lib/routes'
 import { isDraft } from '../lib/flow'
@@ -101,7 +101,7 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
       <section className="panel">
         <h3>{s('route.server')}</h3>
         {opts.length > 8 && <div className="route-choice-tools">
-          <input className="inp" type="search" value={serverQuery} onChange={e => { setServerQuery(e.target.value); setServerLimit(8) }} placeholder="Найти подключение по имени, протоколу или адресу" aria-label="Поиск подключений" />
+          <Input className="inp" type="search" value={serverQuery} onChange={e => { setServerQuery(e.target.value); setServerLimit(8) }} placeholder="Найти подключение по имени, протоколу или адресу" aria-label="Поиск подключений" />
           <span className="hint">{sorted.length} из {opts.length}</span>
         </div>}
         <div className={'vgrid route-choices' + (serverLimit > 8 ? ' expanded' : '')}>
@@ -134,7 +134,7 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
           <h3>{s('route.fb')}</h3>
           <p className="hint">{s('route.fb.hint')}</p>
           {fbOpts.length > 7 && <div className="route-choice-tools">
-            <input className="inp" type="search" value={backupQuery} onChange={e => { setBackupQuery(e.target.value); setBackupLimit(8) }} placeholder="Найти резервное подключение" aria-label="Поиск резервных подключений" />
+            <Input className="inp" type="search" value={backupQuery} onChange={e => { setBackupQuery(e.target.value); setBackupLimit(8) }} placeholder="Найти резервное подключение" aria-label="Поиск резервных подключений" />
             <span className="hint">{orderedBackup.length} из {fbOpts.length + 1}</span>
           </div>}
           <div className={'vgrid route-choices' + (backupLimit > 8 ? ' expanded' : '')}>
