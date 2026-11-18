@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "preparedOn": "2026-11-18",
+  "implementationAuthorized": false,
+  "startCondition": "Explicit owner command, followed by WN-00 current-main reconciliation.",
+  "automaticTrigger": false,
+  "preparationStatus": "PREPARED",
+  "tasks": [
+    {
+      "id": "WN-00",
+      "title": "Сверить актуальный main после команды владельца",
+      "status": "WAIT_OWNER_START",
+      "dependsOn": [],
+      "additionalScopeDecision": null
+    },
+    {
+      "id": "WN-01",
+      "title": "Проверить ограниченный набор готовых native/map возможностей",
+      "status": "WAIT_OWNER_START",
+      "dependsOn": [
+        "WN-00"
+      ],
+      "additionalScopeDecision": null
+    },
+    {
+      "id": "WN-02",
+      "title": "Объединить наблюдения и контекст приложения",
+      "status": "WAIT_OWNER_START",
+      "dependsOn": [
+        "WN-01"
+      ],
+      "additionalScopeDecision": null
+    },
+    {
+      "id": "WN-03",
+      "title": "Встроить локальный Atlas в существующий UX",
+      "status": "WAIT_OWNER_START",
+      "dependsOn": [
+        "WN-01",
+        "WN-02"
+      ],
+      "additionalScopeDecision": null
+    },
+    {
+      "id": "WN-04",
+      "title": "Добавить ограниченные профили и объяснимые рекомендации",
+      "status": "WAIT_OWNER_START",
+      "dependsOn": [
+        "WN-02"
+      ],
+      "additionalScopeDecision": null
+    },
+    {
+      "id": "WN-05",
+      "title": "Сократить влияние смен маршрутов на активную работу",
+      "status": "WAIT_OWNER_START",
+      "dependsOn": [
+        "WN-01",
+        "WN-02"
+      ],
+      "additionalScopeDecision": null
+    },
+    {
+      "id": "WN-06",
+      "title": "Пройти сквозную UI/UX и native-приёмку",
+      "status": "WAIT_OWNER_START",
+      "dependsOn": [
+        "WN-03",
+        "WN-04",
+        "WN-05"
+      ],
+      "additionalScopeDecision": null
+    },
+    {
+      "id": "WN-07",
+      "title": "Подготовить простой путь контрибуции профилей",
+      "status": "WAIT_OWNER_START",
+      "dependsOn": [
+        "WN-04",
+        "WN-06"
+      ],
+      "additionalScopeDecision": null
+    },
+    {
+      "id": "WN-08",
+      "title": "Отдельный пилот Community Atlas",
+      "status": "WAIT_OWNER_START",
+      "dependsOn": [
+        "WN-06",
+        "WN-07"
+      ],
+      "additionalScopeDecision": "Community service and opt-in data policy require a separate concrete implementation decision."
+    }
+  ],
+  "spec": "05-PLAN-AND-ACCEPTANCE.md"
+}

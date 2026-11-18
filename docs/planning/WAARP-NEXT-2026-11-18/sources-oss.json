@@ -1,0 +1,664 @@
+{
+  "schema_version": 1,
+  "checked_date_utc": "2026-11-18",
+  "status": "PREPARATION_ONLY_WAIT_OWNER_START",
+  "purpose": "Первичные источники для 03-OPEN-SOURCE-REUSE.md; ограниченный shortlist, без установки зависимостей.",
+  "evidence_policy": {
+    "inspected": "Pinned public source files, current upstream commit metadata, official docs and license files.",
+    "runtime": "No new runtime integration, native builds or performance tests performed by this research.",
+    "distinction": "Research snapshots are not approved dependency artifact pins. Source presence is not proof of packaged exports or app support.",
+    "license": "Observed file declarations, not a legal opinion; code/data/tiles/services and transitive notices are distinct."
+  },
+  "sources": [
+    {
+      "id": "OSS-WAARP-PINS",
+      "project": "Waarp",
+      "kind": "local_repository_provenance",
+      "baseline_commit": "f66e5def3d689837db010c3453086a832c701fcc",
+      "files": [
+        {
+          "path": "engine/SOURCE.md",
+          "claim": "Windows core version/tag/commit, process boundary, archive and corresponding-source provenance."
+        },
+        {
+          "path": "scripts/engine.mjs",
+          "claim": "Pinned archive fetch/integrity workflow; no dependency changed by this research."
+        },
+        {
+          "path": "android/native-source.json",
+          "claim": "Android source commit, version, build tags, ABIs, patches and toolchain."
+        },
+        {
+          "path": "package.json",
+          "claim": "Desktop declares Apache-2.0."
+        },
+        {
+          "path": "LICENSE",
+          "claim": "Desktop license text."
+        },
+        {
+          "path": "android/LICENSE",
+          "claim": "Android license file; project GPL-3.0-or-later declaration read with baseline docs."
+        },
+        {
+          "path": "docs/ANDROID.md",
+          "claim": "Sources and licenses section explicitly declares Android GPL-3.0-or-later and the separate desktop Apache-2.0 license."
+        }
+      ],
+      "decision": "existing_runtime",
+      "runtime_verified_by_this_research": false,
+      "notes": [
+        "Existing artifacts were not downloaded or executed for this documentation.",
+        "Repository source claims are not a new license compatibility conclusion."
+      ],
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-LX-WINDOWS",
+      "project": "Leadaxe/sing-box-lx",
+      "kind": "pinned_existing_engine",
+      "repository": "https://github.com/Leadaxe/sing-box-lx",
+      "commit": "3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d",
+      "tag": "v1.14.2-lx.11",
+      "waarp_version": "1.14.2-lx.11",
+      "files": [
+        {
+          "path": "option/group.go",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d/option/group.go",
+          "claim": "URLTest options expose least_test and round_robin; desktop differs from Android."
+        },
+        {
+          "path": "protocol/group/urltest_balance_lx.go",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d/protocol/group/urltest_balance_lx.go",
+          "claim": "newBalancer rejects modes other than least_test/round_robin; sticky selection occurs once per new connection."
+        },
+        {
+          "path": "docs/configuration/outbound/urltest.md",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d/docs/configuration/outbound/urltest.md",
+          "claim": "Pinned URLTest documentation: allowed modes and external/internal interruption distinction."
+        },
+        {
+          "path": "protocol/group/selector.go",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d/protocol/group/selector.go",
+          "claim": "SelectOutbound invokes Interrupt(interruptExternalConnections); existing external wrappers carry connection classification."
+        },
+        {
+          "path": "common/urltest/urltest.go",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d/common/urltest/urltest.go",
+          "claim": "HTTP HEAD over a TCP dial; redirects not followed. Not a generic UDP/app test."
+        },
+        {
+          "path": "LICENSE",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d/LICENSE",
+          "claim": "GPL-3.0-or-later declaration plus naming/association condition."
+        }
+      ],
+      "license": {
+        "spdx": "GPL-3.0-or-later",
+        "additional_terms": "Naming/association condition present in the same LICENSE.",
+        "source_url": "https://github.com/Leadaxe/sing-box-lx/blob/3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d/LICENSE"
+      },
+      "decision": "reuse_existing_runtime_after_capability_spike",
+      "verified_claims": [
+        "failover mode is not supported by this pinned source.",
+        "least_test, round_robin and sticky_hash are in source; Waarp currently owns selector decisions.",
+        "Changing interrupt_exist_connections alone does not prove session continuity in the complete app."
+      ],
+      "not_proven": [
+        "Runtime daemon command availability in shipped EXE.",
+        "Graceful retention after Waarp own closeTouched/worker trimming.",
+        "Preservation of arbitrary sessions when exit IP or remote server disappears."
+      ],
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-LX-ANDROID",
+      "project": "Leadaxe/sing-box-lx",
+      "kind": "pinned_existing_engine",
+      "repository": "https://github.com/Leadaxe/sing-box-lx",
+      "commit": "f1bac271853eaf13398ce1030c948aebc3aed2e1",
+      "waarp_version": "1.14.4-lx.35-waarp.2",
+      "files": [
+        {
+          "path": "option/group.go",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/f1bac271853eaf13398ce1030c948aebc3aed2e1/option/group.go",
+          "claim": "Android pin exposes failover in addition to least_test and round_robin."
+        },
+        {
+          "path": "protocol/group/urltest_balance_lx.go",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/f1bac271853eaf13398ce1030c948aebc3aed2e1/protocol/group/urltest_balance_lx.go",
+          "claim": "Pinned balancer implementation; inspect together with options/docs rather than desktop capabilities."
+        },
+        {
+          "path": "docs/configuration/outbound/urltest.md",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/f1bac271853eaf13398ce1030c948aebc3aed2e1/docs/configuration/outbound/urltest.md",
+          "claim": "Failover hold/failure/degradation behavior, per-connection round_robin and interruption semantics."
+        },
+        {
+          "path": "protocol/group/selector.go",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/f1bac271853eaf13398ce1030c948aebc3aed2e1/protocol/group/selector.go",
+          "claim": "Same distinction between configurable external interruption and internal paths."
+        }
+      ],
+      "license": {
+        "spdx": "GPL-3.0-or-later",
+        "additional_terms": "Naming/association condition; preserve actual pinned LICENSE with source notices.",
+        "source_url": "https://github.com/Leadaxe/sing-box-lx/blob/f1bac271853eaf13398ce1030c948aebc3aed2e1/LICENSE"
+      },
+      "decision": "reuse_existing_runtime_after_capability_spike",
+      "not_proven": [
+        "Whether public Java/Kotlin exports and the app CommandClient surface expose all inspected Go APIs.",
+        "Runtime affinity to intended Android network and outbound.",
+        "Any equivalence between presence of with_tailscale and independent general-purpose Tailscale APIs."
+      ],
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-LX-CONNECTIONTEST",
+      "project": "Leadaxe/sing-box-lx",
+      "kind": "pinned_candidate_api",
+      "commit": "f1bac271853eaf13398ce1030c948aebc3aed2e1",
+      "files": [
+        {
+          "path": "experimental/libbox/command_client_conntest_lx.go",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/f1bac271853eaf13398ce1030c948aebc3aed2e1/experimental/libbox/command_client_conntest_lx.go",
+          "claim": "CommandClient.StartConnectionTest streams stages/result; explicit active traffic; cancellation prevents future callbacks; OnError is stream transport failure."
+        },
+        {
+          "path": "experimental/libbox/command_types_conntest_lx.go",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/f1bac271853eaf13398ce1030c948aebc3aed2e1/experimental/libbox/command_types_conntest_lx.go",
+          "claim": "SetOutboundTag, link, depth, network, timeout/max bytes and route metadata; response stages/findings."
+        },
+        {
+          "path": "daemon/started_service_conntest_lx.go",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/f1bac271853eaf13398ce1030c948aebc3aed2e1/daemon/started_service_conntest_lx.go",
+          "claim": "runViaNode and HTTP execution; UDP runPacketRoute is payload-less and only checks route/first-hop outcomes."
+        }
+      ],
+      "decision": "first_capability_spike_before_new_diagnostic_dependency",
+      "verified_claims": [
+        "Source offers structured stages close to desired detective flow.",
+        "Request process/package/UID metadata can simulate route matching; this is not observed real app traffic.",
+        "UDP route success is not loss/jitter/response success."
+      ],
+      "not_proven": [
+        "Actual packaged AAR method exports, service compatibility and permission/network behavior.",
+        "Full app service success beyond chosen test target."
+      ],
+      "privacy_boundary": "Raw URLs, headers, bodies and trace attributes require minimization before storing/exporting.",
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-LX-NETWORKQUALITY",
+      "project": "Leadaxe/sing-box-lx",
+      "kind": "pinned_candidate_api",
+      "commits": [
+        "3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d",
+        "f1bac271853eaf13398ce1030c948aebc3aed2e1"
+      ],
+      "files": [
+        {
+          "path": "common/networkquality/networkquality.go",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d/common/networkquality/networkquality.go",
+          "claim": "Capacity, idle latency, directional RPM and accuracy fields; default configuration URL is Apple mensura."
+        },
+        {
+          "path": "cmd/sing-box/cmd_api_networkquality.go",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d/cmd/sing-box/cmd_api_networkquality.go",
+          "claim": "--outbound/-o is forwarded as OutboundTag to daemon request."
+        },
+        {
+          "path": "cmd/sing-box/cmd_tools_networkquality.go",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d/cmd/sing-box/cmd_tools_networkquality.go",
+          "claim": "createDialer(instance, outbound) is passed to HTTP/optional HTTP3 clients."
+        },
+        {
+          "path": "experimental/libbox/networkquality.go",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/f1bac271853eaf13398ce1030c948aebc3aed2e1/experimental/libbox/networkquality.go",
+          "claim": "Standalone helper uses nil dialer for HTTP and optional HTTP3."
+        },
+        {
+          "path": "experimental/libbox/stun.go",
+          "url": "https://github.com/Leadaxe/sing-box-lx/blob/f1bac271853eaf13398ce1030c948aebc3aed2e1/experimental/libbox/stun.go",
+          "claim": "Standalone STUN helper has no outbound tag."
+        }
+      ],
+      "decision": "bounded_explicit_deep_test_only_after_path_and_endpoint_gate",
+      "not_proven": [
+        "Executable/API exports at runtime.",
+        "Service terms and operational suitability of a chosen measurement endpoint.",
+        "Any route attribution from standalone nil-dialer helpers.",
+        "Availability of a safe arbitrary-app UDP loss test."
+      ],
+      "notes": [
+        "Do not launch bandwidth/RPM load tests as ambient Atlas or Auto probes.",
+        "Existing source is preferred over adding a second full speedtest runtime."
+      ],
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-MIHOMO",
+      "project": "MetaCubeX/mihomo",
+      "kind": "public_upstream_research_snapshot",
+      "repository": "https://github.com/MetaCubeX/mihomo",
+      "commit": "0455d0d28c4526937380505153e65a843d8612e8",
+      "commit_is_install_recommendation": false,
+      "files": [
+        {
+          "path": "adapter/provider/healthcheck.go",
+          "url": "https://github.com/MetaCubeX/mihomo/blob/0455d0d28c4526937380505153e65a843d8612e8/adapter/provider/healthcheck.go",
+          "claim": "Lazy checks, timeout, task cancellation/deduplication and bounded concurrency."
+        },
+        {
+          "path": "adapter/outboundgroup/urltest.go",
+          "url": "https://github.com/MetaCubeX/mihomo/blob/0455d0d28c4526937380505153e65a843d8612e8/adapter/outboundgroup/urltest.go",
+          "claim": "Per-URL health selection and tolerance; selection/dial does not imply measured UDP QoE."
+        },
+        {
+          "path": "README.md",
+          "url": "https://github.com/MetaCubeX/mihomo/blob/0455d0d28c4526937380505153e65a843d8612e8/README.md",
+          "claim": "Target network core and license declaration incl. naming restriction."
+        },
+        {
+          "path": "LICENSE",
+          "url": "https://github.com/MetaCubeX/mihomo/blob/0455d0d28c4526937380505153e65a843d8612e8/LICENSE",
+          "claim": "GPL v3 full text for the selected core branch."
+        }
+      ],
+      "license": {
+        "spdx": null,
+        "declared": "GPL-3.0 in README; LICENSE is GPL v3 text.",
+        "normalization_limit": "Do not infer -only versus -or-later without exact-file audit.",
+        "additional_terms": "README restricts use of mihomo in unaffiliated downstream names.",
+        "source_url": "https://github.com/MetaCubeX/mihomo/blob/0455d0d28c4526937380505153e65a843d8612e8/LICENSE"
+      },
+      "decision": "algorithm_reference_only",
+      "branch": "Meta",
+      "branch_warning": "Default main at inspection was an unrelated Python project; its MIT metadata must not be assigned to Meta proxy-core files.",
+      "integration_cost": "Would add a second Go proxy engine/decision owner; no such runtime addition planned.",
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-TAILSCALE",
+      "project": "tailscale/tailscale",
+      "kind": "public_upstream_research_snapshot",
+      "repository": "https://github.com/tailscale/tailscale",
+      "commit": "075e6403b2cac7ea5357bb14e76e5cdb084ec3ff",
+      "commit_is_install_recommendation": false,
+      "files": [
+        {
+          "path": "net/netcheck/netcheck.go",
+          "url": "https://github.com/tailscale/tailscale/blob/075e6403b2cac7ea5357bb14e76e5cdb084ec3ff/net/netcheck/netcheck.go",
+          "claim": "Netcheck report/probe planning tied to DERPMap, network monitoring, NAT/UDP and Tailscale dependencies."
+        },
+        {
+          "path": "wgengine/magicsock/magicsock.go",
+          "url": "https://github.com/tailscale/tailscale/blob/075e6403b2cac7ea5357bb14e76e5cdb084ec3ff/wgengine/magicsock/magicsock.go",
+          "claim": "Tailscale-specific peer connectivity and path handling."
+        },
+        {
+          "path": "LICENSE",
+          "url": "https://github.com/tailscale/tailscale/blob/075e6403b2cac7ea5357bb14e76e5cdb084ec3ff/LICENSE",
+          "claim": "BSD 3-Clause license."
+        }
+      ],
+      "license": {
+        "spdx": "BSD-3-Clause",
+        "source_url": "https://github.com/tailscale/tailscale/blob/075e6403b2cac7ea5357bb14e76e5cdb084ec3ff/LICENSE"
+      },
+      "decision": "architecture_reference_only",
+      "integration_cost": "Not a small independent generic route-quality module; uses Tailscale peer/control/DERP concepts and multiple packages.",
+      "not_proven": [
+        "Generic migration of arbitrary TCP/game sessions across unrelated proxy exits."
+      ],
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-OONI",
+      "project": "ooni/probe-cli",
+      "kind": "public_upstream_research_snapshot",
+      "repository": "https://github.com/ooni/probe-cli",
+      "commit": "b9bd44604ff7ec8e429923b26376bc8e7705aca2",
+      "commit_is_install_recommendation": false,
+      "files": [
+        {
+          "path": "Readme.md",
+          "url": "https://github.com/ooni/probe-cli/blob/b9bd44604ff7ec8e429923b26376bc8e7705aca2/Readme.md",
+          "claim": "GPL-3.0-or-later declaration and explicit lack of semver guarantees for mobile API."
+        }
+      ],
+      "license": {
+        "spdx": "GPL-3.0-or-later",
+        "source_url": "https://github.com/ooni/probe-cli/blob/b9bd44604ff7ec8e429923b26376bc8e7705aca2/Readme.md",
+        "note": "README header has its own MIT notice; program declaration is separate."
+      },
+      "decision": "methodology_reference_only",
+      "integration_cost": "Full Go/mobile probe engine and test-helper/reporting ecosystem are outside the near-term local client.",
+      "related_source_urls": [
+        "https://github.com/ooni/spec/blob/master/nettests/ts-017-web-connectivity.md"
+      ],
+      "not_proven": [
+        "Drop-in stable liboonimkall API for Waarp.",
+        "Attribution of a failure to deliberate blocking from one local observation."
+      ],
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-OONI-WEBCONNECTIVITY",
+      "project": "OONI",
+      "kind": "official_protocol_spec",
+      "url": "https://github.com/ooni/spec/blob/master/nettests/ts-017-web-connectivity.md",
+      "version": "unversioned official document, observed on date",
+      "claims": [
+        "DNS/TCP/HTTP connectivity comparison methodology; useful phase separation and evidence interpretation."
+      ],
+      "decision": "methodology_reference_only",
+      "notes": [
+        "No full experiment engine or public report submission added.",
+        "A live spec URL is not a pinned runtime artifact."
+      ],
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-CLOUDFLARE-SPEEDTEST",
+      "project": "cloudflare/speedtest",
+      "kind": "public_upstream_research_snapshot",
+      "repository": "https://github.com/cloudflare/speedtest",
+      "commit": "564a2c113a0e2c014dc6377c13375524c252c3ee",
+      "commit_is_install_recommendation": false,
+      "files": [
+        {
+          "path": "README.md",
+          "url": "https://github.com/cloudflare/speedtest/blob/564a2c113a0e2c014dc6377c13375524c252c3ee/README.md",
+          "claim": "Browser measurement targets, collection of results, opt-in packet loss requiring own TURN configuration/credentials."
+        },
+        {
+          "path": "LICENSE",
+          "url": "https://github.com/cloudflare/speedtest/blob/564a2c113a0e2c014dc6377c13375524c252c3ee/LICENSE",
+          "claim": "MIT license."
+        }
+      ],
+      "license": {
+        "spdx": "MIT",
+        "source_url": "https://github.com/cloudflare/speedtest/blob/564a2c113a0e2c014dc6377c13375524c252c3ee/LICENSE"
+      },
+      "decision": "defer_runtime_use",
+      "integration_cost": "Browser PerformanceResourceTiming/measurement flow; cannot by itself prove selected app/outbound path. TURN service costs and credentials are separate.",
+      "privacy_boundary": "README discloses Cloudflare collection; service behavior must be explicitly considered before integration.",
+      "not_proven": [
+        "Arbitrary app latency or game session quality from a generic speedtest.",
+        "A free packet-loss service included by installing the package."
+      ],
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-NDT7",
+      "project": "m-lab/ndt7-client-go",
+      "kind": "public_upstream_research_snapshot",
+      "repository": "https://github.com/m-lab/ndt7-client-go",
+      "commit": "1f6adcf81a3f29cae933a2e317e86e24826e2900",
+      "commit_is_install_recommendation": false,
+      "files": [
+        {
+          "path": "README.md",
+          "url": "https://github.com/m-lab/ndt7-client-go/blob/1f6adcf81a3f29cae933a2e317e86e24826e2900/README.md",
+          "claim": "Reference Go implementation and CLI/library installation; Go toolchain and API assumptions."
+        },
+        {
+          "path": "LICENSE",
+          "url": "https://github.com/m-lab/ndt7-client-go/blob/1f6adcf81a3f29cae933a2e317e86e24826e2900/LICENSE",
+          "claim": "Apache-2.0 license."
+        }
+      ],
+      "license": {
+        "spdx": "Apache-2.0",
+        "source_url": "https://github.com/m-lab/ndt7-client-go/blob/1f6adcf81a3f29cae933a2e317e86e24826e2900/LICENSE"
+      },
+      "decision": "defer_runtime_use",
+      "integration_cost": "Additional Go library/binary and remote NDT infrastructure; existing core NetworkQuality should be examined first.",
+      "related_source_urls": [
+        "https://www.measurementlab.net/tests/ndt/",
+        "https://www.measurementlab.net/privacy/"
+      ],
+      "not_proven": [
+        "App-specific or arbitrary UDP QoE."
+      ],
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-MLAB-PRIVACY",
+      "project": "Measurement Lab",
+      "kind": "official_service_policy",
+      "url": "https://www.measurementlab.net/privacy/",
+      "version": "v4, 2025-02-17; retrieved 2026-11-18",
+      "claims": [
+        "Experiment data is retained indefinitely and publicly published; third-party clients using M-Lab must account for this policy."
+      ],
+      "decision": "external_service_gate_if_NDT_is_ever_enabled",
+      "notes": [
+        "Code license and external service/data policy are different subjects."
+      ],
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-MAPLIBRE-GL",
+      "project": "maplibre/maplibre-gl-js",
+      "kind": "public_upstream_research_snapshot",
+      "repository": "https://github.com/maplibre/maplibre-gl-js",
+      "commit": "04af76c92b21f8ef5a64789ed2c29ebb0682652f",
+      "commit_is_install_recommendation": false,
+      "files": [
+        {
+          "path": "LICENSE.txt",
+          "url": "https://github.com/maplibre/maplibre-gl-js/blob/04af76c92b21f8ef5a64789ed2c29ebb0682652f/LICENSE.txt",
+          "claim": "BSD-3-Clause project license plus bundled notices."
+        },
+        {
+          "path": "package.json",
+          "url": "https://github.com/maplibre/maplibre-gl-js/blob/04af76c92b21f8ef5a64789ed2c29ebb0682652f/package.json",
+          "claim": "Version 6.19.0 at this research commit; not an approved dependency release pin."
+        }
+      ],
+      "license": {
+        "spdx": "BSD-3-Clause",
+        "source_url": "https://github.com/maplibre/maplibre-gl-js/blob/04af76c92b21f8ef5a64789ed2c29ebb0682652f/LICENSE.txt",
+        "note": "Retain bundled third-party notices and audit transitive artifacts."
+      },
+      "decision": "direct_dependency_candidate_for_desktop",
+      "source_package_version": "6.19.0",
+      "published_artifact_selected": null,
+      "integration_cost": "Electron WebGL renderer, worker/CSS/style lifecycle; lazy-load only Atlas. Bundle/GPU/RAM cost unmeasured.",
+      "not_proven": [
+        "Target hardware performance and memory release.",
+        "Compatibility of an eventual published artifact with current Electron CSP/bundler."
+      ],
+      "data_boundary": "Rendering library does not provide tiles, geographic node truth, fonts or service rights.",
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-MAPLIBRE-NATIVE",
+      "project": "maplibre/maplibre-native",
+      "kind": "public_upstream_research_snapshot",
+      "repository": "https://github.com/maplibre/maplibre-native",
+      "commit": "cf0942a8ec9df27363f628687c9ef98874d62e3a",
+      "commit_is_install_recommendation": false,
+      "files": [
+        {
+          "path": "LICENSE.md",
+          "url": "https://github.com/maplibre/maplibre-native/blob/cf0942a8ec9df27363f628687c9ef98874d62e3a/LICENSE.md",
+          "claim": "BSD-2-Clause project license."
+        },
+        {
+          "path": "platform/android/README.md",
+          "url": "https://github.com/maplibre/maplibre-native/blob/cf0942a8ec9df27363f628687c9ef98874d62e3a/platform/android/README.md",
+          "claim": "Native Android MapView SDK and official examples/API links."
+        }
+      ],
+      "license": {
+        "spdx": "BSD-2-Clause",
+        "source_url": "https://github.com/maplibre/maplibre-native/blob/cf0942a8ec9df27363f628687c9ef98874d62e3a/LICENSE.md"
+      },
+      "decision": "direct_dependency_candidate_for_android",
+      "published_artifact_selected": null,
+      "integration_cost": "JNI/C++/MapView with Android lifecycle, ABI and package-size effects; Compose hosting is a Waarp design choice to test.",
+      "related_source_urls": [
+        "https://maplibre.org/maplibre-native/android/examples/getting-started/"
+      ],
+      "not_proven": [
+        "Actual SDK artifact support for target API/ABI/16 KB packaging.",
+        "Runtime performance/size/rotation/background behavior in Waarp."
+      ],
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-MAPLIBRE-ANDROID-GUIDE",
+      "project": "MapLibre Native",
+      "kind": "official_documentation",
+      "url": "https://maplibre.org/maplibre-native/android/examples/getting-started/",
+      "claims": [
+        "Uses org.maplibre.gl:android-sdk and MapView; forwards activity lifecycle methods.",
+        "Example style uses remote demotiles; that sample URL is not the proposed production data source."
+      ],
+      "decision": "integration_reference",
+      "notes": [
+        "Choose exact SDK release after spike; no latest dependency inserted."
+      ],
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-NATURAL-EARTH",
+      "project": "Natural Earth",
+      "kind": "official_data_terms",
+      "url": "https://www.naturalearthdata.com/about/terms-of-use/",
+      "license": {
+        "spdx": null,
+        "declared": "Public domain for raster/vector map data from the website.",
+        "not_assumed": "Do not relabel the data CC0 without a matching asset declaration."
+      },
+      "claims": [
+        "Data may be used/modified without permission; credit is not mandatory according to official terms."
+      ],
+      "decision": "local_low_resolution_basemap_candidate",
+      "proposed_scope": "1:110m world overview geometry stored locally, no required external tile/CDN request.",
+      "exact_asset_version": null,
+      "artifact_sha256": null,
+      "unresolved": [
+        "Choose actual asset/version/hash and deterministic conversion after implementation start.",
+        "Separate fonts/glyphs/sprites/optional GeoIP terms."
+      ],
+      "not_proven": [
+        "Any node location derived from geometry; map data is not node geolocation."
+      ],
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-DECKGL",
+      "project": "visgl/deck.gl",
+      "kind": "public_upstream_research_snapshot",
+      "repository": "https://github.com/visgl/deck.gl",
+      "commit": "35b698bd70f3dd859046ad830672ac0c19b63afb",
+      "commit_is_install_recommendation": false,
+      "files": [
+        {
+          "path": "LICENSE",
+          "url": "https://github.com/visgl/deck.gl/blob/35b698bd70f3dd859046ad830672ac0c19b63afb/LICENSE",
+          "claim": "MIT license."
+        }
+      ],
+      "license": {
+        "spdx": "MIT",
+        "source_url": "https://github.com/visgl/deck.gl/blob/35b698bd70f3dd859046ad830672ac0c19b63afb/LICENSE"
+      },
+      "decision": "defer_until_measured_need",
+      "related_source_urls": [
+        "https://deck.gl/docs/api-reference/layers/arc-layer"
+      ],
+      "integration_cost": "Second GPU rendering/integration lifecycle; built-in MapLibre layers should be evaluated first.",
+      "not_proven": [
+        "Need for additional renderer in initial Atlas.",
+        "Any real route/hop meaning from ArcLayer geometry."
+      ],
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-DOMAIN-LIST",
+      "project": "v2fly/domain-list-community",
+      "kind": "public_upstream_research_snapshot",
+      "repository": "https://github.com/v2fly/domain-list-community",
+      "commit": "178b9452b28a254a97d24e56c84babbe3e3e3dda",
+      "commit_is_install_recommendation": false,
+      "files": [
+        {
+          "path": "LICENSE",
+          "url": "https://github.com/v2fly/domain-list-community/blob/178b9452b28a254a97d24e56c84babbe3e3e3dda/LICENSE",
+          "claim": "MIT license for the repository."
+        },
+        {
+          "path": "README.md",
+          "url": "https://github.com/v2fly/domain-list-community/blob/178b9452b28a254a97d24e56c84babbe3e3e3dda/README.md",
+          "claim": "Domain/category list format and generation context; source inputs for reviewed subsets."
+        }
+      ],
+      "license": {
+        "spdx": "MIT",
+        "source_url": "https://github.com/v2fly/domain-list-community/blob/178b9452b28a254a97d24e56c84babbe3e3e3dda/LICENSE"
+      },
+      "decision": "selective_data_candidate",
+      "integration_cost": "Category/include expansion and conversion into a format validated by pinned cores; no remote execution.",
+      "not_proven": [
+        "App requirements or QoE probe definitions from domain membership.",
+        "Correctness of every category for a current app."
+      ],
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-SING-GEOSITE",
+      "project": "SagerNet/sing-geosite",
+      "kind": "public_upstream_research_snapshot",
+      "repository": "https://github.com/SagerNet/sing-geosite",
+      "commit": "dd64ae0ebf2ee69166c0510042b3e96c085f27df",
+      "commit_is_install_recommendation": false,
+      "files": [
+        {
+          "path": "LICENSE",
+          "url": "https://github.com/SagerNet/sing-geosite/blob/dd64ae0ebf2ee69166c0510042b3e96c085f27df/LICENSE",
+          "claim": "Generator GPL-3.0-or-later declaration."
+        },
+        {
+          "path": "README.md",
+          "url": "https://github.com/SagerNet/sing-geosite/blob/dd64ae0ebf2ee69166c0510042b3e96c085f27df/README.md",
+          "claim": "GeoSite rule-set generation/publication context."
+        }
+      ],
+      "license": {
+        "spdx": "GPL-3.0-or-later",
+        "source_url": "https://github.com/SagerNet/sing-geosite/blob/dd64ae0ebf2ee69166c0510042b3e96c085f27df/LICENSE"
+      },
+      "decision": "reference_or_defer_generator_import",
+      "integration_cost": "Generator source and generated data branches are separate provenance objects.",
+      "not_proven": [
+        "License/origin of every generated dataset from generator LICENSE alone.",
+        "Need to ship generator or full data catalogue."
+      ],
+      "checked_date_utc": "2026-11-18"
+    },
+    {
+      "id": "OSS-SING-BOX-RULESET",
+      "project": "SagerNet/sing-box",
+      "kind": "official_configuration_documentation",
+      "urls": [
+        "https://sing-box.sagernet.org/configuration/rule-set/source-format/",
+        "https://sing-box.sagernet.org/configuration/rule-set/headless-rule/"
+      ],
+      "claims": [
+        "Source format has version/rules and a compile command; rules are traffic-match conditions.",
+        "Rule-set does not supply app-specific QoE requirements or tests."
+      ],
+      "decision": "reuse_supported_format_after_pinned_core_compile_gate",
+      "notes": [
+        "Current docs are not exact shipped-binary compatibility proof; compile/load on both pins after start."
+      ],
+      "checked_date_utc": "2026-11-18"
+    }
+  ]
+}

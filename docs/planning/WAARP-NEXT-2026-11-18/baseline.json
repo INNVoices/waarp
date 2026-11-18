@@ -1,0 +1,237 @@
+{
+  "schemaVersion": 1,
+  "preparedOn": "2026-11-18",
+  "timezone": "Europe/Moscow",
+  "repository": "INNVoices/waarp",
+  "scope": "documentation and research only",
+  "status": "WAIT_OWNER_START",
+  "remoteSourceCommit": "f66e5def3d689837db010c3453086a832c701fcc",
+  "remoteSourceTree": "37421f5f5bffbea0391a39719ea7185923925897",
+  "localSnapshotNote": "Local archive tree verified equal to remote tree. Local commit hashes differ; source permalink authority is remoteSourceCommit.",
+  "uncommittedSiblingFilesIncluded": false,
+  "applicationVersions": {
+    "windows": "0.4.1-rc.3",
+    "android": "0.5.0-rc.4"
+  },
+  "engines": {
+    "windows": {
+      "version": "1.14.2-lx.11",
+      "commit": "3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d"
+    },
+    "android": {
+      "version": "1.14.4-lx.35-waarp.2",
+      "upstreamCommit": "f1bac271853eaf13398ce1030c948aebc3aed2e1",
+      "localPatchManifest": "android/native-source.json"
+    }
+  },
+  "files": [
+    {
+      "path": "android/app/src/main/java/local/waarp/android/core/AndroidPlatform.kt",
+      "gitBlobSha": "9312e8a827e5420bba8020a02394d62e2474d1c7",
+      "bytes": 20919,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/android/app/src/main/java/local/waarp/android/core/AndroidPlatform.kt"
+    },
+    {
+      "path": "android/app/src/main/java/local/waarp/android/core/LibboxBackend.kt",
+      "gitBlobSha": "fb5e875727ca8c27d02d44ae746bb5468b6c24c3",
+      "bytes": 23393,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/android/app/src/main/java/local/waarp/android/core/LibboxBackend.kt"
+    },
+    {
+      "path": "android/app/src/main/java/local/waarp/android/core/VpnController.kt",
+      "gitBlobSha": "2d4d177e51242decb184fee98932241cc5c34cef",
+      "bytes": 24105,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/android/app/src/main/java/local/waarp/android/core/VpnController.kt"
+    },
+    {
+      "path": "android/app/src/main/java/local/waarp/android/data/MobileRepository.kt",
+      "gitBlobSha": "9e7f02a833d6616f6bc3ad66b2415785989e43c5",
+      "bytes": 22277,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/android/app/src/main/java/local/waarp/android/data/MobileRepository.kt"
+    },
+    {
+      "path": "android/app/src/main/java/local/waarp/android/data/RoutingCompiler.kt",
+      "gitBlobSha": "02ebd183092b38a0a353c9f9cbf3b3bb4f95efe6",
+      "bytes": 17029,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/android/app/src/main/java/local/waarp/android/data/RoutingCompiler.kt"
+    },
+    {
+      "path": "android/app/src/main/java/local/waarp/android/service/WaarpVpnService.kt",
+      "gitBlobSha": "1c01441b9693ba6f1464ae9329952bc78021cd1f",
+      "bytes": 17361,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/android/app/src/main/java/local/waarp/android/service/WaarpVpnService.kt"
+    },
+    {
+      "path": "android/app/src/main/java/local/waarp/android/ui/DiagnosticsSettings.kt",
+      "gitBlobSha": "9d95a3b9e32ce5d8b1dcb26f0e12eeeb92f7826c",
+      "bytes": 31346,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/android/app/src/main/java/local/waarp/android/ui/DiagnosticsSettings.kt"
+    },
+    {
+      "path": "android/app/src/main/java/local/waarp/android/ui/HomeRoutes.kt",
+      "gitBlobSha": "fb91b80b02eee6188d0b1a7c030ba39e3d0472d2",
+      "bytes": 31014,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/android/app/src/main/java/local/waarp/android/ui/HomeRoutes.kt"
+    },
+    {
+      "path": "android/app/src/main/java/local/waarp/android/ui/TunnelsScreen.kt",
+      "gitBlobSha": "0004f371a3a6df9b78380df2c3002da61b14e61c",
+      "bytes": 18449,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/android/app/src/main/java/local/waarp/android/ui/TunnelsScreen.kt"
+    },
+    {
+      "path": "android/app/src/main/java/local/waarp/android/ui/UiComponents.kt",
+      "gitBlobSha": "4b1292e48973493b8426f5fd35faee35a02c9b6c",
+      "bytes": 18485,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/android/app/src/main/java/local/waarp/android/ui/UiComponents.kt"
+    },
+    {
+      "path": "android/app/src/main/java/local/waarp/android/ui/WaarpApp.kt",
+      "gitBlobSha": "76d22679d9be6598a5791032a4fa56911436de29",
+      "bytes": 12200,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/android/app/src/main/java/local/waarp/android/ui/WaarpApp.kt"
+    },
+    {
+      "path": "android/native-source.json",
+      "gitBlobSha": "f30b41e0b8a55792e2f359ddc2e02bbda887d7ec",
+      "bytes": 4322,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/android/native-source.json"
+    },
+    {
+      "path": "engine/SOURCE.md",
+      "gitBlobSha": "e323a7693b8536a691852f2b29d374da934d188c",
+      "bytes": 4521,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/engine/SOURCE.md"
+    },
+    {
+      "path": "package.json",
+      "gitBlobSha": "a220e8590b80cae5f200e585c4345f1d24b50613",
+      "bytes": 4360,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/package.json"
+    },
+    {
+      "path": "src/main/apply.ts",
+      "gitBlobSha": "cb3e90742e60cd8759430adb9061cc37e4d8108e",
+      "bytes": 5550,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/main/apply.ts"
+    },
+    {
+      "path": "src/main/catalog-pool.ts",
+      "gitBlobSha": "da26ab7f0557c3f5f1e7b919fb2fb48ff8f60df2",
+      "bytes": 17847,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/main/catalog-pool.ts"
+    },
+    {
+      "path": "src/main/catalog.ts",
+      "gitBlobSha": "5f3d3b38720f59243bed141be61931c5eb3b1587",
+      "bytes": 25360,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/main/catalog.ts"
+    },
+    {
+      "path": "src/main/checker.ts",
+      "gitBlobSha": "4b7be1755a258f82e2034edcd31da3d097fd8a7b",
+      "bytes": 13801,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/main/checker.ts"
+    },
+    {
+      "path": "src/main/diagnosis.ts",
+      "gitBlobSha": "f6493045a6d6bd16ba893e5d6b56b338e0e16f07",
+      "bytes": 1635,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/main/diagnosis.ts"
+    },
+    {
+      "path": "src/main/engine.ts",
+      "gitBlobSha": "286f0af0e6a3994173890d3eaa85a75c63257fc1",
+      "bytes": 59165,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/main/engine.ts"
+    },
+    {
+      "path": "src/main/index.ts",
+      "gitBlobSha": "14943942a1c61f6ebc85df51d41d38b00588ad17",
+      "bytes": 119447,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/main/index.ts"
+    },
+    {
+      "path": "src/main/layered.ts",
+      "gitBlobSha": "95b065f873833d17662ec90e16d315990198f1c4",
+      "bytes": 10392,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/main/layered.ts"
+    },
+    {
+      "path": "src/main/live-outbound.ts",
+      "gitBlobSha": "91d831172bab8047ae34c6b4815b628152b23cc7",
+      "bytes": 9546,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/main/live-outbound.ts"
+    },
+    {
+      "path": "src/main/live-routing.ts",
+      "gitBlobSha": "daff7849d2c14c772d8fdd1960080bbeebcc59f7",
+      "bytes": 1556,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/main/live-routing.ts"
+    },
+    {
+      "path": "src/renderer/src/App.tsx",
+      "gitBlobSha": "5c2182f4e7cbfa89c3c73854e046e9e9f14545ac",
+      "bytes": 16926,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/renderer/src/App.tsx"
+    },
+    {
+      "path": "src/renderer/src/pages/analyzer.tsx",
+      "gitBlobSha": "fcbfb4d5624e2f3d63e4a681b230feca33c02106",
+      "bytes": 8670,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/renderer/src/pages/analyzer.tsx"
+    },
+    {
+      "path": "src/renderer/src/pages/route.tsx",
+      "gitBlobSha": "2f9028442ac871095287202c72c5702eac032e55",
+      "bytes": 9116,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/renderer/src/pages/route.tsx"
+    },
+    {
+      "path": "src/renderer/src/pages/server-picker.tsx",
+      "gitBlobSha": "4e166a1b46b0203b1fd9ff5d599f061ba8b0807d",
+      "bytes": 9212,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/renderer/src/pages/server-picker.tsx"
+    },
+    {
+      "path": "src/shared/evidence.ts",
+      "gitBlobSha": "73d69a9321f2c4f62e50c1a2796c45c194b494c0",
+      "bytes": 4537,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/shared/evidence.ts"
+    },
+    {
+      "path": "src/shared/groups.ts",
+      "gitBlobSha": "33a48132e3c236d499d99e82cf8b01790685202e",
+      "bytes": 7320,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/shared/groups.ts"
+    },
+    {
+      "path": "src/shared/presets.ts",
+      "gitBlobSha": "5c0fb80364ea0a76caf48c1983bba8dbba845d86",
+      "bytes": 2622,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/shared/presets.ts"
+    },
+    {
+      "path": "src/shared/types.ts",
+      "gitBlobSha": "e2473049a4e6fb1d415969d33b4dbe3b979b7322",
+      "bytes": 7230,
+      "url": "https://github.com/INNVoices/waarp/blob/f66e5def3d689837db010c3453086a832c701fcc/src/shared/types.ts"
+    }
+  ],
+  "newFeatureRuntimeTests": "NOT_RUN",
+  "nativeAcceptance": "NOT_RUN_THIS_PREPARATION",
+  "visualReview": "source and existing captures only; no new live application acceptance",
+  "finalHandoff": "07-HANDOFF.md",
+  "preSaveReconciliation": {
+    "mainCommit": "d7b1a9fd93557de7093ddc606dcefb3590da51d2",
+    "tree": "d8ab8859af9c966988fc32f2672936c362cc73e5",
+    "commitsSinceBaseline": 2,
+    "productCodeChanged": false,
+    "changedPaths": [
+      "docs/ANDROID-CHAMELEON-2026-11-18.md",
+      "docs/README.md"
+    ],
+    "finding": "Separate Android Chameleon feasibility document and index only; source-code baseline unchanged."
+  },
+  "repositoryVisibilityAtPreparation": "private"
+}

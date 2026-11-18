@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "sources": [
+    {
+      "id": "P-01",
+      "title": "MapLibre GeoJSON source and layer specification",
+      "url": "https://maplibre.org/maplibre-style-spec/sources/",
+      "type": "primary official documentation",
+      "accessedOn": "2026-11-18",
+      "supports": "GeoJSON data/layers and clustering foundation. Does not supply node geolocation or unrestricted map tiles."
+    },
+    {
+      "id": "P-02",
+      "title": "MapLibre create and style clusters",
+      "url": "https://maplibre.org/maplibre-gl-js/docs/examples/create-and-style-clusters/",
+      "type": "primary official documentation",
+      "accessedOn": "2026-11-18",
+      "supports": "Built-in GeoJSON clustering; example external URLs are not a production/offline dependency decision."
+    },
+    {
+      "id": "P-03",
+      "title": "Natural Earth terms of use",
+      "url": "https://www.naturalearthdata.com/about/terms-of-use/",
+      "type": "primary official documentation",
+      "accessedOn": "2026-11-18",
+      "supports": "Public-domain terms for published vector/raster map data. Exact dataset archive and checksum remain implementation gate."
+    },
+    {
+      "id": "P-04",
+      "title": "DB-IP Lite",
+      "url": "https://db-ip.com/db/lite.php",
+      "type": "primary official documentation",
+      "accessedOn": "2026-11-18",
+      "supports": "Candidate locally queried IP geography dataset; CC BY 4.0 attribution, reduced precision. No dataset has been bundled."
+    },
+    {
+      "id": "P-05",
+      "title": "DB-IP FAQ",
+      "url": "https://db-ip.com/faq.php",
+      "type": "primary official documentation",
+      "accessedOn": "2026-11-18",
+      "supports": "Monthly downloadable databases and reduced-accuracy Lite; this does not prove current size or suitability of a specific reader."
+    },
+    {
+      "id": "P-06",
+      "title": "Android adaptive navigation",
+      "url": "https://developer.android.com/develop/adaptive-apps/guides/build-adaptive-navigation",
+      "type": "primary official documentation",
+      "accessedOn": "2026-11-18",
+      "supports": "Official adaptive navigation approaches; existing Waarp navigation is preserved."
+    },
+    {
+      "id": "P-07",
+      "title": "Compose Material insets",
+      "url": "https://developer.android.com/develop/ui/compose/system/material-insets",
+      "type": "primary official documentation",
+      "accessedOn": "2026-11-18",
+      "supports": "Official inset handling and double-padding caution; Android form/footer behavior requires actual visual testing."
+    },
+    {
+      "id": "P-08",
+      "title": "RFC 9293 TCP",
+      "url": "https://www.rfc-editor.org/rfc/rfc9293.html",
+      "type": "primary official documentation",
+      "accessedOn": "2026-11-18",
+      "supports": "TCP connection semantics; local route update is not arbitrary end-to-end session migration."
+    },
+    {
+      "id": "P-09",
+      "title": "RFC 9000 QUIC",
+      "url": "https://www.rfc-editor.org/rfc/rfc9000.html",
+      "type": "primary official documentation",
+      "accessedOn": "2026-11-18",
+      "supports": "QUIC-specific migration/path validation; not a generic TCP/VPN migration facility."
+    },
+    {
+      "id": "P-10",
+      "title": "sing-box Selector documentation",
+      "url": "https://sing-box.sagernet.org/configuration/outbound/selector/",
+      "type": "primary official documentation",
+      "accessedOn": "2026-11-18",
+      "supports": "Describes selector semantics. Actual Waarp engine pins and downstream usage take precedence."
+    },
+    {
+      "id": "P-11",
+      "title": "sing-box URLTest documentation",
+      "url": "https://sing-box.sagernet.org/configuration/outbound/urltest/",
+      "type": "primary official documentation",
+      "accessedOn": "2026-11-18",
+      "supports": "URL probing/selection semantics, not app login/UDP QoE verification."
+    }
+  ]
+}
