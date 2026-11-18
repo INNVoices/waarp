@@ -563,7 +563,16 @@ function ipc() {
             if (master.current(revision)) rollback()
             updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: false }
           }
-          if (master.current(revision)) await engine.start(await runtimeProfiles(), store.settings)
+          if (master.current(revision)) {
+            // Reuse the canonical start preflight, checker teardown and recovery
+            // guard. A direct engine.start here would bypass the master owner.
+            const result = await master.reconnect(revision, { preserveIntent: true })
+            if (!result.ok) {
+              if (master.current(revision)) rollback()
+              send('toast', result.error ?? 'Не удалось включить VPN для нового маршрута')
+              updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: false }
+            }
+          }
         }
         updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true }
       }
