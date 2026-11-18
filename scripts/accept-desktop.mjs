@@ -66,10 +66,23 @@ try {
   const initial = await poll('startup recovery', snapshot, snap => snap.status.startup === 'ready', 45000)
   assert(initial.admin, 'Disposable Windows native acceptance requires an elevated runner')
   assert.equal(initial.profiles.length, 0, 'Fresh acceptance installation must not contain saved servers')
-  await page.getByRole('button', { name: strings['nav.servers'], exact: true }).click()
+  const started = Date.now()
+  // A fresh installation opens the real Add connection dialog over navigation.
+  // Enter through its public-nodes tile, as a first-time user would; do not
+  // force a click through the modal or bypass the flow with an IPC command.
+  const firstRun = page.getByRole('dialog', { name: strings['add.title'], exact: true })
+  if (await firstRun.isVisible()) {
+    await firstRun.getByText(strings['add.public'], { exact: true }).click()
+    await firstRun.waitFor({ state: 'hidden' })
+    report.catalogEntry = 'visible first-run public-nodes tile'
+  } else {
+    await page.getByRole('button', { name: strings['nav.servers'], exact: true }).click()
+    report.catalogEntry = 'visible Connections navigation'
+  }
+  await page.locator('.atlas-connections-toolbar').waitFor()
+  assert.equal((await snapshot()).profiles.length, 0, 'Entering the public catalog must not import a server')
   await page.locator('.atlas-connections-toolbar .atlas-view-switch').getByRole('button', { name: strings['atlas.view.map'], exact: true }).click()
   await page.locator('.atlas-connections-toolbar').getByRole('button', { name: strings['server.public'], exact: true }).click()
-  const started = Date.now()
   const first = await poll('automatic real public-node response', catalog, state => state.readyCount > 0, 300000)
   report.firstReadyMs = Date.now() - started
   report.beforeImport = summary(first)

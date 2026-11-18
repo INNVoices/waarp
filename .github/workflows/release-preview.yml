@@ -107,7 +107,6 @@ jobs:
         env:
           WAARP_NATIVE_SWITCH_TEST: '1'
         run: node out/test/route-native.check.js
-      - run: npm run test:live -- --disposable-windows
       - run: npm run dist
       - run: npm run package:verify
       - name: Accept actual packaged UI, automatic public checks and live VPN session
@@ -122,6 +121,9 @@ jobs:
           foreach ($waarpPreview in @(Get-ChildItem 'out/desktop-acceptance' -Filter '*.png' -ErrorAction SilentlyContinue)) {
             Write-Output ('WAARP_DESKTOP_PREVIEW ' + $waarpPreview.Name + ' ' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($waarpPreview.FullName)))
           }
+      # Reach the real catalog before spending the full lifecycle budget on a
+      # candidate. Publication still requires the unchanged 50-cycle gate.
+      - run: npm run test:live -- --disposable-windows
       - name: Check and attach Windows EXE + SHA-256 directly to draft release
         shell: pwsh
         env:
