@@ -41,7 +41,11 @@ export class ConnectionControl {
     if (!this.current(revision)) return canceled()
     const idle = async (): Promise<ConnectionResult> => {
       // Direct-only routing cannot implicitly close an open TUN.
-      return this.current(revision) ? { ok: true } : canceled()
+      if (!this.current(revision)) return canceled()
+      const phase = this.d.phase()
+      if (phase === 'error' || phase === 'stopping')
+        return { ok: false, error: this.d.error() ?? 'Текущий VPN не подтвердил состояние; требуется действие пользователя' }
+      return { ok: true }
     }
     try {
       // Open but idle is valid only after the previous core has actually stopped.

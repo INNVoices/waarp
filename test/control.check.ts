@@ -193,57 +193,55 @@ function rig() {
     eq([control.open, state.phase, state.starts], [true, 'off', 0], 'no-longer-needed TUN is not spawned')
   }
 
-  // Becoming idle must reconcile a core left active, stopping, or in error by an earlier operation.
-  for (const phase of ['on', 'error', 'stopping'] as Phase[]) {
+  // Direct-only and empty-card routing never silently stop an existing core.
+  for (const phase of ['on', 'off'] as Phase[]) {
     const { control, state } = rig()
     state.phase = phase; state.needed = false; control.set(true)
-    eq(await control.reconnect(control.revision), { ok: true }, `${phase} to idle confirms cleanup`)
-    eq([control.open, state.phase, state.stops, state.starts, state.prepares], [true, 'off', 1, 0, 0], `${phase} to idle stops the core while keeping the idle master open`)
+    eq(await control.reconnect(control.revision), { ok: true }, phase + ' to idle preserves owner intent')
+    eq([control.open, state.phase, state.stops, state.starts, state.prepares], [true, phase, 0, 0, 0],
+      phase + ' to idle never changes native state')
+  }
+  // A failed/stopping core is not a successful idle reconciliation; only the owner can recover.
+  for (const phase of ['error', 'stopping'] as Phase[]) {
+    const { control, state } = rig()
+    state.phase = phase; state.error = 'still ' + phase; state.needed = false; control.set(true)
+    eq(await control.reconnect(control.revision), { ok: false, error: 'still ' + phase },
+      phase + ' must report the real state without claiming a successful stop')
+    eq([control.open, state.phase, state.stops, state.starts], [true, phase, 0, 0],
+      phase + ' edit does not stop or revive TUN')
   }
   {
     const { control, state, hooks } = rig()
-    state.phase = 'on'; control.set(true)
+    state.phase = 'on'; state.needed = true; control.set(true)
     const preparation = deferred<Prepared>()
     hooks.prepare = () => preparation.promise
     const reconnecting = control.reconnect(control.revision, { restart: true })
-    state.needed = false; preparation.resolve({ ok: true })
-    eq(await reconnecting, { ok: true }, 'demand disappearing after preparation also enters verified idle')
-    eq([control.open, state.phase, state.stops, state.starts], [true, 'off', 1, 0], 'post-prepare idle does not leave the previous core running')
-  }
-  for (const preserveIntent of [false, true]) {
-    const { control, state, hooks } = rig()
-    state.phase = 'error'; state.error = 'idle cleanup unconfirmed'; state.needed = false; control.set(true)
-    const revision = control.revision
-    hooks.stop = async () => false
-    eq(await control.reconnect(revision, { preserveIntent }), { ok: false, error: 'idle cleanup unconfirmed' }, 'failed idle cleanup preserves the concrete error')
-    eq([control.open, state.stops, state.starts], [preserveIntent, 1, 0], `failed idle cleanup honors preserveIntent=${preserveIntent} without retrying`)
-  }
-  {
-    const { control, state, hooks } = rig()
-    state.phase = 'on'; state.needed = false; control.set(true)
-    hooks.stop = async () => { throw new Error('idle cleanup failed') }
-    const result = await control.reconnect(control.revision)
-    ok(!result.ok && !!result.error, 'thrown idle cleanup is a settled failure')
-    eq([control.open, state.stops, state.starts], [false, 1, 0], 'thrown idle cleanup closes intent with one stop attempt')
-  }
-  for (const oldStopSucceeded of [false, true]) {
-    const { control, state, hooks } = rig()
-    state.phase = 'on'; state.needed = false; control.set(true)
-    const stopping = deferred<boolean>()
-    hooks.stop = async () => {
-      if (state.stops === 1) { const result = await stopping.promise; if (result) state.phase = 'off'; return result }
-      state.phase = 'off'; return true
-    }
-    const oldIdle = control.connect()
     await flush()
-    eq(state.stops, 1, 'idle reconciliation is waiting for the previous core to stop')
+    state.needed = false
+    preparation.resolve({ ok: true })
+    eq(await reconnecting, { ok: true }, 'route becoming Direct during preparation settles without a new start')
+    eq([control.open, state.phase, state.stops, state.starts], [true, 'on', 0, 0],
+      'route becoming Direct does not secretly stop existing TUN')
+  }
+  // The owner explicitly switches OFF/ON while an obsolete idle action is queued.
+  // Its completion must not consume the newer owner intent.
+  {
+    const { control, state, gate } = rig()
+    state.phase = 'on'; state.needed = false; control.set(true)
+    const firstRevision = control.revision
+    const hold = deferred<void>()
+    const pending = gate.run(() => hold.promise)
+    const previous = gate.run(() => control.reconnect(firstRevision))
+    await flush()
     await control.disconnect()
     state.needed = true
-    const nextOn = control.connect()
-    stopping.resolve(oldStopSucceeded)
-    const [oldResult, currentResult] = await Promise.all([oldIdle, nextOn])
-    eq([oldResult.ok, oldResult.error, currentResult.ok], [false, 'Подключение отменено', true], `OFF/ON fences the old idle stop completion (${oldStopSucceeded})`)
-    eq([control.open, control.revision, state.phase, state.starts, state.stops], [true, 3, 'on', 1, 2], 'old idle completion cannot close, stop, or consume the new ON')
+    const newest = control.connect()
+    hold.resolve()
+    await pending
+    eq(await previous, { ok: false, error: 'Подключение отменено' }, 'stale reconciliation does not apply after manual OFF/ON')
+    eq(await newest, { ok: true }, 'new owner ON works after stale idle result')
+    eq([control.open, control.revision, state.phase, state.starts, state.stops], [true, 3, 'on', 1, 1],
+      'only the manual OFF stops and only the manual ON starts TUN')
   }
 
   console.log(`control.check: ${checks} checks`)

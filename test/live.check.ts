@@ -65,16 +65,19 @@ const settings = (on: boolean): Settings => ({ ...DEFAULTS, routes: [route(on)] 
     blocked: async () => false,
     demandsTunnel: next => next.routes.some(r => r.on && r.via !== 'direct'),
     start: async () => { starts++; phase = 'on' },
-    live: async () => false,
+    live: async () => phase === 'on',
     stop: async () => { stops++; phase = 'off' },
     changed: () => undefined
   })
 
   const enabled = await apply(settings(true))
-  check('master-open idle state starts core when a route needs it', enabled.saved && enabled.applied && starts === 1 && phase === 'on')
+  check('master-open idle cannot start TUN just by changing a route', enabled.saved && !enabled.applied && starts === 0 && phase === 'off')
 
+  // The separate manual master ON starts the native core, not the route mutation.
+  phase = 'on'; starts++
   const disabled = await apply(settings(false))
-  check('turning last routed card off reconciles Direct without an implicit global OFF', disabled.saved && disabled.applied && starts === 2 && stops === 0 && phase === 'on')
+  check('turning last routed card off changes routing but leaves manually opened TUN up',
+    disabled.saved && disabled.applied && starts === 1 && stops === 0 && phase === 'on')
 
   console.log(`live.check: ${total - failed}/${total} passed`)
   if (failed) process.exit(1)
