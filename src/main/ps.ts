@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 
@@ -14,11 +15,11 @@ export function ps<T = unknown>(script: string, timeout = 20000): Promise<T> {
         // Partial stdout is not proof that a native inspection completed. In
         // particular, a timeout/nonzero exit must never turn JSON `true` into success.
         if (err) return reject(new Error(err.killed
-          ? 'Windows PowerShell не завершил проверку за отведённое время'
-          : `Windows PowerShell не выполнил проверку (код ${err.code ?? 'unknown'})`))
+          ? localized("winInline.ps.dc474dc806fd")
+          : localized("winInline.ps.988ea28029b6", err.code ?? 'unknown')))
         const s = out.trim()
         if (!s) return resolve([] as T)
-        try { resolve(JSON.parse(s) as T) } catch { reject(new Error('Windows PowerShell вернул некорректный ответ')) }
+        try { resolve(JSON.parse(s) as T) } catch { reject(new Error(localized("winInline.ps.4ec294eb1ea0"))) }
       })
   })
 }

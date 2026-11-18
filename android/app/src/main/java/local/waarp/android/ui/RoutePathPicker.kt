@@ -1,5 +1,7 @@
 package local.waarp.android.ui
 
+import local.waarp.android.i18n.localized
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,14 +26,14 @@ internal fun RoutePathPicker(state: MobileState, selectedPath: String, onBack: (
     val available = remember(state.profiles) { state.profiles.filter { !it.revoked && !it.subscriptionMissing } }
     val searched = remember(available, query) { available.filter { it.name.contains(query, true) || it.host.contains(query, true) || it.protocol.contains(query, true) } }
     val filtered = remember(searched, country) { searched.filter { country.isBlank() || atlasCountry(it.country) == country || country == ATLAS_UNKNOWN && atlasCountry(it.country).isBlank() } }
-    TextButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) { Text("Назад к маршруту") }
-    Text("Сохранённые подключения", fontWeight = FontWeight.SemiBold)
-    SearchField(query, { query = it }, "Название или сервер")
+    TextButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) { Text(localized("RoutePathPicker.4be8489d2de8", "Назад к маршруту")) }
+    Text(localized("RoutePathPicker.533fccc6d2dc", "Сохранённые подключения"), fontWeight = FontWeight.SemiBold)
+    SearchField(query, { query = it }, localized("RoutePathPicker.c6afe9e8e60b", "Название или сервер"))
     AtlasViewChoice(map) { map = it }
     if (map) AtlasMap(searched.map { AtlasNode(it.id, it.country, it.health == TunnelHealth.OK) }, country, { country = it },
         selectedCountry = state.profiles.find { it.id == selectedPath }?.country)
-    else if (country.isNotBlank()) TextButton(onClick = { country = "" }) { Text("Сбросить фильтр региона") }
-    if (filtered.isEmpty()) Text(if (available.isEmpty()) "Сначала добавьте подключение в Туннелях." else "Нет подключений по выбранному фильтру.",
+    else if (country.isNotBlank()) TextButton(onClick = { country = "" }) { Text(localized("RoutePathPicker.67c9e32ed4f2", "Сбросить фильтр региона")) }
+    if (filtered.isEmpty()) Text(if (available.isEmpty()) localized("RoutePathPicker.ac55a0950ad7", "Сначала добавьте подключение в Туннелях.") else localized("RoutePathPicker.7a82f6246579", "Нет подключений по выбранному фильтру."),
         style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
     LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items(filtered, key = { it.id }, contentType = { "path-choice" }) { profile ->
@@ -42,13 +44,13 @@ internal fun RoutePathPicker(state: MobileState, selectedPath: String, onBack: (
                     Text(profile.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(listOfNotNull(profile.protocol, profile.country?.takeIf { it.isNotBlank() }).joinToString(" · "), color = WaarpMuted, style = MaterialTheme.typography.labelSmall)
                     HealthLabel(profile.health, profile.latencyMs)
-                    if (profile.id == selectedPath) Text("Выбран в форме", style = MaterialTheme.typography.labelSmall, color = WaarpOrange)
+                    if (profile.id == selectedPath) Text(localized("RoutePathPicker.4d5849397c33", "Выбран в форме"), style = MaterialTheme.typography.labelSmall, color = WaarpOrange)
                 }
             }
         }
     }
     val candidate = filtered.find { it.id == preview }
-    ActionButton("Выбрать", false, enabled = candidate != null,
+    ActionButton(localized("RoutePathPicker.d40145a6d16f", "Выбрать"), false, enabled = candidate != null,
         onClick = { candidate?.let { onSelect(it.id) } }, modifier = Modifier.fillMaxWidth())
-    Text("Выбор вернёт в форму. Маршрут изменится после сохранения.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+    Text(localized("RoutePathPicker.effdb11fdbfd", "Выбор вернёт в форму. Маршрут изменится после сохранения."), style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
 }

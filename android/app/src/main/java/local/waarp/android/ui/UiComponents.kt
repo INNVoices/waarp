@@ -1,5 +1,7 @@
 package local.waarp.android.ui
 
+import local.waarp.android.i18n.localized
+
 import android.widget.ImageView
 import android.content.Context
 import android.graphics.drawable.Drawable
@@ -108,12 +110,12 @@ internal class UiOperation(private val scope: CoroutineScope) {
                     message = result.message
                     messageVersion++
                     if (completeForm) completions++
-                } else error = result.message ?: "Не удалось выполнить действие. Повтори попытку."
+                } else error = result.message ?: localized("UiComponents.45449bb376a7", "Не удалось выполнить действие. Повтори попытку.")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
                 // Backend exceptions can include imported credentials. Only its explicit UiResult is displayable.
-                error = "Действие не завершилось. Повтори попытку или открой журнал диагностики."
+                error = localized("UiComponents.89de3e146d8a", "Действие не завершилось. Повтори попытку или открой журнал диагностики.")
             } finally {
                 busy = false
             }
@@ -186,7 +188,7 @@ internal fun EmptyState(icon: ImageVector, title: String, text: String, action: 
 }
 
 @Composable
-internal fun SearchField(value: String, changed: (String) -> Unit, label: String = "Поиск") {
+internal fun SearchField(value: String, changed: (String) -> Unit, label: String = localized("UiComponents.dc4703820fe5", "Поиск")) {
     OutlinedTextField(value, changed, Modifier.fillMaxWidth(), label = { Text(label) }, singleLine = true,
         leadingIcon = { Icon(Icons.Outlined.Search, null) })
 }
@@ -213,11 +215,11 @@ internal fun ActionButton(text: String, busy: Boolean, enabled: Boolean = true, 
 @Composable
 internal fun HealthLabel(health: TunnelHealth, latency: Double? = null) {
     val label = when (health) {
-        TunnelHealth.OK -> validLatency(latency)?.let { "${formatMs(it)} мс" } ?: "Доступен"
-        TunnelHealth.DEGRADED -> "Повторная проверка"
-        TunnelHealth.DOWN -> "Не отвечает"
-        TunnelHealth.BUSY -> "Ключ занят"
-        TunnelHealth.UNKNOWN -> "Не проверен"
+        TunnelHealth.OK -> validLatency(latency)?.let { localized("UiComponents.300eff09ba5e", "{arg1} мс", formatMs(it)) } ?: localized("UiComponents.78d2a4fb4504", "Доступен")
+        TunnelHealth.DEGRADED -> localized("UiComponents.39b94b4449f6", "Повторная проверка")
+        TunnelHealth.DOWN -> localized("UiComponents.33d4efd7edff", "Не отвечает")
+        TunnelHealth.BUSY -> localized("UiComponents.d93fef08a93a", "Ключ занят")
+        TunnelHealth.UNKNOWN -> localized("UiComponents.cdc68c9165cf", "Не проверен")
     }
     val color = when (health) {
         TunnelHealth.OK -> WaarpGreen
@@ -231,9 +233,9 @@ internal fun HealthLabel(health: TunnelHealth, latency: Double? = null) {
 @Composable
 internal fun SourceBadge(source: ProfileSource) {
     when (source) {
-        ProfileSource.PUBLIC -> Text("Публичный", color = WaarpWarning, style = MaterialTheme.typography.labelSmall)
-        ProfileSource.MANAGED -> Text("Командный", color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelSmall)
-        ProfileSource.WARP -> Text("WARP", color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelSmall)
+        ProfileSource.PUBLIC -> Text(localized("UiComponents.05aedd859338", "Публичный"), color = WaarpWarning, style = MaterialTheme.typography.labelSmall)
+        ProfileSource.MANAGED -> Text(localized("UiComponents.a912e340d1bd", "Командный"), color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelSmall)
+        ProfileSource.WARP -> Text(localized("UiComponents.a5b00884cc01", "WARP"), color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelSmall)
         ProfileSource.PERSONAL -> Unit
     }
 }
@@ -273,15 +275,15 @@ internal data class PathChoice(val id: String, val name: String, val detail: Str
 internal fun pathChoices(state: MobileState, allowDirect: Boolean = true, excluded: Set<String> = emptySet()): List<PathChoice> {
     val eligible = state.profiles.filter { !it.revoked && !it.subscriptionMissing }.mapTo(HashSet()) { it.id }
     return buildList {
-    if (allowDirect) add(PathChoice(DIRECT_PATH, "Напрямую", "Обычное подключение устройства"))
+    if (allowDirect) add(PathChoice(DIRECT_PATH, localized("UiComponents.118e1ec93264", "Напрямую"), localized("UiComponents.daf75c9d35a5", "Обычное подключение устройства")))
     val own = state.profiles.filter { !it.revoked && !it.subscriptionMissing && it.source != ProfileSource.PUBLIC }
-    if (own.isNotEmpty()) add(PathChoice(AUTO_PATH, "Авто", "Только свои туннели · ${own.size}"))
+    if (own.isNotEmpty()) add(PathChoice(AUTO_PATH, localized("UiComponents.44bf5b47971a", "Авто"), localized("UiComponents.08b3646adc16", "Только свои туннели · {arg1}", own.size)))
     state.groups.forEach { group ->
-        if (group.id != AUTO_PATH) add(PathChoice(group.id, group.name, "Группа · ${group.members.size} · ${policyLabel(group.policy)}", group.members.any(eligible::contains)))
+        if (group.id != AUTO_PATH) add(PathChoice(group.id, group.name, localized("UiComponents.658ddd9750f5", "Группа · {arg1} · {arg2}", group.members.size, policyLabel(group.policy)), group.members.any(eligible::contains)))
     }
     state.profiles.forEach { profile ->
-        val trust = if (profile.source == ProfileSource.PUBLIC) " · публичный" else ""
-        val unavailable = when { profile.revoked -> " · отозван"; profile.subscriptionMissing -> " · пропал из подписки"; else -> "" }
+        val trust = if (profile.source == ProfileSource.PUBLIC) localized("UiComponents.8d58bdb15f30", " · публичный") else ""
+        val unavailable = when { profile.revoked -> localized("UiComponents.9476320e7231", " · отозван"); profile.subscriptionMissing -> localized("UiComponents.a56ed3f3d052", " · пропал из подписки"); else -> "" }
         add(PathChoice(profile.id, profile.name, profile.protocol + trust + unavailable, !profile.revoked && !profile.subscriptionMissing))
     }
     }.filterNot { it.id in excluded }
@@ -294,17 +296,17 @@ internal fun rememberPathChoices(state: MobileState, allowDirect: Boolean = true
 @Composable
 internal fun rememberPathNames(state: MobileState): Map<String, String> = remember(state.profiles, state.groups) {
     buildMap {
-        put(DIRECT_PATH, "Напрямую"); put(AUTO_PATH, "Авто")
+        put(DIRECT_PATH, localized("UiComponents.22a093c360f1", "Напрямую")); put(AUTO_PATH, localized("UiComponents.b11a06bb73c9", "Авто"))
         state.groups.forEach { put(it.id, it.name) }
         state.profiles.forEach { put(it.id, it.name) }
     }
 }
 
 internal fun pathName(state: MobileState, id: String?): String = when (id) {
-    null -> "Не выбран"
-    DIRECT_PATH -> "Напрямую"
-    AUTO_PATH -> "Авто"
-    else -> state.profiles.find { it.id == id }?.name ?: state.groups.find { it.id == id }?.name ?: "Недоступный путь"
+    null -> localized("UiComponents.85d62854c0cb", "Не выбран")
+    DIRECT_PATH -> localized("UiComponents.ec976c71095f", "Напрямую")
+    AUTO_PATH -> localized("UiComponents.e5962e0afea0", "Авто")
+    else -> state.profiles.find { it.id == id }?.name ?: state.groups.find { it.id == id }?.name ?: localized("UiComponents.52b105b0d1c3", "Недоступный путь")
 }
 
 @Composable
@@ -316,7 +318,7 @@ internal fun PathField(label: String, value: String?, choices: List<PathChoice>,
         OutlinedButton(onClick = { query = ""; expanded = true }, enabled = enabled, modifier = Modifier.fillMaxWidth().height(64.dp), shape = RoundedCornerShape(12.dp)) {
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
                 Text(label, style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
-                Text(current?.name ?: if (value == null) "Не выбран" else "Недоступный путь", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(current?.name ?: if (value == null) localized("UiComponents.cfbec8b6ec34", "Не выбран") else localized("UiComponents.696d3711bb2c", "Недоступный путь"), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Icon(Icons.Outlined.KeyboardArrowDown, null)
         }
@@ -336,26 +338,26 @@ internal fun PathField(label: String, value: String?, choices: List<PathChoice>,
                                     color = if (option.enabled) MaterialTheme.colorScheme.onSurface else WaarpMuted)
                                 if (option.detail.isNotBlank()) Text(option.detail, style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
                             }
-                            if (option.id == value) Icon(Icons.Outlined.Check, "Выбрано", tint = WaarpOrange, modifier = Modifier.size(20.dp))
+                            if (option.id == value) Icon(Icons.Outlined.Check, localized("UiComponents.313f4cae2ebb", "Выбрано"), tint = WaarpOrange, modifier = Modifier.size(20.dp))
                         }
                     }
-                    if (filtered.isEmpty()) item { Text(if (choices.isEmpty()) "Сначала добавь туннель" else "Ничего не найдено", Modifier.padding(vertical = 16.dp), color = WaarpMuted) }
+                    if (filtered.isEmpty()) item { Text(if (choices.isEmpty()) localized("UiComponents.fbdd31a59b02", "Сначала добавь туннель") else localized("UiComponents.74c946af12ae", "Ничего не найдено"), Modifier.padding(vertical = 16.dp), color = WaarpMuted) }
                 }
             }
-        }, confirmButton = { TextButton(onClick = { expanded = false }) { Text("Закрыть") } })
+        }, confirmButton = { TextButton(onClick = { expanded = false }) { Text(localized("UiComponents.c71ba05a220d", "Закрыть")) } })
     }
 }
 
-internal fun policyLabel(policy: GroupPolicy) = if (policy == GroupPolicy.FIRST) "Первый доступный" else "Самый быстрый"
+internal fun policyLabel(policy: GroupPolicy) = if (policy == GroupPolicy.FIRST) localized("UiComponents.1fa434077f49", "Первый доступный") else localized("UiComponents.ae2d42550814", "Самый быстрый")
 internal fun validLatency(value: Double?): Double? = value?.takeIf { it.isFinite() && it >= 0 }
 internal fun formatMs(value: Double): String = String.format(Locale.getDefault(), if (value < 10) "%.1f" else "%.0f", value)
 internal fun formatBytes(value: Long): String {
     val n = value.coerceAtLeast(0).toDouble()
     return when {
-        n >= 1024 * 1024 * 1024 -> String.format(Locale.getDefault(), "%.2f ГБ", n / (1024 * 1024 * 1024))
-        n >= 1024 * 1024 -> String.format(Locale.getDefault(), "%.1f МБ", n / (1024 * 1024))
-        n >= 1024 -> String.format(Locale.getDefault(), "%.1f КБ", n / 1024)
-        else -> "${n.toLong()} Б"
+        n >= 1024 * 1024 * 1024 -> String.format(Locale.getDefault(), localized("UiComponents.0d09972cf1c0", "%.2f ГБ"), n / (1024 * 1024 * 1024))
+        n >= 1024 * 1024 -> String.format(Locale.getDefault(), localized("UiComponents.5f87591e9327", "%.1f МБ"), n / (1024 * 1024))
+        n >= 1024 -> String.format(Locale.getDefault(), localized("UiComponents.267cf2834630", "%.1f КБ"), n / 1024)
+        else -> localized("UiComponents.4d0688643344", "{arg1} Б", n.toLong())
     }
 }
 

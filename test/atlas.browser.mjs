@@ -28,7 +28,7 @@ const worldPoint = (anchor, size) => {
 export async function runAtlasChecks({ browser, url, fileUrl, screenshotDir, fixture }) {
   const errors = []
   const make = async (fallback = false, destination = url) => {
-    const context = await browser.newContext({ viewport: { width: 1240, height: 900 } })
+    const context = await browser.newContext({ locale: 'ru-RU', viewport: { width: 1240, height: 900 } })
     const page = await context.newPage()
     page.on('pageerror', error => errors.push(error.message))
     const external = []

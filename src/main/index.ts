@@ -1,3 +1,4 @@
+import { loadLocale, localized } from '../shared/localization'
 import { prepareStart } from './connect'
 import { ConnectionControl } from './connection-control'
 import { confirmRuntimeChange } from './restart-consent'
@@ -120,18 +121,18 @@ const demandsTunnel = requiresCore
 function writeError(): string | undefined {
   if (store.canSave()) return undefined
   void refreshNotices()
-  return store.unreadable ? 'Настройки не прочитались; восстанови исходный файл перед изменениями' : 'Защищённое хранилище Windows недоступно; изменения не будут сохранены'
+  return store.unreadable ? localized("winInline.index.ae1a713bfc53") : localized("winInline.index.1f98275fc2dd")
 }
 
 async function chooseConfig(): Promise<{ text: string; name: string } | { error: string } | null> {
-  const chosen = await dialog.showOpenDialog(win!, { title: 'Конфиг сервера', filters: [{ name: 'Конфиг', extensions: ['conf', 'ovpn', 'txt', 'vpn', 'json', 'yaml', 'yml'] }], properties: ['openFile'] })
+  const chosen = await dialog.showOpenDialog(win!, { title: localized("winInline.index.daef869262d5"), filters: [{ name: localized("winInline.index.de997c6bad2d"), extensions: ['conf', 'ovpn', 'txt', 'vpn', 'json', 'yaml', 'yml'] }], properties: ['openFile'] })
   if (chosen.canceled || !chosen.filePaths[0]) return null
   const path = chosen.filePaths[0]
   const fs = await import('node:fs')
   try {
     const fd = fs.openSync(path, 'r')
     try {
-      if (fs.fstatSync(fd).size > MAX_IMPORT_BYTES) return { error: 'Конфиг слишком большой (максимум 1 МБ)' }
+      if (fs.fstatSync(fd).size > MAX_IMPORT_BYTES) return { error: localized("winInline.index.823ac3d84734") }
       const buffer = Buffer.alloc(MAX_IMPORT_BYTES + 1)
       let used = 0
       while (used < buffer.length) {
@@ -139,10 +140,10 @@ async function chooseConfig(): Promise<{ text: string; name: string } | { error:
         if (!n) break
         used += n
       }
-      if (used > MAX_IMPORT_BYTES) return { error: 'Конфиг слишком большой (максимум 1 МБ)' }
+      if (used > MAX_IMPORT_BYTES) return { error: localized("winInline.index.823ac3d84734") }
       return { text: buffer.toString('utf8', 0, used), name: basename(path).replace(/\.(conf|ovpn|txt|vpn|json|ya?ml)$/i, '') }
     } finally { fs.closeSync(fd) }
-  } catch { return { error: 'Не удалось прочитать выбранный файл' } }
+  } catch { return { error: localized("winInline.index.739330009034") } }
 }
 
 function snapshot(): Snapshot {
@@ -186,12 +187,12 @@ async function confirmTunRestart(reason: string): Promise<boolean> {
       const restarting = phase === 'on'
       const result = await dialog.showMessageBox(ownerWindow, {
         type: 'warning',
-        title: restarting ? 'Waarp — перезапуск VPN' : 'Waarp — включение VPN',
-        message: restarting ? 'Для этого изменения нужно перезапустить VPN.' : 'Чтобы применить этот маршрут, нужно включить VPN.',
+        title: restarting ? localized("winInline.index.b59866ac4edf") : localized("winInline.index.316f9655cc8a"),
+        message: restarting ? localized("winInline.index.59fd9eeb629f") : localized("winInline.index.11ade50f329b"),
         detail: reason + (restarting
-          ? '\n\nРаботающие соединения временно прервутся. При отмене действующий TUN останется без изменений.'
-          : '\n\nСейчас TUN не запущен. Отмена сохранит прежние настройки и состояние.'),
-        buttons: ['Отмена', restarting ? 'Перезапустить VPN' : 'Включить VPN'],
+          ? localized("winInline.index.d11479dcb548")
+          : localized("winInline.index.9c0f7107c27c")),
+        buttons: [localized("winInline.index.a849bd3d4896"), restarting ? localized("winInline.index.d3021f5850a2") : localized("winInline.index.cffd9bfb6b53")],
         defaultId: 0,
         cancelId: 0,
         noLink: true
@@ -204,7 +205,7 @@ async function confirmTunRestart(reason: string): Promise<boolean> {
  * this exact session. A deliberate profile stop consumes the original approval. */
 function reconnectEditedSession(revision: number, restart = false) {
   const session = engine.sessionToken, phase = engine.status.phase
-  if (phase !== 'on' && phase !== 'off') return Promise.resolve({ ok: false, error: 'Состояние VPN изменилось; повтори действие' })
+  if (phase !== 'on' && phase !== 'off') return Promise.resolve({ ok: false, error: localized("winInline.index.a9eb237a0b6e") })
   return master.reconnect(revision, { restart, retainCore: true, preserveIntent: true,
     beforeStart: () => engine.sessionToken === session && engine.status.phase === phase })
 }
@@ -231,11 +232,11 @@ async function recoverRuntimes(): Promise<boolean> {
   // A verified journal recovery can finish a checker that did not exit within the initial stop budget.
   const stopped = measurementsStopped || (checkerRecovered && catalogRecovered && await pauseMeasurements().catch(() => false))
   const relatedError = !checkerRecovered
-    ? `Проверка личных подключений: ${checker?.recoveryError ?? 'не удалось восстановить прошлый процесс'}`
+    ? localized("winInline.index.d4a2107f0a26", checker?.recoveryError ?? localized("winInline.index.d0d2174e03bf"))
     : !catalogRecovered
-      ? `Проверка каталога: ${catalog?.recoveryError ?? 'не удалось восстановить прошлый процесс'}`
-      : !stopped ? 'Проверочный движок не подтвердил остановку. Повтори восстановление.'
-        : !engineStopped ? 'Основной движок не подтвердил остановку. Повтори восстановление.' : undefined
+      ? localized("winInline.index.c6d56cea2aca", catalog?.recoveryError ?? localized("winInline.index.d0d2174e03bf"))
+      : !stopped ? localized("winInline.index.39223a0a9dcd")
+        : !engineStopped ? localized("winInline.index.dd2c69e219a7") : undefined
   const recovered = await engine.killOrphans(stopped && engineStopped && checkerRecovered && catalogRecovered, relatedError)
   if (recovered) publicCleanupBlocked = false
   return recovered
@@ -243,16 +244,16 @@ async function recoverRuntimes(): Promise<boolean> {
 
 async function prepareConnection(current: () => boolean = () => true) {
   admin = await (adminReady = checkAdmin())
-  if (!current() || quitting) return { ok: false as const, error: 'Подключение отменено' }
+  if (!current() || quitting) return { ok: false as const, error: localized("winInline.index.e1c831ec971a") }
   const stopped = await pauseMeasurements()
-  if (!current() || quitting) return { ok: false as const, error: 'Подключение отменено' }
+  if (!current() || quitting) return { ok: false as const, error: localized("winInline.index.e1c831ec971a") }
   // A failed checker stop/recovery gate cannot dismantle a healthy TUN during
   // an edit's preflight. The user can explicitly disconnect and recover it.
   if (engine.status.phase === 'on' && (!stopped || !runtimeRecovery.ready))
-    return { ok: false as const, error: 'Текущий VPN сохранён. Для восстановления проверки сначала выключи его главным переключателем.' }
+    return { ok: false as const, error: localized("winInline.index.4e1913b158cd") }
   // A later failed lease or stuck checker must not poison all future ON attempts for this app session.
-  if (!(await runtimeRecovery.ensure(!stopped))) return { ok: false as const, error: engine.status.error ?? 'Не удалось восстановить прошлый процесс. Повтори восстановление.' }
-  if (!current() || quitting) return { ok: false as const, error: 'Подключение отменено' }
+  if (!(await runtimeRecovery.ensure(!stopped))) return { ok: false as const, error: engine.status.error ?? localized("winInline.index.085ae51ed5b8") }
+  if (!current() || quitting) return { ok: false as const, error: localized("winInline.index.e1c831ec971a") }
   return prepareStart({ stopChecker: async () => true, notices: () => refreshNotices(true) })
 }
 
@@ -301,10 +302,10 @@ function updateTray() {
   tray.setImage(trayImage(view.active))
   tray.setToolTip(view.tooltip)
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: view.action === 'disconnect' ? 'Отключить Waarp' : 'Подключить Waarp', enabled: master.open || ((store.profiles.length > 0 || demandsTunnel(store.settings)) && admin), click: () => void toggle() },
-    { label: 'Показать окно', click: show },
+    { label: view.action === 'disconnect' ? localized("winInline.index.7d3da26e69e7") : localized("winInline.index.7e131c3f2192"), enabled: master.open || ((store.profiles.length > 0 || demandsTunnel(store.settings)) && admin), click: () => void toggle() },
+    { label: localized("winInline.index.2f93c75b9eae"), click: show },
     { type: 'separator' },
-    { label: 'Выход', click: () => { quitting = true; app.quit() } }
+    { label: localized("winInline.index.7517f0a97535"), click: () => { quitting = true; app.quit() } }
   ]))
 }
 
@@ -327,11 +328,11 @@ async function refreshNotices(beforeStart = false, settings = store.settings) {
     'Waarp',
     plan.scope === 'cards'
   ) : [adapterInspectionNotice(!beforeStart && engine.status.phase === 'on')]
-  if (bridgeError) notices.unshift({ level: 'warn', title: 'Связь с приложениями отключена', text: 'Windows не подтвердил закрытый доступ к токену локального моста. Waarp продолжает работать самостоятельно.' })
-  if (!engineIntegrity) notices.unshift({ level: 'block', title: 'Движок Waarp повреждён', text: 'Контрольная сумма sing-box или его библиотеки не совпадает со сборкой. Переустанови Waarp; запуск туннеля заблокирован.' })
-  if (store.secureOff) notices.unshift({ level: 'warn', title: 'Ключи не сохраняются', text: 'Защищённое хранилище Windows сейчас недоступно, поэтому Waarp держит туннели только до закрытия и ничего не пишет на диск открытым текстом.' })
-  if (store.unreadable) notices.unshift({ level: 'warn', title: 'Старые настройки не прочитались', text: store.unreadableCopy ? `Копия: ${basename(store.unreadable)}. Исходный файл не изменён; новые настройки пока не сохраняются. Восстанови файл перед продолжением.` : 'Копию создать не удалось. Исходный файл не изменён; новые настройки пока не сохраняются. Проверь доступ к диску и восстанови файл.' })
-  if (!admin) notices.unshift({ level: 'block', title: 'Нужны права администратора', text: 'Чтобы создать свой сетевой адаптер, Waarp нужны права админа. Нажми «Перезапустить как админ».', action: 'relaunch-admin' })
+  if (bridgeError) notices.unshift({ level: 'warn', title: localized("winInline.index.d5f87400d402"), text: localized("winInline.index.0fb093cbec40") })
+  if (!engineIntegrity) notices.unshift({ level: 'block', title: localized("winInline.index.e0484695f8e1"), text: localized("winInline.index.b1a2eacb3e9b") })
+  if (store.secureOff) notices.unshift({ level: 'warn', title: localized("winInline.index.d41b28db1edc"), text: localized("winInline.index.2fe64d0e8dfc") })
+  if (store.unreadable) notices.unshift({ level: 'warn', title: localized("winInline.index.f392aa6c92e8"), text: store.unreadableCopy ? localized("winInline.index.8cfc3ab9ec1b", basename(store.unreadable)) : localized("winInline.index.853288e2f786") })
+  if (!admin) notices.unshift({ level: 'block', title: localized("winInline.index.1329d072fcdb"), text: localized("winInline.index.8f138d4687ea"), action: 'relaunch-admin' })
   send('snapshot', snapshot())
   return notices
 }
@@ -362,14 +363,14 @@ async function watch() {
       if (await refreshTuneNetwork()) {
         if (!pendingTuneRestartNotice) {
           pendingTuneRestartNotice = true
-          send('toast', 'Сеть изменилась. VPN сохранён; для новых параметров выключи и включи Waarp вручную.')
+          send('toast', localized("winInline.index.f26e51989da0"))
         }
       } else pendingTuneRestartNotice = false
       return
     }
     setMaster(false)
     await engine.stop()
-    const msg = `Waarp закрылся: ${block.title.toLowerCase()}`
+    const msg = localized("winInline.index.159f97a2ec3e", block.title.toLowerCase())
     send('toast', msg)
     notify(msg)
   } finally { watchBusy = false }
@@ -394,8 +395,8 @@ function watchPings(st: Status) {
     const state = st.health?.[p.id]
     const dead = state === 'down'
     if (dead && covered(p.id)) continue
-    if (dead && !downSet.has(p.id)) { downSet.add(p.id); notify(`Сервер «${p.name}» не отвечает. Его программы ждут, в обход ничего не идёт`) }
-    if (state === 'ok' && downSet.has(p.id)) { downSet.delete(p.id); notify(`Сервер «${p.name}» снова на связи`) }
+    if (dead && !downSet.has(p.id)) { downSet.add(p.id); notify(localized("winInline.index.0a6cd3d4e33f", p.name)) }
+    if (state === 'ok' && downSet.has(p.id)) { downSet.delete(p.id); notify(localized("winInline.index.54982a3f254b", p.name)) }
   }
 }
 
@@ -435,7 +436,7 @@ function relaunchAdmin() {
   execFile(POWERSHELL, ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { windowsHide: true, timeout: 60_000 }, err => {
     if (!err) { quitting = true; void shutdownGate().then(() => app.quit()); return }
     relaunching = false
-    send('toast', 'Перезапуск с правами администратора отменён')
+    send('toast', localized("winInline.index.a42fbec2b269"))
   })
 }
 
@@ -444,7 +445,7 @@ type IpcHandler = Parameters<typeof ipcMain.handle>[1]
 function secureHandle(channel: string, handler: IpcHandler): void {
   ipcMain.handle(channel, (event, ...args) => {
     if (!win || win.isDestroyed() || event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame) {
-      throw new Error('Unauthorized IPC sender')
+      throw new Error(localized("winInline.index.f0ecb47385e3"))
     }
     return handler(event, ...args)
   })
@@ -461,7 +462,7 @@ function ipc() {
   secureHandle('disconnect', () => disconnect())
   secureHandle('apps:scan', () => scanApps(items => send('apps', items)))
   secureHandle('apps:pick', async () => {
-    const r = await dialog.showOpenDialog(win!, { title: 'Выбери программу', filters: [{ name: 'Программы', extensions: ['exe'] }], properties: ['openFile'] })
+    const r = await dialog.showOpenDialog(win!, { title: localized("winInline.index.be4137d82bac"), filters: [{ name: localized("winInline.index.7136255f33a5"), extensions: ['exe'] }], properties: ['openFile'] })
     if (r.canceled || !r.filePaths[0]) return null
     return describeExe(r.filePaths[0])
   })
@@ -491,7 +492,7 @@ function ipc() {
     if (typeof input.owner !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(input.owner) || typeof input.active !== 'boolean') return catalog?.state
     if (!input.active) { catalogAutoRequests.delete(input.owner); return catalog?.automatic(input.owner, false) }
     if (!Array.isArray(input.ids) || input.ids.length > 100 || !input.ids.every(id => typeof id === 'string' && /^pub-[0-9a-f]{20}$/.test(id))) return catalog?.state
-    if (!engineIntegrity || !runtimeRecovery.ready) return { ...catalog?.state, error: 'Проверка станет доступна после восстановления движка Waarp.' }
+    if (!engineIntegrity || !runtimeRecovery.ready) return { ...catalog?.state, error: localized("winInline.index.a811e52afb8e") }
     if (!['on', 'off'].includes(engine.status.phase)) return catalog?.state
     const request = Symbol('catalog surface')
     catalogAutoRequests.set(input.owner, request)
@@ -501,7 +502,7 @@ function ipc() {
     return catalog?.automatic(input.owner, true, input.ids as string[])
   })
   secureHandle('discover:scan', async () => {
-    if (!discovery || discoveryBusy) return { ok: false, error: 'Поиск уже идёт' }
+    if (!discovery || discoveryBusy) return { ok: false, error: localized("winInline.index.2ab6596252b7") }
     discoveryBusy = true
     try {
       const roaming = app.getPath('appData')
@@ -520,62 +521,62 @@ function ipc() {
       ].map(([label, path]) => ({ label, path, maxDepth: 3 }))
       const items = await discovery.scan([
         ...known,
-        { path: app.getPath('downloads'), label: 'Загрузки' },
-        { path: app.getPath('desktop'), label: 'Рабочий стол' },
-        { path: app.getPath('documents'), label: 'Документы' }
+        { path: app.getPath('downloads'), label: localized("winInline.index.6fa33baffa12") },
+        { path: app.getPath('desktop'), label: localized("winInline.index.4e26e76b11ea") },
+        { path: app.getPath('documents'), label: localized("winInline.index.c89b3e12d7e1") }
       ])
       return { ok: true, items }
-    } catch { return { ok: false, error: 'Не удалось выполнить поиск файлов' } }
+    } catch { return { ok: false, error: localized("winInline.index.f64331d9c6f7") } }
     finally { discoveryBusy = false }
   })
   secureHandle('discover:pick-folder', async () => {
-    if (!discovery || discoveryBusy) return { ok: false, error: 'Поиск уже идёт' }
-    const chosen = await dialog.showOpenDialog(win!, { title: 'Папка с конфигами VPN', properties: ['openDirectory'] })
+    if (!discovery || discoveryBusy) return { ok: false, error: localized("winInline.index.2ab6596252b7") }
+    const chosen = await dialog.showOpenDialog(win!, { title: localized("winInline.index.d10b507223b2"), properties: ['openDirectory'] })
     if (chosen.canceled || !chosen.filePaths[0]) return { ok: false, canceled: true }
     discoveryBusy = true
     try { return { ok: true, items: await discovery.scan([{ path: chosen.filePaths[0], label: basename(chosen.filePaths[0]) }]) } }
-    catch { return { ok: false, error: 'Не удалось прочитать выбранную папку' } }
+    catch { return { ok: false, error: localized("winInline.index.756e3485fe9a") } }
     finally { discoveryBusy = false }
   })
   secureIntentHandle('discover:add', async (_e, raw: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
-    if (!Array.isArray(raw) || raw.length > 500 || !raw.every(id => typeof id === 'string' && /^[0-9a-f]{24}$/.test(id))) return { ok: false, error: 'Неверный список туннелей' }
+    if (!Array.isArray(raw) || raw.length > 500 || !raw.every(id => typeof id === 'string' && /^[0-9a-f]{24}$/.test(id))) return { ok: false, error: localized("winInline.index.e3d3fa24032f") }
     const have = new Set(store.profiles.map(credentialKey))
     const fresh = raw.map(id => discovery?.profile(id)).filter((p): p is Profile => !!p && !have.has(credentialKey(p)) && !!have.add(credentialKey(p)))
-    if (!fresh.length) return { ok: false, error: 'Новых туннелей нет' }
-    if (!addProfiles(fresh)) return { ok: false, error: 'Не удалось сохранить найденные туннели' }
+    if (!fresh.length) return { ok: false, error: localized("winInline.index.5f775d7c383c") }
+    if (!addProfiles(fresh)) return { ok: false, error: localized("winInline.index.c09e882f5f43") }
     await refreshNotices(); updateTray(); send('snapshot', snapshot())
     discovery?.clear()
     return { ok: true, added: fresh.length, id: fresh.length === 1 ? fresh[0].id : undefined, ids: fresh.map(p => p.id) }
   })
   secureHandle('catalog:refresh', async () => {
-    if (!engineIntegrity) return { ok: false, error: 'Движок Waarp повреждён. Обновление и проверка каталога заблокированы.' }
-    if (!runtimeRecovery.ready) return { ...catalog?.state, error: 'Дождись восстановления Waarp перед проверкой каталога' }
-    if (!['on', 'off'].includes(engine.status.phase)) return { ...catalog?.state, error: 'Дождись завершения текущего подключения' }
+    if (!engineIntegrity) return { ok: false, error: localized("winInline.index.4143deeef267") }
+    if (!runtimeRecovery.ready) return { ...catalog?.state, error: localized("winInline.index.e4e0d8321d5c") }
+    if (!['on', 'off'].includes(engine.status.phase)) return { ...catalog?.state, error: localized("winInline.index.f8c735a6e8d8") }
     await refreshCatalogNetwork(true)
     // Catalog checks own an isolated userspace core with no TUN. They can
     // verify new servers while the application's routes keep running.
     return await catalog?.refresh()
   })
   secureHandle('catalog:verify', async () => {
-    if (!engineIntegrity || !runtimeRecovery.ready) return { ...catalog?.state, error: 'Проверка станет доступна после восстановления движка Waarp' }
-    if (!['on', 'off'].includes(engine.status.phase)) return { ...catalog?.state, error: 'Дождись завершения текущего подключения.' }
+    if (!engineIntegrity || !runtimeRecovery.ready) return { ...catalog?.state, error: localized("winInline.index.43b1074e3fc3") }
+    if (!['on', 'off'].includes(engine.status.phase)) return { ...catalog?.state, error: localized("winInline.index.512915a50d25") }
     await refreshCatalogNetwork(true)
     return await catalog?.verify()
   })
   secureIntentHandle('catalog:add', async (_e, id: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
-    if (typeof id !== 'string' || !/^pub-[0-9a-f]{20}$/.test(id)) return { ok: false, error: 'Неверный узел каталога' }
-    if (!engineIntegrity || !runtimeRecovery.ready) return { ok: false, error: 'Проверка станет доступна после восстановления движка Waarp.' }
+    if (typeof id !== 'string' || !/^pub-[0-9a-f]{20}$/.test(id)) return { ok: false, error: localized("winInline.index.b779463e7c42") }
+    if (!engineIntegrity || !runtimeRecovery.ready) return { ok: false, error: localized("winInline.index.a811e52afb8e") }
     const revision = master.revision
     await refreshCatalogNetwork(true)
     const verified = await catalog?.verifyNode(id)
-    if (revision !== master.revision || quitting) return { ok: false, error: 'Выбор сервера отменён: состояние подключения изменилось.' }
-    if (!verified?.ok) return { ok: false, error: verified?.error ?? 'Сервер не прошёл проверку. Выбери другой сервер.' }
+    if (revision !== master.revision || quitting) return { ok: false, error: localized("winInline.index.ed42cd60a8e7") }
+    if (!verified?.ok) return { ok: false, error: verified?.error ?? localized("winInline.index.f7719ab5de4f") }
     const previousProfiles = store.profiles.slice()
-    const pid = addPublic(id); if (!pid) return { ok: false, error: 'Узел пропал из списка, обнови каталог' }
+    const pid = addPublic(id); if (!pid) return { ok: false, error: localized("winInline.index.8f60ca03a2ab") }
     try { store.save() }
-    catch { store.profiles = previousProfiles; return { ok: false, error: 'Не удалось сохранить публичный узел' } }
+    catch { store.profiles = previousProfiles; return { ok: false, error: localized("winInline.index.f4a840a32bea") } }
     await refreshNotices(); send('snapshot', snapshot()); return { ok: true, id: pid }
   })
   // Fresh, diverse candidates become a selectable group; creating it never changes routes.
@@ -585,18 +586,18 @@ function ipc() {
     // Interface addresses can stay the same after switching Wi-Fi/gateways.
     // Re-read that context before promoting observations into a saved group.
     await refreshCatalogNetwork(true)
-    if (master.revision !== revision || engine.status.phase !== phase) return { ok: false, error: 'Состояние подключения изменилось. Повтори подбор группы.' }
+    if (master.revision !== revision || engine.status.phase !== phase) return { ok: false, error: localized("winInline.index.6d2c131c3427") }
     const previousProfiles = store.profiles.slice(), previousSettings = store.settings
     const top = [...new Set((catalog?.bestReady(5) ?? []).map(n => addPublic(n.id)).filter((x): x is string => !!x))]
-    if (!top.length) return { ok: false, error: 'Рабочие серверы пока не найдены. Открой публичные серверы — проверка продолжится автоматически.' }
+    if (!top.length) return { ok: false, error: localized("winInline.index.da8e321910fa") }
     const existing = store.settings.groups.find(g => g.id.startsWith('g-public') && g.policy === 'fastest' && g.members.length === top.length && g.members.every((id, i) => id === top[i]))
     if (existing) return { ok: true, id: existing.id }
-    if (store.settings.groups.length >= 50) { store.profiles = previousProfiles; return { ok: false, error: 'Достигнут предел в 50 групп. Удали ненужную группу перед добавлением.' } }
+    if (store.settings.groups.length >= 50) { store.profiles = previousProfiles; return { ok: false, error: localized("winInline.index.40cca33647db") } }
     // Rebuilding the catalog must not silently retarget routes already using an earlier public group.
     const gid = 'g-public-' + randomBytes(4).toString('hex')
-    store.settings = { ...store.settings, groups: [...store.settings.groups, { id: gid, name: 'Публичные узлы', policy: 'fastest', members: top }] }
+    store.settings = { ...store.settings, groups: [...store.settings.groups, { id: gid, name: localized("winInline.index.e591b3826bf6"), policy: 'fastest', members: top }] }
     try { store.save() }
-    catch { store.profiles = previousProfiles; store.settings = previousSettings; return { ok: false, error: 'Не удалось сохранить группу публичных узлов' } }
+    catch { store.profiles = previousProfiles; store.settings = previousSettings; return { ok: false, error: localized("winInline.index.44f469b56edd") } }
     await refreshNotices(); send('snapshot', snapshot())
     return { ok: true, id: gid }
   })
@@ -606,18 +607,18 @@ function ipc() {
     if (!checked.ok) { send('toast', checked.error); return { ...snapshot(), saved: false } }
     const patch = checked.patch // C09: reject malformed IPC instead of silently dropping fields
     if (patch.serviceVia && patch.serviceVia !== 'direct' && !store.profiles.some(p => p.id === patch.serviceVia && !p.revoked && p.source !== 'public' && !('subMissing' in p && p.subMissing))) {
-      send('toast', 'Для загрузок выбери доступное личное подключение'); return { ...snapshot(), saved: false }
+      send('toast', localized("winInline.index.6bb1d95f0058")); return { ...snapshot(), saved: false }
     }
-    if (!settingsPatchCurrent(patch, base, store.settings)) { send('toast', 'Настройки уже изменились. Список обновлён — повтори действие.'); return { ...snapshot(), saved: false } }
+    if (!settingsPatchCurrent(patch, base, store.settings)) { send('toast', localized("winInline.index.2e948c259f54")); return { ...snapshot(), saved: false } }
     // companion routes: never created or redefined by the renderer, never a public / unsafe path or fallback
-    if (patch.routes && !companionEditsOk(patch.routes, store.settings.routes)) { send('toast', 'Маршрут приложения нельзя создать или переопределить вручную'); return { ...snapshot(), saved: false } }
+    if (patch.routes && !companionEditsOk(patch.routes, store.settings.routes)) { send('toast', localized("winInline.index.c2186ff7d321")); return { ...snapshot(), saved: false } }
     if (patch.routes) patch.routes = dedupeApps(patch.routes)
     if (('routes' in patch || 'groups' in patch) && !companionPatchSafe({ routes: patch.routes ?? store.settings.routes, groups: patch.groups ?? store.settings.groups }, store.settings, store.profiles)) { send('toast', COMPANION_SAFE); return { ...snapshot(), saved: false } }
     const routing = ['rest', 'routes', 'ruDirect', 'dnsAll', 'lanDirect', 'groups'].some(k => k in patch)
     const previous = store.settings
     const next = { ...previous, ...patch }
     if ('autostart' in patch && !(await setAutostart(!!patch.autostart))) {
-      send('toast', 'Не удалось изменить автозапуск Windows')
+      send('toast', localized("winInline.index.c8dd1e5dea84"))
       return { ...snapshot(), saved: false }
     }
     if (routing) {
@@ -636,7 +637,7 @@ function ipc() {
     catch {
       store.settings = previous
       if ('autostart' in patch) void setAutostart(previous.autostart)
-      send('toast', 'Не удалось сохранить настройки'); return { ...snapshot(), saved: false }
+      send('toast', localized("winInline.index.8dc63da88667")); return { ...snapshot(), saved: false }
     }
     if ('serviceVia' in patch && previous.serviceVia !== store.settings.serviceVia) cancelServiceDownload()
     updateTray()
@@ -645,11 +646,11 @@ function ipc() {
   })
   secureIntentHandle('route:select', async (_e, routeId: unknown, via: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
-    if (typeof routeId !== 'string' || routeId.length > 400 || typeof via !== 'string' || via.length > 80 || !/^[\w:.-]+$/.test(via)) return { ok: false, error: 'Неверный маршрут' }
+    if (typeof routeId !== 'string' || routeId.length > 400 || typeof via !== 'string' || via.length > 80 || !/^[\w:.-]+$/.test(via)) return { ok: false, error: localized("winInline.index.0395f6f9568b") }
     const known = via === 'direct' || (via === AUTO_ID && autoMembers(store.profiles).length > 0) || store.profiles.some(p => !p.revoked && p.id === via) || store.settings.groups.some(g => g.id === via && g.members.some(id => store.profiles.some(p => !p.revoked && p.id === id)))
-    if (!known) return { ok: false, error: 'Подключение больше недоступно. Выбери другое' }
+    if (!known) return { ok: false, error: localized("winInline.index.835ab93fd6b4") }
     const at = store.settings.routes.findIndex(r => r.id === routeId)
-    if (at < 0) return { ok: false, error: 'Карточка больше не существует' }
+    if (at < 0) return { ok: false, error: localized("winInline.index.3839b2a99351") }
     if (store.settings.routes[at].owner === 'companion' && !safeVia(via, store.settings, store.profiles)) return { ok: false, error: COMPANION_SAFE }
     // RC2 B: one card changes its own path only; the whole-computer intent (rest) is never touched here
     const r = await applyRouting(selectVia(store.settings, at, via))
@@ -660,24 +661,24 @@ function ipc() {
   secureIntentHandle('companion:choose', async (_e, id: unknown, via: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     const t = typeof id === 'string' ? pendingPicks.get(id, Date.now()) : undefined
-    if (!t) return { ok: false, error: 'Запрос приложения устарел. Повтори его из приложения' }
+    if (!t) return { ok: false, error: localized("winInline.index.bc96a1542e61") }
     if (typeof via !== 'string' || via === 'direct' || via === AUTO_ID || !store.profiles.some(p => p.id === via || store.settings.groups.some(g => g.id === via)) || !safeVia(via, store.settings, store.profiles)) return { ok: false, error: COMPANION_SAFE }
     const cur = routeOf(store.settings, t.id)
-    if (cur && !sameTarget(cur, t)) return { ok: false, error: 'Маршрут приложения нельзя переопределить' }
+    if (cur && !sameTarget(cur, t)) return { ok: false, error: localized("winInline.index.cb03144fdc84") }
     const next = routeFor(t, via)
     const r = await applyRouting({ ...store.settings, routes: cur ? store.settings.routes.map(x => (x.id === t.id ? next : x)) : [...store.settings.routes, next] })
     if (!r.saved) return { ok: false, error: applyText(r) }
     pendingPicks.drop(t.id)
     return { ok: true, id: t.id, saved: true, applied: r.applied, error: applyText(r) }
   })
-  secureHandle('custom:validate', (_e, v: unknown) => typeof v === 'string' && v.length <= 1000 ? validateCustom(v) : 'Неверный адрес')
+  secureHandle('custom:validate', (_e, v: unknown) => typeof v === 'string' && v.length <= 1000 ? validateCustom(v) : localized("winInline.index.4c6be0b77233"))
   secureHandle('clip:peek', async () => peekClip(await clipboard.readText()))
   secureHandle('qr:scan', async () => {
     try {
       const text = await scanScreenQr()
-      if (!text) return { ok: false, error: 'QR-код на экране не найден' }
+      if (!text) return { ok: false, error: localized("winInline.index.80fb5847111c") }
       const peek = peekClip(text)
-      if (peek.kind === 'none') return { ok: false, error: 'В QR-коде нет поддерживаемого конфига или ссылки' }
+      if (peek.kind === 'none') return { ok: false, error: localized("winInline.index.890f457c6533") }
       const token = randomBytes(16).toString('hex')
       const now = Date.now()
       for (const [id, item] of qrImports) if (item.expires <= now) qrImports.delete(id)
@@ -685,20 +686,20 @@ function ipc() {
       const expiry = setTimeout(() => qrImports.delete(token), 60_000)
       expiry.unref()
       return { ok: true, token, peek }
-    } catch { return { ok: false, error: 'Не удалось прочитать изображение экрана' } }
+    } catch { return { ok: false, error: localized("winInline.index.1e1a136d1612") } }
   })
   secureIntentHandle('profile:import', async (_e, raw: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     const from = importRequest(raw)
-    if (!from) return { ok: false, error: 'Неверные данные импорта' }
+    if (!from) return { ok: false, error: localized("winInline.index.1151137c7da2") }
     let text = from.clipboard ? await clipboard.readText() : from.text ?? ''
     if (from.qrToken) {
       const pending = qrImports.get(from.qrToken)
       qrImports.delete(from.qrToken) // one attempt only, successful or not
-      if (!pending || pending.expires <= Date.now()) return { ok: false, error: 'QR-код устарел, отсканируй его ещё раз' }
+      if (!pending || pending.expires <= Date.now()) return { ok: false, error: localized("winInline.index.3ab8acd62765") }
       text = pending.text
     }
-    if (Buffer.byteLength(text, 'utf8') > MAX_IMPORT_BYTES) return { ok: false, error: 'Конфиг слишком большой (максимум 1 МБ)' }
+    if (Buffer.byteLength(text, 'utf8') > MAX_IMPORT_BYTES) return { ok: false, error: localized("winInline.index.823ac3d84734") }
     let name = from.name
     if (from.file) {
       const picked = await chooseConfig()
@@ -715,8 +716,8 @@ function ipc() {
         const p = parseOpenVpn(body, name || `OpenVPN ${store.profiles.length + 1}`)
         const key = credentialKey(p)
         const dup = store.profiles.find(x => credentialKey(x) === key)
-        if (dup) return { ok: false, error: `Этот конфиг уже есть: «${dup.name}»` }
-        if (!addProfiles([p])) return { ok: false, error: 'Не удалось сохранить конфиг' }
+        if (dup) return { ok: false, error: localized("winInline.index.f861f45428af", dup.name) }
+        if (!addProfiles([p])) return { ok: false, error: localized("winInline.index.a3e487107c82") }
         await refreshNotices(); updateTray()
         return { ok: true, added: 1, id: p.id, ids: [p.id], name: p.name, skipped: 0, notApplied: [] as string[] }
       }
@@ -731,77 +732,77 @@ function ipc() {
           x.sub = sub
           x.subKey = subscriptionEntryKey(x)
         }
-        if (!fresh.length) return { ok: false, error: 'Все эти серверы уже есть в списке' }
-        if (!addProfiles(fresh)) return { ok: false, error: 'Не удалось сохранить серверы' }
+        if (!fresh.length) return { ok: false, error: localized("winInline.index.31ed871052ba") }
+        if (!addProfiles(fresh)) return { ok: false, error: localized("winInline.index.aca24b420bd3") }
         await refreshNotices(); updateTray()
         const notApplied = [...new Set(fresh.flatMap(x => x.kind === 'vless' ? x.vless.notApplied : []))]
         return { ok: true, added: fresh.length, id: fresh.length === 1 ? fresh[0].id : undefined, ids: fresh.map(p => p.id), name: fresh[0].name, skipped: res.skipped + res.items.length - fresh.length, notApplied }
       }
       if (sub || looksLikeVless(link) || /(?:vmess|trojan|ss|hysteria2|hy2|tuic):\/\//i.test(body)) {
-        return { ok: false, error: 'Не нашёл ни одной поддерживаемой ссылки в подписке' }
+        return { ok: false, error: localized("winInline.index.f17ec850e08b") }
       }
-      const p = parseConf(text, name || `Сервер ${store.profiles.length + 1}`)
+      const p = parseConf(text, name || localized("winInline.index.c8d08c8bcf2c", store.profiles.length + 1))
       const dup = store.profiles.find(x => x.kind === 'awg' && x.privateKey === p.privateKey)
-      if (dup) return { ok: false, error: `Этот конфиг уже есть: «${dup.name}»` }
-      if (!addProfiles([p])) return { ok: false, error: 'Не удалось сохранить конфиг' }
+      if (dup) return { ok: false, error: localized("winInline.index.f861f45428af", dup.name) }
+      if (!addProfiles([p])) return { ok: false, error: localized("winInline.index.a3e487107c82") }
       await refreshNotices()
       updateTray()
       return { ok: true, added: 1, id: p.id, ids: [p.id], name: p.name, skipped: 0, notApplied: [] as string[] }
     } catch (e) {
-      return { ok: false, error: e instanceof ConfError ? e.message : 'Не получилось прочитать конфиг' }
+      return { ok: false, error: e instanceof ConfError ? e.message : localized("winInline.index.a11555da2196") }
     }
   })
   secureIntentHandle('profile:create-wg', async (_e, raw: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: 'Неверные данные сервера' }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: localized("winInline.index.804faff33c86") }
     const values = raw as Record<string, unknown>
-    if (!['name', 'address', 'endpoint', 'serverPublicKey'].every(k => typeof values[k] === 'string')) return { ok: false, error: 'Неверные данные сервера' }
+    if (!['name', 'address', 'endpoint', 'serverPublicKey'].every(k => typeof values[k] === 'string')) return { ok: false, error: localized("winInline.index.804faff33c86") }
     const name = profileName(values.name)
-    if (!name) return { ok: false, error: 'Неверное имя туннеля' }
+    if (!name) return { ok: false, error: localized("winInline.index.7e679c933f70") }
     try {
       const { profile, clientPublicKey } = createWireGuardProfile({ ...(values as { name: string; address: string; endpoint: string; serverPublicKey: string }), name })
-      if (!addProfiles([profile])) return { ok: false, error: 'Не удалось сохранить конфиг' }
+      if (!addProfiles([profile])) return { ok: false, error: localized("winInline.index.a3e487107c82") }
       await refreshNotices(); updateTray()
       return { ok: true, added: 1, id: profile.id, ids: [profile.id], name: profile.name, clientPublicKey }
-    } catch (e) { return { ok: false, error: e instanceof ConfError ? e.message : 'Не удалось создать конфиг' } }
+    } catch (e) { return { ok: false, error: e instanceof ConfError ? e.message : localized("winInline.index.6f3cc4c32d99") } }
   })
   secureIntentHandle('profile:refresh-sub', async (_e, id: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
-    if (typeof id !== 'string' || id.length > 80) return { ok: false, error: 'Подписка не найдена' }
-    if (master.open || engine.status.phase !== 'off') return { ok: false, error: 'Отключи Waarp перед обновлением подписки' }
+    if (typeof id !== 'string' || id.length > 80) return { ok: false, error: localized("winInline.index.7744159e6518") }
+    if (master.open || engine.status.phase !== 'off') return { ok: false, error: localized("winInline.index.eda04c4820b9") }
     const selected = store.profiles.find(p => p.id === id)
     const sub = selected && (selected.kind === 'vless' || selected.kind === 'out') ? selected.sub : undefined
-    if (!sub) return { ok: false, error: 'Этот туннель не связан с подпиской' }
+    if (!sub) return { ok: false, error: localized("winInline.index.91504ac8947b") }
     try {
       const body = await withServiceTransport((transport, signal) => fetchSubscription(sub, { transport, signal }))
       const embedded = linksInContainer(body, 1000)
       const parsed = parseAny(embedded.length ? embedded.join('\n') : body, 1000)
       const incoming = parsed.items.filter((p): p is Extract<Profile, { kind: 'vless' | 'out' }> => p.kind === 'vless' || p.kind === 'out')
-      if (!incoming.length) return { ok: false, error: 'Подписка не вернула поддерживаемых серверов; прежний список сохранён' }
+      if (!incoming.length) return { ok: false, error: localized("winInline.index.a580ee197a7c") }
       const oldProfiles = store.profiles
       const reconciled = reconcileSubscription(oldProfiles, incoming, sub)
       store.profiles = reconciled.profiles
       try { store.save() }
-      catch { store.profiles = oldProfiles; return { ok: false, error: 'Не удалось сохранить обновление; прежний список оставлен без изменений' } }
+      catch { store.profiles = oldProfiles; return { ok: false, error: localized("winInline.index.247814a4ab6b") } }
       await refreshNotices(); updateTray(); send('snapshot', snapshot())
       return { ok: true, updated: reconciled.updated, added: reconciled.added, missing: reconciled.missing, skipped: parsed.skipped }
     } catch (e) {
-      return { ok: false, error: e instanceof ConfError ? e.message : 'Не удалось обновить подписку; прежний список сохранён' }
+      return { ok: false, error: e instanceof ConfError ? e.message : localized("winInline.index.dbec2f817bca") }
     }
   })
   secureIntentHandle('profile:replace', async (_e, id: unknown, raw: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
-    if (typeof id !== 'string' || id.length > 80) return { ok: false, error: 'Туннель не найден' }
+    if (typeof id !== 'string' || id.length > 80) return { ok: false, error: localized("winInline.index.1e6e668de2aa") }
     const index = store.profiles.findIndex(p => p.id === id)
     const old = store.profiles[index]
-    if (!old) return { ok: false, error: 'Туннель не найден' }
-    if (old.source === 'managed' || old.source === 'public' || old.source === 'warp') return { ok: false, error: 'Этим туннелем управляет источник; изменить его здесь нельзя' }
-    if ((old.kind === 'vless' || old.kind === 'out') && old.sub) return { ok: false, error: 'Этот туннель обновляется вместе с подпиской' }
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: 'Неверные данные конфига' }
+    if (!old) return { ok: false, error: localized("winInline.index.1e6e668de2aa") }
+    if (old.source === 'managed' || old.source === 'public' || old.source === 'warp') return { ok: false, error: localized("winInline.index.efe1fe3e788e") }
+    if ((old.kind === 'vless' || old.kind === 'out') && old.sub) return { ok: false, error: localized("winInline.index.829437d6d299") }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: localized("winInline.index.a71e4f822efa") }
     const request = raw as { file?: unknown; text?: unknown }
-    if (request.file !== undefined && request.file !== true) return { ok: false, error: 'Неверные данные конфига' }
-    if (request.text !== undefined && typeof request.text !== 'string') return { ok: false, error: 'Неверные данные конфига' }
-    if (!request.file && !request.text?.trim()) return { ok: false, error: 'Вставь конфиг или выбери файл' }
+    if (request.file !== undefined && request.file !== true) return { ok: false, error: localized("winInline.index.a71e4f822efa") }
+    if (request.text !== undefined && typeof request.text !== 'string') return { ok: false, error: localized("winInline.index.a71e4f822efa") }
+    if (!request.file && !request.text?.trim()) return { ok: false, error: localized("winInline.index.42a2526f5e52") }
     let text = request.text ?? ''
     if (request.file) {
       const picked = await chooseConfig()
@@ -809,42 +810,42 @@ function ipc() {
       if ('error' in picked) return { ok: false, error: picked.error }
       text = picked.text
     }
-    if (Buffer.byteLength(text, 'utf8') > MAX_IMPORT_BYTES) return { ok: false, error: 'Конфиг слишком большой (максимум 1 МБ)' }
+    if (Buffer.byteLength(text, 'utf8') > MAX_IMPORT_BYTES) return { ok: false, error: localized("winInline.index.823ac3d84734") }
     let fresh: Profile
     try {
       if (old.kind === 'awg') fresh = parseConf(text, old.name)
       else if (old.kind === 'openvpn') fresh = parseOpenVpn(text, old.name)
       else {
         const parsed = parseAny(text, 2)
-        if (parsed.items.length !== 1 || parsed.skipped) return { ok: false, error: 'Для обновления нужна одна ссылка на сервер, не список или подписка' }
+        if (parsed.items.length !== 1 || parsed.skipped) return { ok: false, error: localized("winInline.index.3dbadc3f9e5f") }
         fresh = parsed.items[0]
-        if (fresh.kind === 'awg') return { ok: false, error: 'Для этого туннеля нужна ссылка на сервер' }
+        if (fresh.kind === 'awg') return { ok: false, error: localized("winInline.index.32be8e9e8b44") }
       }
     }
-    catch (e) { return { ok: false, error: e instanceof ConfError ? e.message : 'Не получилось прочитать конфиг' } }
+    catch (e) { return { ok: false, error: e instanceof ConfError ? e.message : localized("winInline.index.a11555da2196") } }
     const identity = (p: Profile) => credentialKey(p)
     const dup = store.profiles.find(p => p.id !== id && identity(p) === identity(fresh))
-    if (dup) return { ok: false, error: `Этот конфиг уже есть: «${dup.name}»` }
+    if (dup) return { ok: false, error: localized("winInline.index.f861f45428af", dup.name) }
     // The stable ID keeps cards and groups attached. The old engine must stop before the key changes.
-    if (engine.status.phase !== 'on' && engine.status.phase !== 'off') return { ok: false, error: 'Дождись подключения или восстанови VPN главным переключателем; конфиг не изменён' }
+    if (engine.status.phase !== 'on' && engine.status.phase !== 'off') return { ok: false, error: localized("winInline.index.00ffe0861415") }
     const revision = master.revision
     const wasOn = engine.status.phase === 'on'
     const session = engine.sessionToken
     const needsRestart = wasOn && engine.isProfileLoaded(id)
-    if (needsRestart && !await confirmTunRestart('Новые ключи или транспорт нельзя заменить без пересоздания текущего VPN.')) return { ok: false, error: 'Замена отменена; действующий VPN сохранён' }
-    if (!(await pauseMeasurements())) return { ok: false, error: 'Проверочный движок не остановился; конфиг не изменён' }
+    if (needsRestart && !await confirmTunRestart(localized("winInline.index.e4530b036ebc"))) return { ok: false, error: localized("winInline.index.558930c34697") }
+    if (!(await pauseMeasurements())) return { ok: false, error: localized("winInline.index.c77402722e1d") }
     if (master.revision !== revision || engine.sessionToken !== session || engine.status.phase !== (wasOn ? 'on' : 'off'))
-      return { ok: false, error: 'Состояние VPN изменилось; повтори замену конфига' }
+      return { ok: false, error: localized("winInline.index.31922eb60bd7") }
     // An unloaded library entry cannot affect the current native definition.
-    if (needsRestart && !(await engine.stop())) return { ok: false, error: 'Туннель не удалось остановить; конфиг не изменён' }
-    if (master.revision !== revision) return { ok: false, error: 'Состояние VPN изменилось; повтори замену конфига' }
+    if (needsRestart && !(await engine.stop())) return { ok: false, error: localized("winInline.index.806d30ec5913") }
+    if (master.revision !== revision) return { ok: false, error: localized("winInline.index.31922eb60bd7") }
     store.profiles[index] = { ...fresh, id: old.id, name: old.name, addedAt: old.addedAt, source: old.source, revoked: old.revoked } as Profile
     try { store.save() }
     catch {
       store.profiles[index] = old
       send('snapshot', snapshot())
       if (needsRestart && master.current(revision)) await reconnectEditedSession(revision)
-      return { ok: false, error: 'Не удалось сохранить конфиг. Прежний конфиг оставлен; проверь текущее состояние VPN.' }
+      return { ok: false, error: localized("winInline.index.bdb2f09af276") }
     }
     await refreshNotices()
     updateTray()
@@ -852,15 +853,15 @@ function ipc() {
       const result = await reconnectEditedSession(revision)
       if (!master.current(revision)) return { ok: true }
       if (!result.ok) {
-        if (!(await engine.stop())) return { ok: false, error: 'Новый конфиг не запустился, а остановка не подтверждена. Выключи VPN главным переключателем и восстанови конфиг.' }
+        if (!(await engine.stop())) return { ok: false, error: localized("winInline.index.32f95685aa6f") }
         store.profiles[index] = old
         send('snapshot', snapshot())
         try { store.save() }
-        catch { return { ok: false, error: 'Новый конфиг не запустился, а прежний не удалось записать обратно. Восстанови конфиг из источника и повтори включение VPN.' } }
-        if (!master.current(revision)) return { ok: false, error: 'Новый конфиг не запустился. Прежний конфиг восстановлен на диске; Waarp оставлен закрытым по команде пользователя.' }
+        catch { return { ok: false, error: localized("winInline.index.81bb02bf4caa") } }
+        if (!master.current(revision)) return { ok: false, error: localized("winInline.index.14be12f6761e") }
         const restored = await reconnectEditedSession(revision)
-        if (restored.ok) return { ok: false, error: 'Новый конфиг не запустился. Waarp восстановил прежний рабочий конфиг.' }
-        return { ok: false, error: 'Новый конфиг не запустился. Прежний конфиг восстановлен на диске, но его запуск тоже не удался.' }
+        if (restored.ok) return { ok: false, error: localized("winInline.index.5ea047026b67") }
+        return { ok: false, error: localized("winInline.index.dc75b7929ebe") }
       }
     }
     return { ok: true }
@@ -868,31 +869,31 @@ function ipc() {
   secureIntentHandle('profile:rename', (_e, id: unknown, rawName: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     const name = profileName(rawName)
-    if (typeof id !== 'string' || id.length > 80 || !name) return { ok: false, error: 'Неверное имя туннеля' }
+    if (typeof id !== 'string' || id.length > 80 || !name) return { ok: false, error: localized("winInline.index.7e679c933f70") }
     const p = store.profiles.find(x => x.id === id)
-    if (p?.source === 'managed' || p?.source === 'public') return { ok: false, error: 'Этим туннелем управляет источник; переименовать его здесь нельзя' }
-    if (!p) return { ok: false, error: 'Туннель не найден' }
+    if (p?.source === 'managed' || p?.source === 'public') return { ok: false, error: localized("winInline.index.8df70c6405a4") }
+    if (!p) return { ok: false, error: localized("winInline.index.1e6e668de2aa") }
     const previous = p.name
     p.name = name
     try { store.save() }
-    catch { p.name = previous; return { ok: false, error: 'Не удалось сохранить имя туннеля' } }
+    catch { p.name = previous; return { ok: false, error: localized("winInline.index.dafb2f77a88b") } }
     updateTray()
     send('snapshot', snapshot())
     return { ok: true }
   })
   secureIntentHandle('profile:remove', async (_e, id: unknown, replace?: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
-    if (typeof id !== 'string' || !store.profiles.some(x => x.id === id)) return { ok: false, error: 'Туннель не найден' }
-    if (store.profiles.some(x => x.id === id && x.source === 'managed')) return { ok: false, error: 'Туннелем управляет команда; удалить его здесь нельзя' }
-    if (engine.status.phase !== 'on' && engine.status.phase !== 'off') return { ok: false, error: 'Дождись подключения или восстанови VPN главным переключателем; профиль не удалён' }
+    if (typeof id !== 'string' || !store.profiles.some(x => x.id === id)) return { ok: false, error: localized("winInline.index.1e6e668de2aa") }
+    if (store.profiles.some(x => x.id === id && x.source === 'managed')) return { ok: false, error: localized("winInline.index.68175d037b0a") }
+    if (engine.status.phase !== 'on' && engine.status.phase !== 'off') return { ok: false, error: localized("winInline.index.ac1a9ea28439") }
     // Only another existing tunnel/group is a replacement; absent or forged choices leave affected cards blocked.
     const remaining = store.profiles.filter(x => x.id !== id)
     const remainingSettings = dropServer(store.settings, id)
     const ok = typeof replace === 'string' && replace !== id && (remaining.some(p => p.id === replace && !p.revoked) || remainingSettings.groups.some(g => g.id === replace && g.members.some(m => remaining.some(p => p.id === m && !p.revoked))))
-    if (replace !== undefined && !ok) return { ok: false, error: 'Выбранная замена больше недоступна. Выбери другое подключение.' }
+    if (replace !== undefined && !ok) return { ok: false, error: localized("winInline.index.38c8bf0f5cd0") }
     const nextSettings = dropServer(store.settings, id, ok ? replace as string : undefined)
     if (store.settings.serviceVia === id && ok && !remaining.some(p => p.id === replace && !p.revoked && p.source !== 'public' && !('subMissing' in p && p.subMissing))) {
-      return { ok: false, error: 'Для загрузок нужен доступный личный профиль. Выбери такую замену или сначала измени путь загрузок в настройках.' }
+      return { ok: false, error: localized("winInline.index.a2d8f81719a6") }
     }
     // Missing companion targets may stay blocked. A replacement must never turn one into a public route.
     const unsafeReplacement = ok && nextSettings.routes.some((r, i) => r.owner === 'companion' && r.via !== store.settings.routes[i]?.via && !safeVia(r.via, nextSettings, remaining))
@@ -901,27 +902,27 @@ function ipc() {
     const revision = master.revision
     const wasOn = engine.status.phase === 'on'
     const session = engine.sessionToken
-    if (!(await pauseMeasurements())) return { ok: false, error: 'Проверочный движок не остановился; туннель не удалён' }
+    if (!(await pauseMeasurements())) return { ok: false, error: localized("winInline.index.c0a2cdb6bf56") }
     if (master.revision !== revision || engine.sessionToken !== session || engine.status.phase !== (wasOn ? 'on' : 'off'))
-      return { ok: false, error: 'Состояние VPN изменилось; повтори удаление профиля' }
+      return { ok: false, error: localized("winInline.index.110a1a6b7bbf") }
     const inertRemoval = wasOn && !engine.isProfileLoaded(id) && sameEffectiveRouting(previousSettings, nextSettings)
-    if (wasOn && !inertRemoval && !await confirmTunRestart('Удаление загруженного сервера требует пересоздания VPN.')) return { ok: false, error: 'Удаление отменено; действующий VPN сохранён' }
-    if (wasOn && !inertRemoval && !(await engine.stop())) return { ok: false, error: 'Туннель не удалось остановить; профиль не удалён' }
-    if (master.revision !== revision) return { ok: false, error: 'Состояние VPN изменилось; повтори удаление профиля' }
+    if (wasOn && !inertRemoval && !await confirmTunRestart(localized("winInline.index.1238a8ae82e1"))) return { ok: false, error: localized("winInline.index.bcc3a9ab9256") }
+    if (wasOn && !inertRemoval && !(await engine.stop())) return { ok: false, error: localized("winInline.index.aa0442627b42") }
+    if (master.revision !== revision) return { ok: false, error: localized("winInline.index.110a1a6b7bbf") }
     store.profiles = remaining
     store.settings = nextSettings
     try { store.save() }
     catch {
       store.profiles = previousProfiles; store.settings = previousSettings
       if (wasOn && !inertRemoval && master.current(revision)) await reconnectEditedSession(revision)
-      return { ok: false, error: 'Не удалось сохранить удаление. Профиль оставлен; проверь текущее состояние VPN.' }
+      return { ok: false, error: localized("winInline.index.f762a6e3054b") }
     }
     await refreshNotices()
     updateTray()
     send('snapshot', snapshot())
     if (wasOn && !inertRemoval && master.current(revision)) {
       const result = await reconnectEditedSession(revision)
-      if (!result.ok) return { ok: true, warning: 'Профиль удалён, но оставшиеся маршруты не запустились: ' + (result.error ?? 'проверь подключение') }
+      if (!result.ok) return { ok: true, warning: localized("winInline.index.0fdb84572865") + (result.error ?? localized("winInline.index.10bace58acc0")) }
     }
     return { ok: true }
   })
@@ -1090,7 +1091,7 @@ function ipc() {
         writeFileSync(temporary, JSON.stringify(report), { mode: 0o600 })
         protectPrivateFile(temporary)
         renameSync(temporary, file)
-      } catch { try { rmSync(temporary, { force: true }) } catch {}; send('toast', 'Проверка завершена, но сохранить её результат на диске не удалось') }
+      } catch { try { rmSync(temporary, { force: true }) } catch {}; send('toast', localized("winInline.index.19e1e2053ed2")) }
       return { report }
     } catch (error) {
       const code = error instanceof Error ? error.message : ''
@@ -1101,7 +1102,7 @@ function ipc() {
       if (lease) measured?.release(lease)
       signal.removeEventListener('abort', stopOwned)
       if (payloadTask === task) payloadTask = undefined
-      if (!clean) { send('toast', 'Проверка завершена, но проверочный движок не подтвердил остановку. Открой восстановление сети в настройках'); return { error: 'engine' } }
+      if (!clean) { send('toast', localized("winInline.index.22c5a6d8943b")); return { error: 'engine' } }
     }
   })
   secureIntentHandle('diagnose:apply', async (_e, token: unknown, via: unknown) => {
@@ -1130,7 +1131,7 @@ function ipc() {
       if (await engine.applyLive(await runtimeProfiles(false), store.settings)) return true
       if (engine.liveApplyFailure) { send('toast', engine.liveApplyFailure); return false }
       if (!master.current(revision)) return true // OFF supersedes a pending apply.
-      send('toast', 'Список обновлён, но живое применение недоступно. Текущий TUN сохранён; для новых правил выключи и включи Waarp вручную.')
+      send('toast', localized("winInline.index.f03b69beeddb"))
       return false
     } catch { return false }
     finally { send('snapshot', snapshot()) }
@@ -1283,9 +1284,9 @@ function ipc() {
     if (!net) return { ok: false, error: 'net' }
     const v = tuneResult?.revision === master.revision ? provenTune(tuneResult, p, net, label, Date.now()) : undefined
     if (!v || !store.profiles.includes(p) || master.revision !== revision) return { ok: false, error: 'stale' }
-    if (engine.status.phase !== 'on' && engine.status.phase !== 'off') return { ok: false, error: 'Сначала дождись подключения или восстанови VPN главным переключателем' }
+    if (engine.status.phase !== 'on' && engine.status.phase !== 'off') return { ok: false, error: localized("winInline.index.d2f7c6c38017") }
     const needsRestart = engine.status.phase === 'on' && engine.isProfileLoaded(p.id)
-    if (needsRestart && !await confirmTunRestart('Применение новых параметров протокола меняет работающее нативное определение.')) return { ok: false, error: 'Перезапуск VPN отменён; прежние параметры сохранены' }
+    if (needsRestart && !await confirmTunRestart(localized("winInline.index.7fbe6793d0f0"))) return { ok: false, error: localized("winInline.index.07fd62fe7859") }
     if (!saveTunes({ ...tunes, [p.id]: { net, sig: profileSig(p), label: v.label, patch: v.patch, at: Date.now() } })) return { ok: false, error: 'save' }
     tuneResult = undefined
     let applied = true
@@ -1299,9 +1300,9 @@ function ipc() {
     const p = store.profiles.find(x => x.id === id)
     const wasActive = runtimeTuneIds.has(id) || (!!p && !!activeTune(p, tunes[id], await currentNet(), Date.now()))
     if (master.revision !== revision) return { ok: false, error: 'stale' }
-    if (engine.status.phase !== 'on' && engine.status.phase !== 'off') return { ok: false, error: 'Сначала дождись подключения или восстанови VPN главным переключателем' }
+    if (engine.status.phase !== 'on' && engine.status.phase !== 'off') return { ok: false, error: localized("winInline.index.d2f7c6c38017") }
     const needsRestart = wasActive && engine.status.phase === 'on' && engine.isProfileLoaded(id)
-    if (needsRestart && !await confirmTunRestart('Сброс настроек активного протокола требует пересоздать VPN.')) return { ok: false, error: 'Сброс отменён; работающий VPN сохранён' }
+    if (needsRestart && !await confirmTunRestart(localized("winInline.index.89e9f43b2d66"))) return { ok: false, error: localized("winInline.index.b61cd566e13c") }
     const { [id]: _gone, ...rest } = tunes
     if (!saveTunes(rest)) return { ok: false, error: 'save' }
     let applied = true
@@ -1330,7 +1331,7 @@ function ipc() {
     // Recovery is a separate command, not a second hidden global OFF control.
     // Require an explicit master disconnect before recycling a live session.
     if (master.open || engine.status.phase === 'on' || engine.status.phase === 'starting')
-      return Promise.resolve({ ok: false, error: 'Сначала выключи VPN главным переключателем, затем восстанови сеть.' })
+      return Promise.resolve({ ok: false, error: localized("winInline.index.6d60c7eefb5b") })
     connectionAction++
     setMaster(false)
     const stop = engine.stop() // invalidate a pending start immediately, outside the queue
@@ -1340,7 +1341,7 @@ function ipc() {
       await refreshNotices()
       return recovered
         ? { ok: true }
-        : { ok: false, error: engine.status.error ?? 'Не всё удалось закрыть безопасно. Повтори восстановление.' }
+        : { ok: false, error: engine.status.error ?? localized("winInline.index.eaf8a15b3b05") }
     })
   })
   secureHandle('admin:relaunch', () => relaunchAdmin())
@@ -1355,10 +1356,11 @@ function ipc() {
 app.on('second-instance', show)
 
 app.whenReady().then(async () => {
+  await loadLocale(app.getPreferredSystemLanguages())
   // An elevated replacement waits read-only for the parent's bounded cleanup,
   // then acquires the mutex. Shared writers start only after both conditions hold.
   if (!(await waitForRelaunchParent(process.argv))) {
-    dialog.showErrorBox('Waarp не перезапустился', 'Предыдущая копия Waarp ещё не закрылась или Windows не дала проверить её завершение. Закрой её и повтори запуск. Настройки и процессы не изменены.')
+    dialog.showErrorBox(localized("winInline.index.f8841a0acbcd"), localized("winInline.index.4eaa42806cb5"))
     app.quit()
     return
   }
@@ -1402,10 +1404,10 @@ app.whenReady().then(async () => {
   engine.on('status', s => { void sessionEvidence.record(statusView(s), engine.log()); send('status', statusView(s)); updateTray(); watchPings(s) })
   engine.on('fallback', (e: { main: string; fb: string; toFb: boolean; routes: string[] }) => {
     const name = (id: string) => store.profiles.find(p => p.id === id)?.name ?? '?'
-    const what = e.routes.slice(0, 2).map(x => `«${x}»`).join(', ') + (e.routes.length > 2 ? ` и ещё ${e.routes.length - 2}` : '')
+    const what = e.routes.slice(0, 2).map(x => `«${x}»`).join(', ') + (e.routes.length > 2 ? localized("winInline.index.50abc7ede69b", e.routes.length - 2) : '')
     const msg = e.toFb
-      ? `Сервер «${name(e.main)}» не отвечает, ${what} ушёл на «${name(e.fb)}»`
-      : `Сервер «${name(e.main)}» вернулся, ${what} снова на нём`
+      ? localized("winInline.index.82cd3006fd69", name(e.main), what, name(e.fb))
+      : localized("winInline.index.874986ad58f1", name(e.main), what)
     send('toast', msg)
     notify(msg)
   })
@@ -1476,7 +1478,7 @@ app.whenReady().then(async () => {
       if (engine.status.phase !== 'error') await engine.stop()
       if (!master.current(revision)) return
       setMaster(false)
-      const msg = why === 'no_network' ? 'После сна сеть не вернулась. Waarp закрыт, включи его, когда интернет появится' : 'После сна Waarp не смог переподключиться и закрыт'
+      const msg = why === 'no_network' ? localized("winInline.index.7ebc71696964") : localized("winInline.index.465e438adfa2")
       send('toast', msg); notify(msg)
       })
     },
@@ -1547,7 +1549,7 @@ app.on('before-quit', e => {
 })
 app.on('window-all-closed', () => { if (!store?.settings.tray) app.quit() })
 
-const COMPANION_SAFE = 'Для маршрута приложения можно выбрать только свои подключения, Авто или Напрямую'
+const COMPANION_SAFE = localized("winInline.index.1580625feb57")
 /** companion targets waiting for a path chosen in the picker (bridge routes.open); bounded, in memory only */
 const pendingPicks = createPending()
 let diagnoseRun = 0
@@ -1567,7 +1569,7 @@ let recentPublicPath: string | undefined
 /** Only public list URLs may try this reserve. Private subscriptions and list
  * downloads keep their original, explicitly selected single-path policy. */
 async function fetchPublicCatalog(sources: string[], cancel: AbortSignal) {
-  if (serviceTask || quitting) throw new ConfError('Другая загрузка уже выполняется; повтори чуть позже')
+  if (serviceTask || quitting) throw new ConfError(localized("winInline.index.74fe90c75cc1"))
   const task = new AbortController(), signal = AbortSignal.any([task.signal, cancel])
   const revision = master.revision, preferred = store.settings.serviceVia ?? 'direct'
   const phase = engine.status.phase, since = engine.status.since
@@ -1619,10 +1621,10 @@ async function fetchPublicCatalog(sources: string[], cancel: AbortSignal) {
  * lease the existing headless checker while OFF; never create a competing core
  * or silently retry subscription credentials over Direct. */
 async function withServiceTransport<T>(work: (transport: PinnedHttpGet | undefined, signal: AbortSignal) => Promise<T>, cancel?: AbortSignal): Promise<T> {
-  if (serviceTask || quitting) throw new ConfError('Другая загрузка уже выполняется; повтори чуть позже')
+  if (serviceTask || quitting) throw new ConfError(localized("winInline.index.74fe90c75cc1"))
   const id = store.settings.serviceVia ?? 'direct'
   const profile = id === 'direct' ? undefined : store.profiles.find(p => p.id === id && !p.revoked && p.source !== 'public' && !('subMissing' in p && p.subMissing))
-  if (id !== 'direct' && !profile) throw new ConfError('Выбранное подключение для загрузок недоступно. Выбери другое в настройках')
+  if (id !== 'direct' && !profile) throw new ConfError(localized("winInline.index.aab4282d1191"))
   const task = new AbortController(), signal = AbortSignal.any([task.signal, AbortSignal.timeout(60000), ...(cancel ? [cancel] : [])])
   const revision = master.revision, signature = profile && profileSig(profile)
   const measured = checker
@@ -1651,17 +1653,17 @@ async function withServiceTransport<T>(work: (transport: PinnedHttpGet | undefin
   } catch (error) {
     if (error instanceof ConfError) throw error
     const code = error instanceof Error ? error.message : ''
-    throw new ConfError(signal.aborted || code === 'cancelled' ? 'Загрузка отменена; прежние данные сохранены'
-      : code === 'busy' ? 'Подключение занято проверкой; повтори загрузку чуть позже'
-        : code === 'not_loaded' ? 'Выбранное подключение ещё не загружено в текущую сессию. Выбери уже используемое или обнови после отключения Waarp'
-          : 'Не удалось загрузить данные по выбранному пути; прежние данные сохранены')
+    throw new ConfError(signal.aborted || code === 'cancelled' ? localized("winInline.index.312fafb43cd3")
+      : code === 'busy' ? localized("winInline.index.361f0ff796c4")
+        : code === 'not_loaded' ? localized("winInline.index.a536b2c4118a")
+          : localized("winInline.index.60a239e230fc"))
   } finally {
     stopOwned()
     const clean = cleanup ? await cleanup : true
     if (lease) measured?.release(lease)
     signal.removeEventListener('abort', stopOwned)
     if (serviceTask === task) serviceTask = undefined
-    if (!clean) throw new ConfError('Проверочный движок не подтвердил остановку; загрузка не применена. Открой восстановление сети в настройках')
+    if (!clean) throw new ConfError(localized("winInline.index.33df41e713b7"))
   }
 }
 const diagnosisContext = (routeId?: string) => {
@@ -1774,7 +1776,7 @@ function saveTunes(next: Tunes): boolean {
 const DIAGNOSE_MS = 20_000
 /** R5: rotation cursor for tunnel-closed probes (bounded checker set) */
 let probeCursor = 0
-const viewName = (v: string): string | undefined => store.views().find(p => p.id === v)?.name ?? (v === AUTO_ID ? 'Авто' : undefined)
+const viewName = (v: string): string | undefined => store.views().find(p => p.id === v)?.name ?? (v === AUTO_ID ? localized("winInline.index.50cbd4fb7749") : undefined)
 
 /** Card choices apply to the current session; only the master owns TUN lifecycle. */
 const applyRouting = createApply({
@@ -1800,7 +1802,7 @@ const applyRouting = createApply({
     // The master is already ON: the first selected route fulfills that intent.
     // Keep it if preflight/native start fails, and retain an open Direct-only TUN.
     const result = await master.reconnect(revision, { restart: true, retainCore: true, preserveIntent: true, beforeStart: current })
-    if (!result.ok) throw new Error(result.error ?? 'Не удалось применить маршрут')
+    if (!result.ok) throw new Error(result.error ?? localized("winInline.index.98786557f434"))
   },
   live: async s => engine.applyLive(await runtimeProfiles(false), s),
   liveFailure: () => engine.liveApplyFailure,
@@ -1809,13 +1811,13 @@ const applyRouting = createApply({
 })
 /** user-facing text for a routing write that was saved but not applied (or not saved) */
 function applyText(r: ApplyResult): string | undefined {
-  if (r.code === 'rollback') return 'Изменение отменено в текущей сессии, но прежние настройки не удалось восстановить на диске. VPN не переключён; повтори сохранение перед следующим запуском приложения.'
-  if (r.code === 'block') return (notices.find(n => n.level === 'block')?.title ?? 'Запуск заблокирован') + '. Изменение отменено; действующий TUN сохранён'
-  if (r.code === 'restart') return 'Состояние VPN изменилось. Прежний маршрут сохранён; повтори выбор'
+  if (r.code === 'rollback') return localized("winInline.index.1701837f78e6")
+  if (r.code === 'block') return (notices.find(n => n.level === 'block')?.title ?? localized("winInline.index.ac6834984ce9")) + localized("winInline.index.f4986d046e32")
+  if (r.code === 'restart') return localized("winInline.index.2fbb02fe9fff")
   if (r.code === 'start') return engine.liveApplyFailure ?? (r.saved
-    ? 'Не удалось запустить выбранный маршрут. Повтори подключение'
-    : 'Не удалось применить маршрут. Прежний выбор сохранён')
-  if (!r.saved) return 'Не удалось сохранить маршрут'
+    ? localized("winInline.index.038c2206e0e7")
+    : localized("winInline.index.cbf390c5a541"))
+  if (!r.saved) return localized("winInline.index.0f8a0795f9c8")
   return undefined
 }
 

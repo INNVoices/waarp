@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android
 
+import local.waarp.android.i18n.localized
+
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -54,7 +56,7 @@ internal class ImportCoordinator(
                 pendingText = text
                 _state.value = ImportUiState(confirmationAvailable = true)
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { if (generation == receiveGeneration) notify("Не удалось прочитать переданный конфиг", true) }
+            catch (_: Exception) { if (generation == receiveGeneration) notify(localized("ImportCoordinator.9a75aba3e25c", "Не удалось прочитать переданный конфиг"), true) }
         }
     }
 
@@ -76,35 +78,35 @@ internal class ImportCoordinator(
                 if (result.ok) {
                     pendingText = null
                     _state.value = ImportUiState()
-                } else _state.value = ImportUiState(confirmationAvailable = true, error = result.message ?: "Не удалось импортировать конфиг")
-                notify(result.message ?: if (result.ok) "Импорт завершён" else "Не удалось импортировать", !result.ok)
+                } else _state.value = ImportUiState(confirmationAvailable = true, error = result.message ?: localized("ImportCoordinator.4573510c31e6", "Не удалось импортировать конфиг"))
+                notify(result.message ?: if (result.ok) localized("ImportCoordinator.f22d7a4a650e", "Импорт завершён") else localized("ImportCoordinator.4d2d42e43b72", "Не удалось импортировать"), !result.ok)
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { _state.value = ImportUiState(confirmationAvailable = true, error = "Не удалось импортировать конфиг") }
+            catch (_: Exception) { _state.value = ImportUiState(confirmationAvailable = true, error = localized("ImportCoordinator.4573510c31e6", "Не удалось импортировать конфиг")) }
             finally { _state.value = state.value.copy(busy = false) }
         }
     }
 
     fun importText(text: String) {
-        if (state.value.busy) { notify("Дождитесь завершения текущего импорта", true); return }
-        _state.value = state.value.copy(busy = true, taskLabel = "Проверяем полученную конфигурацию…")
+        if (state.value.busy) { notify(localized("ImportCoordinator.330a3ff955cd", "Дождитесь завершения текущего импорта"), true); return }
+        _state.value = state.value.copy(busy = true, taskLabel = localized("ImportCoordinator.a6a906a0f554", "Проверяем полученную конфигурацию…"))
         scope.launch {
             try {
                 val result = import(text, "", null)
-                notify(result.message ?: if (result.ok) "Импорт завершён" else "Не удалось импортировать", !result.ok)
+                notify(result.message ?: if (result.ok) localized("ImportCoordinator.e9b96935e09d", "Импорт завершён") else localized("ImportCoordinator.b095650e6e79", "Не удалось импортировать"), !result.ok)
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { notify("Не удалось импортировать конфиг", true) }
+            catch (_: Exception) { notify(localized("ImportCoordinator.d7995245e80d", "Не удалось импортировать конфиг"), true) }
             finally { _state.value = state.value.copy(busy = false, taskLabel = null) }
         }
     }
 
     fun importDocuments(uris: List<Uri>, replaceId: String?) {
         if (uris.isEmpty()) return
-        if (state.value.busy) { notify("Дождитесь завершения текущего импорта", true); return }
+        if (state.value.busy) { notify(localized("ImportCoordinator.3e718cfb9e46", "Дождитесь завершения текущего импорта"), true); return }
         if (uris.size > 20 || (replaceId != null && uris.size != 1)) {
-            notify(if (replaceId != null) "Для замены выберите один файл" else "Выберите не больше 20 файлов за один импорт", true)
+            notify(if (replaceId != null) localized("ImportCoordinator.8af8c1946222", "Для замены выберите один файл") else localized("ImportCoordinator.4bdc0a7059e8", "Выберите не больше 20 файлов за один импорт"), true)
             return
         }
-        _state.value = state.value.copy(busy = true, taskLabel = "Импорт файлов: 0 из ${uris.size}")
+        _state.value = state.value.copy(busy = true, taskLabel = localized("ImportCoordinator.214db5817bea", "Импорт файлов: 0 из {arg1}", uris.size))
         scope.launch {
             var added = 0
             var failed = 0
@@ -114,12 +116,12 @@ internal class ImportCoordinator(
                         val (text, name) = readDocument(uri)
                         val result = import(text, name, replaceId)
                         if (result.ok) added++ else failed++
-                        if (uris.size == 1) notify(result.message ?: if (result.ok) "Профиль сохранён" else "Не удалось импортировать", !result.ok)
+                        if (uris.size == 1) notify(result.message ?: if (result.ok) localized("ImportCoordinator.5ef87aa8a952", "Профиль сохранён") else localized("ImportCoordinator.05fb38d8a261", "Не удалось импортировать"), !result.ok)
                     } catch (cancelled: CancellationException) { throw cancelled }
-                    catch (_: Exception) { failed++; if (uris.size == 1) notify("Не удалось прочитать файл. Нужен текстовый конфиг до 1 МБ.", true) }
-                    _state.value = state.value.copy(taskLabel = "Импорт файлов: ${index + 1} из ${uris.size}")
+                    catch (_: Exception) { failed++; if (uris.size == 1) notify(localized("ImportCoordinator.393ee8101882", "Не удалось прочитать файл. Нужен текстовый конфиг до 1 МБ."), true) }
+                    _state.value = state.value.copy(taskLabel = localized("ImportCoordinator.5da9a00133d9", "Импорт файлов: {arg1} из {arg2}", index + 1, uris.size))
                 }
-                if (uris.size > 1) notify("Файлов обработано: $added; с ошибкой: $failed", failed > 0)
+                if (uris.size > 1) notify(localized("ImportCoordinator.f3bbc503c51f", "Файлов обработано: {arg1}; с ошибкой: {arg2}", added, failed), failed > 0)
             } finally { _state.value = state.value.copy(busy = false, taskLabel = null) }
         }
     }
@@ -138,6 +140,6 @@ internal suspend fun readImportDocument(context: Context, uri: Uri): Pair<String
             if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) require(cursor.getLong(sizeIndex) <= MAX_IMPORT_BYTES)
         }
     }
-    val bytes = context.contentResolver.openInputStream(uri)?.use { NetworkTools.readBounded(it) } ?: error("Документ недоступен")
+    val bytes = context.contentResolver.openInputStream(uri)?.use { NetworkTools.readBounded(it) } ?: error(localized("ImportCoordinator.7dd5d6175f0c", "Документ недоступен"))
     bytes.toString(Charsets.UTF_8) to name
 }

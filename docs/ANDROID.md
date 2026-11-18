@@ -5,7 +5,7 @@ Android 1.0.0 (version code 7) lives in `android/`. The local APK builder writes
 ## Platform
 
 - Android 10 / API 29 minimum; compile/target API 36.
-- Native Kotlin 2.2.21, Compose and Material 3. Four Russian-language destinations: **Главная**, **Маршруты**, **Туннели**, **Диагностика**; settings are separate. Bottom navigation on phones, navigation rail on wider displays.
+- Native Kotlin 2.2.21, Compose and Material 3. Four destinations (shown here in Russian): **Главная**, **Маршруты**, **Туннели**, **Диагностика**; settings are separate. Bottom navigation on phones, navigation rail on wider displays.
 - Real Android `VpnService`, system consent, foreground notification, revoke handling, underlying-network monitoring and protected native sockets.
 - In-process **sing-box-lx 1.14.4-lx.35-waarp.2** Android AAR, Go 1.26.10. This downstream build retains bounded DNS recovery and terminal-close ownership fixes and corrects WireGuard UDP GSO fallback. `android/native-source.json` locks the upstream source, patches, regression tests and toolchain; `android/app/src/main/res/raw/engine_integrity.json` locks the actual AAR, Java archive and each ABI's native bytes. See [DNS recovery evidence and contract](ANDROID-NATIVE-DNS-RECOVERY.md) and [the WireGuard correction](ANDROID-RC3-AWG.md).
 - Release package `local.waarp.android`; debug package `local.waarp.android.debug`. Separate APKs for `arm64-v8a`, `armeabi-v7a` and `x86_64`; most current phones need arm64. The install helper queries the actual device ABI.

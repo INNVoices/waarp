@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 // Public lists feed a persistent, encrypted candidate pool. Checking candidates
 // never changes application routes; only fresh observations enter the ready list.
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -59,10 +60,10 @@ export interface CatalogPage {
   atlas: AtlasProjection
 }
 const REGIONS: { id: CatalogRegion; name: string; countries: ReadonlySet<string> }[] = [
-  { id: 'eu', name: 'Европа', countries: new Set('AL AT BE BG CH CY CZ DE DK EE ES FI FR GB GR HR HU IE IS IT LT LU LV MD ME MK MT NL NO PL PT RO RS SE SI SK UA'.split(' ')) },
-  { id: 'asia', name: 'Азия и Ближний Восток', countries: new Set('AE AM AZ BD BH BN BT CN GE HK ID IL IN IQ IR JO JP KG KH KR KZ LA LB LK MM MN MO MY NP OM PH PK PS QA SA SG SY TH TJ TL TM TR TW UZ VN YE'.split(' ')) },
-  { id: 'americas', name: 'Северная и Южная Америка', countries: new Set('AR BO BR CA CL CO CR CU DO EC GT HN JM MX NI PA PE PR PY SV US UY VE'.split(' ')) },
-  { id: 'other', name: 'Другие регионы', countries: new Set() }
+  { id: 'eu', name: localized("winInline.catalog.2eb7ac3ad3d6"), countries: new Set('AL AT BE BG CH CY CZ DE DK EE ES FI FR GB GR HR HU IE IS IT LT LU LV MD ME MK MT NL NO PL PT RO RS SE SI SK UA'.split(' ')) },
+  { id: 'asia', name: localized("winInline.catalog.3092590f024a"), countries: new Set('AE AM AZ BD BH BN BT CN GE HK ID IL IN IQ IR JO JP KG KH KR KZ LA LB LK MM MN MO MY NP OM PH PK PS QA SA SG SY TH TJ TL TM TR TW UZ VN YE'.split(' ')) },
+  { id: 'americas', name: localized("winInline.catalog.11037fa20e8a"), countries: new Set('AR BO BR CA CL CO CR CU DO EC GT HN JM MX NI PA PE PR PY SV US UY VE'.split(' ')) },
+  { id: 'other', name: localized("winInline.catalog.e396deba5720"), countries: new Set() }
 ]
 const regionOf = (country: string): CatalogRegion => REGIONS.find(region => region.countries.has(country))?.id ?? 'other'
 const countryLabels = ['ru', 'en'].map(locale => new Intl.DisplayNames([locale], { type: 'region' }))
@@ -109,7 +110,7 @@ export class Catalog {
       if (statSync(this.file).size > MAX_CACHE_BYTES) return
       const envelope = JSON.parse(readFileSync(this.file, 'utf8'))
       if (![1, 2].includes(envelope.version) || typeof envelope.sealed !== 'string') { rmSync(this.file, { force: true }); return }
-      if (!safeStorage.isEncryptionAvailable()) { this.metadata.cacheError = 'Защищённое хранилище каталога недоступно'; return }
+      if (!safeStorage.isEncryptionAvailable()) { this.metadata.cacheError = localized("winInline.catalog.2adb575049b8"); return }
       const data = JSON.parse(safeStorage.decryptString(Buffer.from(envelope.sealed, 'base64')))
       if (envelope.version === 2) this.pool.restore(data.pool)
       else this.pool.migrate(data.nodes, data.identities, data.state?.alive)
@@ -122,7 +123,7 @@ export class Catalog {
         this.metadata.sources = (Array.isArray(state.sources) ? state.sources : []).slice(0, 12).filter((source: CatalogSourceReport) =>
           source && typeof source.url === 'string' && source.url !== 'local checker' && typeof source.ok === 'boolean' && Number.isFinite(source.count))
       }
-    } catch { this.metadata.cacheError = 'Сохранённый каталог не удалось прочитать' }
+    } catch { this.metadata.cacheError = localized("winInline.catalog.d9b9204dd604") }
   }
 
   /** Freshness is evaluated when read, not frozen in the last emitted event. */
@@ -301,15 +302,15 @@ export class Catalog {
    * Explicit selection may retry a failed node without waiting for cooldown. */
   async verifyNode(id: string): Promise<{ ok: boolean; node?: CatalogNode; error?: string }> {
     let entry = this.pool.entry(id)
-    if (!entry) return { ok: false, error: 'Сервер пропал из каталога. Обнови список.' }
+    if (!entry) return { ok: false, error: localized("winInline.catalog.7b01709384c0") }
     if (this.pool.ready(entry)) return { ok: true, node: this.view(entry) }
-    if (!this.allowStart()) return { ok: false, error: 'Дождись завершения текущего подключения и повтори выбор сервера.' }
-    if (this.pending && !(await this.pause())) return { ok: false, error: 'Предыдущая проверка не завершилась. Повтори выбор сервера.' }
+    if (!this.allowStart()) return { ok: false, error: localized("winInline.catalog.67fdd390a4fa") }
+    if (this.pending && !(await this.pause())) return { ok: false, error: localized("winInline.catalog.e92f12f72a13") }
     await this.start(abort => this.runProbes(abort, 1, [id]), true)
     entry = this.pool.entry(id)
     if (entry && this.pool.ready(entry)) return { ok: true, node: this.view(entry) }
     const error = this.metadata.sources.find(source => source.url === 'local checker' && !source.ok)?.error
-    return { ok: false, error: error ?? 'Сервер не ответил через интернет. Выбери другой сервер или повтори проверку позже.' }
+    return { ok: false, error: error ?? localized("winInline.catalog.f4135a420a40") }
   }
 
   private start(work: (abort: AbortController) => Promise<void>, probe: boolean, automatic = false): Promise<CatalogState> {
@@ -322,8 +323,8 @@ export class Catalog {
     this.publish()
     this.pending = work(abort).catch(error => {
       if (!abort.signal.aborted) this.localError(error instanceof PublicPathCleanupError
-        ? 'Движок загрузки не подтвердил остановку; новые проверки не запускались, кандидаты сохранены'
-        : 'Обновление прервано; сохранённые кандидаты остаются в каталоге')
+        ? localized("winInline.catalog.5c069fa33c74")
+        : localized("winInline.catalog.e329d468bc78"))
     }).finally(() => {
       this.pending = undefined; this.abort = undefined
       this.automaticWork = false
@@ -344,7 +345,7 @@ export class Catalog {
       // A blocked source may still allow checking cached relays. Unconfirmed
       // cleanup of the loader's shared checker is terminal for the whole round.
       if (error instanceof PublicPathCleanupError) throw error
-      return selected.map(url => ({ url, error: 'Источник недоступен по выбранному пути' }))
+      return selected.map(url => ({ url, error: localized("winInline.catalog.de33b36b1a3d") }))
     })
     if (abort.signal.aborted) return
     const report: CatalogSourceReport[] = []
@@ -356,7 +357,7 @@ export class Catalog {
         ...(item.selectedUrl ? { selectedUrl: item.selectedUrl } : {}),
         ...(item.attempts ? { attempts: item.attempts } : {})
       }
-      if (typeof item.body !== 'string') { report.push({ ...sourceReport, error: item.error ?? 'Источник недоступен' }); continue }
+      if (typeof item.body !== 'string') { report.push({ ...sourceReport, error: item.error ?? localized("winInline.catalog.e307a9dade72") }); continue }
       try {
         const items = item.format === 'vpngate-csv' || /vpngate\.net\/api\/iphone\/?$/i.test(item.url)
           ? parseVpnGateCsv(item.body, CATALOG_POOL_LIMIT) : parseAny(item.body, CATALOG_POOL_LIMIT).items
@@ -371,9 +372,9 @@ export class Catalog {
         // A mirror/source containing already-known entries is still a valid
         // response. Global deduplication is separate from source availability.
         sourceReport.ok = sourceReport.count > 0
-        if (!sourceReport.ok) sourceReport.error = 'В источнике нет поддерживаемых узлов'
+        if (!sourceReport.ok) sourceReport.error = localized("winInline.catalog.f957ccb94886")
         if (sourceReport.ok) buckets.push(roundRobin([...protocols.values()]))
-      } catch { sourceReport.error = 'Источник не удалось разобрать как список поддерживаемых узлов' }
+      } catch { sourceReport.error = localized("winInline.catalog.b6573caff787") }
       report.push(sourceReport)
     }
     this.metadata.sources = report
@@ -394,7 +395,7 @@ export class Catalog {
     const active = () => !abort.signal.aborted && this.allowStart() && this.pool.context === context &&
       (!this.automaticWork || this.hasAutomaticOwners())
     if (!active()) return
-    if (!this.checkerStopped || this.checker) { this.localError('Предыдущий проверочный движок не подтвердил остановку'); return }
+    if (!this.checkerStopped || this.checker) { this.localError(localized("winInline.catalog.073fb95c3683")); return }
     const sample = selected ? selected.map(id => this.pool.profile(id)).filter((profile): profile is NonNullable<typeof profile> => !!profile) : this.pool.plan(limit)
     this.metadata.planned = sample.length
     this.metadata.checked = 0
@@ -420,7 +421,7 @@ export class Catalog {
       catch { /* An unavailable local worker is not a failed server measurement. */ }
       if (!ensured) {
         const failure = checker.lastFailure
-        if (!(await cleanup())) { this.localError('Проверочный движок не подтвердил остановку'); engineFailed = true; return }
+        if (!(await cleanup())) { this.localError(localized("winInline.catalog.e056f6ecaad0")); engineFailed = true; return }
         if (!active()) return
         if (failure?.kind === 'configuration') {
           // A single malformed public outbound used to poison all eight nodes
@@ -431,7 +432,7 @@ export class Catalog {
             await measure(batch.slice(0, middle)); await measure(batch.slice(middle))
           } else note(batch[0].id, 'unsupported', failure.message)
         } else {
-          this.localError(failure?.message ?? 'Проверочный движок не выполнил измерения; кандидаты сохранены')
+          this.localError(failure?.message ?? localized("winInline.catalog.c1c916433077"))
           engineFailed = true
         }
         return
@@ -440,7 +441,7 @@ export class Catalog {
       try { pings = await checker.pings() }
       finally {
         // No health claim is published until this exact native process stopped.
-        if (!(await cleanup())) { this.localError('Проверочный движок не подтвердил остановку'); engineFailed = true }
+        if (!(await cleanup())) { this.localError(localized("winInline.catalog.e056f6ecaad0")); engineFailed = true }
       }
       if (!active() || engineFailed) return
       const at = this.now()
@@ -452,7 +453,7 @@ export class Catalog {
         if (validLatency(pings[profile.id])) successful++
       }
       if (!Object.keys(pings).length) {
-        this.localError('Проверочный движок завершился без результатов. Серверы не отмечены как недоступные.')
+        this.localError(localized("winInline.catalog.7c6b4fd0ed94"))
         engineFailed = true
       }
       this.metadata.checked = measured
@@ -468,28 +469,28 @@ export class Catalog {
           result: await preparePublicCandidateResult(profile, abort.signal, this.resolveCandidate) })))
         if (!active()) break
         for (const { profile, result } of prepared) {
-          if (result.problem === 'dns') note(profile.id, 'dns-failed', 'Не удалось получить безопасный адрес сервера через DNS. Проверка повторится автоматически.')
+          if (result.problem === 'dns') note(profile.id, 'dns-failed', localized("winInline.catalog.cda838ea8518"))
           else if (result.problem) note(profile.id, 'unsupported', result.problem === 'unsafe'
-            ? 'Источник указал локальный или некорректный адрес. Такой узел не проверяется.'
-            : 'Конфигурацию нельзя проверить с сохранением адреса и имени сервера.')
+            ? localized("winInline.catalog.14fda461888f")
+            : localized("winInline.catalog.82214b3dd0ab"))
         }
         await measure(prepared.flatMap(({ result }) => result.profile ? [result.profile] : []))
         this.checking.clear()
         this.save(); this.publish()
       }
-    } catch { if (active()) { this.localError('Проверочный движок не завершил измерения. Серверы без результата остаются непроверенными.'); engineFailed = true } }
+    } catch { if (active()) { this.localError(localized("winInline.catalog.309a64bf65ad")); engineFailed = true } }
     finally {
       this.checking.clear()
-      if (this.checker && !cleanupAttempted && !(await cleanup())) { this.localError('Проверочный движок не подтвердил остановку'); engineFailed = true }
+      if (this.checker && !cleanupAttempted && !(await cleanup())) { this.localError(localized("winInline.catalog.e056f6ecaad0")); engineFailed = true }
     }
     if (!active()) { this.save(); return }
     if (!engineFailed && !successful) {
-      if (measured) this.localError(`В этой проверке ${measured} серверов не ответили на HTTPS-запросы. Остальные кандидаты проверяются отдельно.`, 'unreachable')
+      if (measured) this.localError(localized("winInline.catalog.3fde73b70b37", measured), 'unreachable')
       else if (skipped) {
         const dns = sample.filter(profile => this.notes.get(profile.id)?.status === 'dns-failed').length
         this.localError(dns
-          ? `Для ${dns} серверов не удалось определить адрес через DNS. Это не проверка работоспособности самих серверов.`
-          : `Для ${skipped} серверов конфигурация не подходит проверочному движку. Поиск продолжается среди остальных кандидатов.`, dns ? 'dns' : 'unsupported')
+          ? localized("winInline.catalog.9160ee226079", dns)
+          : localized("winInline.catalog.80bdc098f53b", skipped), dns ? 'dns' : 'unsupported')
       }
     }
     this.save()
@@ -542,7 +543,7 @@ export class Catalog {
   }
 
   private save(): void {
-    if (!safeStorage.isEncryptionAvailable()) { this.metadata.cacheError = 'Каталог хранится в памяти: защищённое хранилище недоступно'; return }
+    if (!safeStorage.isEncryptionAvailable()) { this.metadata.cacheError = localized("winInline.catalog.f8dbbfff2a65"); return }
     const temporary = this.file + '.tmp'
     try {
       const { cacheError: _error, ...metadata } = this.metadata
@@ -553,7 +554,7 @@ export class Catalog {
       renameSync(temporary, this.file)
       delete this.metadata.cacheError
     } catch {
-      this.metadata.cacheError = 'Обновлённый каталог не удалось сохранить; прежний файл остаётся доступен'
+      this.metadata.cacheError = localized("winInline.catalog.963fb40802df")
       try { rmSync(temporary, { force: true }) } catch { /* no plaintext fallback */ }
     }
   }

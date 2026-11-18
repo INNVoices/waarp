@@ -80,7 +80,7 @@ export async function runConnectionQualityChecks({ browser, url, screenshotDir }
   const failures = []
   let passed = 0
   const run = async (name, options, work) => {
-    const page = await browser.newPage({ viewport: { width: options.width ?? 1240, height: 900 } })
+    const page = await browser.newPage({ locale: 'ru-RU', viewport: { width: options.width ?? 1240, height: 900 } })
     page.setDefaultTimeout(7000)
     const errors = []
     page.on('pageerror', error => errors.push(error.message))

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.core
 
+import local.waarp.android.i18n.localized
+
 import android.content.Context
 import android.content.Intent
 import android.net.VpnService
@@ -54,14 +56,14 @@ class VpnController(context: Context) {
 
     suspend fun validateConfig(config: String, requireTun: Boolean = true) = withContext(Dispatchers.IO) {
         LibboxRuntime.initialize(context)
-        require(config.isNotBlank()) { "Конфигурация VPN пуста" }
+        require(config.isNotBlank()) { localized("VpnController.88d5ce8ee182", "Конфигурация VPN пуста") }
         try {
             Libbox.checkConfig(config)
-            if (requireTun) require(Libbox.hasTunInbound(config)) { "Конфигурация не содержит TUN" }
+            if (requireTun) require(Libbox.hasTunInbound(config)) { localized("VpnController.007e96dbf390", "Конфигурация не содержит TUN") }
         } catch (error: Exception) {
             // The native parser can quote an invalid credential in an error message.
             throw IllegalArgumentException(RuntimeRedaction.forConfiguration(config,
-                error.message ?: "Конфигурация не прошла проверку ядра"))
+                error.message ?: localized("VpnController.800d2d6c4577", "Конфигурация не прошла проверку ядра")))
         }
     }
 
@@ -76,7 +78,7 @@ class VpnController(context: Context) {
         val idleGeneration = RuntimeState.idleGeneration()
         if (idleGeneration == null) {
             continuation.resumeWith(Result.failure(IllegalStateException(
-                "VPN уже работает: проверяйте его действующие профили через urlTest")))
+                localized("VpnController.f8380002e929", "VPN уже работает: проверяйте его действующие профили через urlTest"))))
             return@suspendCancellableCoroutine
         }
         val probe = HeadlessProbe(context, config, tags, url, timeoutMs, idleGeneration)
@@ -85,9 +87,9 @@ class VpnController(context: Context) {
             try {
                 if (!continuation.isActive) return@execute
                 check(RuntimeState.isIdleGeneration(idleGeneration) && RuntimeState.backend.get() == null) {
-                    "Проверка отменена после изменения состояния VPN"
+                    localized("VpnController.93a741098397", "Проверка отменена после изменения состояния VPN")
                 }
-                check(RuntimeState.headless.compareAndSet(null, probe)) { "Проверка уже выполняется" }
+                check(RuntimeState.headless.compareAndSet(null, probe)) { localized("VpnController.b75da4f5696f", "Проверка уже выполняется") }
                 val result = probe.execute()
                 probe.close()
                 if (continuation.isActive) continuation.resumeWith(Result.success(result))
@@ -101,8 +103,8 @@ class VpnController(context: Context) {
     }
 
     fun start(config: String) {
-        require(config.isNotBlank()) { "Конфигурация VPN пуста" }
-        check(prepare() == null) { "Сначала разрешите VPN в системном диалоге Android" }
+        require(config.isNotBlank()) { localized("VpnController.afad02bc26bf", "Конфигурация VPN пуста") }
+        check(prepare() == null) { localized("VpnController.b53907e20b9d", "Сначала разрешите VPN в системном диалоге Android") }
         launchStart(RuntimeState.requestStart(config))
     }
 
@@ -133,7 +135,7 @@ class VpnController(context: Context) {
     internal fun resumeAfterUpdate(config: String, expectedIdleGeneration: Long): Boolean {
         require(config.isNotBlank())
         if (!RuntimeState.isIdleGeneration(expectedIdleGeneration)) return false
-        check(prepare() == null) { "Разрешение VPN отозвано" }
+        check(prepare() == null) { localized("VpnController.f4f38e9dd305", "Разрешение VPN отозвано") }
         val request = RuntimeState.resumeUpdateIfIdle(expectedIdleGeneration, config) ?: return false
         return launchStart(request, newUserIntent = false)
     }
@@ -194,9 +196,9 @@ class VpnController(context: Context) {
                         RuntimeState.status.update { it.copy(phase = RuntimePhase.STOPPING, message = null) }
                     }
                     VpnRecoveryWatchdog.Claim.Exhausted -> failure = IOException(
-                        "VPN несколько раз завершился. Автовосстановление остановлено; включите VPN вручную")
+                        localized("VpnController.795e8ee686e3", "VPN несколько раз завершился. Автовосстановление остановлено; включите VPN вручную"))
                     VpnRecoveryWatchdog.Claim.ConsentMissing -> failure = IOException(
-                        "Разрешение VPN отсутствует. Откройте Waarp и разрешите подключение")
+                        localized("VpnController.96471a69723e", "Разрешение VPN отсутствует. Откройте Waarp и разрешите подключение"))
                 }
             }
         } catch (error: Exception) { failure = error }
@@ -281,7 +283,7 @@ class VpnController(context: Context) {
         validateHttpFetch(outboundTag, url, timeoutMs, maxBytes)
         val idle = RuntimeState.idleGeneration()
         if (idle == null) {
-            continuation.resumeWith(Result.failure(IllegalStateException("VPN уже работает; используйте проверку действующего профиля")))
+            continuation.resumeWith(Result.failure(IllegalStateException(localized("VpnController.b016c169e153", "VPN уже работает; используйте проверку действующего профиля"))))
             return@suspendCancellableCoroutine
         }
         val probe = HeadlessProbe(context, config, listOf(outboundTag), url, timeoutMs, idle)
@@ -289,8 +291,8 @@ class VpnController(context: Context) {
         NativeLane.executor.execute {
             try {
                 if (!continuation.isActive) return@execute
-                check(RuntimeState.isIdleGeneration(idle) && RuntimeState.backend.get() == null) { "Состояние VPN изменилось" }
-                check(RuntimeState.headless.compareAndSet(null, probe)) { "Проверка уже выполняется" }
+                check(RuntimeState.isIdleGeneration(idle) && RuntimeState.backend.get() == null) { localized("VpnController.318325f7e1ec", "Состояние VPN изменилось") }
+                check(RuntimeState.headless.compareAndSet(null, probe)) { localized("VpnController.dfa3cf8f7ee5", "Проверка уже выполняется") }
                 val result = probe.fetch(maxBytes)
                 probe.close()
                 if (continuation.isActive) continuation.resumeWith(Result.success(result))
@@ -378,18 +380,18 @@ internal object RuntimeState {
 
     @Synchronized fun commandBackend(expected: Long): LibboxBackend {
         requireSessionGeneration(expected)
-        check(isCurrent(expected)) { "VPN не запущен" }
-        val current = backend.get() ?: error("VPN не запущен")
-        check(current.generation == expected && status.value.phase == RuntimePhase.ON) { "VPN ещё не готов" }
+        check(isCurrent(expected)) { localized("VpnController.18fccfbfd6d8", "VPN не запущен") }
+        val current = backend.get() ?: error(localized("VpnController.18fccfbfd6d8", "VPN не запущен"))
+        check(current.generation == expected && status.value.phase == RuntimePhase.ON) { localized("VpnController.bb4e3c3fcf4e", "VPN ещё не готов") }
         return current
     }
 
     @Synchronized fun requireBackend(expected: Long, snapshot: LibboxBackend) {
-        check(commandBackend(expected) === snapshot) { "Сессия VPN изменилась" }
+        check(commandBackend(expected) === snapshot) { localized("VpnController.237074830a1c", "Сессия VPN изменилась") }
     }
 
     fun requireSessionGeneration(expected: Long) {
-        check(isSessionGeneration(expected)) { "Сессия VPN изменилась" }
+        check(isSessionGeneration(expected)) { localized("VpnController.88aaddd1561d", "Сессия VPN изменилась") }
     }
 
     @Synchronized fun idleGeneration(): Long? = counter.get().takeIf { !wanted() && !pausedForUpdate }

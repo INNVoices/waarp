@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.data
 
+import local.waarp.android.i18n.localized
+
 import android.content.Context
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -99,7 +101,7 @@ class MobileRepository(private val context: Context, val controller: VpnControll
     suspend fun reload() = edits.withLock {
         try { _data.value = store.read(); _loadError.value = null }
         catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { _loadError.value = "Не удалось открыть защищённое хранилище. Файл сохранён; разблокируйте устройство и повторите попытку." }
+        catch (_: Exception) { _loadError.value = localized("MobileRepository.2b77fa7ae1f3", "Не удалось открыть защищённое хранилище. Файл сохранён; разблокируйте устройство и повторите попытку.") }
     }
     suspend fun ready(): AppData {
         _loadError.value?.let { error(it) }
@@ -125,7 +127,7 @@ class MobileRepository(private val context: Context, val controller: VpnControll
       edits.withLock {
         if (generation.get() != token || !_requestedOpen.value) return@withLock
         try {
-            val value = _data.value ?: error("Хранилище не готово"); val compiled = withContext(Dispatchers.Default) { compile(value) }
+            val value = _data.value ?: error(localized("MobileRepository.db4fbfc07877", "Хранилище не готово")); val compiled = withContext(Dispatchers.Default) { compile(value) }
             withContext(Dispatchers.IO) { compiled.live?.let { LiveRoutingFiles.initialize(it); LiveRoutingFiles.cleanupObsolete(it, _compiled.value?.live?.directory) } }
             controller.validateConfig(compiled.json)
             if (generation.get() != token || !_requestedOpen.value) return@withLock
@@ -147,11 +149,11 @@ class MobileRepository(private val context: Context, val controller: VpnControll
       // Wait outside the edit lock: a system start may need it to load its config.
       withTimeout(20_000) { controller.status.first { it.phase !in setOf(RuntimePhase.STARTING, RuntimePhase.STOPPING) } }
       return edits.withLock {
-        val before = _data.value ?: error("Хранилище не готово")
+        val before = _data.value ?: error(localized("MobileRepository.92fbf9575d9d", "Хранилище не готово"))
         val token = generation.get()
         val nativeGeneration = controller.sessionGeneration()
         val phase = controller.status.value.phase
-        check(phase !in setOf(RuntimePhase.STARTING, RuntimePhase.STOPPING)) { "Дождитесь завершения подключения VPN и повторите изменение" }
+        check(phase !in setOf(RuntimePhase.STARTING, RuntimePhase.STOPPING)) { localized("MobileRepository.72c9e72a02c4", "Дождитесь завершения подключения VPN и повторите изменение") }
         val active = phase in setOf(RuntimePhase.ON, RuntimePhase.STARTING)
         val previousCompiled = _compiled.value?.let { compiled ->
             compiled.live?.let { live -> compiled.copy(live = live.copy(selections = live.selections +
@@ -182,7 +184,7 @@ class MobileRepository(private val context: Context, val controller: VpnControll
                         _requestedOpen.value && controller.status.value.phase == RuntimePhase.ON },
                     request = confirmStructuralRestart)
             } == true
-            check(approved) { "Изменение отменено: перезапуск VPN не подтверждён. Действующий туннель сохранён." }
+            check(approved) { localized("MobileRepository.c75bc0e7408e", "Изменение отменено: перезапуск VPN не подтверждён. Действующий туннель сохранён.") }
         }
         _applying.value = true
         var committed = false
@@ -196,9 +198,9 @@ class MobileRepository(private val context: Context, val controller: VpnControll
                     appliedLive = true
                 } else if (requiresRestart) {
                     pausedGeneration = controller.pauseForUpdate(nativeGeneration)
-                    check(pausedGeneration != null) { "Сессия VPN изменилась после подтверждения; изменение отменено" }
+                    check(pausedGeneration != null) { localized("MobileRepository.f3ea36c32cf3", "Сессия VPN изменилась после подтверждения; изменение отменено") }
                     val stopped = withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.OFF || it.phase == RuntimePhase.ERROR } }
-                    check(stopped.phase == RuntimePhase.OFF) { stopped.message ?: "Не удалось завершить предыдущий VPN" }
+                    check(stopped.phase == RuntimePhase.OFF) { stopped.message ?: localized("MobileRepository.c038a2f5322e", "Не удалось завершить предыдущий VPN") }
                 }
                 store.write(saved)
                 _data.value = saved; _loadError.value = null; _compiled.value = next
@@ -212,7 +214,7 @@ class MobileRepository(private val context: Context, val controller: VpnControll
                 val paused = pausedGeneration
                 if (paused != null && _requestedOpen.value && generation.get() == token) {
                     val accepted = controller.resumeAfterUpdate(next.json, paused)
-                    check(accepted || !controller.isSessionGeneration(paused)) { "Изменения сохранены, но VPN не запустился. Повторите подключение." }
+                    check(accepted || !controller.isSessionGeneration(paused)) { localized("MobileRepository.6cb48b3d6c3d", "Изменения сохранены, но VPN не запустился. Повторите подключение.") }
                 }
                 saved
             }
@@ -241,7 +243,7 @@ class MobileRepository(private val context: Context, val controller: VpnControll
     }
 
     suspend fun validateProfiles(profiles: List<TunnelProfile>) {
-        require(profiles.isNotEmpty()) { "Нет профилей для импорта" }
+        require(profiles.isNotEmpty()) { localized("MobileRepository.99b5c6f99c65", "Нет профилей для импорта") }
         // libbox CheckConfig constructs and closes a real box. WireGuard's
         // constructor allocates a gVisor stack even before Start, so a large
         // subscription must not instantiate its entire library in one box.
@@ -262,7 +264,7 @@ class MobileRepository(private val context: Context, val controller: VpnControll
         val token = generation.get()
         val sessionGeneration = controller.sessionGeneration()
         val phase = controller.status.value.phase
-        check(phase !in setOf(RuntimePhase.STARTING, RuntimePhase.STOPPING) && !_applying.value) { "Дождитесь завершения переключения VPN" }
+        check(phase !in setOf(RuntimePhase.STARTING, RuntimePhase.STOPPING) && !_applying.value) { localized("MobileRepository.271b174c26a0", "Дождитесь завершения переключения VPN") }
         val active = phase == RuntimePhase.ON
         val available = (extra ?: value.profiles).filter { !it.revoked && !it.subscriptionMissing && (profileIds == null || it.id in profileIds) }
         val eligible = if (active) available.filter { it.id in _compiled.value?.loadedProfiles.orEmpty() } else available
@@ -275,7 +277,7 @@ class MobileRepository(private val context: Context, val controller: VpnControll
             controller.isSessionGeneration(sessionGeneration) && controller.status.value.phase == phase && !_applying.value
         val rejected = mutableListOf<RuntimeProbeResult>()
         val profiles = if (extra != null && sampled.any { it.source == "public" }) {
-            check(!active && preparePublic != null) { "Для безопасной проверки новых публичных узлов нужен отдельный проверяющий путь при выключенном VPN" }
+            check(!active && preparePublic != null) { localized("MobileRepository.4e1cc67841d2", "Для безопасной проверки новых публичных узлов нужен отдельный проверяющий путь при выключенном VPN") }
             sampled.mapNotNull { original ->
                 if (!currentSession()) return@withLock emptyList()
                 if (original.source != "public") original else try {
@@ -283,7 +285,7 @@ class MobileRepository(private val context: Context, val controller: VpnControll
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) {
                     // This was not a tunnel measurement. checkedAt=0 keeps an unsafe/unsupported preflight out of health.
-                    rejected.add(RuntimeProbeResult("p-${original.id}", null, "Не удалось безопасно проверить публичный адрес", 0))
+                    rejected.add(RuntimeProbeResult("p-${original.id}", null, localized("MobileRepository.2c19c733a267", "Не удалось безопасно проверить публичный адрес"), 0))
                     null
                 }
             }
@@ -295,7 +297,7 @@ class MobileRepository(private val context: Context, val controller: VpnControll
                 if (!currentSession()) return emptyList()
                 try { RuntimeProbeResult(tag, controller.urlTest(tag, target, timeoutMs, expectedGeneration = sessionGeneration), null, System.currentTimeMillis()) }
                 catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { RuntimeProbeResult(tag, null, "Проверка не прошла", System.currentTimeMillis()) }
+                catch (_: Exception) { RuntimeProbeResult(tag, null, localized("MobileRepository.1eb2c7df4574", "Проверка не прошла"), System.currentTimeMillis()) }
             } else {
                 val selectedProfiles = tags.mapNotNull(byTag::get)
                 val checker = withContext(Dispatchers.Default) { RoutingCompiler.compile(value, context.packageName, checkerProfiles = selectedProfiles) }

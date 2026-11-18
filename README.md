@@ -35,3 +35,7 @@ Windows needs elevation to start the tunnel. The client checks its engine at sta
 [Contributing](CONTRIBUTING.md) · [Support](SUPPORT.md) · [Roadmap](ROADMAP.md) · [Screenshots](docs/screenshots/README.md) · [Third-party credits](THIRD_PARTY_NOTICES.md)
 
 Desktop application code uses [Apache-2.0](LICENSE). Android application code uses [GPL-3.0-or-later](android/LICENSE). Engine and dependency notices ship with each client.
+
+## Interface languages
+
+Both clients follow the system language preferences and fall back to Russian. Android 13 and later also support per-app language selection in system settings. Available languages are Russian, English, German, French, Spanish, Brazilian Portuguese, Simplified and Traditional Chinese, Japanese, Korean, Ukrainian, Italian, Polish, Turkish, Arabic, Hindi, Indonesian, Vietnamese and Persian.

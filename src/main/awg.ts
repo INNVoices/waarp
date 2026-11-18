@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 import { inflateSync } from 'node:zlib'
 import { generateKeyPairSync } from 'node:crypto'
 import { isIP } from 'node:net'
@@ -24,11 +25,11 @@ const MAX_CONF_BYTES = 1024 * 1024
 export { ConfError }
 
 export function unwrapKey(input: string): string {
-  if (Buffer.byteLength(input, 'utf8') > MAX_CONF_BYTES) throw new ConfError('Конфиг слишком большой (максимум 1 МБ)')
+  if (Buffer.byteLength(input, 'utf8') > MAX_CONF_BYTES) throw new ConfError(localized("winInline.awg.eac88b6c9cf2"))
   const text = input.trim()
   if (/\[Interface\]/i.test(text)) return text
   const m = text.match(/^vpn:\/\/(.+)$/s)
-  if (!m) throw new ConfError('Это не похоже на конфиг AmneziaWG. Нужен .conf или ключ vpn://')
+  if (!m) throw new ConfError(localized("winInline.awg.31e89558f2ae"))
   const b64 = m[1].replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/')
   const buf = Buffer.from(b64 + '='.repeat((4 - (b64.length % 4)) % 4), 'base64')
   let json: string
@@ -38,9 +39,9 @@ export function unwrapKey(input: string): string {
     try { json = inflateSync(buf, { maxOutputLength: MAX_CONF_BYTES }).toString('utf8') } catch { json = buf.toString('utf8') }
   }
   let data: unknown
-  try { data = JSON.parse(json) } catch { throw new ConfError('Ключ vpn:// не читается. Экспортируй из AmneziaVPN «нативный формат AmneziaWG» (.conf)') }
+  try { data = JSON.parse(json) } catch { throw new ConfError(localized("winInline.awg.116b9fc855b6")) }
   const found = findConf(data)
-  if (!found) throw new ConfError('В ключе нет конфига AmneziaWG. Экспортируй из AmneziaVPN файл .conf')
+  if (!found) throw new ConfError(localized("winInline.awg.d1a5027c48c0"))
   return found
 }
 
@@ -61,66 +62,66 @@ function findConf(v: unknown, depth = 0): string | undefined {
 
 const unsigned = (value: string, field: string, max = 0xffffffff): number => {
   const n = Number(value)
-  if (!/^\d+$/.test(value) || !Number.isSafeInteger(n) || n > max) throw new ConfError(`${field} должен быть целым числом от 0 до ${max}`)
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(n) || n > max) throw new ConfError(localized("winInline.awg.144d8c723100", field, max))
   return n
 }
 
 function prefixes(value: string | undefined, field: string): string[] {
   const parts = (value ?? '').split(',').map(x => x.trim()).filter(Boolean)
-  if (!parts.length) throw new ConfError(`В конфиге нет ${field}`)
+  if (!parts.length) throw new ConfError(localized("winInline.awg.d1a3f5ef3e0b", field))
   return [...new Set(parts.map(raw => {
     // wg/awg accept a bare host in both Address and AllowedIPs. Materialize its host prefix for sing-box.
     const addr = !raw.includes('/') ? raw + (isIP(raw) === 6 ? '/128' : '/32') : raw
     const match = /^([^/]+)\/(\d+)$/.exec(addr)
     const family = match && isIP(match[1])
-    if (!match || !family || match[1].includes('%') || Number(match[2]) > (family === 4 ? 32 : 128)) throw new ConfError(`${field} должен содержать корректный IP и маску`)
+    if (!match || !family || match[1].includes('%') || Number(match[2]) > (family === 4 ? 32 : 128)) throw new ConfError(localized("winInline.awg.b21fd406b542", field))
     return match[1] + '/' + Number(match[2])
   }))]
 }
 
 function endpointAddress(value: string): { host: string; port: number } {
   const match = /^(?:\[([^\]]+)\]|([^:\s]+)):(\d+)$/.exec(value)
-  if (!match) throw new ConfError('Endpoint должен быть вида host:port или [IPv6]:port')
-  const port = unsigned(match[3], 'Порт Endpoint', 65535)
-  if (!port) throw new ConfError('Порт Endpoint должен быть от 1 до 65535')
+  if (!match) throw new ConfError(localized("winInline.awg.6351771cc704"))
+  const port = unsigned(match[3], localized("winInline.awg.21d0268e1320"), 65535)
+  if (!port) throw new ConfError(localized("winInline.awg.fd46f719079a"))
   let host = match[1] ?? match[2]
   if (match[1]) {
-    if (isIP(host) !== 6) throw new ConfError('В квадратных скобках Endpoint должен быть IPv6-адрес')
+    if (isIP(host) !== 6) throw new ConfError(localized("winInline.awg.163b78b17300"))
   } else if (!isIP(host)) {
     host = domainToASCII(host).toLowerCase()
     const labels = host.replace(/\.$/, '').split('.')
-    if (!host || host.length > 253 || /^[\d.]+$/.test(host) || labels.some(label => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label))) throw new ConfError('Endpoint должен содержать корректный IP или имя сервера')
+    if (!host || host.length > 253 || /^[\d.]+$/.test(host) || labels.some(label => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label))) throw new ConfError(localized("winInline.awg.4b355c16b575"))
   }
   return { host, port }
 }
 
 function magicHeader(value: string, key: string): string {
   const match = /^(\d+)\s*(?:-\s*(\d+))?$/.exec(value)
-  if (!match) throw new ConfError(`${key} должен быть числом или диапазоном min-max`)
+  if (!match) throw new ConfError(localized("winInline.awg.71463d6b8c69", key))
   const lo = unsigned(match[1], key), hi = match[2] === undefined ? lo : unsigned(match[2], key)
-  if (lo > hi) throw new ConfError(`${key}: начало диапазона не может быть больше конца`)
+  if (lo > hi) throw new ConfError(localized("winInline.awg.514c4c70f285", key))
   return lo === hi ? String(lo) : `${lo}-${hi}`
 }
 
 /** Validate the pinned Windows AWG CPS grammar without rewriting its case-sensitive packet strings. */
 function signaturePacket(value: string, key: string): string {
   const tags = [...value.matchAll(/<([^<>]*)>/g)]
-  if (!tags.length || value.replace(/<[^<>]*>/g, '').trim()) throw new ConfError(`${key} должен содержать последовательность тегов <...>`)
+  if (!tags.length || value.replace(/<[^<>]*>/g, '').trim()) throw new ConfError(localized("winInline.awg.b75a0a889b8b", key))
   for (const tag of tags) {
     const [kind, arg, extra] = tag[1].trim().split(/\s+/)
     if (['r', 'rc', 'rd', 'dz'].includes(kind)) {
       // The pinned Windows wireguard-go build uses MaxMessageSize = 2048 - 32 for these tag arguments.
-      if (arg === undefined || extra !== undefined) throw new ConfError(`${key}: у тега ${kind} должен быть один размер`)
-      unsigned(arg, `${key}: размер ${kind}`, 2016)
+      if (arg === undefined || extra !== undefined) throw new ConfError(localized("winInline.awg.c9970f00a902", key, kind))
+      unsigned(arg, localized("winInline.awg.c0c71d5bb8f5", key, kind), 2016)
     } else if (kind === 'b') {
-      if (!arg || extra !== undefined || !/^(?:0x)?(?:[0-9a-fA-F]{2})+$/.test(arg)) throw new ConfError(`${key}: тег b должен содержать байты в hex-формате`)
-    } else if (!['t', 'd', 'ds'].includes(kind) || arg !== undefined) throw new ConfError(`${key}: неподдерживаемый тег или аргумент`)
+      if (!arg || extra !== undefined || !/^(?:0x)?(?:[0-9a-fA-F]{2})+$/.test(arg)) throw new ConfError(localized("winInline.awg.697a85ff982e", key))
+    } else if (!['t', 'd', 'ds'].includes(kind) || arg !== undefined) throw new ConfError(localized("winInline.awg.ec0d715eb6dc", key))
   }
   return value
 }
 
-export function parseConf(raw: string, name = 'Сервер'): AwgProfile {
-  name = String(name).trim().slice(0, 80) || 'Сервер'
+export function parseConf(raw: string, name = localized("winInline.awg.dec654037bb8")): AwgProfile {
+  name = String(name).trim().slice(0, 80) || localized("winInline.awg.dec654037bb8")
   const text = unwrapKey(raw)
   const sec: Record<string, Record<string, string>> = Object.create(null)
   let cur = ''
@@ -130,35 +131,35 @@ export function parseConf(raw: string, name = 'Сервер'): AwgProfile {
     const h = line.match(/^\[(\w+)\]$/)
     if (h) {
       cur = h[1].toLowerCase()
-      if (cur !== 'interface' && cur !== 'peer') throw new ConfError(`Неподдерживаемая секция [${h[1]}]`)
-      if (sec[cur]) throw new ConfError(cur === 'peer' ? 'В одном туннеле Waarp поддерживается один [Peer]; раздели конфиг на отдельные туннели' : 'В одном туннеле должен быть один [Interface]')
+      if (cur !== 'interface' && cur !== 'peer') throw new ConfError(localized("winInline.awg.fdcf8b3baff5", h[1]))
+      if (sec[cur]) throw new ConfError(cur === 'peer' ? localized("winInline.awg.af9cdbcf15fa") : localized("winInline.awg.4078e631af99"))
       sec[cur] = Object.create(null)
       continue
     }
     const kv = line.match(/^([A-Za-z0-9_]+)\s*=\s*(.*)$/)
-    if (!kv || !cur) throw new ConfError('Строка конфига должна иметь вид параметр = значение внутри секции')
+    if (!kv || !cur) throw new ConfError(localized("winInline.awg.d62e5a330fbc"))
     const key = kv[1].toLowerCase(), value = kv[2].trim()
     if ((cur === 'interface' && ['address', 'dns'].includes(key)) || (cur === 'peer' && key === 'allowedips')) sec[cur][key] = [sec[cur][key], value].filter(Boolean).join(', ')
     else {
-      if (sec[cur][key] !== undefined && sec[cur][key] !== value) throw new ConfError(`Параметр ${kv[1]} задан несколько раз с разными значениями`)
+      if (sec[cur][key] !== undefined && sec[cur][key] !== value) throw new ConfError(localized("winInline.awg.baa96d614436", kv[1]))
       sec[cur][key] = value
     }
   }
   const i = sec['interface'], p = sec['peer']
-  if (!i || !p) throw new ConfError('В конфиге нет [Interface] или [Peer]')
+  if (!i || !p) throw new ConfError(localized("winInline.awg.9c296add3d00"))
   const commands = ['preup', 'postup', 'predown', 'postdown', 'table'].filter(k => i[k] !== undefined)
-  if (commands.length) throw new ConfError(`Waarp не выполняет системные директивы из конфига: ${commands.join(', ')}`)
+  if (commands.length) throw new ConfError(localized("winInline.awg.e05cfdafd316", commands.join(', ')))
   const interfaceKeys = new Set<string>(['privatekey', 'address', 'dns', 'mtu', 'listenport', ...NUM_KEYS, ...STR_KEYS, 'headerprotectionkey', 'randomtrailers', 'disablecookies'])
   const peerKeys = new Set(['publickey', 'presharedkey', 'endpoint', 'allowedips', 'persistentkeepalive'])
   const unsupported = [...Object.keys(i).filter(k => !interfaceKeys.has(k)), ...Object.keys(p).filter(k => !peerKeys.has(k))]
-  if (unsupported.length) throw new ConfError(`Импорт не поддерживает параметры: ${unsupported.join(', ')}. Они не были отброшены; нужен совместимый конфиг WireGuard/AmneziaWG`)
-  if (!i.privatekey) throw new ConfError('В конфиге нет PrivateKey')
-  if (!p.publickey) throw new ConfError('В конфиге нет PublicKey сервера')
-  if (!p.endpoint) throw new ConfError('В конфиге нет Endpoint сервера')
+  if (unsupported.length) throw new ConfError(localized("winInline.awg.5655461cba5e", unsupported.join(', ')))
+  if (!i.privatekey) throw new ConfError(localized("winInline.awg.869b75d618eb"))
+  if (!p.publickey) throw new ConfError(localized("winInline.awg.b61cdaa5ddf1"))
+  if (!p.endpoint) throw new ConfError(localized("winInline.awg.3775186b7d63"))
   const validKey = (key: string) => /^[A-Za-z0-9+/]{43}=$/.test(key) && Buffer.from(key, 'base64').length === 32
-  if (!validKey(i.privatekey)) throw new ConfError('PrivateKey должен быть ключом WireGuard (32 байта, base64)')
-  if (!validKey(p.publickey)) throw new ConfError('PublicKey сервера должен быть ключом WireGuard (32 байта, base64)')
-  if (p.presharedkey && !validKey(p.presharedkey)) throw new ConfError('PresharedKey должен быть ключом WireGuard (32 байта, base64)')
+  if (!validKey(i.privatekey)) throw new ConfError(localized("winInline.awg.88db91bbb1c7"))
+  if (!validKey(p.publickey)) throw new ConfError(localized("winInline.awg.22d2247bb340"))
+  if (p.presharedkey && !validKey(p.presharedkey)) throw new ConfError(localized("winInline.awg.33a776d7bf92"))
   const ep = endpointAddress(p.endpoint)
   const list = (s?: string) => (s ?? '').split(',').map(x => x.trim()).filter(Boolean)
   const address = prefixes(i.address, 'Address')
@@ -167,18 +168,18 @@ export function parseConf(raw: string, name = 'Сервер'): AwgProfile {
   for (const k of NUM_KEYS) if (i[k] !== undefined && i[k] !== '') {
     awg[k] = unsigned(i[k], k.toUpperCase(), k.startsWith('s') ? 65535 : 0xffffffff)
   }
-  if ((awg.jmin ?? 0) > (awg.jmax ?? 0)) throw new ConfError('Jmin не может быть больше Jmax')
+  if ((awg.jmin ?? 0) > (awg.jmax ?? 0)) throw new ConfError(localized("winInline.awg.2c0e0030bbcb"))
   if (i.headerprotectionkey !== undefined) {
-    if (!validKey(i.headerprotectionkey)) throw new ConfError('HeaderProtectionKey должен быть ключом 32 байта в base64, как на сервере')
-    if (Buffer.from(i.headerprotectionkey, 'base64').every(b => b === 0)) throw new ConfError('HeaderProtectionKey не может состоять только из нулей; если защита заголовка не используется, уберите этот параметр')
-    if ((['s1', 's2', 's3', 's4'] as const).some(k => (awg[k] ?? 0) < 12)) throw new ConfError('С HeaderProtectionKey параметры S1–S4 должны быть не меньше 12')
+    if (!validKey(i.headerprotectionkey)) throw new ConfError(localized("winInline.awg.2f53e04d84a1"))
+    if (Buffer.from(i.headerprotectionkey, 'base64').every(b => b === 0)) throw new ConfError(localized("winInline.awg.a04b51cfe608"))
+    if ((['s1', 's2', 's3', 's4'] as const).some(k => (awg[k] ?? 0) < 12)) throw new ConfError(localized("winInline.awg.3cd2b6d4d6df"))
     awg.header_protection_key = i.headerprotectionkey
   }
   const flag = (v: string | undefined, name: string) => {
     if (v === undefined) return undefined
     if (/^(true|1|on)$/i.test(v)) return true
     if (/^(false|0|off)$/i.test(v)) return false
-    throw new ConfError(`${name} должен быть true или false`)
+    throw new ConfError(localized("winInline.awg.7281a138856c", name))
   }
   const trailers = flag(i.randomtrailers, 'RandomTrailers'), cookies = flag(i.disablecookies, 'DisableCookies')
   if (trailers !== undefined) awg.random_trailers = trailers
@@ -190,10 +191,10 @@ export function parseConf(raw: string, name = 'Сервер'): AwgProfile {
     return { key, lo: parts[0], hi: parts[1] ?? parts[0] }
   })
   for (let a = 0; a < headers.length; a++) for (let b = a + 1; b < headers.length; b++) {
-    if (headers[a].lo <= headers[b].hi && headers[b].lo <= headers[a].hi) throw new ConfError(`${headers[a].key.toUpperCase()} и ${headers[b].key.toUpperCase()} не должны пересекаться`)
+    if (headers[a].lo <= headers[b].hi && headers[b].lo <= headers[a].hi) throw new ConfError(localized("winInline.awg.4f7d6487447b", headers[a].key.toUpperCase(), headers[b].key.toUpperCase()))
   }
   const mtu = i.mtu ? unsigned(i.mtu, 'MTU', 9000) : undefined
-  if (mtu !== undefined && mtu < 576) throw new ConfError('MTU должен быть целым числом от 576 до 9000')
+  if (mtu !== undefined && mtu < 576) throw new ConfError(localized("winInline.awg.5dc7b1591050"))
   const keepalive = p.persistentkeepalive ? (/^off$/i.test(p.persistentkeepalive) ? 0 : unsigned(p.persistentkeepalive, 'PersistentKeepalive', 65535)) : undefined
   const listenPort = i.listenport ? unsigned(i.listenport, 'ListenPort', 65535) : undefined
   return {
@@ -222,7 +223,7 @@ export function parseConf(raw: string, name = 'Сервер'): AwgProfile {
 /** Build a client profile for a server the user already controls. Server-side peer enrollment is separate. */
 export function createWireGuardProfile(input: { name: string; address: string; endpoint: string; serverPublicKey: string }): { profile: AwgProfile; clientPublicKey: string } {
   const fields = [input.name, input.address, input.endpoint, input.serverPublicKey]
-  if (fields.some(v => typeof v !== 'string' || !v.trim() || v.length > 256 || /[\r\n]/.test(v))) throw new ConfError('Заполни данные сервера без переносов строк')
+  if (fields.some(v => typeof v !== 'string' || !v.trim() || v.length > 256 || /[\r\n]/.test(v))) throw new ConfError(localized("winInline.awg.d2041bf6d1d5"))
   const { privateKey, publicKey } = generateKeyPairSync('x25519')
   const secret = privateKey.export({ format: 'der', type: 'pkcs8' }).subarray(-32).toString('base64')
   const clientPublicKey = publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64')
@@ -350,7 +351,7 @@ export const CANARY_IP = '127.0.0.9'
 /** Keep canonical business files unchanged; only the watched copy carries its own reload witness. */
 export function ruleFileWithWitness(body: string, name: string): string {
   const file = JSON.parse(body)
-  if (file.version !== 3 || !Array.isArray(file.rules)) throw new Error('invalid rule file')
+  if (file.version !== 3 || !Array.isArray(file.rules)) throw new Error(localized("winInline.awg.8ef1043442af"))
   return JSON.stringify({ version: 3, rules: [
     // Query type prevents this synthetic domain from becoming a traffic-routing match.
     { domain: [name], query_type: ['A'] },
@@ -767,7 +768,7 @@ export function checkConfig(profiles: Profile[], api: { port: number; secret: st
   const active = profiles.filter(p => !p.revoked)
   const diagnostic = diagnosticConfig(proxy, ['direct', ...active.map(p => tagOf(p.id))])
   const forwarded = forward && active.find(p => p.id === forward.profileId)
-  if (forward && !forwarded) throw new Error('forward profile missing')
+  if (forward && !forwarded) throw new Error(localized("winInline.awg.d7fcb91c86e9"))
   const importedDns = forwarded?.kind === 'awg' ? forwarded.dns.find(ip => isIP(ip)) : undefined
   const forwardDns = forwarded ? [{ ...(importedDns ? { type: 'udp', server: importedDns, server_port: 53 }
     : { type: 'https', server: '1.1.1.1' }), tag: 'forward-dns', detour: tagOf(forwarded.id) }] : []

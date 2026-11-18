@@ -1,5 +1,7 @@
 package local.waarp.android.data
 
+import local.waarp.android.i18n.localized
+
 import org.json.JSONObject
 
 data class CompiledRoute(val routeId: String, val requested: String, val targetTag: String?, val fallbackTag: String? = null)
@@ -28,7 +30,7 @@ object RoutingCompiler {
             (path == AUTO && available.values.any { it.source != "public" }) ||
             data.groups.any { it.id == path && it.members.any(available::containsKey) }
         fun chosen(path: String) = if (valid(path)) SystemDnsPolicy(path) else SystemDnsPolicy(path,
-            reason = "Общий DNS-путь недоступен. Выберите доступный туннель в настройках.")
+            reason = localized("RoutingCompiler.56128304b2ed", "Общий DNS-путь недоступен. Выберите доступный туннель в настройках."))
         data.settings.systemDnsVia?.let { return chosen(it) }
         if (data.settings.defaultVia != DIRECT) return chosen(data.settings.defaultVia)
         val appPaths = data.routes.filter { it.enabled && it.kind == "app" && it.via != DIRECT }
@@ -36,13 +38,13 @@ object RoutingCompiler {
             if (data.settings.serviceVia != DIRECT) listOf(Triple(data.settings.serviceVia, null, null)) else emptyList()
         if (demands.isEmpty()) return SystemDnsPolicy(DIRECT)
         if (demands.any { !valid(it.first) }) return SystemDnsPolicy(null,
-            reason = "DNS-путь приложения или служебных запросов недоступен. Выберите общий DNS в настройках.")
+            reason = localized("RoutingCompiler.782a70f12428", "DNS-путь приложения или служебных запросов недоступен. Выберите общий DNS в настройках."))
         val distinct = demands.map { (via, fallback, id) -> Triple(via,
             fallback?.takeIf { it != DIRECT && it != via && valid(it) }, id) }.distinctBy { it.first to it.second }
         if (distinct.size != 1) return SystemDnsPolicy(null,
-            reason = (if (data.settings.serviceVia == DIRECT) "Приложения используют разные DNS-пути."
-                else "Приложения и служебные запросы используют разные DNS-пути.") +
-                " Выберите общий DNS в настройках для запросов, чей отправитель неизвестен Android.")
+            reason = (if (data.settings.serviceVia == DIRECT) localized("RoutingCompiler.c848d31cb8a9", "Приложения используют разные DNS-пути.")
+                else localized("RoutingCompiler.9ac9348252e5", "Приложения и служебные запросы используют разные DNS-пути.")) +
+                localized("RoutingCompiler.97adce34d075", " Выберите общий DNS в настройках для запросов, чей отправитель неизвестен Android."))
         val (via, fallback, id) = distinct.single()
         return SystemDnsPolicy(via, fallback, id.takeIf { fallback != null })
     }
@@ -61,8 +63,8 @@ object RoutingCompiler {
         groups.flatMap { it.members }.forEach(explicit::add)
         val explicitEndpoints = explicit.count { available[it]?.endpoint == true }
         if (checkerProfiles == null) {
-            require(explicit.size <= LIVE_PROFILE_LIMIT) { "Одновременно можно использовать не более 64 туннелей; уменьшите группы активных маршрутов" }
-            require(explicitEndpoints <= LIVE_ENDPOINT_LIMIT) { "Одновременно можно использовать не более 16 WireGuard/AmneziaWG/OpenVPN; уменьшите активные группы" }
+            require(explicit.size <= LIVE_PROFILE_LIMIT) { localized("RoutingCompiler.d7cdf380a638", "Одновременно можно использовать не более 64 туннелей; уменьшите группы активных маршрутов") }
+            require(explicitEndpoints <= LIVE_ENDPOINT_LIMIT) { localized("RoutingCompiler.77358cba13ba", "Одновременно можно использовать не более 16 WireGuard/AmneziaWG/OpenVPN; уменьшите активные группы") }
         }
         val own = available.values.filter { it.source != "public" && (autoCandidates == null || it.id in autoCandidates) }.map { it.id }
         val auto = if (AUTO in references) {
@@ -77,7 +79,7 @@ object RoutingCompiler {
             }
             chosen
         } else emptyList()
-        val liveGroups = groups + if (auto.isNotEmpty()) listOf(TunnelGroup(AUTO, "Авто", "fastest", auto)) else emptyList()
+        val liveGroups = groups + if (auto.isNotEmpty()) listOf(TunnelGroup(AUTO, localized("RoutingCompiler.57610f7fbaec", "Авто"), "fastest", auto)) else emptyList()
         val loadedIds = (explicit + auto).toMutableSet()
         var loadedEndpoints = loadedIds.count { available[it]?.endpoint == true }
         for (id in preload) {
@@ -169,11 +171,11 @@ object RoutingCompiler {
             val supportsV6 = v6(route.via) && (fallback == null || v6(route.fallback!!))
             val matches = when (route.kind) {
                 "app" -> {
-                    require(route.match.matches(Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+"))) { "Некорректное имя пакета Android" }
+                    require(route.match.matches(Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+"))) { localized("RoutingCompiler.2197274be01b", "Некорректное имя пакета Android") }
                     listOf(obj("package_name" to listOf(route.match)))
                 }
                 "preset" -> {
-                    val preset = Presets.all.find { it.id == route.match } ?: error("Неизвестный сервис маршрута")
+                    val preset = Presets.all.find { it.id == route.match } ?: error(localized("RoutingCompiler.eba2c80dd9a9", "Неизвестный сервис маршрута"))
                     buildList { if (preset.domains.isNotEmpty()) add(obj("domain_suffix" to preset.domains)); if (preset.cidrs.isNotEmpty()) add(obj("ip_cidr" to preset.cidrs)) }
                 }
                 else -> route.match.split(Regex("[\\s,;]+")).filter { it.isNotBlank() }.map(AddressRules::selector).let { values ->

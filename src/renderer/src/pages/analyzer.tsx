@@ -211,7 +211,7 @@ function Probe({ snap, live, route, auto = false, runtime }: { snap: Snapshot; l
           {host && best && res.token && (!card || card.via !== best || !card.on) && <Btn kind="primary" disabled={busy} onClick={() => void apply()}>
             {inspectedRoute ? s('quality.apply', { v: viaName(snap.profiles, best), name: inspectedRoute.name }) : card ? s('dg.route.card', { v: viaName(snap.profiles, best) }) : s('dg.route', { h: host, v: viaName(snap.profiles, best) })}
           </Btn>}
-          <div className="quality-meta"><span>{res.target}</span><time dateTime={new Date(res.at).toISOString()}>{new Date(res.at).toLocaleTimeString('ru-RU')}</time></div>
+          <div className="quality-meta"><span>{res.target}</span><time dateTime={new Date(res.at).toISOString()}>{new Date(res.at).toLocaleTimeString()}</time></div>
         </div>
         <div className="diagnostic-stage-heading"><b>{s('diag.stages')}</b><span className="hint">{s('diag.stages.hint')}</span></div>
         <div className="diagnostic-stages" aria-label={s('diag.stages')}>

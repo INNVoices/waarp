@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 import { createServer, type Server, type Socket } from 'node:net'
 import { randomBytes } from 'node:crypto'
 import { rmSync, writeFileSync } from 'node:fs'
@@ -36,7 +37,7 @@ export function startBridge(dir: string, host: BridgeHost, pipe = PIPE): Server 
   try { protectPrivateFile(tokenFile) }
   catch {
     try { rmSync(tokenFile, { force: true }) } catch { /* the bridge still stays closed */ }
-    throw new Error('Bridge token ACL could not be applied')
+    throw new Error(localized("winInline.bridge.821dd3c005ad"))
   }
 
   // D: route writes run one at a time; list / open / status do not wait

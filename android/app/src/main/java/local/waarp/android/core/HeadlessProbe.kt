@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.core
 
+import local.waarp.android.i18n.localized
+
 import android.content.Context
 import io.nekohasekai.libbox.CommandClient
 import io.nekohasekai.libbox.CommandServer
@@ -34,25 +36,25 @@ internal class HeadlessProbe(
     private fun current(): Boolean = !cancelled.get() && RuntimeState.isIdleGeneration(idleGeneration)
 
     private fun startControl(): CommandClient {
-        require(tags.isNotEmpty() && tags.size <= 16 && tags.all { it.isNotBlank() }) { "За одну проверку допустимо от 1 до 16 профилей" }
+        require(tags.isNotEmpty() && tags.size <= 16 && tags.all { it.isNotBlank() }) { localized("HeadlessProbe.d1c653d01221", "За одну проверку допустимо от 1 до 16 профилей") }
         require(timeoutMs in 100..60_000)
         val target = URI(url)
         require(target.scheme in setOf("http", "https") && !target.host.isNullOrBlank())
-        check(current()) { "Проверка отменена" }
-        check(RuntimeState.backend.get() == null) { "Проверка не может запускать второй VPN-движок" }
+        check(current()) { localized("HeadlessProbe.60bf83a8169a", "Проверка отменена") }
+        check(RuntimeState.backend.get() == null) { localized("HeadlessProbe.0145844571bd", "Проверка не может запускать второй VPN-движок") }
         LibboxRuntime.initialize(context)
         RuntimeRedaction.configure(config)
-        require(!Libbox.hasTunInbound(config)) { "Проверочный конфиг не должен содержать TUN" }
+        require(!Libbox.hasTunInbound(config)) { localized("HeadlessProbe.0155feff013c", "Проверочный конфиг не должен содержать TUN") }
         Libbox.checkConfig(config)
-        check(current()) { "Проверка отменена" }
+        check(current()) { localized("HeadlessProbe.60bf83a8169a", "Проверка отменена") }
         platform.start()
         val core = Libbox.newCommandServer(Handler(), platform)
         server.set(core)
         core.start()
-        check(current()) { "Проверка отменена" }
+        check(current()) { localized("HeadlessProbe.60bf83a8169a", "Проверка отменена") }
         try { core.startOrReloadService(config, OverrideOptions()) }
         finally { LibboxRuntime.removeConfigurationSnapshot(strict = true) }
-        check(current() && core.ready()) { "Проверка отменена или ядро не готово" }
+        check(current() && core.ready()) { localized("HeadlessProbe.1ad2ebc8f048", "Проверка отменена или ядро не готово") }
         val control = Libbox.newStandaloneCommandClient()
         client.set(control)
         return control
@@ -62,16 +64,16 @@ internal class HeadlessProbe(
         val control = startControl()
         val result = mutableListOf<RuntimeProbeResult>()
         for (tag in tags.distinct()) {
-            check(current()) { "Проверка отменена" }
+            check(current()) { localized("HeadlessProbe.4f9396fd63aa", "Проверка отменена") }
             try {
                 val response = control.urlTestOutbound(tag, url, timeoutMs)
-                check(current()) { "Проверка отменена" }
+                check(current()) { localized("HeadlessProbe.4f9396fd63aa", "Проверка отменена") }
                 result += RuntimeProbeResult(tag,
                     response.delay.takeIf { response.error.isBlank() }?.toLong(),
                     response.error.takeIf { it.isNotBlank() }?.let(RuntimeRedaction::redact), System.currentTimeMillis())
             } catch (error: Exception) {
-                if (!current()) throw IOException("Проверка отменена")
-                result += RuntimeProbeResult(tag, null, RuntimeRedaction.redact(error.message ?: "Ошибка проверки"), System.currentTimeMillis())
+                if (!current()) throw IOException(localized("HeadlessProbe.4f9396fd63aa", "Проверка отменена"))
+                result += RuntimeProbeResult(tag, null, RuntimeRedaction.redact(error.message ?: localized("HeadlessProbe.ba377fcbbd8d", "Ошибка проверки")), System.currentTimeMillis())
             }
         }
         return result
@@ -82,7 +84,7 @@ internal class HeadlessProbe(
         validateHttpFetch(tags.single(), url, timeoutMs, maxBytes)
         val control = startControl()
         val response = control.getURLViaOutbound(tags.single(), url, timeoutMs, maxBytes, null)
-        check(current()) { "Проверка отменена" }
+        check(current()) { localized("HeadlessProbe.0d85bcf60239", "Проверка отменена") }
         return RuntimeHttpResult(response.status(), response.content(), response.truncated(), response.contentType(), response.elapsedMs().toLong())
     }
 
@@ -113,11 +115,11 @@ internal class HeadlessProbe(
 
     private inner class Handler : CommandServerHandler {
         override fun serviceStop() = cancel()
-        override fun serviceReload(): Unit = throw UnsupportedOperationException("Проверка не поддерживает перезагрузку")
+        override fun serviceReload(): Unit = throw UnsupportedOperationException(localized("HeadlessProbe.192d7c109979", "Проверка не поддерживает перезагрузку"))
         override fun getSystemProxyStatus(): SystemProxyStatus = SystemProxyStatus().apply { available = false; enabled = false }
-        override fun setSystemProxyEnabled(enabled: Boolean): Unit = throw UnsupportedOperationException("Проверка не меняет системный прокси")
-        override fun triggerNativeCrash(): Unit = throw UnsupportedOperationException("Отладочный crash отключён")
-        override fun connectSSHAgent(): Int = throw UnsupportedOperationException("SSH agent не настроен")
+        override fun setSystemProxyEnabled(enabled: Boolean): Unit = throw UnsupportedOperationException(localized("HeadlessProbe.01bad8c62206", "Проверка не меняет системный прокси"))
+        override fun triggerNativeCrash(): Unit = throw UnsupportedOperationException(localized("HeadlessProbe.1b43dcd158fa", "Отладочный crash отключён"))
+        override fun connectSSHAgent(): Int = throw UnsupportedOperationException(localized("HeadlessProbe.f75ab3ac2f4d", "SSH agent не настроен"))
         override fun writeDebugMessage(message: String) { runCatching { RuntimeState.appendLog(0, message) } }
     }
 }

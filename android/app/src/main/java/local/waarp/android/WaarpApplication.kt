@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android
 
+import android.content.res.Configuration
+import local.waarp.android.i18n.Localization
 import android.app.Application
 import local.waarp.android.core.VpnController
 import local.waarp.android.data.MobileRepository
@@ -19,8 +21,14 @@ class WaarpApplication : Application() {
     lateinit var evidence: LastSessionEvidence
         private set
     private val evidenceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        Localization.configure(this, newConfig)
+    }
+
     override fun onCreate() {
         super.onCreate()
+        Localization.configure(this, resources.configuration)
         network = NetworkTools(this)
         repository = MobileRepository(this, VpnController(this))
         evidence = LastSessionEvidence(this)

@@ -1,3 +1,4 @@
+import { localized } from './localization'
 import type { Group, GroupPolicy, Settings, TunnelHealth } from './types'
 
 export const isGroupId = (id: string): boolean => id.startsWith('g-')
@@ -48,7 +49,7 @@ export function withAuto<T extends Pick<Settings, 'rest' | 'routes' | 'groups'>>
   if (!used) return groups.length === (s.groups ?? []).length ? s : { ...s, groups }
   const all = autoMembers(profiles)
   const members = live ? live.filter(id => all.includes(id)) : all
-  return { ...s, groups: [...groups, { id: AUTO_ID, name: 'Авто', policy: 'fastest', members }] }
+  return { ...s, groups: [...groups, { id: AUTO_ID, name: localized("winInline.groups.a606e0be558d"), policy: 'fastest', members }] }
 }
 
 /** R5: the tunnel-closed checker loads at most this many profiles per round: explicitly required first (capped),
@@ -103,6 +104,6 @@ export function liveGroups(s: Pick<Settings, 'rest' | 'routes' | 'groups'>, have
 export const groupName = (groups: Group[], n = groups.length + 1): string => {
   const taken = new Set(groups.map(g => g.name))
   let i = n
-  while (taken.has('Группа ' + i)) i++
-  return 'Группа ' + i
+  while (taken.has(localized("winInline.groups.7e4e2c3f6e60") + i)) i++
+  return localized("winInline.groups.7e4e2c3f6e60") + i
 }

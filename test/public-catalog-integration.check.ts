@@ -1,3 +1,4 @@
+import { localized } from '../src/shared/localization'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -81,7 +82,7 @@ function fixture() {
       signal.throwIfAborted(); return result
     }
   }
-  const invoke = runInNewContext(executable + '\nfetchPublicCatalog', scope) as (sources: string[], signal: AbortSignal) => Promise<any[]>
+  const invoke = runInNewContext(executable + '\nfetchPublicCatalog', Object.assign(scope, { localized })) as (sources: string[], signal: AbortSignal) => Promise<any[]>
   const directory = mkdtempSync(join(tmpdir(), 'waarp-public-integration-')); directories.push(directory)
   const catalog = new Catalog(directory, join(directory, 'missing-engine.exe'), () => undefined, () => control.probes && control.link,
     (sources, signal) => seed ? Promise.resolve(sources.map(url => ({ url, body }))) : invoke(sources, signal))
@@ -104,7 +105,7 @@ function bestFixture() {
     addPublic: (id: string) => { stats.added++; store.profiles.push({ ...own, id }); return id },
     randomBytes: () => Buffer.from([1, 2, 3, 4]), refreshNotices: async () => [], send: () => {}, snapshot: () => ({})
   }
-  const invoke = runInNewContext(bestExecutable + '\ncatalogBest', scope) as () => Promise<{ ok: boolean; id?: string; error?: string }>
+  const invoke = runInNewContext(bestExecutable + '\ncatalogBest', Object.assign(scope, { localized })) as () => Promise<{ ok: boolean; id?: string; error?: string }>
   return { invoke, finish, stats, store, master, engine }
 }
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.data
 
+import local.waarp.android.i18n.localized
+
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -69,9 +71,9 @@ object PublicCatalog {
     /** Only complete share links and VPN Gate's public CSV are imported; no remote runtime config is activated. */
     fun parse(source: PublicCatalogSource, raw: String, checkActive: () -> Unit = {}): List<TunnelProfile> {
         checkActive()
-        require(raw.toByteArray(Charsets.UTF_8).size <= MAX_SOURCE_BYTES) { "Публичный список слишком большой" }
+        require(raw.toByteArray(Charsets.UTF_8).size <= MAX_SOURCE_BYTES) { localized("PublicCatalog.4ae1758e2595", "Публичный список слишком большой") }
         var body = raw.trim().removePrefix("\uFEFF")
-        require(body.isNotEmpty()) { "Пустой публичный список" }
+        require(body.isNotEmpty()) { localized("PublicCatalog.6376714e8ea1", "Пустой публичный список") }
         if (source.format == PublicSourceFormat.URI_OR_BASE64 && !body.contains("://")) {
             val encoded = body.filterNot(Char::isWhitespace).replace('-', '+').replace('_', '/')
             body = runCatching { Base64.getDecoder().decode(encoded).toString(Charsets.UTF_8) }.getOrDefault(body)
@@ -79,11 +81,11 @@ object PublicCatalog {
         val head = body.trimStart()
         require(!head.startsWith('<') && !head.startsWith('{') && !head.startsWith('[') &&
             !Regex("^\\s*(?:proxies|outbounds|inbounds|proxy-groups|rules|dns)\\s*:", RegexOption.MULTILINE).containsMatchIn(body)) {
-            "Источник должен содержать ссылки или публичный CSV, а не конфигурацию приложения"
+            localized("PublicCatalog.549dd2169a1b", "Источник должен содержать ссылки или публичный CSV, а не конфигурацию приложения")
         }
         val parsed = when (source.format) {
             PublicSourceFormat.VPN_GATE_CSV -> {
-                require(body.startsWith("*vpn_servers") || body.startsWith("#HostName,IP,")) { "Неизвестный формат VPN Gate" }
+                require(body.startsWith("*vpn_servers") || body.startsWith("#HostName,IP,")) { localized("PublicCatalog.3ce07e770b2b", "Неизвестный формат VPN Gate") }
                 body.lineSequence().filter { it.isNotBlank() && !it.startsWith('#') && !it.startsWith('*') }
                     .take(1_000).mapNotNull { row -> checkActive(); runCatching {
                         val cols = row.split(','); require(cols.size >= 15)
@@ -97,7 +99,7 @@ object PublicCatalog {
             .distinctBy(ProfileImporter::identity).take(SOURCE_NODE_LIMIT).map { profile ->
                 profile.copy(id = "pub-${ProfileImporter.identity(profile).take(24)}", source = "public")
             }.toList()
-        require(profiles.isNotEmpty()) { "Источник не содержит поддерживаемых публичных узлов" }
+        require(profiles.isNotEmpty()) { localized("PublicCatalog.a5f0a9fd23ce", "Источник не содержит поддерживаемых публичных узлов") }
         return profiles
     }
 
@@ -119,7 +121,7 @@ object PublicCatalog {
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) { /* Only the next publisher-documented delivery endpoint may be tried. */ }
             }
-            accepted ?: error("Источник недоступен или формат не поддерживается")
+            accepted ?: error(localized("PublicCatalog.a25a0674889e", "Источник недоступен или формат не поддерживается"))
         }
 
     /** A large first feed must not consume the entire pool before smaller publications get a turn. */

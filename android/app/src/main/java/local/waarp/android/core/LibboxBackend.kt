@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.core
 
+import local.waarp.android.i18n.localized
+
 import android.net.VpnService
 import android.util.Log
 import local.waarp.android.BuildConfig
@@ -47,7 +49,7 @@ internal class LibboxBackend(
     private val resourcesClosed = AtomicBoolean()
     private val started = AtomicBoolean()
     private val routingUncertain = AtomicBoolean()
-    private val uncertainRoutingMessage = "Обновление правил не подтверждено; затронутые маршруты могут быть заблокированы. Переподключите VPN."
+    private val uncertainRoutingMessage = localized("LibboxBackend.c6aaf1b45ec6", "Обновление правил не подтверждено; затронутые маршруты могут быть заблокированы. Переподключите VPN.")
     private val streamEpoch = AtomicLong()
     private val client = AtomicReference<CommandClient?>()
     private val server = AtomicReference<CommandServer?>()
@@ -69,7 +71,7 @@ internal class LibboxBackend(
     }
 
     fun start(config: String) {
-        check(current()) { "Запуск отменён" }
+        check(current()) { localized("LibboxBackend.504931c2ca1f", "Запуск отменён") }
         RuntimeState.updateIfCurrent(generation) {
             it.copy(startedAt = 0, uploadBytes = 0, downloadBytes = 0, uploadBps = 0,
                 downloadBps = 0, memoryBytes = 0, connectionCount = 0, telemetryAvailable = false)
@@ -77,21 +79,21 @@ internal class LibboxBackend(
         LibboxRuntime.initialize(vpn)
         RuntimeRedaction.configure(config)
         Libbox.checkConfig(config)
-        check(Libbox.hasTunInbound(config)) { "В конфигурации отсутствует TUN" }
-        check(current()) { "Запуск отменён" }
+        check(Libbox.hasTunInbound(config)) { localized("LibboxBackend.a84d5130a820", "В конфигурации отсутствует TUN") }
+        check(current()) { localized("LibboxBackend.504931c2ca1f", "Запуск отменён") }
         platform.start()
         val native = Libbox.newCommandServer(ServerHandler(), platform)
         server.set(native)
         native.start()
-        check(current()) { "Запуск отменён" }
+        check(current()) { localized("LibboxBackend.504931c2ca1f", "Запуск отменён") }
         try { native.startOrReloadService(config, OverrideOptions()) }
         finally { LibboxRuntime.removeConfigurationSnapshot(strict = true) }
-        check(current()) { "Запуск отменён" }
-        check(platform.hasTun && native.ready()) { "Ядро не подтвердило готовность VPN" }
+        check(current()) { localized("LibboxBackend.504931c2ca1f", "Запуск отменён") }
+        check(platform.hasTun && native.ready()) { localized("LibboxBackend.9f77a4575e6e", "Ядро не подтвердило готовность VPN") }
         recovery.begin()
         connectWithRetries()
         LiveRoutingFiles.verifyInstalled(config, vpn.noBackupFilesDir, ::current)
-        check(current()) { "Запуск отменён" }
+        check(current()) { localized("LibboxBackend.504931c2ca1f", "Запуск отменён") }
         started.set(true)
         val startedAt = client.get()?.startedAt ?: System.currentTimeMillis()
         val coreVersion = Libbox.version()
@@ -100,17 +102,17 @@ internal class LibboxBackend(
         RuntimeState.updateIfCurrent(generation) {
             it.copy(
                 phase = if (recovery.recovering) RuntimePhase.STARTING else RuntimePhase.ON,
-                message = if (recovery.recovering) "Восстанавливается связь с VPN-ядром" else null, startedAt = startedAt,
+                message = if (recovery.recovering) localized("LibboxBackend.2276f3b3d96e", "Восстанавливается связь с VPN-ядром") else null, startedAt = startedAt,
                 coreVersion = coreVersion, alwaysOn = alwaysOn,
                 lockdown = lockdown,
             )
         }
-        publish { RuntimeState.appendLog(1, "VPN-ядро $coreVersion запущено; доступность сервера проверяется отдельно") }
+        publish { RuntimeState.appendLog(1, localized("LibboxBackend.9c7bbccdb401", "VPN-ядро {arg1} запущено; доступность сервера проверяется отдельно", coreVersion)) }
     }
 
     private fun connectClient(): Long {
         val epoch = synchronized(RuntimeState) {
-            check(current()) { "Запуск отменён" }
+            check(current()) { localized("LibboxBackend.746e3a464987", "Запуск отменён") }
             RuntimeState.activeFlowTags.value = null
             streamEpoch.incrementAndGet()
         }
@@ -128,7 +130,7 @@ internal class LibboxBackend(
         val connection = Libbox.newCommandClient(Handler(epoch), options)
         client.set(connection) // OFF can cancel a Connect which is still waiting.
         connection.connect()
-        if (!current()) { connection.disconnect(); throw IOException("Запуск отменён") }
+        if (!current()) { connection.disconnect(); throw IOException(localized("LibboxBackend.746e3a464987", "Запуск отменён")) }
         updateGroups(connection.groups, epoch)
         updateOutbounds(connection.outbounds, epoch)
         return epoch
@@ -139,7 +141,7 @@ internal class LibboxBackend(
             if (!current() || epoch != streamEpoch.get()) return
             RuntimeState.activeFlowTags.value = null
             RuntimeState.status.update {
-                it.copy(phase = RuntimePhase.STARTING, message = "Восстанавливается связь с VPN-ядром", telemetryAvailable = false)
+                it.copy(phase = RuntimePhase.STARTING, message = localized("LibboxBackend.9799c74b1309", "Восстанавливается связь с VPN-ядром"), telemetryAvailable = false)
             }
             // Always remember the failure, including while a new Connect is in flight.
             recovery.failed(epoch)
@@ -149,7 +151,7 @@ internal class LibboxBackend(
         runCatching {
             reconnect.execute {
                 try { connectWithRetries() }
-                catch (error: Exception) { if (current()) onFailure(IOException("Потеряна связь с VPN-ядром", error)) }
+                catch (error: Exception) { if (current()) onFailure(IOException(localized("LibboxBackend.e26c31e400be", "Потеряна связь с VPN-ядром"), error)) }
             }
         }.onFailure { if (current()) onFailure(it) }
     }
@@ -157,10 +159,10 @@ internal class LibboxBackend(
     private fun connectWithRetries() {
         var last: Throwable? = null
         for (attempt in 0..2) {
-            check(current()) { "Запуск отменён" }
+            check(current()) { localized("LibboxBackend.d32f6b62d33b", "Запуск отменён") }
             try {
                 if (attempt > 0) TimeUnit.MILLISECONDS.sleep(250L shl attempt)
-                check(current()) { "Запуск отменён" }
+                check(current()) { localized("LibboxBackend.d32f6b62d33b", "Запуск отменён") }
                 val epoch = connectClient()
                 val ready = synchronized(RuntimeState) {
                     if (!current() || epoch != streamEpoch.get()) false
@@ -172,11 +174,11 @@ internal class LibboxBackend(
                     }
                 }
                 if (ready) return
-                last = IOException("Подписка ядра завершилась во время подключения")
+                last = IOException(localized("LibboxBackend.5a84401d4990", "Подписка ядра завершилась во время подключения"))
             } catch (error: Exception) { last = error }
         }
         recovery.exhausted()
-        throw IOException("Не удалось восстановить подписки ядра", last)
+        throw IOException(localized("LibboxBackend.8f3b6a221d5e", "Не удалось восстановить подписки ядра"), last)
     }
 
     fun selectOutbound(group: String, outbound: String) {
@@ -188,7 +190,7 @@ internal class LibboxBackend(
     }
 
     suspend fun applyRouting(before: local.waarp.android.data.MobileLivePlan, after: local.waarp.android.data.MobileLivePlan) {
-        check(!routingUncertain.get()) { "Правила VPN не подтверждены. Переподключите VPN перед следующим изменением маршрута." }
+        check(!routingUncertain.get()) { localized("LibboxBackend.da02dfc45c3c", "Правила VPN не подтверждены. Переподключите VPN перед следующим изменением маршрута.") }
         LiveRoutingFiles.apply(before, after, ::current,
             acknowledge = { RoutingWitness.await(it, ::current) },
             select = { tag, target -> selectOutbound(tag, target) },
@@ -209,15 +211,15 @@ internal class LibboxBackend(
 
     suspend fun fetchOutbound(outbound: String, url: String, timeoutMs: Int, maxBytes: Int): RuntimeHttpResult = withContext(Dispatchers.IO) {
         validateHttpFetch(outbound, url, timeoutMs, maxBytes)
-        check(current()) { "VPN остановлен" }
+        check(current()) { localized("LibboxBackend.f3b7a59a705f", "VPN остановлен") }
         val probe = Libbox.newStandaloneCommandClient()
         probes += probe
         try {
-            check(current()) { "VPN остановлен" }
+            check(current()) { localized("LibboxBackend.f3b7a59a705f", "VPN остановлен") }
             val response = cancellableResourceCall(
                 cancel = { runCatching { cancellation.execute { runCatching { probe.disconnect() } } } },
                 operation = { probe.getURLViaOutbound(outbound, url, timeoutMs, maxBytes, null) })
-            check(current()) { "Проверка отменена" }
+            check(current()) { localized("LibboxBackend.f9bb7fc249c6", "Проверка отменена") }
             RuntimeHttpResult(response.status(), response.content(), response.truncated(), response.contentType(), response.elapsedMs().toLong())
         } finally { probes -= probe; runCatching { probe.disconnect() } }
     }
@@ -225,20 +227,20 @@ internal class LibboxBackend(
     suspend fun urlTest(outbound: String, url: String, timeoutMs: Int): Long = withContext(Dispatchers.IO) {
         require(outbound.isNotBlank())
         val endpoint = URI(url)
-        require(endpoint.scheme in setOf("https", "http") && !endpoint.host.isNullOrEmpty()) { "Для проверки нужен HTTP(S)-адрес" }
-        require(timeoutMs in 100..60_000) { "Таймаут проверки должен быть от 100 до 60000 мс" }
-        check(current()) { "VPN остановлен" }
+        require(endpoint.scheme in setOf("https", "http") && !endpoint.host.isNullOrEmpty()) { localized("LibboxBackend.3032b00f8920", "Для проверки нужен HTTP(S)-адрес") }
+        require(timeoutMs in 100..60_000) { localized("LibboxBackend.49c6d9da161f", "Таймаут проверки должен быть от 100 до 60000 мс") }
+        check(current()) { localized("LibboxBackend.7f0ca4c5e754", "VPN остановлен") }
         // A separate control connection cancels its own request; it reuses the active core's outbound.
         val probe = Libbox.newStandaloneCommandClient()
         probes += probe
         try {
-            if (!current()) throw IOException("VPN остановлен")
+            if (!current()) throw IOException(localized("LibboxBackend.7f0ca4c5e754", "VPN остановлен"))
             val result = cancellableResourceCall(
                 cancel = { runCatching { cancellation.execute { runCatching { probe.disconnect() } } } },
                 operation = { probe.urlTestOutbound(outbound, url, timeoutMs) },
             )
             if (result.error.isNotBlank()) throw IOException(RuntimeRedaction.redact(result.error))
-            check(current()) { "Проверка отменена" }
+            check(current()) { localized("LibboxBackend.34efbec3ba7f", "Проверка отменена") }
             result.delay.toLong()
         } finally {
             probes -= probe
@@ -260,8 +262,8 @@ internal class LibboxBackend(
     }
 
     private fun command(): CommandClient {
-        check(current()) { "VPN остановлен" }
-        return client.get() ?: error("Управление VPN ещё не готово")
+        check(current()) { localized("LibboxBackend.492faf3980b2", "VPN остановлен") }
+        return client.get() ?: error(localized("LibboxBackend.e7e8cfd1d853", "Управление VPN ещё не готово"))
     }
 
     /** First half of OFF: break start/probe/stream waits without blocking the main thread. */
@@ -331,7 +333,7 @@ internal class LibboxBackend(
         // These Go interfaces have no error result. A thrown exception would abort ART/JNI.
         private inline fun callback(block: () -> Unit) {
             if (accept()) runCatching(block).onFailure { error ->
-                publish(epoch) { RuntimeState.appendLog(3, "Ошибка обработки данных ядра: ${error.javaClass.simpleName}") }
+                publish(epoch) { RuntimeState.appendLog(3, localized("LibboxBackend.054c0b84b70d", "Ошибка обработки данных ядра: {arg1}", error.javaClass.simpleName)) }
             }
         }
         override fun connected() = Unit
@@ -352,7 +354,7 @@ internal class LibboxBackend(
         }
         override fun writeStatus(message: StatusMessage?) = callback {
             if (started.get() && server.get()?.ready() != true) {
-                onFailure(IOException("VPN-ядро остановилось; соединение закрыто"))
+                onFailure(IOException(localized("LibboxBackend.67bf34a13c2b", "VPN-ядро остановилось; соединение закрыто")))
                 return@callback
             }
             if (message != null) {
@@ -420,17 +422,17 @@ internal class LibboxBackend(
         // The command socket is a telemetry/selector interface, not a second
         // lifecycle owner. User OFF, approved edits, native failure and Android
         // revocation all use VpnController and the service's guarded cleanup.
-        override fun serviceStop(): Unit = throw UnsupportedOperationException("Выключите VPN главным переключателем")
-        override fun serviceReload(): Unit = throw UnsupportedOperationException("Перезапуск VPN требует подтверждения в Waarp")
+        override fun serviceStop(): Unit = throw UnsupportedOperationException(localized("LibboxBackend.8046b2dd5d66", "Выключите VPN главным переключателем"))
+        override fun serviceReload(): Unit = throw UnsupportedOperationException(localized("LibboxBackend.a0e31b961f1b", "Перезапуск VPN требует подтверждения в Waarp"))
         override fun getSystemProxyStatus(): SystemProxyStatus = SystemProxyStatus().apply {
             available = platform.httpProxyEnabled
             enabled = platform.httpProxyEnabled
         }
         override fun setSystemProxyEnabled(enabled: Boolean) {
-            if (enabled != platform.httpProxyEnabled) throw UnsupportedOperationException("Измените HTTP-прокси в конфигурации и переподключитесь")
+            if (enabled != platform.httpProxyEnabled) throw UnsupportedOperationException(localized("LibboxBackend.0a69c79e8d3e", "Измените HTTP-прокси в конфигурации и переподключитесь"))
         }
-        override fun triggerNativeCrash(): Unit = throw UnsupportedOperationException("Аварийная отладочная команда отключена")
+        override fun triggerNativeCrash(): Unit = throw UnsupportedOperationException(localized("LibboxBackend.0ac34e111479", "Аварийная отладочная команда отключена"))
         override fun writeDebugMessage(message: String) { runCatching { publish { RuntimeState.appendLog(0, message) } } }
-        override fun connectSSHAgent(): Int = throw UnsupportedOperationException("SSH agent не настроен")
+        override fun connectSSHAgent(): Int = throw UnsupportedOperationException(localized("LibboxBackend.f1fcb58b31f8", "SSH agent не настроен"))
     }
 }

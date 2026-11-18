@@ -2,6 +2,8 @@
 
 package local.waarp.android.ui
 
+import local.waarp.android.i18n.localized
+
 import android.content.Context
 import android.graphics.RectF
 import androidx.compose.foundation.layout.*
@@ -73,8 +75,8 @@ internal fun rememberAtlasRegion(): AtlasRegionPreference {
 @Composable
 internal fun AtlasViewChoice(map: Boolean, onMap: (Boolean) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(!map, onClick = { onMap(false) }, label = { Text("Список") }, modifier = Modifier.heightIn(min = 48.dp))
-        FilterChip(map, onClick = { onMap(true) }, label = { Text("Карта") }, modifier = Modifier.heightIn(min = 48.dp))
+        FilterChip(!map, onClick = { onMap(false) }, label = { Text(localized("AtlasMap.0c2cddf1db8b", "Список")) }, modifier = Modifier.heightIn(min = 48.dp))
+        FilterChip(map, onClick = { onMap(true) }, label = { Text(localized("AtlasMap.b37c79a3043e", "Карта")) }, modifier = Modifier.heightIn(min = 48.dp))
     }
 }
 
@@ -106,7 +108,7 @@ internal fun AtlasMap(nodes: List<AtlasNode>, country: String, onCountry: (Strin
     val unknown = remember(grouped, available) { grouped.filterKeys { it.isBlank() || available?.anchors?.containsKey(it) == false }.values.sumOf { it.size } }
     val onCountryNow by rememberUpdatedState(onCountry)
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Узлы сгруппированы по указанной стране. Точка обозначает регион, а не точное местоположение сервера.",
+        Text(localized("AtlasMap.5dad0c42ecd7", "Узлы сгруппированы по указанной стране. Точка обозначает регион, а не точное местоположение сервера."),
             style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
         if (available != null && !failure) {
             val markers = remember(grouped, available) {
@@ -132,31 +134,31 @@ internal fun AtlasMap(nodes: List<AtlasNode>, country: String, onCountry: (Strin
             }
             NativeAtlas(available.world, markers, selectedFeatures, logicalRoute,
                 { onCountryNow(it) }, { failure = true }, Modifier.fillMaxWidth().height(260.dp))
-            Text("Natural Earth · локальная карта", style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
+            Text(localized("AtlasMap.cab99ff95683", "Natural Earth · локальная карта"), style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(onClick = { locationExpanded = !locationExpanded }, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(if (userCountry.isBlank()) "Указать мой регион" else "Вы: ${countryName(userCountry)}")
+                    Text(if (userCountry.isBlank()) localized("AtlasMap.d71a02efc10d", "Указать мой регион") else localized("AtlasMap.0f1a0931bede", "Вы: {arg1}", countryName(userCountry)))
                 }
-                if (country.isNotBlank()) TextButton(onClick = { onCountry("") }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Все регионы") }
+                if (country.isNotBlank()) TextButton(onClick = { onCountry("") }, modifier = Modifier.heightIn(min = 48.dp)) { Text(localized("AtlasMap.f1eff1373d00", "Все регионы")) }
             }
-            if (locationExpanded) PathField("Мой регион · вручную", userCountry,
-                listOf(PathChoice("", "Не указан", "")) + available.anchors.keys.sortedBy(::countryName).map { PathChoice(it, countryName(it), "") }) {
+            if (locationExpanded) PathField(localized("AtlasMap.1471dd5eb8e8", "Мой регион · вручную"), userCountry,
+                listOf(PathChoice("", localized("AtlasMap.494fb19e25de", "Не указан"), "")) + available.anchors.keys.sortedBy(::countryName).map { PathChoice(it, countryName(it), "") }) {
                 userRegion.choose(it); locationExpanded = false
             }
-            if (userCountry.isNotBlank() && country in available.anchors) Text("Линия показывает выбранное направление. Фактический путь пакетов не измерен.",
+            if (userCountry.isNotBlank() && country in available.anchors) Text(localized("AtlasMap.c7959ea5c480", "Линия показывает выбранное направление. Фактический путь пакетов не измерен."),
                 style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
             val region = grouped[country]
-            if (region != null) Text("${countryName(country)} · ${region.size} узлов · HTTPS-проверку прошли ${region.count { it.healthy }}",
+            if (region != null) Text(localized("AtlasMap.8a567387ab40", "{arg1} · {arg2} узлов · HTTPS-проверку прошли {arg3}", countryName(country), region.size, region.count { it.healthy }),
                 style = MaterialTheme.typography.bodySmall)
             // A regular, accessible selector is equivalent to tapping a circle; map gestures are optional.
-            if (showRegionSelector) PathField("Показать регион", country, listOf(PathChoice("", "Все регионы", "")) +
-                grouped.keys.filter { it in available.anchors }.sortedBy(::countryName).map { PathChoice(it, countryName(it), "${grouped[it].orEmpty().size} узлов") } +
-                if (unknown > 0) listOf(PathChoice(ATLAS_UNKNOWN, "Без географии", "$unknown узлов")) else emptyList()) { onCountry(it) }
+            if (showRegionSelector) PathField(localized("AtlasMap.1e0259a4ff49", "Показать регион"), country, listOf(PathChoice("", localized("AtlasMap.f1eff1373d00", "Все регионы"), "")) +
+                grouped.keys.filter { it in available.anchors }.sortedBy(::countryName).map { PathChoice(it, countryName(it), localized("AtlasMap.86352b001ecd", "{arg1} узлов", grouped[it].orEmpty().size)) } +
+                if (unknown > 0) listOf(PathChoice(ATLAS_UNKNOWN, localized("AtlasMap.bfbb3386ccab", "Без географии"), localized("AtlasMap.ff0d2b36ea1e", "{arg1} узлов", unknown))) else emptyList()) { onCountry(it) }
         } else if (failure) {
-            InlineMessage("Карта недоступна на этом устройстве. Подключения доступны в списке ниже.")
-            if (country.isNotBlank()) TextButton(onClick = { onCountry("") }) { Text("Показать все подключения") }
+            InlineMessage(localized("AtlasMap.662fc4b52696", "Карта недоступна на этом устройстве. Подключения доступны в списке ниже."))
+            if (country.isNotBlank()) TextButton(onClick = { onCountry("") }) { Text(localized("AtlasMap.349f061ace40", "Показать все подключения")) }
         } else LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (unknown > 0) Text("Без подтверждённого региона: $unknown. Эти узлы остаются доступны в списке.",
+        if (unknown > 0) Text(localized("AtlasMap.07d4abb36991", "Без подтверждённого региона: {arg1}. Эти узлы остаются доступны в списке.", unknown),
             style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
     }
 }
@@ -228,8 +230,8 @@ private fun NativeAtlas(world: String, markers: String, selected: String, route:
         }
         view
     }, modifier = modifier.testTag("waarp-atlas-map").semantics {
-        contentDescription = "Карта регионов"
-        stateDescription = if (rendered) "Локальная карта загружена" else "Загрузка локальной карты"
+        contentDescription = localized("AtlasMap.49c4c68a92aa", "Карта регионов")
+        stateDescription = if (rendered) localized("AtlasMap.0cb9ea3fd38f", "Локальная карта загружена") else localized("AtlasMap.7a82e625c9b2", "Загрузка локальной карты")
     }, update = { })
     LaunchedEffect(map, ready, markers, selected, route) {
         if (alive && ready) map?.style?.let { style ->

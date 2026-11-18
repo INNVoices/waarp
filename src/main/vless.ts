@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 import type { VlessFields, VlessNetwork, VlessProfile, VlessSecurity, VlessXhttpExtra } from '../shared/vless-types'
 import { lookup } from 'node:dns/promises'
 import type { LookupAddress } from 'node:dns'
@@ -97,43 +98,43 @@ function label(f: VlessFields): string {
   return ['VLESS', sec, f.network === 'tcp' ? '' : f.network.toUpperCase()].filter(Boolean).join(' · ')
 }
 
-export function parseVless(raw: string, fallbackName = 'Сервер'): VlessProfile {
+export function parseVless(raw: string, fallbackName = localized("winInline.vless.913477e143c3")): VlessProfile {
   const link = raw.trim()
   const m = link.match(LINK)
-  if (!m) throw new ConfError('Ссылка vless:// не читается. Нужен вид vless://uuid@host:port?…')
+  if (!m) throw new ConfError(localized("winInline.vless.e1f6c6b5f56c"))
   let uuid: string
   try { uuid = decodeURIComponent(m[1]) } catch { uuid = m[1] }
-  if (!UUID.test(uuid)) throw new ConfError('В ссылке нет корректного uuid')
+  if (!UUID.test(uuid)) throw new ConfError(localized("winInline.vless.3abbfc69f6aa"))
   const port = Number(m[3])
-  if (!(port >= 1 && port <= 65535)) throw new ConfError('Порт в ссылке должен быть от 1 до 65535')
+  if (!(port >= 1 && port <= 65535)) throw new ConfError(localized("winInline.vless.22e09e8fbc70"))
   const server = m[2].replace(/^\[|\]$/g, '')
   const q = new URLSearchParams(m[4] ?? '')
   const g = (k: string) => q.get(k)?.trim() || undefined
   const notApplied: string[] = []
 
   const security = (g('security') ?? 'none').toLowerCase()
-  if (security !== 'reality' && security !== 'tls' && security !== 'none') throw new ConfError(`Защита security=${security} не поддерживается`)
+  if (security !== 'reality' && security !== 'tls' && security !== 'none') throw new ConfError(localized("winInline.vless.35274e6dcdad", security))
 
   const typeRaw = (g('type') ?? 'tcp').toLowerCase()
   const typeMap: Record<string, VlessNetwork> = { tcp: 'tcp', raw: 'tcp', xhttp: 'xhttp', splithttp: 'xhttp', ws: 'ws', grpc: 'grpc' }
   const network = typeMap[typeRaw]
-  if (!network) throw new ConfError(`Транспорт type=${typeRaw} не поддерживается. Есть xhttp, tcp, ws, grpc`)
+  if (!network) throw new ConfError(localized("winInline.vless.30eb7e6d4c98", typeRaw))
 
   const fp = (g('fp') || DEFAULT_FP).toLowerCase()
-  if (!FPS.includes(fp)) throw new ConfError(`Отпечаток fp=${fp} не поддерживается`)
+  if (!FPS.includes(fp)) throw new ConfError(localized("winInline.vless.09d2d4fe0549", fp))
 
   const pbk = g('pbk')
   const sid = g('sid') ?? ''
   const sni = g('sni')
   if (security === 'reality') {
-    if (!pbk) throw new ConfError('В ссылке нет pbk (публичный ключ REALITY)')
-    if (!PBK.test(pbk)) throw new ConfError('pbk не похож на ключ REALITY (нужно 43 символа base64url)')
-    if (!SID.test(sid)) throw new ConfError('sid должен быть hex чётной длины, до 16 символов')
-    if (!sni) throw new ConfError('В ссылке нет sni для REALITY')
+    if (!pbk) throw new ConfError(localized("winInline.vless.1ff6ab28ec5f"))
+    if (!PBK.test(pbk)) throw new ConfError(localized("winInline.vless.9c711df12c91"))
+    if (!SID.test(sid)) throw new ConfError(localized("winInline.vless.70d02b0352ca"))
+    if (!sni) throw new ConfError(localized("winInline.vless.cce2ea725378"))
   }
 
   const mode = g('mode')
-  if (mode && network === 'xhttp' && !MODES.includes(mode)) throw new ConfError(`Режим mode=${mode} не поддерживается. Есть ${MODES.join(', ')}`)
+  if (mode && network === 'xhttp' && !MODES.includes(mode)) throw new ConfError(localized("winInline.vless.5649c258d5b2", mode, MODES.join(', ')))
 
   const spx = g('spx')
   if (spx && spx !== '/') notApplied.push('spx')
@@ -195,10 +196,10 @@ export function parseSubscription(text: string): SubResult {
     n++
     if (!/^vless:\/\//i.test(line)) { skipped++; continue }
     try {
-      items.push(parseVless(line, `Сервер ${n}`))
+      items.push(parseVless(line, localized("winInline.vless.5dbcbe0b20c9", n)))
     } catch (e) {
       skipped++
-      errors.push(`${n}: ${e instanceof ConfError ? e.message : 'не прочиталась'}`)
+      errors.push(`${n}: ${e instanceof ConfError ? e.message : localized("winInline.vless.ae064d969d6e")}`)
     }
   }
   return { items, skipped, errors }
@@ -271,9 +272,9 @@ export type PinnedHttpGet = ((url: URL, addresses: readonly LookupAddress[], sig
 export interface FetchOpts { fetchImpl?: typeof fetch; transport?: PinnedHttpGet; signal?: AbortSignal; timeoutMs?: number; maxBytes?: number; maxRedirects?: number }
 
 function checkUrl(u: URL) {
-  if (u.protocol !== 'https:') throw new ConfError('Подписка должна быть по https')
-  if (u.username || u.password) throw new ConfError('Логин и пароль в адресе подписки не поддерживаются')
-  if (PRIVATE_HOST.test(hostnameOf(u).replace(/\.$/, '')) || privateIp(hostnameOf(u))) throw new ConfError('Адрес подписки указывает на локальную сеть')
+  if (u.protocol !== 'https:') throw new ConfError(localized("winInline.vless.292450540c4b"))
+  if (u.username || u.password) throw new ConfError(localized("winInline.vless.8a3af3791263"))
+  if (PRIVATE_HOST.test(hostnameOf(u).replace(/\.$/, '')) || privateIp(hostnameOf(u))) throw new ConfError(localized("winInline.vless.45aca8acbf42"))
 }
 
 function privateIp(address: string): boolean {
@@ -294,13 +295,13 @@ function untilAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
 export async function resolvedPublic(u: URL, signal: AbortSignal, resolve?: PublicResolver): Promise<LookupAddress[]> {
   const hostname = hostnameOf(u)
   if (isIP(hostname)) {
-    if (privateIp(hostname)) throw new ConfError('Адрес подписки указывает на локальную сеть')
+    if (privateIp(hostname)) throw new ConfError(localized("winInline.vless.45aca8acbf42"))
     return [{ address: hostname, family: isIP(hostname) }]
   }
   let addresses: { address: string; family: number }[]
   try { addresses = await untilAbort(resolve ? resolve(hostname, signal) : lookup(hostname, { all: true, verbatim: true }), signal) }
-  catch (error) { if (signal.aborted) throw error; throw new ConfError('Не удалось определить адрес сервера подписки') }
-  if (!addresses.length || addresses.some(x => !isIP(x.address) || isIP(x.address) !== x.family || privateIp(x.address))) throw new ConfError('Адрес подписки указывает на локальную сеть или ответ DNS не прочитался')
+  catch (error) { if (signal.aborted) throw error; throw new ConfError(localized("winInline.vless.b837a3ecfd0d")) }
+  if (!addresses.length || addresses.some(x => !isIP(x.address) || isIP(x.address) !== x.family || privateIp(x.address))) throw new ConfError(localized("winInline.vless.3a21937ddb10"))
   return addresses
 }
 
@@ -309,7 +310,7 @@ export function pinnedAddressLookup(addresses: readonly LookupAddress[]): Lookup
   return (_hostname, options, callback) => {
     const family = options.family === 'IPv4' ? 4 : options.family === 'IPv6' ? 6 : options.family
     const candidates = addresses.filter(address => !family || address.family === family)
-    if (!candidates.length) { callback(Object.assign(new Error('No checked address for this family'), { code: 'ENOTFOUND' }), []); return }
+    if (!candidates.length) { callback(Object.assign(new Error(localized("winInline.vless.7a64d05353d1")), { code: 'ENOTFOUND' }), []); return }
     // Node's dual-stack connector requests all:true. Returning a string there breaks every HTTPS dial.
     if (options.all) callback(null, candidates)
     else callback(null, candidates[0].address, candidates[0].family)
@@ -349,7 +350,7 @@ export async function fetchSubscription(url: string, o: FetchOpts = {}): Promise
   const signal = o.signal ? AbortSignal.any([o.signal, ctl.signal]) : ctl.signal
   try {
     let cur: URL
-    try { cur = new URL(url.trim()) } catch { throw new ConfError('Ссылка на подписку не читается') }
+    try { cur = new URL(url.trim()) } catch { throw new ConfError(localized("winInline.vless.f863555df694")) }
     for (let hop = 0; ; hop++) {
       checkUrl(cur)
       let res: Response
@@ -360,29 +361,29 @@ export async function fetchSubscription(url: string, o: FetchOpts = {}): Promise
           : o.fetchImpl ? f(cur.toString(), { redirect: 'manual', signal }) : pinnedFetch(cur, signal), signal)
       } catch (e) {
         if (e instanceof ConfError) throw e
-        throw new ConfError(signal.aborted ? 'Загрузка подписки отменена или не завершилась вовремя' : 'Не удалось загрузить подписку')
+        throw new ConfError(signal.aborted ? localized("winInline.vless.8310d90db1ba") : localized("winInline.vless.2bb319d6d69d"))
       }
       if (res.status >= 300 && res.status < 400) {
         const loc = res.headers.get('location')
         void res.body?.cancel().catch(() => undefined)
-        if (!loc || hop >= (o.maxRedirects ?? 3)) throw new ConfError('Слишком много перенаправлений подписки')
-        try { cur = new URL(loc, cur) } catch { throw new ConfError('Перенаправление подписки не читается') }
+        if (!loc || hop >= (o.maxRedirects ?? 3)) throw new ConfError(localized("winInline.vless.80d0c9e52522"))
+        try { cur = new URL(loc, cur) } catch { throw new ConfError(localized("winInline.vless.f67f5fc89b2c")) }
         continue
       }
-      if (!res.ok) { void res.body?.cancel().catch(() => undefined); throw new ConfError(`Подписка ответила кодом ${res.status}`) }
+      if (!res.ok) { void res.body?.cancel().catch(() => undefined); throw new ConfError(localized("winInline.vless.48a74867ccfb", res.status)) }
       const len = Number(res.headers.get('content-length'))
-      if (Number.isFinite(len) && len > max) { void res.body?.cancel().catch(() => undefined); throw new ConfError('Подписка слишком большая (больше 1 МБ)') }
-      if (!res.body) throw new ConfError('Подписка не вернула поток данных')
+      if (Number.isFinite(len) && len > max) { void res.body?.cancel().catch(() => undefined); throw new ConfError(localized("winInline.vless.0ecf244fee6b")) }
+      if (!res.body) throw new ConfError(localized("winInline.vless.8b4659df1f00"))
       const chunks: Uint8Array[] = []
       let size = 0
       const reader = res.body.getReader()
       try {
         for (;;) {
           let r: ReadableStreamReadResult<Uint8Array>
-          try { r = await untilAbort(reader.read(), signal) } catch { throw new ConfError(signal.aborted ? 'Загрузка подписки отменена или не завершилась вовремя' : 'Подписка оборвалась') }
+          try { r = await untilAbort(reader.read(), signal) } catch { throw new ConfError(signal.aborted ? localized("winInline.vless.8310d90db1ba") : localized("winInline.vless.8e5e92df1ece")) }
           if (r.done) break
           size += r.value.length
-          if (size > max) throw new ConfError('Подписка слишком большая (больше 1 МБ)')
+          if (size > max) throw new ConfError(localized("winInline.vless.0ecf244fee6b"))
           chunks.push(r.value)
         }
       } finally { void reader.cancel().catch(() => undefined); reader.releaseLock() }

@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 import type { AwgProfile, Group, Profile, Route, Settings, Via } from '../shared/types'
 import { PRESETS } from '../shared/presets'
 import { dedupeApps } from '../shared/appmatch'
@@ -67,19 +68,19 @@ export function migrate(raw: any, firstProfile?: string): Settings {
 export function normalizeProfile(p: Profile): Profile {
   const value = p.kind ? p : { ...(p as AwgProfile), kind: 'awg' as const }
   const base = value && typeof value === 'object' && typeof value.id === 'string' && value.id.length > 0 && value.id.length <= 80 && typeof value.name === 'string' && value.name.length <= 80 && typeof value.addedAt === 'number'
-  if (!base) throw new Error('Invalid stored profile')
+  if (!base) throw new Error(localized("winInline.store-core.01b341f41947"))
   if (value.kind === 'awg') {
-    if (!Array.isArray(value.address) || typeof value.privateKey !== 'string' || !value.peer || typeof value.peer.host !== 'string' || !Number.isInteger(value.peer.port) || value.peer.port < 1 || value.peer.port > 65535) throw new Error('Invalid stored WireGuard profile')
+    if (!Array.isArray(value.address) || typeof value.privateKey !== 'string' || !value.peer || typeof value.peer.host !== 'string' || !Number.isInteger(value.peer.port) || value.peer.port < 1 || value.peer.port > 65535) throw new Error(localized("winInline.store-core.a54476945e4e"))
     // Absence is the old importer format. An invalid present field must never silently become full-route.
     if (value.peer.allowedIPs !== undefined) {
-      if (!Array.isArray(value.peer.allowedIPs) || !value.peer.allowedIPs.length || !value.peer.allowedIPs.every(validIpPrefix)) throw new Error('Invalid stored WireGuard AllowedIPs')
+      if (!Array.isArray(value.peer.allowedIPs) || !value.peer.allowedIPs.length || !value.peer.allowedIPs.every(validIpPrefix)) throw new Error(localized("winInline.store-core.4848f1f61a46"))
     }
-    if (value.listenPort !== undefined && (!Number.isInteger(value.listenPort) || value.listenPort < 0 || value.listenPort > 65535)) throw new Error('Invalid stored WireGuard ListenPort')
+    if (value.listenPort !== undefined && (!Number.isInteger(value.listenPort) || value.listenPort < 0 || value.listenPort > 65535)) throw new Error(localized("winInline.store-core.f6359187ab32"))
   } else if (value.kind === 'vless') {
-    if (!value.vless || typeof value.vless.server !== 'string' || !Number.isInteger(value.vless.port) || value.vless.port < 1 || value.vless.port > 65535 || typeof value.vless.uuid !== 'string') throw new Error('Invalid stored VLESS profile')
+    if (!value.vless || typeof value.vless.server !== 'string' || !Number.isInteger(value.vless.port) || value.vless.port < 1 || value.vless.port > 65535 || typeof value.vless.uuid !== 'string') throw new Error(localized("winInline.store-core.35c62e94083f"))
   } else if (value.kind === 'out') {
     const allowed = new Set(['vmess', 'trojan', 'shadowsocks', 'hysteria2', 'tuic', 'masque'])
-    if (typeof value.host !== 'string' || !Number.isInteger(value.port) || value.port < 1 || value.port > 65535 || !value.outbound || typeof value.outbound !== 'object' || !allowed.has(String(value.outbound.type)) || value.outbound.server !== value.host || value.outbound.server_port !== value.port) throw new Error('Invalid stored outbound profile')
+    if (typeof value.host !== 'string' || !Number.isInteger(value.port) || value.port < 1 || value.port > 65535 || !value.outbound || typeof value.outbound !== 'object' || !allowed.has(String(value.outbound.type)) || value.outbound.server !== value.host || value.outbound.server_port !== value.port) throw new Error(localized("winInline.store-core.1c68fc63b9b5"))
     // Re-validate the same restricted native schema after decrypting persistence. A round trip
     // must retain a valid imported MASQUE node, without making saved JSON a bypass for import checks.
     if (value.outbound.type === 'masque') {
@@ -87,8 +88,8 @@ export function normalizeProfile(p: Profile): Profile {
       return { ...value, host: checked.host, port: checked.port, outbound: checked.outbound }
     }
   } else if (value.kind === 'openvpn') {
-    if (typeof value.host !== 'string' || !Number.isInteger(value.port) || value.port < 1 || value.port > 65535 || !value.endpoint || value.endpoint.type !== 'openvpn-client') throw new Error('Invalid stored OpenVPN profile')
-  } else throw new Error('Unknown stored profile kind')
+    if (typeof value.host !== 'string' || !Number.isInteger(value.port) || value.port < 1 || value.port > 65535 || !value.endpoint || value.endpoint.type !== 'openvpn-client') throw new Error(localized("winInline.store-core.e835efce7c3b"))
+  } else throw new Error(localized("winInline.store-core.b9acbe462e7c"))
   return value
 }
 

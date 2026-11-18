@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.data
 
+import local.waarp.android.i18n.localized
+
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
@@ -19,27 +21,27 @@ internal object MasqueImporter {
     private val tlsFields = setOf("enabled", "server_name", "disable_sni", "insecure", "fragment", "record_fragment", "fragment_fallback_delay")
     fun matches(raw: String) = raw.trimStart().let { it.startsWith('{') || it.startsWith('[') } && Regex("\"type\"\\s*:\\s*\"masque\"").containsMatchIn(raw)
     private fun keys(j: JSONObject, allowed: Set<String>) {
-        require(j.keys().asSequence().all { it in allowed }) { "MASQUE: неподдерживаемые поля; нужен outbound без маршрутов, файлов и listener" }
+        require(j.keys().asSequence().all { it in allowed }) { localized("MasqueImporter.7f4cf2040335", "MASQUE: неподдерживаемые поля; нужен outbound без маршрутов, файлов и listener") }
     }
     private fun text(v: Any, max: Int = 4096): String {
-        require(v is String && v.isNotEmpty() && v.length <= max && v.none { it.code < 32 || it.code == 127 }) { "MASQUE: некорректное текстовое поле" }
+        require(v is String && v.isNotEmpty() && v.length <= max && v.none { it.code < 32 || it.code == 127 }) { localized("MasqueImporter.84e56f575b3b", "MASQUE: некорректное текстовое поле") }
         return v
     }
     private fun integer(v: Any, min: Int, max: Int): Int {
-        require(v is Number && v.toDouble() == v.toInt().toDouble() && v.toInt() in min..max) { "MASQUE: некорректный порт или MTU" }
+        require(v is Number && v.toDouble() == v.toInt().toDouble() && v.toInt() in min..max) { localized("MasqueImporter.4493bbfe772d", "MASQUE: некорректный порт или MTU") }
         return v.toInt()
     }
     private fun prefix(v: Any, ipv6: Boolean): String {
         val raw = text(v, 64)
-        require(raw.substringBefore('/').contains(':') == ipv6) { "MASQUE: неверное семейство внутреннего IP-адреса" }
+        require(raw.substringBefore('/').contains(':') == ipv6) { localized("MasqueImporter.c8d7544d5f80", "MASQUE: неверное семейство внутреннего IP-адреса") }
         return AddressRules.prefix(raw)
     }
     private fun duration(v: Any, negative: Boolean = false): String {
         val s = text(v, 16)
         if (s == "0" || negative && s == "-1s") return s
-        val match = Regex("([0-9]+)(ms|s|m|h)").matchEntire(s) ?: error("MASQUE: некорректный интервал")
+        val match = Regex("([0-9]+)(ms|s|m|h)").matchEntire(s) ?: error(localized("MasqueImporter.cb5cf88b724a", "MASQUE: некорректный интервал"))
         val factor = when (match.groupValues[2]) { "ms" -> .001; "s" -> 1.0; "m" -> 60.0; else -> 3600.0 }
-        require((match.groupValues[1].toDoubleOrNull() ?: Double.POSITIVE_INFINITY) * factor <= 86400) { "MASQUE: интервал больше 24 часов" }
+        require((match.groupValues[1].toDoubleOrNull() ?: Double.POSITIVE_INFINITY) * factor <= 86400) { localized("MasqueImporter.a94e3da0714b", "MASQUE: интервал больше 24 часов") }
         return s
     }
     fun parse(raw: String, name: String, limit: Int): ImportResult {
@@ -50,7 +52,7 @@ internal object MasqueImporter {
             root is JSONObject && root.has("outbounds") -> { keys(root, setOf("outbounds")); root.getJSONArray("outbounds") }
             else -> JSONArray().put(root)
         }
-        require(nodes.length() in 1..64) { "MASQUE: допустимо от 1 до 64 outbound-профилей" }
+        require(nodes.length() in 1..64) { localized("MasqueImporter.b6690d53bd04", "MASQUE: допустимо от 1 до 64 outbound-профилей") }
         val profiles = nodes.objects().map(::node)
         val count = limit.coerceIn(0, 64)
         val accepted = profiles.take(count)
@@ -59,33 +61,33 @@ internal object MasqueImporter {
     }
     private fun node(raw: JSONObject): TunnelProfile {
         keys(raw, fields)
-        require(raw.opt("type") == "masque") { "MASQUE: ожидался outbound с type: masque" }
+        require(raw.opt("type") == "masque") { localized("MasqueImporter.b2fbe202fb52", "MASQUE: ожидался outbound с type: masque") }
         val host = ProfileImporter.host(text(raw.get("server"), 253))
         val port = if (raw.has("server_port")) integer(raw.get("server_port"), 1, 65535) else 443
         val profile = if (raw.has("profile")) text(raw.get("profile"), 20) else "cloudflare"
-        require(profile in setOf("cloudflare", "standard")) { "MASQUE: profile должен быть cloudflare или standard" }
+        require(profile in setOf("cloudflare", "standard")) { localized("MasqueImporter.dbc0dd0db611", "MASQUE: profile должен быть cloudflare или standard") }
         val vhttp = if (raw.has("vhttp")) text(raw.get("vhttp"), 8) else if (profile == "standard") "h3" else "auto"
-        require(vhttp in setOf("auto", "h3", "h2") && (profile != "standard" || vhttp == "h3")) { "MASQUE: standard поддерживает только h3; cloudflare — auto, h3 или h2" }
+        require(vhttp in setOf("auto", "h3", "h2") && (profile != "standard" || vhttp == "h3")) { localized("MasqueImporter.f40244fc8eef", "MASQUE: standard поддерживает только h3; cloudflare — auto, h3 или h2") }
         val ip = if (raw.has("ip")) prefix(raw.get("ip"), false) else null
         val ipv6 = if (raw.has("ipv6")) prefix(raw.get("ipv6"), true) else null
-        require(ip != null || ipv6 != null) { "MASQUE: нужен внутренний ip или ipv6 из конфигурации" }
-        require(profile != "cloudflare" || raw.has("private_key") && raw.has("public_key")) { "MASQUE: нужны личный private_key и public_key сервера из регистрации WARP" }
+        require(ip != null || ipv6 != null) { localized("MasqueImporter.ee8db16d7547", "MASQUE: нужен внутренний ip или ipv6 из конфигурации") }
+        require(profile != "cloudflare" || raw.has("private_key") && raw.has("public_key")) { localized("MasqueImporter.5912831f28bd", "MASQUE: нужны личный private_key и public_key сервера из регистрации WARP") }
         val out = obj("type" to "masque", "server" to host, "server_port" to port, "profile" to profile, "vhttp" to vhttp, "ip" to ip, "ipv6" to ipv6)
         listOf("private_key", "public_key").forEach { field -> if (raw.has(field)) out.put(field, MasqueKeys.validate(text(raw.get(field)), field == "private_key")) }
         if (raw.has("uri")) {
             val value = text(raw.get("uri")); val uri = URI(value)
-            require(uri.scheme == "https" && !uri.host.isNullOrEmpty() && uri.rawUserInfo == null && uri.rawFragment == null) { "MASQUE: CONNECT-IP URI должен быть HTTPS без пароля и fragment" }
+            require(uri.scheme == "https" && !uri.host.isNullOrEmpty() && uri.rawUserInfo == null && uri.rawFragment == null) { localized("MasqueImporter.51b343d36cb1", "MASQUE: CONNECT-IP URI должен быть HTTPS без пароля и fragment") }
             out.put("uri", value)
-        } else require(profile != "standard") { "MASQUE: для standard нужен URI сервера CONNECT-IP" }
+        } else require(profile != "standard") { localized("MasqueImporter.ad612339c393", "MASQUE: для standard нужен URI сервера CONNECT-IP") }
         out.put("mtu", if (raw.has("mtu")) integer(raw.get("mtu"), if (ipv6 != null) 1280 else 576, 9000) else 1280)
         val tls = if (raw.has("tls")) raw.getJSONObject("tls") else JSONObject()
         keys(tls, tlsFields)
-        require(!tls.has("enabled") || tls.get("enabled") == true) { "MASQUE: TLS нельзя отключить" }
-        require(!tls.has("insecure") || tls.get("insecure") == false) { "MASQUE: проверка сертификата или ключа сервера обязательна" }
+        require(!tls.has("enabled") || tls.get("enabled") == true) { localized("MasqueImporter.612916f8e666", "MASQUE: TLS нельзя отключить") }
+        require(!tls.has("insecure") || tls.get("insecure") == false) { localized("MasqueImporter.93679b483c07", "MASQUE: проверка сертификата или ключа сервера обязательна") }
         val safeTls = obj("enabled" to true)
         listOf("disable_sni", "fragment", "record_fragment").forEach { field -> if (tls.has(field)) {
-            val value = tls.get(field); require(value is Boolean) { "MASQUE: TLS-флаг должен быть true или false" }
-            require(field == "disable_sni" || !value || vhttp != "h3") { "MASQUE: фрагментация TLS не применяется к HTTP/3" }
+            val value = tls.get(field); require(value is Boolean) { localized("MasqueImporter.66333728ff73", "MASQUE: TLS-флаг должен быть true или false") }
+            require(field == "disable_sni" || !value || vhttp != "h3") { localized("MasqueImporter.afaa181abfca", "MASQUE: фрагментация TLS не применяется к HTTP/3") }
             safeTls.put(field, value)
         } }
         if (tls.has("server_name")) safeTls.put("server_name", ProfileImporter.host(text(tls.get("server_name"), 253)))
@@ -96,7 +98,7 @@ internal object MasqueImporter {
         if (raw.has("network_list")) {
             val value = raw.get("network_list")
             val values = if (value is String) listOf(value) else (value as? JSONArray)?.let { a -> (0 until a.length()).map { a.get(it) } }
-            require(values != null && values.size in 1..2 && values.all { it in setOf("tcp", "udp") } && values.distinct().size == values.size) { "MASQUE: network_list должен содержать tcp и/или udp" }
+            require(values != null && values.size in 1..2 && values.all { it in setOf("tcp", "udp") } && values.distinct().size == values.size) { localized("MasqueImporter.7fb24c494e88", "MASQUE: network_list должен содержать tcp и/или udp") }
             out.put("network_list", jsonArray(values))
         }
         return TunnelProfile(name = ProfileImporter.name(raw.optString("tag"), "MASQUE $host"),
@@ -157,7 +159,7 @@ private object MasqueKeys {
                 require(x.signum() >= 0 && x < modulus && y.signum() >= 0 && y < modulus)
                 require(y.multiply(y).mod(modulus) == x.multiply(x).multiply(x).add(key.params.curve.a.multiply(x)).add(key.params.curve.b).mod(modulus))
             }
-        } catch (_: Exception) { error(if (private) "MASQUE: некорректный приватный EC-ключ (SEC1)" else "MASQUE: некорректный публичный EC-ключ (SPKI)") }
+        } catch (_: Exception) { error(if (private) localized("MasqueImporter.c71c95fa3242", "MASQUE: некорректный приватный EC-ключ (SEC1)") else localized("MasqueImporter.0fe4bcfe1b37", "MASQUE: некорректный публичный EC-ключ (SPKI)")) }
         return raw
     }
 }

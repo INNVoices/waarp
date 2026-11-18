@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 import type { Phase } from '../shared/types'
 import type { Prepared } from './connect'
 
@@ -37,7 +38,7 @@ export class ConnectionControl {
 
   /** Called from inside the shared mutation queue. It never reopens a user-closed master. */
   async reconnect(revision = this.revision, options: { restart?: boolean; preserveIntent?: boolean; retainCore?: boolean; beforeStart?: () => boolean } = {}): Promise<ConnectionResult> {
-    const canceled = (): ConnectionResult => ({ ok: false, error: 'Подключение отменено' })
+    const canceled = (): ConnectionResult => ({ ok: false, error: localized("winInline.connection-control.dd88cb45e978") })
     const current = () => this.current(revision) && (!options.beforeStart || options.beforeStart())
     if (!current()) return canceled()
     const keepPreparedSession = options.preserveIntent && this.d.phase() === 'on'
@@ -47,7 +48,7 @@ export class ConnectionControl {
       if (!this.current(revision)) return canceled()
       const phase = this.d.phase()
       if (phase === 'error' || phase === 'stopping')
-        return { ok: false, error: this.d.error() ?? 'Текущий VPN не подтвердил состояние; требуется действие пользователя' }
+        return { ok: false, error: this.d.error() ?? localized("winInline.connection-control.9ce1acd606b7") }
       return { ok: true }
     }
     try {
@@ -67,22 +68,22 @@ export class ConnectionControl {
       if (!this.current(revision)) return canceled()
       if (!starting && !current()) return canceled()
       if (this.d.phase() === 'on') return { ok: true }
-      const error = this.d.error() ?? 'Туннель не запустился. Проверь подключение и попробуй снова'
+      const error = this.d.error() ?? localized("winInline.connection-control.dc36b6426b6c")
       if (!options.preserveIntent) this.set(false)
       return { ok: false, error }
     } catch {
       if (!this.current(revision)) return canceled()
       if (!options.preserveIntent) this.set(false)
       if (starting || !keepPreparedSession) await this.d.stop().catch(() => false)
-      return { ok: false, error: 'Не удалось подключиться. Проверь сеть и повтори попытку' }
+      return { ok: false, error: localized("winInline.connection-control.b521a8a413ca") }
     }
   }
 
   async disconnect(): Promise<ConnectionResult> {
     this.set(false)
     try {
-      return await this.d.stop() ? { ok: true } : { ok: false, error: this.d.error() ?? 'Не удалось подтвердить остановку туннеля' }
-    } catch { return { ok: false, error: 'Не удалось подтвердить остановку туннеля' } }
+      return await this.d.stop() ? { ok: true } : { ok: false, error: this.d.error() ?? localized("winInline.connection-control.c0aabad2ad21") }
+    } catch { return { ok: false, error: localized("winInline.connection-control.c0aabad2ad21") } }
   }
 
   toggle(): Promise<ConnectionResult> {

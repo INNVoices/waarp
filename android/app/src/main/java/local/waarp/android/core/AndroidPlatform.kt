@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.core
 
+import local.waarp.android.i18n.localized
+
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.InetAddresses
@@ -71,19 +73,19 @@ internal class AndroidPlatform(
     override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
 
     override fun autoDetectInterfaceControl(fd: Int) {
-        if (!current()) throw IOException("Запуск отменён")
+        if (!current()) throw IOException(localized("AndroidPlatform.aaf1671128b6", "Запуск отменён"))
         // Headless checks run only while our VPN is OFF, so their sockets cannot loop into it.
-        if (vpn != null && !vpn.protect(fd)) throw IOException("Android не разрешил защитить сокет VPN")
+        if (vpn != null && !vpn.protect(fd)) throw IOException(localized("AndroidPlatform.7f167f3f85f2", "Android не разрешил защитить сокет VPN"))
     }
 
     override fun openTun(options: TunOptions): Int {
-        val vpn = vpn ?: throw IOException("Проверка профиля не может создавать TUN")
-        if (!current()) throw IOException("Запуск отменён")
-        check(VpnService.prepare(vpn) == null) { "Разрешение VPN отозвано" }
+        val vpn = vpn ?: throw IOException(localized("AndroidPlatform.60a7bd99d664", "Проверка профиля не может создавать TUN"))
+        if (!current()) throw IOException(localized("AndroidPlatform.1fe16c5a72be", "Запуск отменён"))
+        check(VpnService.prepare(vpn) == null) { localized("AndroidPlatform.3aa1c0ee2420", "Разрешение VPN отозвано") }
         val builder = vpn.Builder().setSession("Waarp").setMtu(options.mtu).setMetered(false)
         val addresses4 = options.inet4Address.toPrefixes()
         val addresses6 = options.inet6Address.toPrefixes()
-        require(addresses4.isNotEmpty() || addresses6.isNotEmpty()) { "Для TUN не указан адрес" }
+        require(addresses4.isNotEmpty() || addresses6.isNotEmpty()) { localized("AndroidPlatform.127a078aa9cd", "Для TUN не указан адрес") }
         (addresses4 + addresses6).forEach { builder.addAddress(it.first, it.second) }
 
         if (options.autoRoute) {
@@ -107,13 +109,13 @@ internal class AndroidPlatform(
 
         val included = options.includePackage.toStrings().distinct()
         val excluded = options.excludePackage.toStrings().distinct()
-        require(included.isEmpty() || excluded.isEmpty()) { "Нельзя смешивать include_package и exclude_package" }
+        require(included.isEmpty() || excluded.isEmpty()) { localized("AndroidPlatform.bfc7d9df9cb4", "Нельзя смешивать include_package и exclude_package") }
         // The mixed/system TCP forwarder listens on the TUN address. Its replies
         // belong to our UID and must return through TUN for the reverse NAT.
         // Excluding our package leaves TCP SYNs pending although UDP still works.
         // Real outbound sockets bypass VPN individually through protect(fd).
         if (included.isNotEmpty()) {
-            require(included.any { it != vpn.packageName }) { "В список VPN не добавлены приложения" }
+            require(included.any { it != vpn.packageName }) { localized("AndroidPlatform.5363f8c97c8f", "В список VPN не добавлены приложения") }
             // A vanished package is an explicit config error, never an accidental allow-all.
             (included + vpn.packageName).distinct().forEach(builder::addAllowedApplication)
         } else {
@@ -127,11 +129,11 @@ internal class AndroidPlatform(
                 options.getHTTPProxyBypassDomain().toStrings(),
             ))
         }
-        if (!current()) throw IOException("Запуск отменён")
-        val descriptor = builder.establish() ?: throw IOException("Android не создал VPN: разрешение отсутствует или отозвано")
+        if (!current()) throw IOException(localized("AndroidPlatform.1fe16c5a72be", "Запуск отменён"))
+        val descriptor = builder.establish() ?: throw IOException(localized("AndroidPlatform.4e033778fc1c", "Android не создал VPN: разрешение отсутствует или отозвано"))
         if (!current()) {
             descriptor.close()
-            throw IOException("Запуск отменён")
+            throw IOException(localized("AndroidPlatform.1fe16c5a72be", "Запуск отменён"))
         }
         tun.getAndSet(descriptor)?.close()
         // Keep ownership until CloseService has released the native TUN.

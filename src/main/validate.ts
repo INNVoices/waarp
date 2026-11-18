@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 // C09: types are not an IPC boundary. Main validates every settings patch from the renderer by shape and
 // drops anything unknown or malformed (the renderer can never inject raw engine config or odd values).
 import type { Group, Route, Settings, Via } from '../shared/types'
@@ -71,11 +72,11 @@ export function cleanPatch(p: unknown): Partial<Settings> {
 const SETTINGS_KEYS = new Set(['rest', 'allVia', 'serviceVia', 'ruDirect', 'dnsAll', 'lanDirect', 'tray', 'autoConnect', 'autostart', 'notify', 'routes', 'groups'])
 
 export function checkedPatch(p: unknown): { ok: true; patch: Partial<Settings> } | { ok: false; error: string } {
-  if (!p || typeof p !== 'object' || Array.isArray(p)) return { ok: false, error: 'Неверный формат настроек' }
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return { ok: false, error: localized("winInline.validate.ffbf6dcc2bda") }
   const input = p as Record<string, unknown>
   const patch = cleanPatch(input)
   const invalid = Object.keys(input).find(k => !SETTINGS_KEYS.has(k) || !Object.prototype.hasOwnProperty.call(patch, k))
-  return invalid ? { ok: false, error: `Неверное поле настроек: ${invalid}` } : { ok: true, patch }
+  return invalid ? { ok: false, error: localized("winInline.validate.bf7a339a95e6", invalid) } : { ok: true, patch }
 }
 
 export const MAX_IMPORT_BYTES = 1024 * 1024

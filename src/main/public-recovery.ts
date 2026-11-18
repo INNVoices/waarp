@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 import type { Profile } from '../shared/types'
 import { publicSourceForUrl } from '../shared/public-sources'
 import { credentialKey } from './discovery'
@@ -141,6 +142,6 @@ export async function recoverPublicSources(sources: string[], paths: PublicServi
   }
   signal.throwIfAborted()
   return selected.map(url => successful.get(url) ?? {
-    ...failures.get(url), url, error: failures.get(url)?.error ?? 'Публичный список не удалось загрузить по доступным путям'
+    ...failures.get(url), url, error: failures.get(url)?.error ?? localized("winInline.public-recovery.e3ce58d2fbbb")
   })
 }

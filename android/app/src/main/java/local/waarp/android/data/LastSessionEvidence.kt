@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.data
 
+import local.waarp.android.i18n.localized
+
 import android.content.Context
 import android.util.AtomicFile
 import kotlinx.coroutines.Dispatchers
@@ -71,7 +73,7 @@ class LastSessionEvidence(context: Context) {
 
     suspend fun clear() = withContext(Dispatchers.IO) { mutex.withLock {
         file.delete()
-        check(!file.baseFile.exists()) { "Не удалось удалить сохранённую диагностику" }
+        check(!file.baseFile.exists()) { localized("LastSessionEvidence.4af0e0de11d5", "Не удалось удалить сохранённую диагностику") }
         lastTransfer = null
         _report.value = document(emptyList()).toString(1)
     } }

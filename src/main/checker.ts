@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 // WRP-013 local checker: a second sing-box with NO inbound and NO TUN, userspace WireGuard, clash API on
 // 127.0.0.1 only. Its caller admits isolated measurements during stable ON or OFF;
 // it never creates an adapter or changes system routes. Outbound interface binding
@@ -21,11 +22,11 @@ import type { ForwardProxy } from './relay-config'
 export type CheckerFailureKind = 'missing-engine' | 'configuration' | 'launch' | 'controller' | 'cleanup'
 export interface CheckerFailure { kind: CheckerFailureKind; message: string }
 const CHECKER_FAILURES: Record<CheckerFailureKind, string> = {
-  'missing-engine': 'Не найден проверочный движок. Установи актуальную сборку Waarp.',
-  configuration: 'Движок не принимает конфигурацию этого сервера.',
-  launch: 'Проверочный движок не запустился. Проверь блокировку Waarp антивирусом или защитой Windows.',
-  controller: 'Локальный проверочный движок не ответил. Это ошибка проверки, а не доказательство недоступности сервера.',
-  cleanup: 'Предыдущий проверочный движок не подтвердил остановку.'
+  'missing-engine': localized("winInline.checker.c80398662818"),
+  configuration: localized("winInline.checker.dc31939b7c7b"),
+  launch: localized("winInline.checker.3c0a80824b04"),
+  controller: localized("winInline.checker.5dd7f43607d3"),
+  cleanup: localized("winInline.checker.2015c9213a7c")
 }
 
 export class Checker {

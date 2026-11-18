@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android
 
+import local.waarp.android.i18n.localized
+
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -78,23 +80,23 @@ class MainActivity : ComponentActivity() {
             if (pendingRestart != null) WaarpTheme {
                 AlertDialog(
                     onDismissRequest = { answerRestart(false) },
-                    title = { Text("Перезапуск VPN") },
-                    text = { Text("Для этого изменения требуется перезапустить VPN. Это временно прервёт работающие соединения.\n\nОтмена сохранит текущий туннель и прежние правила.") },
-                    confirmButton = { TextButton(onClick = { answerRestart(true) }) { Text("Перезапустить VPN") } },
-                    dismissButton = { TextButton(onClick = { answerRestart(false) }) { Text("Отмена") } },
+                    title = { Text(localized("MainActivity.c7ec5dac8636", "Перезапуск VPN")) },
+                    text = { Text(localized("MainActivity.fe6ccc2f7478", "Для этого изменения требуется перезапустить VPN. Это временно прервёт работающие соединения.\n\nОтмена сохранит текущий туннель и прежние правила.")) },
+                    confirmButton = { TextButton(onClick = { answerRestart(true) }) { Text(localized("MainActivity.c73769c3bc49", "Перезапустить VPN")) } },
+                    dismissButton = { TextButton(onClick = { answerRestart(false) }) { Text(localized("MainActivity.edd49bda0f53", "Отмена")) } },
                 )
             }
             if (incoming.confirmationAvailable) WaarpTheme {
                 AlertDialog(
                     onDismissRequest = model.imports::dismiss,
-                    title = { Text("Импорт из другого приложения") },
-                    text = { Text(incoming.error ?: "Проверить и добавить полученный конфиг или подписку в библиотеку туннелей? После импорта назначьте нужные маршруты в Waarp.") },
+                    title = { Text(localized("MainActivity.45108c6017d0", "Импорт из другого приложения")) },
+                    text = { Text(incoming.error ?: localized("MainActivity.dbd83bd207f4", "Проверить и добавить полученный конфиг или подписку в библиотеку туннелей? После импорта назначьте нужные маршруты в Waarp.")) },
                     confirmButton = {
                         TextButton(enabled = !incoming.busy, onClick = model.imports::confirm) {
-                            Text(if (incoming.busy) "Проверка…" else "Импортировать")
+                            Text(if (incoming.busy) localized("MainActivity.8131f5c56b78", "Проверка…") else localized("MainActivity.185d5f28e58c", "Импортировать"))
                         }
                     },
-                    dismissButton = { TextButton(enabled = !incoming.busy, onClick = model.imports::dismiss) { Text("Отмена") } },
+                    dismissButton = { TextButton(enabled = !incoming.busy, onClick = model.imports::dismiss) { Text(localized("MainActivity.edd49bda0f53", "Отмена")) } },
                 )
             }
         }
@@ -110,12 +112,12 @@ class MainActivity : ComponentActivity() {
                                 } else vpnConsent.launch(event.intent)
                             }
                             is MobileEvent.FileImport -> documents.launch(arrayOf("text/*", "application/octet-stream", "application/x-openvpn-profile", "application/json"))
-                            MobileEvent.QrImport -> qr.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Наведите камеру на QR с конфигом или ссылкой").setBeepEnabled(false).setOrientationLocked(false))
+                            MobileEvent.QrImport -> qr.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt(localized("MainActivity.d0f68eb9b7d6", "Наведите камеру на QR с конфигом или ссылкой")).setBeepEnabled(false).setOrientationLocked(false))
                             MobileEvent.ClipboardImport -> {
                                 val clipboard = getSystemService(ClipboardManager::class.java)
                                 val clip = clipboard.primaryClip
                                 val text = if (clip != null && clip.itemCount > 0) clip.getItemAt(0).text?.toString() else null
-                                if (text.isNullOrBlank()) model.notifyUser("В буфере нет текста конфигурации", true) else model.imports.importText(text)
+                                if (text.isNullOrBlank()) model.notifyUser(localized("MainActivity.e164a0ec61cf", "В буфере нет текста конфигурации"), true) else model.imports.importText(text)
                             }
                             MobileEvent.SystemVpnSettings -> startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
                             MobileEvent.ShareDiagnostics -> shareDiagnostics()
@@ -135,7 +137,7 @@ class MainActivity : ComponentActivity() {
                         if (event is MobileEvent.FileImport || event is MobileEvent.QrImport) model.cancelImportPicker()
                         if (event is MobileEvent.Consent) model.onConsentResult(false)
                         if (event is MobileEvent.RestartApproval) event.response.complete(false)
-                        model.notifyUser("Android не смог открыть запрошенный экран", true)
+                        model.notifyUser(localized("MainActivity.cf3d6fadccea", "Android не смог открыть запрошенный экран"), true)
                     }
                 }
             }
@@ -163,10 +165,10 @@ class MainActivity : ComponentActivity() {
             val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.files", file)
             val share = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            share.clipData = ClipData.newRawUri("Диагностика Waarp", uri)
-            startActivity(Intent.createChooser(share, "Передать отчёт диагностики"))
+            share.clipData = ClipData.newRawUri(localized("MainActivity.56a0ff566c4c", "Диагностика Waarp"), uri)
+            startActivity(Intent.createChooser(share, localized("MainActivity.5ed54a6f1549", "Передать отчёт диагностики")))
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { model.notifyUser("Не удалось подготовить или передать отчёт диагностики", true) }
+            catch (_: Exception) { model.notifyUser(localized("MainActivity.594e8b5b68ed", "Не удалось подготовить или передать отчёт диагностики"), true) }
         }
     }
 }

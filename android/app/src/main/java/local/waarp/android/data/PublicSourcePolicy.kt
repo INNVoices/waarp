@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.data
 
+import local.waarp.android.i18n.localized
+
 import java.net.InetAddress
 import java.net.URI
 import org.json.JSONObject
@@ -13,11 +15,11 @@ object PublicSourcePolicy {
 
     fun requireEndpoint(source: PublicCatalogSource, uri: URI) {
         require(uri.scheme == "https" && uri.rawUserInfo == null && uri.rawFragment == null && uri.rawQuery == null &&
-            uri.port == -1 && (source.endpoints + source.redirectTargets).any { URI(it) == uri }) { "Адрес не зарегистрирован для этого публичного источника" }
+            uri.port == -1 && (source.endpoints + source.redirectTargets).any { URI(it) == uri }) { localized("PublicSourcePolicy.16f5aa51efce", "Адрес не зарегистрирован для этого публичного источника") }
     }
 
     fun requirePublicAddresses(addresses: List<InetAddress>) {
-        require(addresses.isNotEmpty() && addresses.all(::publicAddress)) { "Публичный источник указывает на непубличный сетевой адрес" }
+        require(addresses.isNotEmpty() && addresses.all(::publicAddress)) { localized("PublicSourcePolicy.446eceb006ef", "Публичный источник указывает на непубличный сетевой адрес") }
     }
 
     /** All dial endpoints, including every OpenVPN remote, are checked before accepting a public candidate. */
@@ -25,14 +27,14 @@ object PublicSourcePolicy {
         val node = JSONObject(profile.config)
         require(node.optString("type") in setOf("vless", "vmess", "trojan", "shadowsocks", "hysteria2", "tuic", "openvpn-client") &&
             !node.has("detour") && !node.has("bind_interface") && !node.has("inet4_bind_address") && !node.has("inet6_bind_address")) {
-            "Публичный профиль содержит неподдерживаемый сетевой путь"
+            localized("PublicSourcePolicy.6fa45f3d93f1", "Публичный профиль содержит неподдерживаемый сетевой путь")
         }
         val hosts = node.optJSONArray("servers")?.let { servers ->
             require(node.optString("type") == "openvpn-client" && servers.length() in 1..16)
             (0 until servers.length()).map { servers.getJSONObject(it).getString("server") }
         } ?: listOf(node.getString("server"))
-        require(hosts.isNotEmpty() && hosts.all(::publicHost)) { "Публичный профиль содержит непубличный адрес" }
-        require(hosts.first().equals(profile.host, true)) { "Адрес публичного профиля не совпадает с конфигурацией" }
+        require(hosts.isNotEmpty() && hosts.all(::publicHost)) { localized("PublicSourcePolicy.6dbd47fb5c22", "Публичный профиль содержит непубличный адрес") }
+        require(hosts.first().equals(profile.host, true)) { localized("PublicSourcePolicy.9bf5d4979444", "Адрес публичного профиля не совпадает с конфигурацией") }
         return hosts.distinct()
     }
 
@@ -42,7 +44,7 @@ object PublicSourcePolicy {
     fun pinForProbe(profile: TunnelProfile, answers: Map<String, List<InetAddress>>): TunnelProfile {
         val hosts = endpointHosts(profile)
         val verified = hosts.associateWith { host ->
-            val addresses = answers[host] ?: error("Нет проверенного DNS-ответа для публичного профиля")
+            val addresses = answers[host] ?: error(localized("PublicSourcePolicy.9dbed8860aa3", "Нет проверенного DNS-ответа для публичного профиля"))
             requirePublicAddresses(addresses)
             if (AddressRules.isIp(host)) require(addresses.all { it == InetAddress.getByName(host) })
             addresses
@@ -53,9 +55,9 @@ object PublicSourcePolicy {
             val tls = node.optJSONObject("tls")
             if (node.optString("type") == "openvpn-client") {
                 // OpenVPN's optional verify-x509-name is not interchangeable with HTTPS server_name.
-                require(!tls?.optString("server_name").isNullOrBlank()) { "Не удалось сохранить проверку имени OpenVPN для безопасной пробы" }
+                require(!tls?.optString("server_name").isNullOrBlank()) { localized("PublicSourcePolicy.7441f68a674e", "Не удалось сохранить проверку имени OpenVPN для безопасной пробы") }
             } else if (tls?.optBoolean("enabled") == true) {
-                require(!tls.optString("server_name").isNullOrBlank()) { "Не удалось сохранить TLS-имя для безопасной пробы" }
+                require(!tls.optString("server_name").isNullOrBlank()) { localized("PublicSourcePolicy.24fbb3efbabe", "Не удалось сохранить TLS-имя для безопасной пробы") }
             }
             node.optJSONObject("transport")?.let { transport ->
                 val explicitHost = when (transport.optString("type")) {
@@ -67,7 +69,7 @@ object PublicSourcePolicy {
                     // No authority override is accepted by our URI importer for gRPC. Do not guess a new default.
                     else -> false
                 }
-                require(explicitHost) { "Для безопасной пробы этого транспорта нужен явный Host; профиль сохранён без изменения" }
+                require(explicitHost) { localized("PublicSourcePolicy.d4d53302cafe", "Для безопасной пробы этого транспорта нужен явный Host; профиль сохранён без изменения") }
             }
         }
         fun pin(server: JSONObject, defaultNetwork: String = "") {
@@ -77,7 +79,7 @@ object PublicSourcePolicy {
                 network.endsWith('6') -> addresses.firstOrNull { it.address.size == 16 }
                 network.endsWith('4') -> addresses.firstOrNull { it.address.size == 4 }
                 else -> addresses.firstOrNull { it.address.size == 4 } ?: addresses.first()
-            } ?: error("Нет публичного адреса нужного семейства для проверки")
+            } ?: error(localized("PublicSourcePolicy.0a1f842f6d61", "Нет публичного адреса нужного семейства для проверки"))
             server.put("server", address.hostAddress)
         }
         node.optJSONArray("servers")?.let { servers ->

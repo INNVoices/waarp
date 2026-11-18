@@ -1,5 +1,7 @@
 package local.waarp.android.ui
 
+import local.waarp.android.i18n.localized
+
 const val DIRECT_PATH = "direct"
 const val AUTO_PATH = "g-auto"
 
@@ -157,7 +159,7 @@ data class PublicNodeUi(
     val host: String,
     val port: Int,
     val country: String = "",
-    val sourceLabel: String = "Публичный источник",
+    val sourceLabel: String = localized("MobileUiState.ef8907f21764", "Публичный источник"),
     val latencyMs: Double? = null,
     val health: TunnelHealth = TunnelHealth.UNKNOWN,
     val added: Boolean = false,
@@ -267,18 +269,18 @@ interface MobileActions {
     suspend fun addCatalogNode(id: String): UiResult
     suspend fun addBestPublicGroup(): UiResult
     suspend fun diagnose(target: String): UiResult
-    suspend fun diagnoseRoute(request: RouteCheckRequest): UiResult = UiResult(false, "Проверка маршрута недоступна")
+    suspend fun diagnoseRoute(request: RouteCheckRequest): UiResult = UiResult(false, localized("MobileUiState.29dd1202c558", "Проверка маршрута недоступна"))
     fun cancelDiagnostic(contextId: String? = null) = Unit
     suspend fun probeTunnels(): UiResult
     suspend fun readLogs(): UiResult
     suspend fun recover(): UiResult
     suspend fun saveSettings(patch: SettingsPatch): UiResult
-    suspend fun runTuning(id: String): UiResult = UiResult(false, "Подбор пока недоступен")
-    suspend fun applyTuning(id: String, variantId: String): UiResult = UiResult(false, "Вариант не проверен")
-    suspend fun resetTuning(id: String): UiResult = UiResult(false, "Нет сохранённого варианта")
+    suspend fun runTuning(id: String): UiResult = UiResult(false, localized("MobileUiState.d0799aec4f54", "Подбор пока недоступен"))
+    suspend fun applyTuning(id: String, variantId: String): UiResult = UiResult(false, localized("MobileUiState.4391d33afa51", "Вариант не проверен"))
+    suspend fun resetTuning(id: String): UiResult = UiResult(false, localized("MobileUiState.f15945e90079", "Нет сохранённого варианта"))
     fun cancelTuning() = Unit
-    suspend fun setServicePath(id: String): UiResult = UiResult(false, "Путь пока недоступен")
-    suspend fun clearDiagnosticHistory(): UiResult = UiResult(false, "История недоступна")
-    suspend fun measureTransfer(profileId: String, uploadEndpoint: String? = null): UiResult = UiResult(false, "Проверка недоступна")
+    suspend fun setServicePath(id: String): UiResult = UiResult(false, localized("MobileUiState.f2ac14e180fb", "Путь пока недоступен"))
+    suspend fun clearDiagnosticHistory(): UiResult = UiResult(false, localized("MobileUiState.c8e18d942f46", "История недоступна"))
+    suspend fun measureTransfer(profileId: String, uploadEndpoint: String? = null): UiResult = UiResult(false, localized("MobileUiState.df0f3736ce5b", "Проверка недоступна"))
     fun cancelTransfer() = Unit
 }

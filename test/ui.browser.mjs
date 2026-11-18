@@ -231,8 +231,8 @@ function fixture(options) {
   }
 }
 
-async function pageFor(options = {}) {
-  const context = await browser.newContext({ viewport: { width: 1240, height: 780 } })
+async function pageFor(options = {}, locale = 'ru-RU') {
+  const context = await browser.newContext({ locale, viewport: { width: 1240, height: 780 } })
   const page = await context.newPage()
   page.on('pageerror', error => errors.push(error.message))
   const consoleErrors = []
@@ -416,6 +416,18 @@ async function rendererStability() {
 }
 
 try {
+  await check('translated navigation follows system locale, regional fallback and RTL', async () => {
+    for (const [requested, expected] of [['en-US', 'en'], ['zh-TW', 'zh-Hant'], ['ar-EG', 'ar'], ['fa-IR', 'fa']]) {
+      const page = await pageFor({}, requested)
+      await ready(page)
+      const labels = JSON.parse(readFileSync(new URL(`../src/shared/strings/locales/${expected}.json`, import.meta.url), 'utf8'))
+      await page.getByRole('button', { name: labels['nav.settings'], exact: true }).click()
+      await page.getByRole('heading', { name: labels['set.title'], exact: true }).waitFor()
+      assert.deepEqual(await page.evaluate(() => [document.documentElement.lang, document.documentElement.dir]),
+        [expected, ['ar', 'fa'].includes(expected) ? 'rtl' : 'ltr'])
+      await page.context().close()
+    }
+  })
   await check('initial IPC failure is recoverable instead of an endless splash', async () => {
     const page = await pageFor({ failInitial: true })
     await page.getByRole('button', { name: strings['app.load.retry'], exact: true }).click()
@@ -1044,7 +1056,7 @@ try {
   })
   // This specifically uses the production bundle. Do not run this check against the browser-only dev demo.
   await check('production without preload cannot pretend the VPN is working', async () => {
-    const context = await browser.newContext()
+    const context = await browser.newContext({ locale: 'ru-RU' })
     const page = await context.newPage()
     page.on('pageerror', error => errors.push(error.message))
     await page.goto(url)

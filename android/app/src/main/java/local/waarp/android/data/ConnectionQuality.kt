@@ -1,20 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.data
 
+import local.waarp.android.i18n.localized
+
 /** A use describes the evidence the user needs; it never changes a transport or routing rule. */
 object ConnectionUses {
     val ids = setOf("general", "web", "interactive", "game")
     fun normalize(value: String?) = value?.takeIf { it in ids } ?: "general"
     fun label(value: String) = when (normalize(value)) {
-        "web" -> "Веб и приложения"
-        "interactive" -> "Звонки и общение"
-        "game" -> "Игра"
-        else -> "Обычное использование"
+        "web" -> localized("ConnectionQuality.9b4a509948b6", "Веб и приложения")
+        "interactive" -> localized("ConnectionQuality.366ab74eb2ac", "Звонки и общение")
+        "game" -> localized("ConnectionQuality.22a1958bbeba", "Игра")
+        else -> localized("ConnectionQuality.46a660d60cbf", "Обычное использование")
     }
     fun coverage(value: String) = when (normalize(value)) {
-        "interactive" -> "Проверяется HTTPS к указанному адресу. Голос, UDP и потери пакетов ещё не проверены."
-        "game" -> "Проверяется HTTPS к указанному адресу. Вход в игру, игровой UDP и потери пакетов ещё не проверены."
-        else -> "Ответ HTTPS подтверждает доступ к этому адресу. Вход в аккаунт и остальные функции приложения не проверяются."
+        "interactive" -> localized("ConnectionQuality.3c75831586b4", "Проверяется HTTPS к указанному адресу. Голос, UDP и потери пакетов ещё не проверены.")
+        "game" -> localized("ConnectionQuality.5d483c692f5b", "Проверяется HTTPS к указанному адресу. Вход в игру, игровой UDP и потери пакетов ещё не проверены.")
+        else -> localized("ConnectionQuality.7e6522fe3e43", "Ответ HTTPS подтверждает доступ к этому адресу. Вход в аккаунт и остальные функции приложения не проверяются.")
     }
 }
 
