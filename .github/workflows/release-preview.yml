@@ -11,7 +11,7 @@ on:
         description: 'Preview tag (must target this exact commit)'
         required: true
         type: string
-        default: 'preview-2026-11-18-r4'
+        default: 'preview-2026-11-18-r5'
 permissions:
   contents: write
 concurrency:

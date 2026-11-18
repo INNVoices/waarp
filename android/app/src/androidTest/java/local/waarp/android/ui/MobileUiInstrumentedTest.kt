@@ -340,7 +340,7 @@ class MobileUiInstrumentedTest {
         compose.onNode(hasText("Мой регион · вручную") and hasClickAction()).performScrollTo().performClick()
         field("Поиск").enterText(regionName)
         dismissKeyboard(field("Поиск"))
-        compose.onNode(hasText(regionName) and hasClickAction() and hasAnyAncestor(isDialog())).performClick()
+        compose.onNode(hasText(regionName) and hasClickAction() and !hasSetTextAction() and hasAnyAncestor(isDialog())).performClick()
         val listChoice = compose.onNode(hasText("Список") and hasClickAction())
         listChoice.performScrollTo()
         awaitFocusedWindow(listChoice, SystemClock.uptimeMillis() + 15_000L)
