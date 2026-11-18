@@ -38,6 +38,7 @@ jobs:
         shell: pwsh
         run: |
           & "$env:ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager.bat" 'platforms;android-36' 'build-tools;35.0.0'
+      - run: python scripts/android-core-restore-test.py
       - name: Build and verify developer APKs
         shell: cmd
         run: build.bat apk

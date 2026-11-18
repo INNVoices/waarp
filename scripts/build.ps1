@@ -349,7 +349,7 @@ try {
     if (-not $result) { $result = 'out\android' }
   } else {
     if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { Write-Host "  $cErr Node.js is not installed: https://nodejs.org$cR"; throw 'no npm' }
-    Step 1 $of 'Dependencies' $(if (Test-Path node_modules) { 'echo already installed' } else { 'npm ci --no-audit --no-fund' })
+    Step 1 $of 'Locked dependencies' 'npm ci --prefer-offline --no-audit --no-fund'
     Step 2 $of 'Checks' 'npm run typecheck && npm test && npm run check'
     Step 3 $of 'Prepare the engine' 'node scripts/engine.mjs ensure'
     if ($Mode -eq '1') {

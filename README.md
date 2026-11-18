@@ -1,7 +1,7 @@
 <p align="center"><img src="docs/brand/waarp-cover.svg" width="100%" alt="Waarp · per-app routing for Windows and Android"></p>
 
 <p align="center"><strong>Windows 10/11 x64 · Android 10+ · 1.0.0</strong><br>
-English · <a href="README.ru.md">Русский</a> · <a href="https://github.com/INNVoices/waarp/releases">Downloads</a> · <a href="docs/README.md">Documentation</a></p>
+English · <a href="README.ru.md">Русский</a> · <a href="https://innvoices.github.io/waarp/">Project page</a> · <a href="https://github.com/INNVoices/waarp/releases">Downloads</a> · <a href="docs/README.md">Documentation</a></p>
 
 # Choose a connection for each app
 

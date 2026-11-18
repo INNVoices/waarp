@@ -1,7 +1,7 @@
 <p align="center"><img src="docs/brand/waarp-cover.svg" width="100%" alt="Waarp · маршрутизация приложений для Windows и Android"></p>
 
 <p align="center"><strong>Windows 10/11 x64 · Android 10+ · 1.0.0</strong><br>
-<a href="README.md">English</a> · Русский · <a href="https://github.com/INNVoices/waarp/releases">Скачать</a> · <a href="docs/README.md">Документация</a></p>
+<a href="README.md">English</a> · Русский · <a href="https://innvoices.github.io/waarp/">Страница проекта</a> · <a href="https://github.com/INNVoices/waarp/releases">Скачать</a> · <a href="docs/README.md">Документация</a></p>
 
 # Свой маршрут для каждого приложения
 
