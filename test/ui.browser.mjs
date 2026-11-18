@@ -1006,6 +1006,7 @@ try {
     await page.locator('.srv-members-wrap').scrollIntoViewIfNeeded()
     await capture(page, 'groups-bounded-long-labels.png')
     await clickNav(page, 'an')
+    await page.locator('.diagnostic-extras > summary').click()
     for (const width of [1240, 900, 620]) {
       await page.setViewportSize({ width, height: 780 }); await settle(page)
       const rows = await page.locator('.lg').evaluateAll(els => els.map(el => {
