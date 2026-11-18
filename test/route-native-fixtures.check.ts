@@ -3,7 +3,7 @@ import net from 'node:net'
 import dgram from 'node:dgram'
 import tls from 'node:tls'
 import { X509Certificate } from 'node:crypto'
-import { fixture, datagram, dnsQuestion, udpPortFree } from './route-native-fixtures'
+import { fixture, datagram, dnsQuestion, udpPortFree, nativeReadinessTargets } from './route-native-fixtures'
 import { NATIVE_TEST_CA, NATIVE_TEST_CERT } from './route-native-tls'
 
 function exchange(socket: net.Socket, request: Buffer, length: number): Promise<Buffer> {
@@ -56,6 +56,17 @@ async function httpsReply(port: number, ca?: string): Promise<string> {
 }
 
 async function main() {
+  const requested: string[] = []
+  const endpoints = await nativeReadinessTargets(async host => {
+    requested.push(host)
+    if (host === 'www.gstatic.com') throw new Error('synthetic DNS failure')
+    return [{ address: '1.1.1.1', family: 4 }]
+  })
+  assert.deepEqual(requested.sort(), ['cp.cloudflare.com', 'www.gstatic.com'])
+  assert.deepEqual([...endpoints.pins], [['cp.cloudflare.com', '1.1.1.1']], 'one unavailable host preserves native fallback')
+  assert.equal(endpoints.unavailable[0].host, 'www.gstatic.com')
+  await assert.rejects(nativeReadinessTargets(async () => [{ address: '127.0.0.1', family: 4 }]), /Neither HTTPS/,
+    'private resolved addresses cannot become the public readiness relay')
   const server = await fixture('C', { https: true })
   const control = net.connect(server.port, '127.0.0.1')
   const occupied = dgram.createSocket('udp4')
@@ -88,7 +99,7 @@ async function main() {
     ]))
     assert.equal(answer.readUInt16BE(10), 0x5752)
     assert.deepEqual([...answer.subarray(-4)], [198, 18, 0, 12])
-    assert.deepEqual(server.received, { udp: 1, dns: 1, head: 1, httpsHead: 1 })
+    assert.deepEqual(server.received, { udp: 1, dns: 1, head: 1, httpsHead: 1, publicHttps: 0, publicHttpsBytes: 0 })
 
     await new Promise<void>(resolve => occupied.bind({ address: '127.0.0.1', port: 0, exclusive: true }, resolve))
     assert.equal(await udpPortFree(occupied.address().port), false, 'a UDP-only occupied port is rejected')

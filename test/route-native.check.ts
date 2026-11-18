@@ -9,8 +9,7 @@ import { Engine } from '../src/main/engine'
 import { Checker } from '../src/main/checker'
 import type { OutProfile, Profile, Settings } from '../src/shared/types'
 import type { DiagnosticTransport } from '../src/main/diagnostic-proxy'
-import { fixture, datagram, nativeDns } from './route-native-fixtures'
-import { installNativeTestCA } from './route-native-trust'
+import { fixture, datagram, nativeDns, nativeReadinessTargets } from './route-native-fixtures'
 import { redactVless } from '../src/main/vless'
 
 function body(host: string): Promise<string> {
@@ -43,8 +42,12 @@ function proxyBody(proxy: DiagnosticTransport): Promise<string> {
 async function main() {
   if (process.env.WAARP_NATIVE_SWITCH_TEST !== '1') { console.log('route-native: SKIP (explicit disposable Windows opt-in required)'); return }
   assert.equal(process.platform, 'win32'); assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted')
+  const readiness = await nativeReadinessTargets()
+  console.log('ROUTE_NATIVE HTTPS endpoints resolved before TUN', JSON.stringify({
+    pins: Object.fromEntries(readiness.pins), unavailable: readiness.unavailable
+  }))
   const dir = mkdtempSync(join(tmpdir(), 'waarp-route-native-'))
-  const a = await fixture('A'), b = await fixture('B'), c = await fixture('C', { https: true })
+  const a = await fixture('A'), b = await fixture('B'), c = await fixture('C', { publicHttps: readiness.pins })
   const profile = (id: string, port: number): OutProfile => ({ kind: 'out', id, name: id, host: '127.0.0.1', port,
     version: 'SOCKS fixture', source: 'personal', addedAt: 1,
     outbound: { type: 'socks', server: '127.0.0.1', server_port: port, version: '5' } })
@@ -54,7 +57,8 @@ async function main() {
     { id: 'neighbor', kind: 'custom', name: 'Neighbor', value: '198.18.0.10', via: 'a', on: true }
   ], groups: [], lanDirect: false, ruDirect: false, dnsAll: false, notify: false, tray: true, autoConnect: false, autostart: false }
   const engine = new Engine(join(process.cwd(), 'engine', 'sing-box.exe'), dir, 'C:\\waarp-test-never.exe')
-  // Test only the controlled fixtures. No public health requests are needed.
+  // Base route payload fixtures remain local. Late-public readiness below uses
+  // the unchanged production HTTPS measurements through C's fixed allowlist.
   ;(engine as any).pingAll = async () => ({ a: 1, b: 2 })
   engine.hostV6 = async () => false
   // Production pins/rejects public endpoints; this disposable native test deliberately uses only its loopback fixture.
@@ -65,16 +69,15 @@ async function main() {
     return structuredClone(candidate)
   }
   let neighbor: net.Socket | undefined
-  let trust: Awaited<ReturnType<typeof installNativeTestCA>> | undefined
-  // Clash API replaces plain http:// probe URLs with its external HTTPS
-  // default. Use real HTTPS here so it measures precisely this local fixture.
+  // Observe the actual production HTTPS checks, without changing their URLs,
+  // TLS verification, fallback or measured result. No test root is installed.
   const originalPings = Checker.prototype.pings
   Checker.prototype.pings = async function () {
     const state = this as unknown as { api: { port: number; secret: string }; ids: string[];
       child?: ChildProcess; diagnostic?: { username: string; password: string } }
     const known = [state.api.secret, state.diagnostic?.username, state.diagnostic?.password].filter((value): value is string => !!value)
     const nativeFetch = globalThis.fetch, responses: { status?: number; body?: string; error?: string }[] = []
-    let logs = '', result: Record<string, number | null> = {}
+    let logs = '', result: Record<string, number | undefined> = {}
     const capture = (chunk: Buffer) => { logs = (logs + chunk.toString()).slice(-4000) }
     state.child?.stdout?.on('data', capture); state.child?.stderr?.on('data', capture)
     globalThis.fetch = async (input, init) => {
@@ -86,18 +89,18 @@ async function main() {
         return response
       } catch (error) { if (measured) responses.push({ error: redactVless(String(error), known) }); throw error }
     }
-    try { result = await this.probe('https://198.18.0.11') }
+    try { result = await originalPings.call(this) }
     finally {
       globalThis.fetch = nativeFetch
       state.child?.stdout?.off('data', capture); state.child?.stderr?.off('data', capture)
-      console.log('ROUTE_NATIVE readiness evidence', JSON.stringify({ ids: state.ids, result, responses,
-        fixtureCA: trust?.thumbprint, received: c.received, requests: c.requests, tlsErrors: c.tlsErrors,
+      console.log('ROUTE_NATIVE readiness evidence', JSON.stringify({ ids: state.ids,
+        result: Object.fromEntries(Object.entries(result).map(([id, ms]) => [id, ms ?? null])), responses,
+        received: c.received, requests: c.requests, relayErrors: c.relayErrors,
         workerLogs: redactVless(logs, known) }))
     }
-    return Object.fromEntries(Object.entries(result).map(([id, ms]) => [id, ms ?? undefined]))
+    return result
   }
   try {
-    trust = await installNativeTestCA(dir)
     assert(await engine.killOrphans())
     await engine.start(profiles, settings)
     assert.equal(engine.status.phase, 'on', engine.status.error ?? 'core not ready')
@@ -134,9 +137,10 @@ async function main() {
     profiles.push(late)
     settings = { ...settings, routes: settings.routes.map(r => r.id === 'selected' ? { ...r, via: late.id } : r) }
     assert(await engine.applyLive(profiles, settings), engine.log().join('\n') + '\n' + JSON.stringify({
-      fixtureCA: trust.thumbprint, received: c.received, requests: c.requests, tlsErrors: c.tlsErrors
+      received: c.received, requests: c.requests, relayErrors: c.relayErrors
     }))
-    assert(c.received.httpsHead > 0, 'real native readiness verified HTTPS and received its HEAD response')
+    assert(c.received.publicHttps > 0 && c.received.publicHttpsBytes > 0,
+      'unchanged native HTTPS readiness traversed the selected C relay')
     assert.equal((engine as any).child.pid, pid); assert.equal(engine.status.since, since)
     assert.equal(await body('198.18.0.9'), 'C', 'late selected public server carries real TCP payload')
     assert.equal(await engine.withHttpProxy(late.id, new AbortController().signal, proxyBody), 'C')
@@ -179,12 +183,7 @@ async function main() {
     try { assert(await engine.stop(), 'native cleanup must complete') }
     finally {
       Checker.prototype.pings = originalPings
-      let trustClean = false
-      try { if (trust) { await trust.remove(); trustClean = true } }
-      finally {
-        await a.close(); await b.close(); await c.close()
-        if (trustClean) rmSync(dir, { recursive:true, force:true })
-      }
+      await a.close(); await b.close(); await c.close(); rmSync(dir, { recursive:true, force:true })
     }
   }
 }

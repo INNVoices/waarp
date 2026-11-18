@@ -10,14 +10,40 @@ import { checkConfig, tagOf } from '../src/main/awg'
 import { RELAY_DNS_IP, relayOutbounds } from '../src/main/relay-config'
 import { pickPort, waitReady } from '../src/main/tun'
 import { waitExit } from '../src/main/stop'
+import { resolvedPublic, type PublicResolver } from '../src/main/vless'
+import { publicCandidateHostAllowed } from '../src/main/catalog-endpoint'
 import { NATIVE_TEST_CERT, NATIVE_TEST_KEY } from './route-native-tls'
 
-/** Controlled SOCKS5 server: it never opens an Internet socket. TCP and UDP
- * replies identify the selected fixture, making direct fallback fail the test. */
-export async function fixture(label: string, options: { https?: boolean } = {}) {
+const READINESS_HOSTS = ['www.gstatic.com', 'cp.cloudflare.com'] as const
+/** Complete DNS before creating the main TUN; missing hosts stay unavailable
+ * for this run rather than causing a second DNS lookup through the test VPN. */
+export async function nativeReadinessTargets(resolve?: PublicResolver) {
+  const attempts = await Promise.allSettled(READINESS_HOSTS.map(async host => {
+    const addresses = await resolvedPublic(new URL('https://' + host), AbortSignal.timeout(4000), resolve)
+    const ip = addresses.find(address => address.family === 4)?.address
+    assert(ip && publicCandidateHostAllowed(ip), 'readiness endpoint needs a checked public IPv4')
+    return [host, ip] as const
+  }))
+  const pins = new Map<string, string>(), unavailable: { host: string; reason: string }[] = []
+  attempts.forEach((attempt, index) => {
+    if (attempt.status === 'fulfilled') pins.set(...attempt.value)
+    else unavailable.push({ host: READINESS_HOSTS[index], reason: String(attempt.reason).slice(0, 300) })
+  })
+  assert(pins.size > 0, 'Neither HTTPS readiness endpoint resolved before TUN: ' + JSON.stringify(unavailable))
+  return { pins, unavailable }
+}
+
+/** Controlled SOCKS5 server. Public HTTPS is separately opted in for the two
+ * production readiness hosts only; payload/DNS fixtures remain entirely local. */
+export async function fixture(label: string, options: { https?: boolean; publicHttps?: ReadonlyMap<string, string> } = {}) {
+  const publicTargets = new Map(options.publicHttps)
+  for (const [host, ip] of publicTargets) {
+    assert(READINESS_HOSTS.some(allowed => host === allowed) && net.isIPv4(ip) && publicCandidateHostAllowed(ip),
+      'HTTPS fixture accepts only the fixed hosts and their prevalidated public IPv4 addresses')
+  }
   const sockets = new Set<net.Socket>(), datagrams = new Set<dgram.Socket>()
-  const received = { udp: 0, dns: 0, head: 0, httpsHead: 0 }
-  const requests: { host: string; port: number; command: number }[] = [], tlsErrors: string[] = []
+  const received = { udp: 0, dns: 0, head: 0, httpsHead: 0, publicHttps: 0, publicHttpsBytes: 0 }
+  const requests: { host: string; port: number; command: number }[] = [], tlsErrors: string[] = [], relayErrors: string[] = []
   const secure = options.https ? https.createServer({ key: NATIVE_TEST_KEY, cert: NATIVE_TEST_CERT }, (request, response) => {
     if (request.method === 'HEAD') received.httpsHead++
     response.writeHead(200, { 'Content-Length': Buffer.byteLength(label), Connection: 'close' })
@@ -84,15 +110,28 @@ export async function fixture(label: string, options: { https?: boolean } = {}) 
           return
         }
         if (command !== 1) { socket.destroy(); return }
-        if (tlsPort && host === '198.18.0.11' && destinationPort === 443) {
-          // Forward only this reserved HTTPS fixture destination to its local
-          // TLS listener. Every other destination stays in the local fake server.
+        const publicIp = destinationPort === 443 ? publicTargets.get(host) : undefined
+        const publicHttps = !!publicIp
+        if (options.publicHttps && destinationPort === 443 && READINESS_HOSTS.some(allowed => host === allowed) && !publicIp) {
+          if (relayErrors.length < 8) relayErrors.push(host + ': no checked address before TUN')
+          socket.end(Buffer.from([5, 4, 0, 1, 0, 0, 0, 0, 0, 0])); return
+        }
+        if ((tlsPort && host === '198.18.0.11' && destinationPort === 443) || publicHttps) {
+          // Real native readiness retains its production certificate validation.
+          // No arbitrary host, port or public application traffic is forwarded.
           stage = 4; socket.off('data', onData); socket.pause()
-          const upstream = net.connect(tlsPort, '127.0.0.1')
+          const upstream = publicHttps ? net.connect(443, publicIp!) : net.connect(tlsPort!, '127.0.0.1')
           sockets.add(upstream)
           upstream.once('close', () => sockets.delete(upstream))
-          upstream.on('error', () => socket.destroy()); socket.once('close', () => upstream.destroy())
+          upstream.setTimeout(8000, () => upstream.destroy(new Error('fixture HTTPS relay timeout')))
+          upstream.on('error', error => {
+            if (relayErrors.length < 8) relayErrors.push(host + ': ' + error.message.slice(0, 300))
+            socket.destroy()
+          })
+          socket.once('close', () => upstream.destroy())
+          if (publicHttps) upstream.on('data', chunk => { received.publicHttpsBytes += chunk.length })
           upstream.once('connect', () => {
+            if (publicHttps) received.publicHttps++
             socket.write(Buffer.from([5, 0, 0, 1, 127, 0, 0, 1, 0, 0]))
             if (data.length) upstream.write(data)
             socket.pipe(upstream).pipe(socket); socket.resume()
@@ -117,7 +156,7 @@ export async function fixture(label: string, options: { https?: boolean } = {}) 
     socket.on('data', onData)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-  return { port: (server.address() as net.AddressInfo).port, received, requests, tlsErrors, close: async () => {
+  return { port: (server.address() as net.AddressInfo).port, received, requests, tlsErrors, relayErrors, close: async () => {
     for (const socket of sockets) socket.destroy()
     for (const udp of datagrams) { try { udp.close() } catch {} }
     await new Promise<void>(resolve => server.close(() => resolve()))
