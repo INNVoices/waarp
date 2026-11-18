@@ -3,9 +3,9 @@ import http from 'node:http'
 import https from 'node:https'
 import net from 'node:net'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { proxyRequest, transferUrl } from '../src/main/proxy-http'
 import { checkPayload, readPayloadReport, uploadPayload, verifyDownload, verifyUploadReply } from '../src/main/payload-check'
@@ -92,11 +92,31 @@ async function run() {
   }
 }
 
+// cmd.exe (build.bat) usually has no openssl on PATH, but Git for Windows ships one next to git.exe
+function opensslPath() {
+  const candidates = [process.env.OPENSSL, 'openssl']
+  if (process.platform === 'win32') {
+    const roots = new Set<string>()
+    for (const entry of (process.env.PATH ?? '').split(delimiter)) {
+      if (entry && existsSync(join(entry, 'git.exe'))) roots.add(resolve(entry, '..'))
+    }
+    for (const base of [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Programs')]) {
+      if (base) roots.add(join(base, 'Git'))
+    }
+    for (const root of roots) candidates.push(join(root, 'usr', 'bin', 'openssl.exe'), join(root, 'mingw64', 'bin', 'openssl.exe'))
+  }
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    if (candidate === 'openssl' ? !spawnSync(candidate, ['version'], { stdio: 'ignore', timeout: 5000 }).error : existsSync(candidate)) return candidate
+  }
+  return 'openssl'
+}
+
 if (process.env.WAARP_TLS_FIXTURE) run().catch(error => { console.error(error); process.exitCode = 1 })
 else {
   const dir = mkdtempSync(join(tmpdir(), 'waarp-payload-tls-'))
   try {
-    const generated = spawnSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', join(dir, 'key.pem'),
+    const generated = spawnSync(opensslPath(), ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', join(dir, 'key.pem'),
       '-out', join(dir, 'cert.pem'), '-days', '1', '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1'], { stdio: 'ignore', timeout: 15000 })
     if (generated.error) throw generated.error
     assert.equal(generated.status, 0)
