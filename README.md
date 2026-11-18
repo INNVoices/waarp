@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <strong>Open-source Windows traffic routing for apps, sites and unstable networks.</strong><br>
+  <strong>Open-source traffic routing for Windows, Android and unstable networks.</strong><br>
   ExitLag-style routing, but free, transparent and built around your own VPN/proxy paths.
 </p>
 
@@ -37,11 +37,11 @@
 
 Windows 10 / 11, x64. The interface is currently Russian-first.
 
-The current source is **0.4.1-rc.1**, a validation candidate. Stable approval is pending the [release acceptance gates](docs/STABLE-AUDIT-2026-11-16.md); CI artifacts are candidate builds, not a claim that every real-network scenario has passed.
+The current desktop source is **0.4.1-rc.2**; Android is **0.5.0-rc.4**. Both live in `main`. This pass fixes ordinary route changes and failed live updates restarting the VPN, and adds bounded connection tools through the existing UI. See the [shared implementation and acceptance record](docs/ROUTE-AND-CONNECTION-AUDIT-2026-11-18.md) and [MASQUE / compatible variants guide](docs/MASQUE-AND-CONNECTION-HELPER.md). Both remain validation candidates: stable approval requires the [release acceptance gates](docs/STABLE-AUDIT-2026-11-16.md), and CI artifacts do not establish every real-network scenario.
 
 ### Android APK
 
-The same repository now includes a native Kotlin/Compose Android client, **0.5.0-rc.1**, under `android/`.
+The same repository includes a native Kotlin/Compose Android client, **0.5.0-rc.4**, under `android/`.
 Build with `npm run android:build`; verified per-ABI APKs are written to **`out/android/`**. Android 10 (API 29) or later is required.
 The client uses Android `VpnService` and a pinned sing-box-lx Android AAR. App routing uses Android package names.
 See [Android features, architecture, build and validation](docs/ANDROID.md) for platform differences and signing instructions.

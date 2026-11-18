@@ -96,6 +96,8 @@ input, textarea, pre, .selectable { user-select: text; }
 .search.bad { border-color: var(--err); }
 .search input { flex: 1; min-width: 0; color: var(--t); }
 .search input::placeholder, textarea::placeholder { color: var(--t4); }
+.select-field { flex: 1; min-width: 180px; height: var(--h-lg); padding: 0 12px; color: var(--t); background: var(--field); border: 1px solid var(--line); border-radius: var(--r); font: inherit; }
+.select-field:focus-visible { outline: none; border-color: var(--a); box-shadow: var(--focus); }
 
 @keyframes shimmer { to { background-position: -200% 0; } }
 .mono-ic { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; font-family: var(--wordmark); font-weight: 700; font-size: 15px; border: 1px solid; }

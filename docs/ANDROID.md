@@ -1,6 +1,6 @@
 # Waarp Android
 
-Android is implemented in this repository under `android/`. Build products go to **`out/android/`**. Version **0.5.0-rc.3** fixes native WireGuard/AmneziaWG UDP fallback and nested Amnezia imports. See [the rc.3 findings and verification boundary](ANDROID-RC3-AWG.md). Approval requires the actual release acceptance below; a version label alone does not establish stability.
+Android is implemented in this repository under `android/`. Build products go to **`out/android/`**. Version **0.5.0-rc.4** adds bounded live routing, prepared MASQUE import, compatible profile tuning, verified content checks, offline session evidence and an explicit service-download path. See [the shared rc.4 / desktop rc.2 audit](ROUTE-AND-CONNECTION-AUDIT-2026-11-18.md). The native WireGuard/AmneziaWG fixes and pinned core from [rc.3](ANDROID-RC3-AWG.md) are retained. Approval requires the actual release acceptance below; a version label alone does not establish stability.
 
 The preceding [rc.2 hardening record](ANDROID-RC2-HARDENING.md) documents its Main-thread fixes, phase-correct UI notices, scoped frame evidence and acceptance boundary. The rc.3 record identifies the subsequent connectivity corrections and checks.
 
@@ -23,7 +23,7 @@ The preceding [rc.2 hardening record](ANDROID-RC2-HARDENING.md) documents its Ma
 | Service presets | YouTube, Discord, Telegram, ChatGPT/OpenAI/Codex, Claude, Gemini, Meta, X/Grok, Spotify and developer services |
 | Tunnel library | Add, rename, replace, delete and explicitly reassign dependent routes; IDs survive replacement |
 | Import | SAF documents/multiple files, explicit clipboard action, QR, text, Amnezia `vpn://` containers and HTTPS subscriptions |
-| Protocols | WireGuard, AmneziaWG 1/2, VLESS TLS/REALITY/XHTTP/WS/gRPC, VMess, Trojan, Shadowsocks, Hysteria2, TUIC v5, embedded OpenVPN client files |
+| Protocols | WireGuard, AmneziaWG 1/2, VLESS TLS/REALITY/XHTTP/WS/gRPC, VMess, Trojan, Shadowsocks, Hysteria2 including declared port ranges/lists, TUIC v5, embedded OpenVPN client files, prepared MASQUE CONNECT-IP/WARP outbounds |
 | Manual WireGuard | Real Curve25519 key generation and a public client key for server enrollment |
 | Subscriptions | Manual refresh, stable unique identities across endpoint rotation/local rename, missing and ambiguous entries handled without stealing another route's ID |
 | Groups and Auto | Ordered first-working and sticky-fastest policies; public/revoked/missing profiles excluded from Auto, at most 16 extra Auto-only live profiles |
@@ -31,17 +31,23 @@ The preceding [rc.2 hardening record](ANDROID-RC2-HARDENING.md) documents its Ma
 | Shared Android DNS | An explicit common DNS path for OS resolver requests without app attribution; automatic selection uses the protected default or a single common protected app path |
 | Public catalog | Six desktop sources, refreshed explicitly; up to eight nodes measured per operation, with failed primary probes trying the independent secondary target; a group contains up to five successful nodes from the measured sample |
 | Diagnosis | Actual physical-network DNS, DoH, TCP, certificate-verified TLS and HTTP observations plus separate native outbound URL tests |
+| Content check | Explicit 162,067-byte ASCII download with SHA-256; upload only with an owned HTTPS acknowledgement endpoint and the same active service path; unmeasured directions stay unknown |
+| Offline evidence | Bounded allowlisted session/transfer history, preview/share/delete after OFF and process recreation; no credentials, subscription URLs or raw native logs |
+| Compatible variants | Current tunnel details show a small set of applicable options, explicit OFF-only testing, current-network proof, manual apply and exact original rollback |
+| Service downloads | Direct or an explicitly selected personal path, VPN Network binding, no hidden Direct fallback, encrypted last-known catalog cache |
 | Connections/history/log | Native records with package/outbound evidence, bounded real latency history and redacted bounded engine logs |
 | Recovery | Cancel/stop, wait for cleanup, reread current encrypted state; stale cached configuration cannot resurrect deleted profiles |
 | Autostart | Optional connection when opening Waarp; device Always-on and lockdown remain Android system settings |
 | Other clients' files | Android sandbox boundaries are respected: use the document picker or explicitly share from the source app |
 | Desktop companion IPC | Android share and `waarp://import?config=…` require explicit import confirmation; no unauthenticated local mutation server |
 
-Import never automatically changes routes or starts the VPN. Unknown security-sensitive options, executable OpenVPN hooks, external credential files, invalid keys and incomplete verification constraints are rejected. JSON/YAML/text containers are supported by extracting share links, not by converting arbitrary foreign native schemas.
+Import never automatically changes routes or starts the VPN. Unknown security-sensitive options, executable OpenVPN hooks, external credential files, invalid keys and incomplete verification constraints are rejected. JSON/YAML/text containers support share-link extraction and a strict allowlisted MASQUE outbound format; arbitrary foreign runtime schemas, listeners and filesystem references are rejected. WARP registration is not performed by this importer.
 
 ## Runtime policy
 
 `WaarpApplication` owns the repository/controller. Service operation, health sampling and selector decisions continue without a visible Activity. The Always-on configuration provider reads the current encrypted repository after process recreation.
+
+Ordinary edits within a compatible live plan use selectors and individually acknowledged local rule files, keeping the same core/TUN. Deleting the last route does not express OFF. Failed updates roll back under a targeted reject guard; an unconfirmed rollback remains visible and requires explicit recovery rather than silently restarting or using Direct. New native definitions and resource-budget changes remain structural. The compiler bounds file watchers to at most 112 and leaves room under the observed Android inotify limit; oversized policies use the existing static compiler with a visible explanation. Startup verifies actual watcher reloads before reporting ON.
 
 OFF invalidates in-flight work immediately. Native lifecycle operations and the headless checker share one serial lane. A checker cannot instantiate a second WireGuard instance while VPN is active; ON checks use existing outbounds. No measurement means unknown. A default health round tries the desktop's Google target and, only for failed paths, its independent Cloudflare target. Two failed rounds are needed to mark a path down. A requested diagnostic URL is measured exactly, even if it happens to equal a health URL. Session changes and cancellation discard stale results and prevent a secondary request. A healthy path is held during active traffic. A speed-driven change requires five substantial consecutive improvements from the same challenger.
 

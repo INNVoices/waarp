@@ -48,6 +48,8 @@ internal class LibboxBackend(
     private val closed = AtomicBoolean()
     private val resourcesClosed = AtomicBoolean()
     private val started = AtomicBoolean()
+    private val routingUncertain = AtomicBoolean()
+    private val uncertainRoutingMessage = "Обновление правил не подтверждено; затронутые маршруты могут быть заблокированы. Переподключите VPN."
     private val streamEpoch = AtomicLong()
     private val client = AtomicReference<CommandClient?>()
     private val server = AtomicReference<CommandServer?>()
@@ -90,6 +92,7 @@ internal class LibboxBackend(
         check(platform.hasTun && native.ready()) { "Ядро не подтвердило готовность VPN" }
         recovery.begin()
         connectWithRetries()
+        LiveRoutingFiles.verifyInstalled(config, vpn.noBackupFilesDir, ::current)
         check(current()) { "Запуск отменён" }
         started.set(true)
         val startedAt = client.get()?.startedAt ?: System.currentTimeMillis()
@@ -165,7 +168,8 @@ internal class LibboxBackend(
                     if (!current() || epoch != streamEpoch.get()) false
                     else if (!recovery.connected(epoch)) false
                     else {
-                        if (started.get()) RuntimeState.status.update { it.copy(phase = RuntimePhase.ON, message = null) }
+                        if (started.get()) RuntimeState.status.update { it.copy(phase = RuntimePhase.ON,
+                            message = uncertainRoutingMessage.takeIf { routingUncertain.get() }) }
                         true
                     }
                 }
@@ -183,6 +187,41 @@ internal class LibboxBackend(
         val control = command()
         control.selectOutbound(group, outbound)
         updateGroups(control.groups, epoch)
+    }
+
+    suspend fun applyRouting(before: local.waarp.android.data.MobileLivePlan, after: local.waarp.android.data.MobileLivePlan) {
+        check(!routingUncertain.get()) { "Правила VPN не подтверждены. Переподключите VPN перед следующим изменением маршрута." }
+        LiveRoutingFiles.apply(before, after, ::current,
+            acknowledge = { RoutingWitness.await(it, ::current) },
+            select = { tag, target -> selectOutbound(tag, target) },
+            selected = { RuntimeState.groups.value.associate { it.tag to it.selected } },
+            onUncertain = { markRoutingUncertain(it) })
+    }
+
+    fun markRoutingUncertain(error: Throwable) {
+        routingUncertain.set(true)
+        publish {
+            // Closing VpnService here would let Android bypass the VPN when system
+            // lockdown is disabled. Keep its TUN and the targeted reject guards alive.
+            val message = uncertainRoutingMessage
+            RuntimeState.status.update { it.copy(message = message) }
+            RuntimeState.appendLog(3, message + " " + RuntimeRedaction.redact(error.message.orEmpty()))
+        }
+    }
+
+    suspend fun fetchOutbound(outbound: String, url: String, timeoutMs: Int, maxBytes: Int): RuntimeHttpResult = withContext(Dispatchers.IO) {
+        validateHttpFetch(outbound, url, timeoutMs, maxBytes)
+        check(current()) { "VPN остановлен" }
+        val probe = Libbox.newStandaloneCommandClient()
+        probes += probe
+        try {
+            check(current()) { "VPN остановлен" }
+            val response = cancellableResourceCall(
+                cancel = { runCatching { cancellation.execute { runCatching { probe.disconnect() } } } },
+                operation = { probe.getURLViaOutbound(outbound, url, timeoutMs, maxBytes, null) })
+            check(current()) { "Проверка отменена" }
+            RuntimeHttpResult(response.status(), response.content(), response.truncated(), response.contentType(), response.elapsedMs().toLong())
+        } finally { probes -= probe; runCatching { probe.disconnect() } }
     }
 
     suspend fun urlTest(outbound: String, url: String, timeoutMs: Int): Long = withContext(Dispatchers.IO) {
@@ -309,7 +348,7 @@ internal class LibboxBackend(
             // Debug builds mirror the engine log to logcat so a phone can be traced over adb.
             if (BuildConfig.DEBUG) entries.forEach { (level, message) ->
                 val priority = when { level <= 2 -> Log.ERROR; level == 3 -> Log.WARN; level == 4 -> Log.INFO; else -> Log.DEBUG }
-                Log.println(priority, "waarp-core", message.replace(ansi, ""))
+                Log.println(priority, "waarp-core", RuntimeRedaction.redact(message.replace(ansi, "")))
             }
             publish(epoch) { entries.takeLast(500).forEach { RuntimeState.appendLog(it.first, it.second) } }
         }
@@ -371,6 +410,7 @@ internal class LibboxBackend(
         }
         override fun writeDNSQuery(query: DnsQuery?) = callback {
             if (query != null) {
+                if (query.domain.trimEnd('.').endsWith(".${local.waarp.android.data.MobileLiveRouting.CANARY_ZONE}")) return@callback
                 val value = RuntimeDnsQuery(System.currentTimeMillis(), query.domain, query.queryType,
                     query.getDNSServer(), query.failed, RuntimeRedaction.redact(query.error))
                 publish(epoch) { RuntimeState.dnsQueries.update { (it + value).takeLast(200) } }

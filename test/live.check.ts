@@ -74,7 +74,7 @@ const settings = (on: boolean): Settings => ({ ...DEFAULTS, routes: [route(on)] 
   check('master-open idle state starts core when a route needs it', enabled.saved && enabled.applied && starts === 1 && phase === 'on')
 
   const disabled = await apply(settings(false))
-  check('turning last routed card off stops only the core', disabled.saved && stops === 1 && phase === 'off')
+  check('turning last routed card off reconciles Direct without an implicit global OFF', disabled.saved && disabled.applied && starts === 2 && stops === 0 && phase === 'on')
 
   console.log(`live.check: ${total - failed}/${total} passed`)
   if (failed) process.exit(1)

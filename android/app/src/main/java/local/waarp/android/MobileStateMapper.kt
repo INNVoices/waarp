@@ -19,6 +19,7 @@ internal data class MobileStateSnapshot(
     val catalogProfiles: List<TunnelProfile>, val catalog: CatalogUi, val catalogHealth: Map<String, ProbeHealth>,
     val diagnostic: DiagnosticUi?, val message: UiMessage?, val appVersion: String, val backgroundTask: String? = null,
     val compiledRoutes: List<CompiledRoute> = emptyList(), val blockedPaths: Set<String> = emptySet(),
+    val liveUpdateNote: String? = null,
 )
 
 /** Single worker owns these bounded caches. Stable sections keep their reference across telemetry updates. */
@@ -32,6 +33,8 @@ internal class MobileStateMapper {
     private val allGroupsCache = Projection<List<TunnelGroup>>()
     private val availableGroupsCache = Projection<Set<String>>()
     private val profilesCache = Projection<List<TunnelUi>>()
+    private data class ProfileDetails(val technical: List<Pair<String, String>>, val options: List<TuneVariantUi>)
+    private val profileDetails = Projection<Map<String, ProfileDetails>>()
     private val groupsCache = Projection<List<GroupUi>>()
     private val routesCache = Projection<List<RouteUi>>()
     private val flowsCache = Projection<List<FlowUi>>()
@@ -62,6 +65,10 @@ internal class MobileStateMapper {
         val compiledById = compiledIndex.get(input.compiledRoutes) { input.compiledRoutes.associateBy { it.routeId } }
         val nativeByTag = nativeIndex.get(input.nativeGroups) { input.nativeGroups.associateBy { it.tag } }
         val profilesById = profileIndex.get(data.profiles) { data.profiles.associateBy { it.id } }
+        // Building variants hashes/copies native JSON. Only profile changes need that work;
+        // new latency observations must reuse the safe, nonsecret metadata.
+        val detailsById = profileDetails.get(data.profiles) { data.profiles.associate { profile -> profile.id to
+            ProfileDetails(ProfileTuning.technical(profile), ProfileTuning.variants(profile).map { TuneVariantUi(it.id, it.label, it.detail) }) } }
         val groupsById = groupIndex.get(data.groups) { data.groups.associateBy { it.id } }
         val appsByPackage = appIndex.get(apps) { apps.associateBy { it.packageName } }
         fun selected(id: String): String? = nativeByTag["grp-$id"]?.selected?.removePrefix("p-")
@@ -103,7 +110,7 @@ internal class MobileStateMapper {
                 " к системным запросам, для которых Android не определил приложение."
         }
         val routeUi = routesCache.get(data.routes, available, availableGroups, input.nativeGroups, measured, runtime.phase, input.compiledRoutes) { data.routes.map { route ->
-            val fallbackNative = nativeByTag["fb-${route.id}"]?.selected
+            val fallbackNative = nativeByTag[compiledById[route.id]?.targetTag ?: "fb-${route.id}"]?.selected
             val fallback = route.fallback?.takeIf { "p-$it" == fallbackNative || "grp-$it" == fallbackNative }
             val effective = fallback ?: route.via
             val routeHealth = viaHealth(effective)
@@ -143,8 +150,10 @@ internal class MobileStateMapper {
             FlowUi(connection.id, appsByPackage[packageName]?.name ?: packageName,
                 packageName, host, port, connection.network, pathName(outbound), connection.rule, connection.downloadBytes, connection.uploadBytes)
         } }
-        val notices = noticesCache.get(data, routeUi, apps, input.loadError, runtime.phase, runtime.lockdown, systemDnsHint, input.blockedPaths) { buildList {
+        val notices = noticesCache.get(data, routeUi, apps, input.loadError, runtime.phase, runtime.lockdown, systemDnsHint, input.blockedPaths, input.liveUpdateNote) { buildList {
             input.loadError?.let { add(NoticeUi("store", NoticeLevel.BLOCK, "Хранилище недоступно", it)) }
+            if (policyActive) input.liveUpdateNote?.let { add(NoticeUi("live-update-limit", NoticeLevel.WARNING,
+                "Обновление большой таблицы маршрутов", it)) }
             if (!pathAvailable(data.settings.defaultVia)) add(NoticeUi("global-missing", NoticeLevel.BLOCK, "Общий маршрут недоступен",
                 if (policyActive) "Трафик без отдельного правила блокируется до выбора доступного пути."
                 else "При работе VPN трафик без отдельного правила будет блокироваться до выбора доступного пути."))
@@ -176,13 +185,16 @@ internal class MobileStateMapper {
                 profile.addresses, when (profile.source) { "public" -> ProfileSource.PUBLIC; "managed" -> ProfileSource.MANAGED; "warp" -> ProfileSource.WARP; else -> ProfileSource.PERSONAL },
                 health(measured[profile.id]), measured[profile.id]?.latencyMs?.toDouble(), profile.country.takeIf(String::isNotBlank),
                 profile.revoked, profile.subscription != null, profile.subscriptionMissing, profile.clientPublicKey,
-                canRename = profile.source !in setOf("managed", "public"), canReplace = profile.source !in setOf("managed", "public", "warp"), canDelete = profile.source != "managed") } },
+                canRename = profile.source !in setOf("managed", "public"), canReplace = profile.source !in setOf("managed", "public", "warp"), canDelete = profile.source != "managed",
+                technical = detailsById.getValue(profile.id).technical, canTune = detailsById.getValue(profile.id).options.isNotEmpty(),
+                tuneLabel = profile.tuning?.label,
+                tuneOptions = detailsById.getValue(profile.id).options) } },
             groups = groupsCache.get(allGroups, measured, input.nativeGroups) { allGroups.map { group -> GroupUi(group.id, group.name, if (group.policy == "first") GroupPolicy.FIRST else GroupPolicy.FASTEST,
                 group.members, selected(group.id), health(viaHealth(group.id)), viaHealth(group.id)?.latencyMs?.toDouble()) } },
             routes = routeUi, apps = apps, presets = presetUi,
             settings = SettingsUi(data.settings.defaultVia, data.settings.lastWholeDeviceVia, data.settings.lanDirect, data.settings.ruDirect,
                 data.settings.autoConnect, data.settings.notifications, runtime.alwaysOn.takeIf { runtime.phase == RuntimePhase.ON }, runtime.lockdown.takeIf { runtime.phase == RuntimePhase.ON },
-                data.settings.systemDnsVia, systemDnsHint, systemDns.blocked),
+                data.settings.systemDnsVia, systemDnsHint, systemDns.blocked, data.settings.serviceVia),
             catalog = catalogCache.get(catalog, catalogProfiles, catalogHealth, knownPublicIdentities, profilesById) { catalog.copy(nodes = catalogProfiles.map { node -> PublicNodeUi(node.id, node.name, node.protocol, node.host, node.port, node.country,
                 latencyMs = catalogHealth[node.id]?.latencyMs?.toDouble(), health = health(catalogHealth[node.id]), added = node.id in profilesById || catalogIdentities[node.id] in knownPublicIdentities) }) },
             flows = flows, latencyHistory = historyCache.get(input.history, data.profiles) { input.history.mapNotNull { (id, samples) -> profilesById[id]?.let { LatencySeriesUi(id, it.name, samples) } } },

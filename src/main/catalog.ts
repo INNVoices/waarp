@@ -13,6 +13,7 @@ import { RuntimeJournal } from './runtime-journal'
 import { parseVpnGateCsv } from './vpngate'
 import { protectPrivateFile } from './private-file'
 import { credentialKey } from './discovery'
+import { resolvedPublic, type PinnedHttpGet } from './vless'
 
 // RC2 F: only sources with a clear license/terms; inventory in docs/SOURCES.md. No license = not a default.
 export const DEFAULT_SOURCES = [
@@ -56,21 +57,22 @@ export function countryOf(name: string): string {
   return m && CODES.has(m[1]) ? m[1] : '??'
 }
 
-async function fetchText(url: string, cancel?: AbortSignal): Promise<string> {
+async function fetchText(url: string, cancel?: AbortSignal, transport?: PinnedHttpGet): Promise<string> {
   const allowed = new Set(['raw.githubusercontent.com', 'www.vpngate.net', 'vpngate.net'])
   let current = new URL(url)
-  if (current.protocol !== 'https:' || !allowed.has(current.hostname.toLowerCase())) throw new Error('источник не разрешён')
+  if (current.protocol !== 'https:' || current.username || current.password || !allowed.has(current.hostname.toLowerCase())) throw new Error('источник не разрешён')
   const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 20000)
   const signal = cancel ? AbortSignal.any([cancel, ac.signal]) : ac.signal
   try {
     let r: Response | undefined
     for (let hop = 0; hop <= 3; hop++) {
-      r = await fetch(current, { signal, redirect: 'manual' })
+      r = transport ? await transport(current, await resolvedPublic(current, signal, transport.resolve), signal, MAX_BYTES) : await fetch(current, { signal, redirect: 'manual' })
       if (r.status < 300 || r.status >= 400) break
       const location = r.headers.get('location')
+      void r.body?.cancel().catch(() => undefined)
       if (!location || hop === 3) throw new Error('слишком много перенаправлений')
       current = new URL(location, current)
-      if (current.protocol !== 'https:' || !allowed.has(current.hostname.toLowerCase())) throw new Error('перенаправление на неразрешённый источник')
+      if (current.protocol !== 'https:' || current.username || current.password || !allowed.has(current.hostname.toLowerCase())) throw new Error('перенаправление на неразрешённый источник')
     }
     if (!r) throw new Error('источник не ответил')
     if (!r.ok) throw new Error('HTTP ' + r.status)
@@ -94,6 +96,13 @@ async function fetchText(url: string, cancel?: AbortSignal): Promise<string> {
   } finally { clearTimeout(t) }
 }
 
+export interface CatalogSourceText { url: string; body?: string; error?: string }
+export const fetchCatalogSources = (sources: string[], signal: AbortSignal, transport?: PinnedHttpGet): Promise<CatalogSourceText[]> =>
+  Promise.all(sources.map(async url => {
+    try { return { url, body: await fetchText(url, signal, transport) } }
+    catch { return { url, error: 'Источник не удалось загрузить по выбранному пути' } }
+  }))
+
 export class Catalog {
   state: CatalogState = { sources: [], total: 0, checked: 0, alive: [], busy: false }
   private nodes = new Map<string, Profile>()
@@ -104,7 +113,8 @@ export class Catalog {
   private pending?: Promise<CatalogState>
   private checker?: Checker
   private checkerStopped = true
-  constructor(private dir: string, private exe: string, private onChange: (s: CatalogState) => void, private allowStart: () => boolean = () => true) {
+  constructor(private dir: string, private exe: string, private onChange: (s: CatalogState) => void, private allowStart: () => boolean = () => true,
+    private readSources: (sources: string[], signal: AbortSignal) => Promise<CatalogSourceText[]> = fetchCatalogSources) {
     this.file = join(dir, 'catalog.json')
     try {
       if (existsSync(this.file)) {
@@ -174,10 +184,7 @@ export class Catalog {
     // multiply into several minutes; parsing and deduplication remain deterministic in source order.
     const existingIds = new Map([...this.identities, ...[...previousNodes].map(([id, p]) => [credentialKey(p), id] as const)])
     const idOwners = new Map([...existingIds].map(([key, id]) => [id, key]))
-    const fetched = await Promise.all(selectedSources.map(async url => {
-      try { return { url, body: await fetchText(url, abort.signal) } }
-      catch (error) { return { url, error: error instanceof Error ? error.message : String(error) } }
-    }))
+    const fetched: CatalogSourceText[] = await this.readSources(selectedSources, abort.signal).catch(() => selectedSources.map(url => ({ url, error: 'Выбранный путь загрузки недоступен; сохранён прежний каталог' })))
     if (!active()) return canceled()
     for (const item of fetched) {
       const { url } = item

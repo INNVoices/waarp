@@ -22,9 +22,12 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import local.waarp.android.core.LiveRoutingFiles
 import local.waarp.android.core.RuntimePhase
 import local.waarp.android.core.RuntimeProbeResult
 import local.waarp.android.core.VpnController
+import java.io.File
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
 /** Process-level owner: Always-on, measurements and failover continue without an Activity or ViewModel. */
@@ -57,7 +60,8 @@ class MobileRepository(private val context: Context, val controller: VpnControll
             edits.withLock {
                 val current = store.read()
                 _data.value = current; _loadError.value = null
-                val result = compile(current)
+                val result = withContext(Dispatchers.Default) { compile(current) }
+                withContext(Dispatchers.IO) { result.live?.let { LiveRoutingFiles.initialize(it); LiveRoutingFiles.cleanupObsolete(it, _compiled.value?.live?.directory) } }
                 _compiled.value = result
                 result.json
             }
@@ -67,8 +71,10 @@ class MobileRepository(private val context: Context, val controller: VpnControll
         scope.launch {
             var previous = RuntimePhase.OFF
             controller.status.map { it.phase }.distinctUntilChanged().collect { phase ->
-                if (phase == RuntimePhase.ON || phase == RuntimePhase.STARTING) _requestedOpen.value = true
-                if (!_applying.value && phase in setOf(RuntimePhase.OFF, RuntimePhase.ERROR) && previous != RuntimePhase.OFF) {
+                if (controller.status.value.phase != phase) return@collect
+                val wanted = controller.hasStartRequest()
+                if (wanted && (phase == RuntimePhase.ON || phase == RuntimePhase.STARTING)) _requestedOpen.value = true
+                if (!_applying.value && !wanted && phase in setOf(RuntimePhase.OFF, RuntimePhase.ERROR) && previous != RuntimePhase.OFF) {
                     generation.incrementAndGet(); _requestedOpen.value = false
                 }
                 previous = phase
@@ -98,8 +104,11 @@ class MobileRepository(private val context: Context, val controller: VpnControll
             combine(data, loadError) { value, error -> error?.let { throw IllegalStateException(it) }; value }.filterNotNull().first()
         }
     }
-    private fun compile(value: AppData): CompiledConfiguration = RoutingCompiler.compile(value, context.packageName,
-        controller.groups.value.find { it.tag == "grp-$AUTO" }?.selected?.removePrefix("p-"))
+    private fun currentAuto(): String? = controller.groups.value.find { it.tag == "grp-$AUTO" }?.selected?.removePrefix("p-")
+    private fun compile(value: AppData, previous: CompiledConfiguration? = null, auto: String? = currentAuto()): CompiledConfiguration =
+        MobileLiveRouting.compile(value, context.packageName, auto,
+            previous?.live?.directory ?: File(context.noBackupFilesDir, "live-routes/${UUID.randomUUID()}").absolutePath, previous,
+            controller.groups.value.associate { it.tag to it.selected })
 
     fun requestConnect(): Long {
         val token = generation.incrementAndGet(); _requestedOpen.value = true; return token
@@ -114,6 +123,7 @@ class MobileRepository(private val context: Context, val controller: VpnControll
         if (generation.get() != token || !_requestedOpen.value) return@withLock
         try {
             val value = _data.value ?: error("Хранилище не готово"); val compiled = withContext(Dispatchers.Default) { compile(value) }
+            withContext(Dispatchers.IO) { compiled.live?.let { LiveRoutingFiles.initialize(it); LiveRoutingFiles.cleanupObsolete(it, _compiled.value?.live?.directory) } }
             controller.validateConfig(compiled.json)
             if (generation.get() != token || !_requestedOpen.value) return@withLock
             _compiled.value = compiled; controller.start(compiled.json)
@@ -127,68 +137,94 @@ class MobileRepository(private val context: Context, val controller: VpnControll
         generation.incrementAndGet(); _requestedOpen.value = false; controller.stop()
     }
 
-    /** Transform only the supplied snapshot and captured immutable inputs; preparation runs off Main. */
-    suspend fun edit(transform: (AppData) -> AppData): AppData {
+    /** One transaction owns preparation, native ACK, encrypted persistence and rollback. */
+    suspend fun edit(beforeCommit: () -> Unit = {}, transform: (AppData) -> AppData): AppData {
       ready()
+      // A control-stream recovery is not permission to replace the native TUN.
+      // Wait outside the edit lock: a system start may need it to load its config.
+      withTimeout(20_000) { controller.status.first { it.phase !in setOf(RuntimePhase.STARTING, RuntimePhase.STOPPING) } }
       return edits.withLock {
         val before = _data.value ?: error("Хранилище не готово")
-        val (after, next) = withContext(Dispatchers.Default) {
-            // Subscription reconciliation hashes/canonicalizes the whole library.
-            // Keep it and validation in the same cancellable preparation step;
-            // no state or runtime transition is published before this completes.
-            val prepared = transform(before).copy(revision = before.revision + 1).checked()
-            prepared to compile(prepared)
-        }
-        controller.validateConfig(next.json)
         val token = generation.get()
-        val phase = controller.status.value.phase
         val nativeGeneration = controller.sessionGeneration()
+        val phase = controller.status.value.phase
+        check(phase !in setOf(RuntimePhase.STARTING, RuntimePhase.STOPPING)) { "Дождитесь завершения подключения VPN и повторите изменение" }
         val active = phase in setOf(RuntimePhase.ON, RuntimePhase.STARTING)
-        val requiresRestart = active && next.json != _compiled.value?.json
+        val previousCompiled = _compiled.value?.let { compiled ->
+            compiled.live?.let { live -> compiled.copy(live = live.copy(selections = live.selections +
+                controller.groups.value.filter { it.tag.startsWith("grp-") }.associate { it.tag to it.selected })) } ?: compiled
+        }
+        val selectedAuto = currentAuto()
+        val after = withContext(Dispatchers.Default) { transform(before).copy(revision = before.revision).checked() }
+        if (after == before) return@withLock before
+        val saved = after.copy(revision = before.revision + 1)
+        var next = withContext(Dispatchers.Default) { compile(saved, previousCompiled.takeIf { active }, selectedAuto) }
+        val live = phase == RuntimePhase.ON && previousCompiled?.live?.let { old -> next.live?.let(old::compatible) } == true
+        val sameRuntime = active && previousCompiled?.let { old ->
+            if (old.live == null || next.live == null) old.live == null && next.live == null && old.json == next.json
+            else old.live.compatible(next.live!!) && old.live.files == next.live!!.files && old.live.selections == next.live!!.selections
+        } == true
+        val requiresRestart = active && !live && !sameRuntime
+        if (!live && !sameRuntime) {
+            // A new native definition needs a new private directory. Validation never
+            // writes files watched by the still-running session.
+            next = withContext(Dispatchers.Default) { compile(saved, auto = selectedAuto) }
+            withContext(Dispatchers.IO) { next.live?.let { LiveRoutingFiles.initialize(it); LiveRoutingFiles.cleanupObsolete(it, previousCompiled?.live?.directory) } }
+            controller.validateConfig(next.json)
+        }
         _applying.value = true
         var committed = false
+        var appliedLive = false
         var pausedGeneration: Long? = null
         try {
             withContext(NonCancellable) {
-                // Once a runtime update begins, leaving the screen cannot strand
-                // the old data with a stopped VPN between cleanup and disk commit.
-                if (requiresRestart) {
+                beforeCommit()
+                if (live && !sameRuntime) {
+                    controller.applyLiveRouting(previousCompiled!!.live!!, next.live!!, nativeGeneration)
+                    appliedLive = true
+                } else if (requiresRestart) {
                     pausedGeneration = controller.pauseForUpdate(nativeGeneration)
-                    if (pausedGeneration != null) withTimeout(20_000) {
-                        controller.status.first { it.phase == RuntimePhase.OFF || it.phase == RuntimePhase.ERROR }
+                    if (pausedGeneration != null) {
+                        val stopped = withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.OFF || it.phase == RuntimePhase.ERROR } }
+                        check(stopped.phase == RuntimePhase.OFF) { stopped.message ?: "Не удалось завершить предыдущий VPN" }
                     }
                 }
-                store.write(after)
-                _data.value = after; _loadError.value = null; _compiled.value = next
+                store.write(saved)
+                _data.value = saved; _loadError.value = null; _compiled.value = next
                 committed = true
                 val beforeById = before.profiles.associateBy { it.id }
-                val valid = after.profiles.filter { !it.revoked && !it.subscriptionMissing && beforeById[it.id]?.config == it.config }.map { it.id }.toSet()
+                val valid = saved.profiles.filter { !it.revoked && !it.subscriptionMissing && beforeById[it.id]?.config == it.config }.map { it.id }.toSet()
                 _health.update { map -> map.filterKeys { it in valid } }
                 _history.update { map -> map.filterKeys { it in valid } }
-                selectionMemory.keys.retainAll(after.groups.map { it.id }.toSet() + AUTO)
+                selectionMemory.keys.retainAll(saved.groups.map { it.id }.toSet() + AUTO)
                 if (requiresRestart) selectionMemory.clear()
                 val paused = pausedGeneration
                 if (paused != null && _requestedOpen.value && generation.get() == token) {
-                    // A notification OFF/revoke changes the native epoch even
-                    // while phase observers are suppressed by _applying.
-                    try { controller.resumeAfterUpdate(next.json, paused) }
-                    catch (error: Exception) {
-                        _requestedOpen.value = false; generation.incrementAndGet()
-                        throw IllegalStateException("Изменения сохранены, но VPN не перезапустился. Повторите подключение.", error)
-                    }
+                    val accepted = controller.resumeAfterUpdate(next.json, paused)
+                    check(accepted || !controller.isSessionGeneration(paused)) { "Изменения сохранены, но VPN не запустился. Повторите подключение." }
                 }
-                after
+                saved
             }
         } catch (error: Exception) {
-            pausedGeneration?.let(controller::abandonUpdate)
-            if (requiresRestart && !committed) { _requestedOpen.value = false; generation.incrementAndGet() }
+            withContext(NonCancellable) {
+                if (appliedLive && !committed && controller.isSessionGeneration(nativeGeneration) && controller.status.value.phase == RuntimePhase.ON) {
+                    runCatching { controller.applyLiveRouting(next.live!!, previousCompiled!!.live!!, nativeGeneration) }
+                        .exceptionOrNull()?.let { failure -> error.addSuppressed(failure); runCatching { controller.markRoutingUncertain(error, nativeGeneration) } }
+                }
+                val paused = pausedGeneration
+                val canRestore = !committed && previousCompiled != null && paused != null && _requestedOpen.value &&
+                    generation.get() == token && controller.isSessionGeneration(paused) && controller.status.value.phase == RuntimePhase.OFF
+                val restored = canRestore && runCatching { controller.resumeAfterUpdate(previousCompiled!!.json, paused!!) }.getOrDefault(false)
+                if (!restored) {
+                    paused?.let(controller::abandonUpdate)
+                    if (paused != null && !committed && generation.compareAndSet(token, token + 1)) _requestedOpen.value = false
+                }
+            }
             throw error
         } finally {
             _applying.value = false
             if (phase in setOf(RuntimePhase.ON, RuntimePhase.STARTING, RuntimePhase.STOPPING) &&
-                !controller.hasStartRequest() && generation.compareAndSet(token, token + 1)) {
-                _requestedOpen.value = false
-            }
+                !controller.hasStartRequest() && generation.compareAndSet(token, token + 1)) _requestedOpen.value = false
         }
       }
     }

@@ -33,6 +33,10 @@ import local.waarp.android.data.AppData
 import local.waarp.android.data.AppSettings
 import local.waarp.android.data.ProfileImporter
 import local.waarp.android.data.RoutingCompiler
+import local.waarp.android.data.MobileLiveRouting
+import local.waarp.android.data.TunnelProfile
+import local.waarp.android.data.DIRECT
+import local.waarp.android.data.obj
 import local.waarp.android.data.TrafficRoute
 import org.json.JSONObject
 import org.junit.After
@@ -137,6 +141,55 @@ class VpnLifecycleInstrumentedTest {
             delay(350)
             assertEquals(RuntimePhase.OFF, controller.status.value.phase)
             assertEquals(null, RuntimeState.backend.get())
+        }
+    }
+
+    @Test fun watchedRouteMutationsKeepOneRealTunAndAcknowledgeInsideTheNativeCore(): Unit = runBlocking {
+        // The SOCKS definitions are deliberately unreachable reserved addresses. The
+        // test proves live policy/selector/TUN continuity, not external proxy reachability.
+        fun proxy(id: String) = TunnelProfile(id, id, "SOCKS", "192.0.2.1", 1080,
+            obj("type" to "socks", "server" to "192.0.2.1", "server_port" to 1080).toString())
+        val folder = File(context.noBackupFilesDir, "instrumented-live-routes-${System.nanoTime()}")
+        var data = AppData(profiles = listOf(proxy("one"), proxy("two")),
+            routes = listOf(TrafficRoute("first", "first", "custom", "first.example.test", DIRECT)))
+        var compiled = MobileLiveRouting.compile(data, context.packageName, null, folder.absolutePath)
+        LiveRoutingFiles.initialize(compiled.live!!)
+        controller.validateConfig(compiled.json)
+        controller.start(compiled.json)
+        withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.ON || it.phase == RuntimePhase.ERROR } }
+        assertEquals(controller.status.value.message, RuntimePhase.ON, controller.status.value.phase)
+        val generation = controller.sessionGeneration()
+        val backend = RuntimeState.backend.get()
+        val startedAt = controller.status.value.startedAt
+        val outcomes = org.json.JSONArray()
+        try {
+            suspend fun apply(label: String, changed: AppData) {
+                val next = MobileLiveRouting.compile(changed, context.packageName, null, folder.absolutePath, compiled,
+                    controller.groups.value.associate { it.tag to it.selected })
+                assertTrue("$label must fit existing native definitions", compiled.live!!.compatible(next.live!!))
+                controller.applyLiveRouting(compiled.live!!, next.live!!, generation)
+                assertEquals(label, RuntimePhase.ON, controller.status.value.phase)
+                assertEquals(label, generation, controller.sessionGeneration())
+                assertTrue("$label replaced the native core", RuntimeState.backend.get() === backend)
+                assertEquals(label, startedAt, controller.status.value.startedAt)
+                outcomes.put(label); compiled = next; data = changed
+            }
+            apply("direct to real profile", data.copy(routes = data.routes.map { it.copy(via = "one") }))
+            apply("real profile to another", data.copy(routes = data.routes.map { it.copy(via = "two") }))
+            apply("disable card", data.copy(routes = data.routes.map { it.copy(enabled = false) }))
+            apply("delete last disabled card", data.copy(routes = emptyList()))
+            apply("add card", data.copy(routes = listOf(TrafficRoute("new", "new", "custom", "new.example.test", "one"))))
+            apply("delete last active card", data.copy(routes = emptyList()))
+            apply("change default route", data.copy(settings = data.settings.copy(defaultVia = "two")))
+            apply("restore default direct", data.copy(settings = data.settings.copy(defaultVia = DIRECT)))
+        } finally {
+            val report = File(context.getExternalFilesDir(null), "ui-screenshots").apply { mkdirs() }
+            File(report, "android-live-route-continuity.json").writeText(obj(
+                "scope" to "Real Android TUN, native selector and watched-file acknowledgements; no external server reachability claim",
+                "nativeSession" to generation, "completed" to outcomes).toString(2))
+            controller.stop()
+            withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.OFF } }
+            folder.deleteRecursively()
         }
     }
 

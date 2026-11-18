@@ -97,6 +97,8 @@ export interface ProfileView {
   tune?: string
   /** A stored tune may be inactive on this network but must remain explicitly resettable. */
   tuneStored?: boolean
+  /** Compatible, bounded client changes shown before the user starts the helper. */
+  tuneOptions?: { label: string; detail: string }[]
 }
 
 export type Via = 'direct' | string
@@ -143,6 +145,8 @@ export interface Settings {
   rest: Via
   /** the last tunnel chosen for "everything through", offered again when the mode is switched back on */
   allVia?: Via
+  /** Explicit path for subscriptions, domain lists and catalog sources. Missing = Direct. */
+  serviceVia?: string
   groups: Group[]
   routes: Route[]
   ruDirect: boolean

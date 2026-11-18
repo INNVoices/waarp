@@ -6,6 +6,7 @@ import { s } from '../lib/i18n'
 import { api } from '../bridge'
 import { hueOf } from '../lib/routes'
 import { Mark, viaName } from '../parts'
+import { PayloadCheck } from './payload-check'
 
 export function Analyzer({ snap, status, hist }: { snap: Snapshot; status: Status; hist: Record<string, (number | undefined)[]> }) {
   const live = status.phase === 'on'
@@ -14,6 +15,7 @@ export function Analyzer({ snap, status, hist }: { snap: Snapshot; status: Statu
     <div className="page">
       <div className="page-head"><h1>{s('an.title')}</h1></div>
       <Probe snap={snap} live={live} />
+      <PayloadCheck snap={snap} />
       <section className="panel">
         <div className="ph-row"><h3>{s('an.live')}</h3><span className="m">{s('an.live.hint')}</span></div>
         {!live && ids.length > 0 && <p className="hint">{s('an.off_icmp')}</p>}

@@ -56,7 +56,7 @@ internal object RuntimeRedaction {
     private val secretKeys = setOf(
         "private_key", "pre_shared_key", "preshared_key", "password", "uuid",
         "auth", "token", "auth_key", "secret", "client_key", "private_key_password",
-        "key", "authorization", "proxy-authorization", "cookie",
+        "key", "authorization", "proxy-authorization", "cookie", "uri",
     )
     private val uri = Regex("(?i)(vless|vmess|ss|ssr|trojan|hysteria2?|hy2|tuic|vpn|awg|wg)://[^\\s\\\"<>]+")
     private val assignment = Regex("(?i)((?:private[_ -]?key|preshared[_ -]?key|pre_shared_key|password|secret|token)\\s*[=:]\\s*)[^\\s,;]+")

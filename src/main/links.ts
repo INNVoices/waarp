@@ -3,6 +3,7 @@
 // Unknown or broken lines are counted, never guessed.
 import type { OutProfile, Profile } from '../shared/types'
 import { parseVless } from './vless'
+import { looksLikeMasque, parseMasque } from './masque'
 
 const rid = (): string => Math.random().toString(36).slice(2, 10)
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -44,6 +45,8 @@ const mk = (name: string, version: string, h: string, p: number, outbound: Recor
 
 /** Extract supported share links from JSON/YAML/text containers without executing their format. */
 export function linksInContainer(text: string, max = 128): string[] {
+  // A native node export must pass its strict whole-document validator, even when a field contains a share link.
+  if (looksLikeMasque(text)) return []
   const normalized = text.replace(/\\u0026/gi, '&').replace(/\\\//g, '/')
   const matches = normalized.match(/(?:vless|vmess|trojan|ss|hysteria2|hy2|tuic):\/\/[^\s"'<>\\]+/gi) ?? []
   return [...new Set(matches)].slice(0, Math.max(0, Math.min(max, 1000)))
@@ -160,6 +163,8 @@ export function parseLink(line: string): Profile | null {
 /** a list / subscription body (plain lines or base64) of mixed links */
 export function parseAny(text: string, max = 5000): { items: Profile[]; skipped: number } {
   let body = (text ?? '').trim()
+  const masque = parseMasque(body, Number.isFinite(max) ? max : 0)
+  if (masque) return masque
   if (!/:\/\//.test(body)) { try { const d = b64(body.replace(/\s+/g, '')); if (/:\/\//.test(d)) body = d } catch { /* not base64 */ } }
   const lines = body.split(/\r?\n/)
   const limit = Number.isFinite(max) ? Math.max(0, Math.floor(max)) : 0
@@ -175,7 +180,7 @@ export function parseAny(text: string, max = 5000): { items: Profile[]; skipped:
 export function outSecrets(p: OutProfile): string[] {
   const secrets: string[] = []
   const walk = (value: unknown, key = '') => {
-    if (typeof value === 'string' && /^(?:uuid|password|private_key)$/.test(key) && value.length > 3) secrets.push(value)
+    if (typeof value === 'string' && /^(?:uuid|password|private_key|uri)$/.test(key) && value.length > 3) secrets.push(value)
     else if (Array.isArray(value)) value.forEach(x => walk(x, key))
     else if (value && typeof value === 'object') for (const [k, v] of Object.entries(value)) walk(v, k)
   }

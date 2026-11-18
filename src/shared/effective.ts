@@ -3,6 +3,7 @@
 import { compilePlan } from './plan'
 import type { Profile, Settings, Status, TunnelHealth, Via } from './types'
 import { withAuto, type AutoSource } from './groups'
+import { sameEffectiveRouting } from './routing-edit'
 
 export type RouteState = 'ok' | 'fallback' | 'retrying' | 'blocked' | 'direct' | 'idle' | 'off'
 /** why a route is not plainly ok; codes, the UI owns the words */
@@ -48,6 +49,29 @@ export function effectiveRoutes(given: Settings, profiles: (Pick<Profile, 'id' |
   for (const r of s.routes) out[r.id] = one(r.id, r.via, r.on)
   if (s.rest !== 'direct') out[REST_ID] = one(REST_ID, s.rest, true)
   return out
+}
+
+/** A saved edit is not native confirmation. Keep unaffected route evidence, and
+ * show waiting for changed intent after a failed transaction instead of declaring
+ * its newly selected profile healthy merely because that profile has a ping. */
+export function confirmedRoutes(desired: Settings, profiles: (Pick<Profile, 'id' | 'revoked'> & AutoSource)[], live: Live,
+  acknowledged?: Settings, guarded = false): Record<string, RouteEff> {
+  if (!acknowledged || live.phase !== 'on' || (!guarded && sameEffectiveRouting(acknowledged, desired))) return effectiveRoutes(desired, profiles, live)
+  const previous = effectiveRoutes(acknowledged, profiles, live)
+  const before = acknowledged.routes.filter(r => r.on), after = desired.routes.filter(r => r.on)
+  const stable = (route: Settings['routes'][number] | undefined) => { if (!route) return ''; const { name: _name, ...value } = route; return JSON.stringify(value) }
+  const global = guarded || acknowledged.rest !== desired.rest || acknowledged.ruDirect !== desired.ruDirect || acknowledged.lanDirect !== desired.lanDirect || acknowledged.dnsAll !== desired.dnsAll
+  const states = Object.fromEntries(desired.routes.map(route => {
+    const old = acknowledged.routes.find(r => r.id === route.id)
+    const group = (settings: Settings) => settings.groups.find(g => g.id === route.via)
+    const changed = global || stable(old) !== stable(route) || before.findIndex(r => r.id === route.id) !== after.findIndex(r => r.id === route.id) || JSON.stringify(group(acknowledged)) !== JSON.stringify(group(desired))
+    return [route.id, changed ? { desired: route.via, state: 'retrying' as const, reason: 'waiting' as const,
+      ...(!guarded && previous[route.id]?.effective ? { effective: previous[route.id].effective } : {}) } : previous[route.id]]
+  })) as Record<string, RouteEff>
+  if (desired.rest !== 'direct' || acknowledged.rest !== 'direct') states[REST_ID] = global
+    ? { desired: desired.rest, state: 'retrying', reason: 'waiting', ...(!guarded && previous[REST_ID]?.effective ? { effective: previous[REST_ID].effective } : {}) }
+    : previous[REST_ID] ?? { desired: desired.rest, state: 'direct', effective: 'direct' }
+  return states
 }
 
 /** global mood from effective impact only (a sick spare never shows here). attention = an enabled route cannot go

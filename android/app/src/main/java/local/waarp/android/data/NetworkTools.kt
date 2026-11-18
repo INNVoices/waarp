@@ -21,6 +21,8 @@ import local.waarp.android.ui.DiagnosticLayerUi
 import local.waarp.android.ui.ObservationResult
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -58,13 +60,26 @@ class NetworkTools(context: Context) {
         return active?.takeIf(::physical) ?: connectivity.allNetworks.firstOrNull(::physical)
     }
 
+    fun vpnNetwork(): Network? = connectivity.allNetworks.firstOrNull {
+        connectivity.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+    }
+    fun networkLabel(): String = physicalNetwork()?.let { network ->
+        val capabilities = connectivity.getNetworkCapabilities(network)
+        when {
+            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true -> "Wi-Fi"
+            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true -> "Мобильная сеть"
+            else -> "Текущая сеть"
+        }
+    } ?: "Нет подключения"
+
     // Control-plane fetches must remain reachable when a saved tunnel is broken.
     // The app UID stays inside TUN for native TCP reverse NAT, so bind these
     // HTTPS sockets explicitly to the physical network instead of excluding it.
-    suspend fun fetch(url: String, maxBytes: Int = MAX_IMPORT_BYTES, physical: Boolean = true): String = withContext(Dispatchers.IO) {
+    suspend fun fetch(url: String, maxBytes: Int = MAX_IMPORT_BYTES, physical: Boolean = true,
+        boundNetwork: Network? = null): String = withContext(Dispatchers.IO) {
         NetworkOperation.within(30_000) {
             require(maxBytes > 0)
-            val network = if (physical) physicalNetwork() ?: error("Нет физического подключения к сети") else null
+            val network = boundNetwork ?: if (physical) physicalNetwork() ?: error("Нет физического подключения к сети") else null
             var current = URI(url)
             repeat(5) { redirect ->
                 coroutineContext.ensureActive()
@@ -93,6 +108,25 @@ class NetworkTools(context: Context) {
                 }
             }
             error("Не удалось загрузить HTTPS-ссылку")
+        }
+    }
+
+    /** Only called for an explicitly supplied test endpoint and a confirmed Waarp service route. */
+    suspend fun uploadCheck(url: String, vpn: Network): TransferObservation = withContext(Dispatchers.IO) {
+        val uri = target(url)
+        require(uri.rawQuery == null) { "Тестовый адрес отправки должен быть без параметров и секретов" }
+        NetworkOperation.within(15_000) {
+            val body = TransferProof.uploadPayload()
+            val request = Request.Builder().url(uri.toString())
+                .post(body.toRequestBody("application/octet-stream".toMediaType()))
+                .header("User-Agent", "Waarp-Android/0.5").build()
+            val client = clientFor(vpn, uri.host)
+            val start = System.nanoTime()
+            val context = coroutineContext
+            NetworkOperation.http(client.newCall(request)) { response ->
+                val text = response.body.byteStream().use { readBounded(it, 4096) { context.ensureActive() }.toString(Charsets.UTF_8) }
+                TransferProof.uploadAcknowledged(response.code, text, body, (System.nanoTime() - start) / 1_000_000)
+            }
         }
     }
 
@@ -138,10 +172,12 @@ class NetworkTools(context: Context) {
         }
     }
 
-    suspend fun catalog(): CatalogResult = coroutineScope {
+    suspend fun catalog(): CatalogResult = catalog { url, limit -> fetch(url, limit) }
+
+    suspend fun catalog(fetcher: suspend (String, Int) -> String): CatalogResult = coroutineScope {
         val results = SOURCES.map { (name, url) -> async(Dispatchers.IO) {
             try {
-                val raw = fetch(url, maxBytes = 8 * MAX_IMPORT_BYTES)
+                val raw = fetcher(url, 8 * MAX_IMPORT_BYTES)
                 coroutineContext.ensureActive()
                 val parsed = if (url.contains("vpngate.net")) {
                     // CSV rows embed certificates; process one bounded row at a time.

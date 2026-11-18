@@ -36,7 +36,7 @@ export class ConnectionControl {
   }
 
   /** Called from inside the shared mutation queue. It never reopens a user-closed master. */
-  async reconnect(revision = this.revision, options: { restart?: boolean; preserveIntent?: boolean } = {}): Promise<ConnectionResult> {
+  async reconnect(revision = this.revision, options: { restart?: boolean; preserveIntent?: boolean; retainCore?: boolean } = {}): Promise<ConnectionResult> {
     const canceled = (): ConnectionResult => ({ ok: false, error: 'Подключение отменено' })
     if (!this.current(revision)) return canceled()
     const idle = async (): Promise<ConnectionResult> => {
@@ -51,7 +51,7 @@ export class ConnectionControl {
     }
     try {
       // Open but idle is valid only after the previous core has actually stopped.
-      if (!this.d.demandsTunnel()) return await idle()
+      if (!this.d.demandsTunnel() && !options.retainCore) return await idle()
       if (!options.restart && this.d.phase() === 'on') return { ok: true }
       const ready = await this.d.prepare()
       if (!this.current(revision)) return canceled()
@@ -60,7 +60,7 @@ export class ConnectionControl {
         await this.d.stop().catch(() => false)
         return ready
       }
-      if (!this.d.demandsTunnel()) return await idle()
+      if (!this.d.demandsTunnel() && !options.retainCore) return await idle()
       await this.d.start()
       // OFF has already requested engine.stop. Do not stop a newer ON from an obsolete completion.
       if (!this.current(revision)) return canceled()

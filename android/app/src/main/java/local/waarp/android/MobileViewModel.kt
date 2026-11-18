@@ -10,6 +10,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
@@ -62,6 +68,12 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
     private var message: UiMessage? = null
     private var diagnosticBusy = false
     private var appScanBusy = false
+    private var tuning: TunnelTuningUi? = null
+    private var tuningProof: TuningProof? = null
+    private var tuningJob: Job? = null
+    private var transferJob: Job? = null
+    private var transfer: TransferUi? = null
+    private val catalogCache = ProfileStore(application, catalogCache = true)
     var pendingConsentToken: Long? = null
         private set
     var pendingConsentIntent: Intent? = null
@@ -94,8 +106,18 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
             }
         }
         val streams: List<Flow<*>> = listOf(repository.data, repository.loadError, repository.requestedOpen, repository.applying,
-            repository.compiled, repository.health, repository.history, controller.status, controller.groups, controller.connections, controller.logs, imports.state)
+            repository.compiled, repository.health, repository.history, controller.status, controller.groups, controller.connections, controller.logs, imports.state,
+            app.evidence.report)
         streams.forEach { stream -> viewModelScope.launch { stream.collect { changed() } } }
+        viewModelScope.launch {
+            runCatching { catalogCache.read() }.getOrNull()?.takeIf { it.profiles.isNotEmpty() }?.let { cached ->
+                if (catalogProfiles.isEmpty()) {
+                    catalogProfiles = cached.profiles
+                    catalog = CatalogUi(total = cached.profiles.size, updatedAtMillis = cached.revision)
+                    changed()
+                }
+            }
+        }
         viewModelScope.launch {
             val initialIntent = repository.intentGeneration()
             try {
@@ -122,7 +144,8 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
             controller.groups.value, controller.connections.value, controller.logs.value, apps,
             repository.requestedOpen.value, repository.applying.value, repository.loadError.value,
             compiled?.groups?.find { it.id == AUTO }?.members?.size ?: 0,
-            repository.history.value, catalogProfiles, catalog, catalogHealth, diagnostic, message, BuildConfig.VERSION_NAME, imports.state.value.taskLabel, compiled?.routes.orEmpty(), compiled?.blockedPaths.orEmpty())
+            repository.history.value, catalogProfiles, catalog, catalogHealth, diagnostic, message, BuildConfig.VERSION_NAME, imports.state.value.taskLabel,
+            compiled?.routes.orEmpty(), compiled?.blockedPaths.orEmpty(), compiled?.liveUpdateNote)
         val projected = withContext(Dispatchers.Default) { mapper.map(snapshot) }
         val current = controller.status.value
         if (snapshot.data !== repository.data.value || snapshot.requestedOpen != repository.requestedOpen.value ||
@@ -131,7 +154,12 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
             changed()
             return
         }
-        _state.value = projected
+        val proofCurrent = tuningProof?.let { proof ->
+            proof.current(repository.data.value?.profiles?.find { it.id == proof.profileId }, network.physicalNetwork()?.networkHandle,
+                repository.intentGeneration(), repository.data.value?.revision ?: -1, System.currentTimeMillis())
+        } == true
+        _state.value = projected.copy(tuning = tuning?.let { it.copy(canApply = it.canApply && proofCurrent) },
+            savedDiagnostics = app.evidence.report.value, transfer = transfer)
     }
 
     private suspend fun action(block: suspend () -> String?): UiResult = try {
@@ -153,6 +181,7 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
         }
     }
     override fun connect() {
+        cancelTuning(); cancelTransfer()
         if (repository.requestedOpen.value && (pendingConsentToken != null || controller.status.value.phase in setOf(RuntimePhase.ON, RuntimePhase.STARTING))) return
         val token = repository.requestConnect()
         viewModelScope.launch {
@@ -170,7 +199,7 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
         if (!granted) { repository.consentCancelled(token); notifyUser("Разрешение VPN не получено", true); return }
         viewModelScope.launch { val result = action { repository.completeConnect(token); null }; if (!result.ok) notifyUser(result.message.orEmpty(), true) }
     }
-    override fun disconnect() { pendingConsentToken = null; pendingConsentIntent = null; repository.disconnect() }
+    override fun disconnect() { cancelTuning(); cancelTransfer(); pendingConsentToken = null; pendingConsentIntent = null; repository.disconnect() }
     override fun requestFileImport(replaceProfileId: String?) {
         if (importPickerOpen || imports.state.value.busy) return
         importPickerOpen = true; pendingReplaceId = replaceProfileId; event(MobileEvent.FileImport(replaceProfileId))
@@ -192,7 +221,7 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
         viewModelScope.launch { controller.refreshSystemStatus() }
         changed()
     }
-    override fun onCleared() { imports.clearSensitiveInput(); super.onCleared() }
+    override fun onCleared() { cancelTuning(); cancelTransfer(); imports.clearSensitiveInput(); super.onCleared() }
     override fun requestClipboardImport() = event(MobileEvent.ClipboardImport)
     override fun openSystemVpnSettings() = event(MobileEvent.SystemVpnSettings)
     override fun shareDiagnostics() = event(MobileEvent.ShareDiagnostics)
@@ -248,7 +277,7 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
     override suspend fun importText(text: String, name: String) = mutation {
         require(text.toByteArray(Charsets.UTF_8).size <= MAX_IMPORT_BYTES) { "Конфиг слишком большой: максимум 1 МБ" }
         val subscription = text.trim().takeIf(ProfileImporter::isSubscription)
-        val body = if (subscription != null) network.fetch(subscription) else text
+        val body = if (subscription != null) fetchService(subscription) else text
         val imported = withContext(Dispatchers.Default) { ProfileImporter.parse(body, if (subscription != null) "" else name) }
         repository.validateProfiles(imported.profiles)
         var added = 0
@@ -294,6 +323,9 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
     private fun reassign(data: AppData, removed: String, replacement: String?): AppData {
         if (replacement == null) return data
         require(replacement != removed && validPath(data, replacement)) { "Выберите доступную замену" }
+        if (data.settings.serviceVia == removed) require(replacement == DIRECT || data.profiles.any {
+            it.id == replacement && it.source == "personal" && !it.revoked && !it.subscriptionMissing
+        }) { "Для служебных загрузок выберите личный туннель или прямой путь; группу использовать нельзя" }
         return data.copy(routes = data.routes.map {
             val via = if (it.via == removed) replacement else it.via
             val fallback = if (it.fallback == removed) replacement else it.fallback
@@ -301,7 +333,8 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
         },
             settings = data.settings.copy(defaultVia = if (data.settings.defaultVia == removed) replacement else data.settings.defaultVia,
                 lastWholeDeviceVia = if (data.settings.lastWholeDeviceVia == removed) replacement else data.settings.lastWholeDeviceVia,
-                systemDnsVia = if (data.settings.systemDnsVia == removed) replacement else data.settings.systemDnsVia))
+                systemDnsVia = if (data.settings.systemDnsVia == removed) replacement else data.settings.systemDnsVia,
+                serviceVia = if (data.settings.serviceVia == removed) replacement else data.settings.serviceVia))
     }
     override suspend fun removeTunnel(id: String, replacementId: String?) = mutation {
         repository.edit { value ->
@@ -318,7 +351,7 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
     override suspend fun refreshSubscription(id: String) = action {
         val profile = repository.ready().profiles.find { it.id == id } ?: error("Туннель уже удалён")
         val subscription = profile.subscription ?: error("Профиль не связан с подпиской")
-        val body = network.fetch(subscription)
+        val body = fetchService(subscription)
         val incoming = withContext(Dispatchers.Default) { ProfileImporter.parse(body) }
         require(incoming.skipped == 0) { "Подписка прочитана не полностью. Сохранённые профили оставлены без изменений." }
         repository.validateProfiles(incoming.profiles)
@@ -349,12 +382,14 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
     override suspend fun refreshCatalog() = action {
         check(!catalog.busy) { "Каталог уже обновляется" }; catalog = catalog.copy(busy = true, error = null); changed()
         try {
-            val result = network.catalog()
+            val result = network.catalog(::fetchService)
             if (result.profiles.isEmpty()) { catalog = catalog.copy(sources = result.sources, error = "Источники недоступны; предыдущий каталог сохранён"); error("Не удалось обновить публичные источники") }
+            val fetchedAt = System.currentTimeMillis()
+            catalogCache.write(AppData(profiles = result.profiles, revision = fetchedAt))
             catalogProfiles = result.profiles
             val currentIds = catalogProfiles.mapTo(HashSet()) { it.id }
             catalogHealth = catalogHealth.filterKeys { it in currentIds }
-            catalog = catalog.copy(sources = result.sources, total = result.profiles.size, updatedAtMillis = System.currentTimeMillis(), checked = 0, planned = 0)
+            catalog = catalog.copy(sources = result.sources, total = result.profiles.size, updatedAtMillis = fetchedAt, checked = 0, planned = 0)
             "Публичных узлов: ${result.profiles.size}. Работоспособность ещё не проверена."
         } finally { catalog = catalog.copy(busy = false); changed() }
     }
@@ -367,9 +402,11 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
         }; "Публичный узел добавлен. Назначьте его маршруту явно."
     }
     override suspend fun addBestPublicGroup() = mutation {
+        check(!diagnosticBusy && tuningJob?.isCompleted != false && transferJob?.isCompleted != false) { "Дождитесь завершения текущей проверки" }
         check(!catalog.busy) { "Дождитесь завершения операции с каталогом" }
         require(controller.status.value.phase !in setOf(RuntimePhase.ON, RuntimePhase.STARTING, RuntimePhase.STOPPING)) { "Для проверки новых публичных узлов сначала выключите VPN" }
         require(catalogProfiles.isNotEmpty()) { "Сначала обновите каталог" }
+        diagnosticBusy = true
         catalog = catalog.copy(busy = true, checked = 0, planned = minOf(8, catalogProfiles.size)); changed()
         try {
             val results = repository.probe(extra = catalogProfiles)
@@ -385,10 +422,10 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
                 val members = good.map { profile -> all.find { ProfileImporter.identity(it) == ProfileImporter.identity(profile) }?.id ?: profile.id.also { all.add(profile.copy(source = "public")) } }
                 value.copy(profiles = all, groups = value.groups + TunnelGroup(name = "Публичные узлы ${value.groups.count { it.name.startsWith("Публичные узлы") } + 1}", members = members))
             }; "Создана группа из ${good.size} узлов, прошедших реальную HTTPS-проверку; проверено ${results.size}."
-        } finally { catalog = catalog.copy(busy = false); changed() }
+        } finally { diagnosticBusy = false; catalog = catalog.copy(busy = false); changed() }
     }
     override suspend fun diagnose(target: String) = action {
-        check(!diagnosticBusy) { "Диагностика уже выполняется" }
+        check(!diagnosticBusy && tuningJob?.isCompleted != false && transferJob?.isCompleted != false) { "Дождитесь завершения текущей проверки" }
         val uri = network.target(target); diagnosticBusy = true
         diagnostic = DiagnosticUi(uri.toString(), running = true); changed()
         try {
@@ -409,9 +446,73 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
         } finally { diagnosticBusy = false; diagnostic = diagnostic?.copy(running = false); changed() }
     }
     override suspend fun probeTunnels() = action {
-        val measured = repository.probe(); require(measured.isNotEmpty()) { "Нет доступных для проверки профилей в текущем режиме" }
-        "Проверено: ${measured.size}; ответили: ${measured.count { it.delayMs != null }}. Остальные профили не оценивались."
+        check(!diagnosticBusy && tuningJob?.isCompleted != false && transferJob?.isCompleted != false) { "Дождитесь завершения текущей проверки" }
+        diagnosticBusy = true
+        try {
+            val measured = repository.probe(); require(measured.isNotEmpty()) { "Нет доступных для проверки профилей в текущем режиме" }
+            "Проверено: ${measured.size}; ответили: ${measured.count { it.delayMs != null }}. Остальные профили не оценивались."
+        } finally { diagnosticBusy = false; changed() }
     }
+    override fun cancelTransfer() {
+        transferJob?.cancel(); transfer = transfer?.copy(running = false); changed()
+    }
+    override suspend fun measureTransfer(profileId: String, uploadEndpoint: String?): UiResult {
+        // A cancelled coroutine still owns native cleanup until it completes. Starting the
+        // next one earlier lets its predecessor's finally clear a replacement job/UI state.
+        if (transferJob?.isCompleted == false || tuningJob?.isCompleted == false || diagnosticBusy) return UiResult(false, "Дождитесь завершения текущей проверки")
+        val task = viewModelScope.async(start = CoroutineStart.LAZY) {
+            val owner = currentCoroutineContext()[Job]!!
+            try { action {
+                val data = repository.ready()
+                val profile = data.profiles.find { it.id == profileId && !it.revoked && !it.subscriptionMissing && it.source == "personal" }
+                    ?: error("Выберите доступный личный профиль")
+                val phase = controller.status.value.phase
+                check(phase in setOf(RuntimePhase.ON, RuntimePhase.OFF) && !repository.applying.value) { "Дождитесь переключения VPN" }
+                val session = controller.sessionGeneration(); val intent = repository.intentGeneration()
+                val physical = network.physicalNetwork()?.networkHandle ?: error("Нет физической сети")
+                fun current() = transferJob === owner && owner.isActive && controller.isSessionGeneration(session) && controller.status.value.phase == phase &&
+                    repository.intentGeneration() == intent && repository.data.value?.revision == data.revision &&
+                    network.physicalNetwork()?.networkHandle == physical && !repository.applying.value
+                if (phase == RuntimePhase.ON) require(profileId in repository.compiled.value?.loadedProfiles.orEmpty()) {
+                    "Профиль не загружен в текущий VPN. Для отдельной проверки выключите VPN."
+                }
+                transfer = TransferUi(profileId, running = true); changed()
+                val down = try {
+                    val reply = if (phase == RuntimePhase.ON) controller.fetchOutbound("p-$profileId", TransferProof.URL,
+                        TransferProof.TIMEOUT_MS, TransferProof.MAX_BYTES, session)
+                    else {
+                        val config = withContext(Dispatchers.Default) { RoutingCompiler.compile(data, app.packageName, checkerProfiles = listOf(profile)) }
+                        controller.fetchCheckOutbound(config.json, "p-$profileId", TransferProof.URL, TransferProof.TIMEOUT_MS, TransferProof.MAX_BYTES)
+                    }
+                    TransferProof.download(reply)
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { TransferObservation("fail", reason = "network") }
+                check(current()) { "Сеть или профиль изменились; результат проверки не сохранён" }
+                transfer = transfer?.copy(download = down.toUi()); changed()
+                val endpoint = uploadEndpoint?.trim()?.takeIf(String::isNotBlank)
+                val up = when {
+                    endpoint == null -> TransferObservation("not_measured", reason = "no_endpoint")
+                    phase != RuntimePhase.ON || data.settings.serviceVia != profileId ||
+                        controller.groups.value.none { it.tag == "rt-service" && it.selected == "p-$profileId" } ->
+                        TransferObservation("not_measured", reason = "service_path")
+                    else -> try {
+                        val vpn = network.vpnNetwork() ?: error("Сеть VPN недоступна")
+                        network.uploadCheck(endpoint, vpn)
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { TransferObservation("fail", reason = "network") }
+                }
+                check(current()) { "Сеть или профиль изменились; результат проверки не сохранён" }
+                val at = System.currentTimeMillis()
+                transfer = transfer?.copy(running = false, checkedAt = at, upload = up.toUi())
+                app.evidence.recordTransfer(at, down, up)
+                "Проверка передачи завершена; результаты получения и отправки показаны отдельно"
+            } } finally {
+                if (transferJob === owner) { transfer = transfer?.copy(running = false); transferJob = null; changed() }
+            }
+        }
+        transferJob = task; task.start(); return task.await()
+    }
+    private fun TransferObservation.toUi() = TransferDirectionUi(state, bytes, elapsedMs, reason)
     override suspend fun readLogs() = action { changed(); "Журнал обновлён" }
     override suspend fun recover() = action {
         disconnect(); withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.OFF || it.phase == RuntimePhase.ERROR } }
@@ -430,6 +531,141 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
         "Общий DNS сохранён"
     }
 
+    override suspend fun setServicePath(id: String) = mutation {
+        repository.edit { data ->
+            require(id == DIRECT || data.profiles.any { it.id == id && !it.revoked && !it.subscriptionMissing && it.source == "personal" }) {
+                "Выберите доступный личный туннель или прямое подключение"
+            }
+            data.copy(settings = data.settings.copy(serviceVia = id))
+        }
+        "Путь служебных загрузок сохранён"
+    }
+
+    /** Binding to the owned VPN network prevents an OFF/revoke from retrying over the physical default route. */
+    private suspend fun fetchService(url: String, maxBytes: Int = MAX_IMPORT_BYTES): String {
+        val data = repository.ready(); val via = data.settings.serviceVia
+        if (via == DIRECT) return network.fetch(url, maxBytes)
+        val profile = data.profiles.find { it.id == via && it.source == "personal" && !it.revoked && !it.subscriptionMissing }
+            ?: error("Служебный путь недоступен. Выберите другой в настройках.")
+        val session = controller.sessionGeneration(); val intent = repository.intentGeneration()
+        fun current() = controller.isSessionGeneration(session) && controller.status.value.phase == RuntimePhase.ON &&
+            repository.intentGeneration() == intent && repository.data.value?.revision == data.revision &&
+            controller.groups.value.any { it.tag == "rt-service" && it.selected == "p-${profile.id}" }
+        check(current()) { "Для служебной загрузки включите VPN с выбранным личным путём; прямой резерв не используется." }
+        val vpn = network.vpnNetwork() ?: error("Сеть VPN ещё не готова")
+        return coroutineScope {
+            val owner = currentCoroutineContext()[Job]!!
+            val guard = launch { controller.status.first { it.phase != RuntimePhase.ON }; owner.cancel(CancellationException("VPN выключен")) }
+            try {
+                val body = network.fetch(url, maxBytes, physical = false, boundNetwork = vpn)
+                check(current()) { "Состояние или путь изменились во время загрузки; результат не сохранён" }
+                body
+            } finally { guard.cancel() }
+        }
+    }
+
+    override suspend fun clearDiagnosticHistory() = action { app.evidence.clear(); "Сохранённая диагностика удалена" }
+
+    override fun cancelTuning() {
+        tuningProof = null; tuningJob?.cancel()
+        tuning = tuning?.copy(running = false, canApply = false, message = "Подбор отменён или состояние VPN изменилось")
+        changed()
+    }
+
+    override suspend fun runTuning(id: String): UiResult {
+        if (tuningJob?.isCompleted == false || transferJob?.isCompleted == false || diagnosticBusy) return UiResult(false, "Дождитесь завершения текущей проверки")
+        val task = viewModelScope.async(start = CoroutineStart.LAZY) {
+            val owner = currentCoroutineContext()[Job]!!
+            try { action {
+                val data = repository.ready(); val profile = data.profiles.find { it.id == id } ?: error("Профиль удалён")
+                check(!repository.requestedOpen.value && controller.status.value.phase == RuntimePhase.OFF && !repository.applying.value) {
+                    "Для подбора вариантов выключите VPN. Действующие соединения не изменяются."
+                }
+                val choices = ProfileTuning.variants(profile); require(choices.isNotEmpty()) { "Для этого профиля нет совместимых вариантов" }
+                val physical = network.physicalNetwork()?.networkHandle ?: error("Нет физической сети")
+                val token = repository.intentGeneration()
+                val proof = TuningProof(id, ProfileTuning.signature(profile), physical, token, data.revision, System.currentTimeMillis(), emptySet())
+                fun current() = tuningJob === owner && owner.isActive && proof.current(repository.data.value?.profiles?.find { it.id == id }, network.physicalNetwork()?.networkHandle,
+                    repository.intentGeneration(), repository.data.value?.revision ?: -1, System.currentTimeMillis()) &&
+                    !repository.requestedOpen.value && controller.status.value.phase == RuntimePhase.OFF && !repository.applying.value
+                tuningProof = null
+                tuning = TunnelTuningUi(id, running = true, networkLabel = network.networkLabel(),
+                    variants = choices.map { TuneVariantUi(it.id, it.label, it.detail) })
+                changed()
+                val passed = mutableSetOf<String>()
+                withTimeout(60_000) {
+                    for (choice in choices) {
+                        currentCoroutineContext().ensureActive(); check(current()) { "Сеть, профиль или состояние VPN изменились" }
+                        val result = try {
+                            val config = withContext(Dispatchers.Default) { RoutingCompiler.compile(data, app.packageName, checkerProfiles = listOf(choice.profile)) }
+                            TransferProof.download(controller.fetchCheckOutbound(config.json, "p-$id", TransferProof.URL,
+                                TransferProof.TIMEOUT_MS, TransferProof.MAX_BYTES))
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (_: Exception) { TransferObservation("fail", reason = "network") }
+                        check(current()) { "Сеть, профиль или состояние VPN изменились; результат устарел" }
+                        if (result.state == "pass") passed += choice.id
+                        tuning = tuning?.copy(variants = tuning!!.variants.map { value -> if (value.id == choice.id) value.copy(
+                            result = if (result.state == "pass") ObservationResult.OK else ObservationResult.FAILED,
+                            latencyMs = result.elapsedMs?.toDouble()) else value })
+                        changed()
+                        if (choice.id == ProfileTuning.ORIGINAL && result.state == "pass") break
+                    }
+                }
+                check(current()) { "Проверка устарела" }
+                val at = System.currentTimeMillis(); tuningProof = proof.copy(checkedAt = at, successful = passed)
+                tuning = tuning?.copy(running = false, checkedAt = at, canApply = passed.any { it != ProfileTuning.ORIGINAL }, message =
+                    if (ProfileTuning.ORIGINAL in passed) "Исходный профиль полностью загрузил контрольный текст. Изменения не нужны."
+                    else if (passed.isEmpty()) "Контрольная загрузка не прошла. Это не определяет причину блокировки; исходный профиль сохранён."
+                    else "Получение данных проверено в этой сети. Отправка не измерялась. Выберите вариант для явного применения.")
+                "Проверка вариантов завершена"
+            } } catch (_: TimeoutCancellationException) {
+                if (tuningJob === owner) tuningProof = null
+                UiResult(false, "Подбор остановлен по лимиту 60 секунд")
+            } finally {
+                if (tuningJob === owner) { tuning = tuning?.copy(running = false); tuningJob = null; changed() }
+            }
+        }
+        tuningJob = task; task.start(); return task.await()
+    }
+
+    override suspend fun applyTuning(id: String, variantId: String) = mutation {
+        val proof = tuningProof ?: error("Повторите проверку в текущей сети")
+        require(variantId != ProfileTuning.ORIGINAL && variantId in proof.successful) { "Этот вариант не прошёл проверку" }
+        repository.edit(beforeCommit = {
+            val current = repository.data.value
+            require(tuningProof === proof && controller.status.value.phase == RuntimePhase.OFF && !repository.requestedOpen.value &&
+                current != null && proof.current(current.profiles.find { it.id == id }, network.physicalNetwork()?.networkHandle,
+                    repository.intentGeneration(), current.revision, System.currentTimeMillis())) {
+                "Проверка устарела: изменились сеть, профиль или состояние VPN"
+            }
+        }) { data ->
+            val profile = data.profiles.find { it.id == id }
+            require(proof.current(profile, network.physicalNetwork()?.networkHandle, repository.intentGeneration(), data.revision, System.currentTimeMillis())) {
+                "Проверка устарела: изменились сеть, профиль или состояние VPN"
+            }
+            val original = profile!!; val variant = ProfileTuning.variants(original).first { it.id == variantId }
+            val retained = original.tuning?.takeIf { it.appliedSignature == ProfileTuning.signature(original) }
+            val next = variant.profile.copy(tuning = StoredProfileTune(variant.id, variant.label,
+                retained?.originalConfig ?: original.config, retained?.originalProtocol ?: original.protocol,
+                ProfileTuning.signature(variant.profile), proof.network.toString(), tuning?.networkLabel.orEmpty(), proof.checkedAt))
+            data.copy(profiles = data.profiles.map { if (it.id == id) next else it })
+        }
+        tuningProof = null; tuning = tuning?.copy(canApply = false, selectedVariantId = variantId)
+        "Проверенный вариант сохранён; исходные параметры доступны для возврата"
+    }
+
+    override suspend fun resetTuning(id: String) = mutation {
+        repository.edit { data ->
+            val profile = data.profiles.find { it.id == id } ?: error("Профиль удалён")
+            val stored = profile.tuning ?: error("Нет сохранённого варианта")
+            require(stored.appliedSignature == ProfileTuning.signature(profile)) { "Профиль изменился после подбора; старые параметры не применены" }
+            val original = profile.copy(config = stored.originalConfig, protocol = stored.originalProtocol, tuning = null)
+            data.copy(profiles = data.profiles.map { if (it.id == id) original else it })
+        }
+        tuningProof = null; tuning = null
+        "Исходные параметры восстановлены"
+    }
+
     /** Share only coarse counts, versions and redacted diagnostic outcomes; profiles/endpoints/keys never leave here. */
     fun diagnosticReport(): String {
         val value = state.value
@@ -444,6 +680,8 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
             value.diagnostic?.paths?.forEachIndexed { index, path -> appendLine("Path ${index + 1}: ${path.result}; latency ${path.latencyMs ?: "unknown"}") }
             val logCounts = controller.logs.value.groupingBy { it.level }.eachCount()
             appendLine("Log counts by severity: $logCounts")
+            appendLine("Saved session evidence (no raw logs, endpoints or configuration):")
+            appendLine(app.evidence.report.value ?: "Not available")
         }
     }
 }

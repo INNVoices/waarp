@@ -56,7 +56,7 @@ internal fun ImportSheet(actions: MobileActions, onDismiss: () -> Unit, external
             OutlinedButton(onClick = actions::requestQrImport, enabled = !operation.busy, modifier = Modifier.heightIn(min = 48.dp)) { Icon(Icons.Outlined.QrCodeScanner, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("QR-код") }
             OutlinedButton(onClick = actions::requestClipboardImport, enabled = !operation.busy, modifier = Modifier.heightIn(min = 48.dp)) { Icon(Icons.Outlined.ContentPaste, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Буфер") }
         }
-        externalFeedback?.let { InlineMessage(it.text, error = it.error) }
+        externalFeedback?.takeIf { it.error }?.let { InlineMessage(it.text, error = true) }
         HorizontalDivider()
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("text" to "Текст / ссылка", "subscription" to "Подписка", "wireguard" to "WireGuard").forEach { (key, label) ->
@@ -79,7 +79,7 @@ internal fun ImportSheet(actions: MobileActions, onDismiss: () -> Unit, external
                 visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
                 trailingIcon = { IconButton(onClick = { visible = !visible }) { Icon(if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, if (visible) "Скрыть данные" else "Показать данные") } })
             Text(if (mode == "subscription") "Ссылка может содержать личный токен. Импортированные серверы обновляются из карточки подписки."
-                else "Ссылки подключения, конфигурации и списки серверов. Данные проверяются перед сохранением.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+                else "Ссылки, .conf, .ovpn и JSON outbound MASQUE. Для WARP нужны свои ключи и адреса из регистрации. Данные проверяются перед сохранением.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
         }
         OperationFeedback(operation)
         ActionButton(if (mode == "wireguard") "Создать WireGuard" else "Импортировать", operation.busy,
@@ -103,6 +103,7 @@ internal fun TunnelDetailsSheet(profile: TunnelUi, state: MobileState, actions: 
                 if (profile.host.isNotBlank()) KeyValue("Сервер", "${profile.host}${if (profile.port > 0) ":${profile.port}" else ""}", mono = true)
                 if (profile.addresses.isNotEmpty()) KeyValue("Адреса клиента", profile.addresses.joinToString("\n"), mono = true)
                 profile.clientPublicKey?.let { KeyValue("Публичный ключ клиента", it, mono = true) }
+                profile.technical.forEach { (label, value) -> KeyValue(label, value, mono = true) }
             }
         }
         if (profile.revoked) InlineMessage("Этот профиль отозван и не используется для новых соединений.", error = true)
@@ -118,6 +119,7 @@ internal fun TunnelDetailsSheet(profile: TunnelUi, state: MobileState, actions: 
         }
         Text("Используется: ${usage.joinToString(" · ")}",
             color = WaarpMuted, style = MaterialTheme.typography.bodySmall)
+        if (profile.canTune || profile.tuneLabel != null) TunnelTuningControls(profile, state, actions)
         if (profile.subscription) {
             OutlinedButton(onClick = { operation.run({ actions.refreshSubscription(profile.id) }) }, enabled = !operation.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) {
                 Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Обновить подписку")
@@ -159,7 +161,7 @@ internal fun ReplaceTunnelSheet(profile: TunnelUi, actions: MobileActions, onDis
         OutlinedButton(onClick = { actions.requestFileImport(profile.id) }, enabled = !operation.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) {
             Icon(Icons.Outlined.Description, null); Spacer(Modifier.width(8.dp)); Text("Выбрать файл замены")
         }
-        externalFeedback?.let { InlineMessage(it.text, error = it.error) }
+        externalFeedback?.takeIf { it.error }?.let { InlineMessage(it.text, error = true) }
         OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth(), label = { Text("Новая конфигурация или ссылка") }, minLines = 5, maxLines = 8, enabled = !operation.busy,
             textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace), visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = { IconButton(onClick = { visible = !visible }) { Icon(if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, if (visible) "Скрыть данные" else "Показать данные") } })

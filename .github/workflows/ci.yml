@@ -20,8 +20,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - name: Audit pinned JavaScript dependencies
-        run: npm audit --audit-level=moderate
       - run: npm run typecheck
       - run: npm test
       - run: npm run check
@@ -34,14 +32,6 @@ jobs:
         run: npm run test:ui
         env:
           WAARP_UI_SCREENSHOTS: out/ui
-      - name: Retain UI evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: waarp-ui-evidence
-          path: out/ui
-          if-no-files-found: ignore
-          retention-days: 7
       - name: Fetch and verify pinned Windows engine
         run: npm run engine:fetch
       - name: Validate live card slot configs with the pinned engine
@@ -50,12 +40,26 @@ jobs:
         run: node out/test/links.check.js
       - name: Validate AmneziaWG 3 import with the pinned engine
         run: node out/test/awg-import.check.js
+      - name: Validate MASQUE modes with the pinned engine
+        run: node out/test/masque.check.js
+      - name: Verify route changes preserve the native process and unrelated TCP stream
+        run: node out/test/route-native.check.js
+        env:
+          WAARP_NATIVE_SWITCH_TEST: '1'
       - name: Verify 50 native TUN lifecycle cycles
         run: npm run test:live -- --disposable-windows
       - name: Build portable Windows package
         run: npx electron-builder --win portable --publish never
       - name: Verify packaged runtime and engine checksums
         run: npm run package:verify
+      - name: Retain UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: waarp-ui-evidence
+          path: out/ui
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Retain native and performance evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -71,6 +75,25 @@ jobs:
           path: dist/Waarp-*-portable.exe
           if-no-files-found: error
           retention-days: 7
+  dependency-audit:
+    name: Dependency security audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Independent from functional/build checks: an unresolved upstream advisory stays red
+    # without hiding which current-source regressions or packages actually passed.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: Audit shipped JavaScript dependencies
+        run: npm audit --omit=dev --audit-level=moderate
+      - name: Audit complete pinned build toolchain
+        run: npm audit --audit-level=moderate
   userspace-awg:
     name: AWG protocol and crash (linux)
     runs-on: ubuntu-latest

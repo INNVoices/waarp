@@ -29,7 +29,7 @@ export function peekClip(text: string): ClipPeek {
   if (isSubscriptionUrl(t)) {
     try { return { kind: 'sub', host: new URL(t).host, fingerprint } } catch { return { kind: 'none' } }
   }
-  {
+  try {
     const embedded = linksInContainer(t, 20)
     const result = parseAny(embedded.length ? embedded.join('\n') : t, 20)
     if (result.items.length) {
@@ -37,6 +37,6 @@ export function peekClip(text: string): ClipPeek {
       const host = first.kind === 'vless' ? first.vless.server : first.kind === 'awg' ? first.peer.host : first.host
       return { kind: first.kind === 'vless' ? 'vless' : 'other', name: first.name, host, version: first.version, count: result.items.length, fingerprint }
     }
-  }
+  } catch { return { kind: 'none' } }
   return { kind: 'none' }
 }

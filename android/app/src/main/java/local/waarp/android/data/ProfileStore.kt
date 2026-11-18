@@ -19,14 +19,17 @@ import javax.crypto.spec.GCMParameterSpec
 
 /** One encrypted, atomic application state file; device-bound keys are excluded from backups.
  * The native engine's temporary snapshot is separately removed by LibboxRuntime. */
-class ProfileStore(context: Context) {
-    private val file = AtomicFile(File(context.filesDir, "profiles/state.enc"))
+class ProfileStore(context: Context, catalogCache: Boolean = false) {
+    private val file = AtomicFile(File(context.filesDir, if (catalogCache) "profiles/catalog.enc" else "profiles/state.enc"))
     private val mutex = Mutex()
-    private fun key(create: Boolean = true): SecretKey {
+    private fun key(create: Boolean = true): SecretKey = synchronized(keyLock) {
+        // State and catalogue use separate files/mutexes but one Keystore alias.
+        // Serialize lookup + generation across instances so a fresh-install race
+        // cannot replace the key that encrypted the other file moments earlier.
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (store.getKey(ALIAS, null) as? SecretKey)?.let { return it }
+        (store.getKey(ALIAS, null) as? SecretKey)?.let { return@synchronized it }
         check(create) { "Ключ хранилища недоступен" }
-        return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
+        KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
             init(KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setKeySize(256)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
@@ -44,7 +47,7 @@ class ProfileStore(context: Context) {
                 while (true) {
                     val count = input.read(buffer)
                     if (count == -1) break
-                    require(output.size() + count <= 16 * 1024 * 1024)
+                    require(output.size() + count <= MAX_STORE_BYTES)
                     output.write(buffer, 0, count)
                 }
                 output.toByteArray()
@@ -62,12 +65,16 @@ class ProfileStore(context: Context) {
     suspend fun write(data: AppData) = withContext(Dispatchers.IO) { mutex.withLock {
         data.checked()
         val plain = data.json().toString().toByteArray(Charsets.UTF_8)
-        require(plain.size <= 16 * 1024 * 1024) { "Хранилище слишком большое" }
         try {
+            // Header (4), nonce (12) and GCM tag (16) are part of the read limit.
+            require(plain.size <= MAX_STORE_BYTES - 32) { "Хранилище слишком большое" }
             val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
             val encrypted = cipher.doFinal(plain)
             require(cipher.iv.size == 12)
-            check(file.baseFile.parentFile?.let { it.isDirectory || it.mkdirs() } == true) { "Не удалось создать хранилище" }
+            // The independently locked state/catalog files can create this shared
+            // directory concurrently on first install; mkdirs=false can mean success
+            // by the other writer, so inspect the resulting directory once more.
+            check(file.baseFile.parentFile?.let { it.isDirectory || it.mkdirs() || it.isDirectory } == true) { "Не удалось создать хранилище" }
             val stream = file.startWrite()
             try {
                 stream.write(byteArrayOf(87, 82, 80, 49)); stream.write(cipher.iv); stream.write(encrypted)
@@ -75,5 +82,9 @@ class ProfileStore(context: Context) {
             } catch (error: Exception) { file.failWrite(stream); throw error }
         } finally { plain.fill(0) }
     } }
-    companion object { private const val ALIAS = "waarp-state-aes-v1" }
+    companion object {
+        private val keyLock = Any()
+        private const val ALIAS = "waarp-state-aes-v1"
+        private const val MAX_STORE_BYTES = 16 * 1024 * 1024
+    }
 }

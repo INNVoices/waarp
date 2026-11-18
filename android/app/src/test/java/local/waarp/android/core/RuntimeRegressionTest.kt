@@ -12,6 +12,32 @@ import org.junit.Test
 import java.util.Base64
 
 class RuntimeRegressionTest {
+    @Test fun updatePauseOwnsForegroundUntilConfirmedResumeOrExplicitOff() {
+        val initial = RuntimeState.requestStart("before")
+        val paused = RuntimeState.stopAndApply(initial.generation, true, true) { }!!
+        RuntimeState.status.value = RuntimeStatus(phase = RuntimePhase.STOPPING)
+        assertNull(RuntimeState.resumeUpdateIfIdle(paused, "premature"))
+        assertFalse(RuntimeState.mayRetireService())
+        RuntimeState.finishStop(paused)
+        assertFalse(RuntimeState.mayRetireService())
+        assertNull(RuntimeState.idleGeneration()) // A checker cannot take the edit's temporary OFF slot.
+        val resumed = RuntimeState.resumeUpdateIfIdle(paused, "after")!!
+        assertTrue(RuntimeState.isCurrent(resumed.generation))
+        assertFalse(RuntimeState.isPausedForUpdate())
+        val off = RuntimeState.requestStop()
+        RuntimeState.finishStop(off)
+        assertTrue(RuntimeState.mayRetireService())
+        assertNull(RuntimeState.resumeUpdateIfIdle(paused, "stale"))
+    }
+
+    @Test fun failedNativeCleanupCannotBeAcknowledgedAsSafeToResume() {
+        val initial = RuntimeState.requestStart("before")
+        val paused = RuntimeState.stopAndApply(initial.generation, true, true) { }!!
+        RuntimeState.finishStop(paused, IllegalStateException("close failed"))
+        assertNull(RuntimeState.resumeUpdateIfIdle(paused, "after"))
+        assertFalse(RuntimeState.wanted())
+    }
+
     @After fun cleanup() {
         RuntimeState.requestStop()
         RuntimeState.logs.value = emptyList()
@@ -164,6 +190,16 @@ class RuntimeRegressionTest {
         RuntimeRedaction.configure("""{"tls":{"client_key":["-----BEGIN PRIVATE KEY-----\n$pemLine\n-----END PRIVATE KEY-----"],"control_wrap":{"key":["$controlKey"]}}}""")
         assertFalse(RuntimeRedaction.redact("invalid key: $pemLine").contains(pemLine))
         assertFalse(RuntimeRedaction.redact("invalid key: $controlKey").contains(controlKey))
+    }
+
+    @Test fun masqueUriAndPrivateKeyAreRedactedFromNativeErrors() {
+        val uri = "https://example.test/private/connect-ip-unit-token/"
+        val key = "unit-test-masque-private-key-0123456789"
+        RuntimeRedaction.configure("""{"type":"masque","uri":"$uri","private_key":"$key"}""")
+        val message = RuntimeRedaction.redact("request $uri: invalid key $key")
+        assertFalse(message.contains(uri))
+        assertFalse(message.contains("connect-ip-unit-token"))
+        assertFalse(message.contains(key))
     }
 
     private fun hex(value: String) = value.chunked(2).map { it.toInt(16).toByte() }.toByteArray()

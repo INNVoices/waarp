@@ -14,10 +14,13 @@ import { protectPrivateFile } from './private-file'
 import { pickPort, untilCancelled, waitReady } from './tun'
 import { waitExit } from './stop'
 import { validLatency } from './health'
+import { DIAGNOSTIC_SELECTOR, type DiagnosticProxy, type DiagnosticTransport } from './diagnostic-proxy'
 
 export class Checker {
   private child?: ChildProcess
   private api = { port: 0, secret: '' }
+  private diagnostic?: DiagnosticProxy
+  private diagnosticOwner?: AbortController
   private key = ''
   private ids: string[] = []
   busy = new Set<string>()
@@ -91,9 +94,13 @@ export class Checker {
     const port = await untilCancelled(pickPort(), signal)
     if (!port || !allowed()) return false
     this.api = { port, secret: randomBytes(16).toString('hex') }
+    let proxyPort = await untilCancelled(pickPort(), signal)
+    if (proxyPort === port) proxyPort = await untilCancelled(pickPort(), signal)
+    if (!proxyPort || proxyPort === port || !allowed()) return false
+    this.diagnostic = { port: proxyPort, username: randomBytes(12).toString('hex'), password: randomBytes(24).toString('hex') }
     const file = join(this.dir, 'check.json')
     try {
-      writeFileSync(file, JSON.stringify(checkConfig(use, this.api)), { mode: 0o600 })
+      writeFileSync(file, JSON.stringify(checkConfig(use, this.api, this.diagnostic)), { mode: 0o600 })
       protectPrivateFile(file)
     }
     catch { try { rmSync(file, { force: true }) } catch {}; return false }
@@ -165,6 +172,41 @@ export class Checker {
     return await this.boundedDelays(url, null, only) as Record<string, number | null>
   }
 
+  /** Caller must own ensure -> transfer -> cleanup as one checker operation. */
+  async withHttpProxy<T>(owner: symbol, profileId: string, signal: AbortSignal,
+    work: (proxy: DiagnosticTransport) => Promise<T>): Promise<T> {
+    if (!this.owns(owner) || this.diagnosticOwner) throw new Error('busy')
+    const child = this.child, version = this.stopVersion, proxy = this.diagnostic, api = this.api
+    if (!child || !proxy || !this.allowStart()) throw new Error('engine')
+    if (profileId !== 'direct' && !this.ids.includes(profileId)) throw new Error('not_loaded')
+    const controller = new AbortController()
+    this.diagnosticOwner = controller
+    const linked = AbortSignal.any([signal, controller.signal])
+    const current = () => this.owns(owner) && !linked.aborted && this.child === child &&
+      this.stopVersion === version && this.allowStart()
+    try {
+      if (!current()) throw new Error('cancelled')
+      const selected = profileId === 'direct' ? 'direct' : tagOf(profileId)
+      const selectionSignal = AbortSignal.any([linked, AbortSignal.timeout(3000)])
+      const response = await fetch(`http://127.0.0.1:${api.port}/proxies/${DIAGNOSTIC_SELECTOR}`, {
+        method: 'PUT', headers: { Authorization: `Bearer ${api.secret}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: selected }), signal: selectionSignal
+      })
+      if (!response.ok || !current()) throw new Error('engine')
+      const confirmed = await fetch(`http://127.0.0.1:${api.port}/proxies/${DIAGNOSTIC_SELECTOR}`, {
+        headers: { Authorization: `Bearer ${api.secret}` }, signal: selectionSignal
+      })
+      const selection = confirmed.ok ? await confirmed.json() : undefined
+      if (selection?.now !== selected || !current()) throw new Error('engine')
+      const result = await work({ ...proxy, host: '127.0.0.1', signal: linked })
+      if (!current()) throw new Error('cancelled')
+      return result
+    } finally {
+      controller.abort()
+      if (this.diagnosticOwner === controller) this.diagnosticOwner = undefined
+    }
+  }
+
   stop(): Promise<boolean> {
     const cancelOwner = this.cancelOwner
     this.owner = undefined
@@ -179,12 +221,14 @@ export class Checker {
   private abortRequests() {
     for (const controller of this.requests) controller.abort()
     this.requests.clear()
+    this.diagnosticOwner?.abort()
   }
 
   private async stopNow(): Promise<boolean> {
     this.abortRequests()
     const c = this.child
     this.key = ''
+    this.diagnostic = undefined
     if (!c) return this.cleanupOk
     // Failed spawn has no PID and emits error/close, never exit. There is no process to wait four seconds for.
     if (!c.pid) {

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { Settings, Snapshot } from '../../../shared/types'
-import { Btn, Icon, Input, Toggle } from '../ui/kit'
+import { Btn, Icon, Input, Select, Toggle } from '../ui/kit'
 import { firstServer } from '../lib/routes'
 import { s } from '../lib/i18n'
 import { api } from '../bridge'
@@ -10,6 +10,7 @@ import { useDev, writeDev } from '../lib/dev'
 export function SettingsPage({ snap, patch, toast }: { snap: Snapshot; patch: SettingsPatch; toast: Toast }) {
   const dev = useDev()
   const st = snap.settings
+  const serviceProfiles = snap.profiles.filter(p => p.kind !== 'group' && !p.revoked && !p.subscriptionMissing && p.source !== 'public')
   const [log, setLog] = useState<string[]>()
   const [resetting, setResetting] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -17,7 +18,7 @@ export function SettingsPage({ snap, patch, toast }: { snap: Snapshot; patch: Se
   const action = useRef(false)
   const logAction = useRef(false)
   const resetAction = useRef(false)
-  const save = async (k: keyof Settings, value: boolean) => {
+  const save = async (k: keyof Settings, value: boolean | string) => {
     if (action.current) return
     action.current = true; setSaving(true)
     try { await patch({ [k]: value } as Partial<Settings>) }
@@ -68,6 +69,14 @@ export function SettingsPage({ snap, patch, toast }: { snap: Snapshot; patch: Se
             {opt('lanDirect', 'set.lan', true)}
           </div>
           <p className="hint">{s('set.dns.behavior')}</p>
+          <label className="field"><span>{s('service.path')}</span>
+            <Select value={st.serviceVia ?? 'direct'} disabled={saving} onChange={event => void save('serviceVia', event.target.value)}>
+              <option value="direct">{s('service.direct')}</option>
+              {st.serviceVia && st.serviceVia !== 'direct' && !serviceProfiles.some(p => p.id === st.serviceVia) && <option value={st.serviceVia}>{s('service.unavailable')}</option>}
+              {serviceProfiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </Select>
+          </label>
+          <p className="hint">{s('service.hint')}</p>
         </section>
         <section className="panel">
           <h3>{s('set.fix')}</h3>
@@ -87,11 +96,12 @@ export function SettingsPage({ snap, patch, toast }: { snap: Snapshot; patch: Se
               <div><b>{s('set.dev')}</b><p>{s('set.dev.text')}</p></div>
               <Toggle on={dev} onChange={v => writeDev(v)} label={s('set.dev')} />
             </div>
-            {dev && <div className="opt static">
+            <div className="opt static">
               <div><b>{s('set.diag')}</b><p>{s('set.diag.text')}</p></div>
               <Btn onClick={async () => { try { const r = await api.exportDiag(); if (r.ok) toast(s('set.diag.done')); else if (r.error) toast(s('set.diag.error'), 'error') } catch { toast(s('set.diag.error'), 'error') } }}><Icon n="doc" />{s('set.diag.go')}</Btn>
-            </div>}
+            </div>
           </div>
+          <DiagnosticHistory toast={toast} />
         </section>
         <ListsPanel snap={snap} patch={patch} toast={toast} />
         <section className="panel span2">
@@ -101,6 +111,33 @@ export function SettingsPage({ snap, patch, toast }: { snap: Snapshot; patch: Se
       </div>
     </div>
   )
+}
+
+function DiagnosticHistory({ toast }: { toast: Toast }) {
+  const [report, setReport] = useState<string>()
+  const [busy, setBusy] = useState(false)
+  const show = async () => {
+    if (busy) return
+    setBusy(true)
+    try { setReport(JSON.stringify(await api.diagnosticHistory(), null, 1)) }
+    catch { toast(s('set.diag.error'), 'error') }
+    finally { setBusy(false) }
+  }
+  const clear = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      if (!(await api.clearDiagnosticHistory()).ok) throw new Error('clear')
+      setReport(undefined); toast(s('set.history.cleared'), 'success')
+    } catch { toast(s('set.diag.error'), 'error') }
+    finally { setBusy(false) }
+  }
+  return <div className="opts">
+    <div className="opt static"><div><b>{s('set.history.title')}</b><p>{s('set.history.text')}</p></div>
+      <Btn disabled={busy} onClick={() => report ? setReport(undefined) : void show()}>{s(report ? 'set.history.hide' : 'set.history.show')}</Btn>
+    </div>
+    {report && <><pre className="log selectable">{report}</pre><Btn disabled={busy} onClick={() => void clear()}>{s('set.history.clear')}</Btn></>}
+  </div>
 }
 
 /** domain lists are data: added by address, kept as the last good snapshot; a card uses one only when the user makes it */

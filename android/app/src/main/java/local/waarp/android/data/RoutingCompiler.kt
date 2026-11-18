@@ -7,7 +7,8 @@ data class SystemDnsPolicy(val via: String?, val fallback: String? = null, val r
     val blocked: Boolean get() = reason != null
 }
 data class CompiledConfiguration(val json: String, val loadedProfiles: List<String>, val groups: List<TunnelGroup>,
-    val routes: List<CompiledRoute>, val blockedPaths: Set<String>, val selectorTargets: Map<String, Pair<String, String>>) {
+    val routes: List<CompiledRoute>, val blockedPaths: Set<String>, val selectorTargets: Map<String, Pair<String, String>>,
+    val live: MobileLivePlan? = null, val liveUpdateNote: String? = null) {
     fun profileTag(id: String) = "p-$id"
 }
 
@@ -31,22 +32,28 @@ object RoutingCompiler {
         data.settings.systemDnsVia?.let { return chosen(it) }
         if (data.settings.defaultVia != DIRECT) return chosen(data.settings.defaultVia)
         val appPaths = data.routes.filter { it.enabled && it.kind == "app" && it.via != DIRECT }
-        if (appPaths.isEmpty()) return SystemDnsPolicy(DIRECT)
-        if (appPaths.any { !valid(it.via) }) return SystemDnsPolicy(null,
-            reason = "DNS-путь одного из приложений недоступен. Выберите общий DNS в настройках.")
-        val distinct = appPaths.map { route -> route to route.fallback?.takeIf { it != DIRECT && it != route.via && valid(it) } }
-            .distinctBy { (route, fallback) -> route.via to fallback }
+        val demands = appPaths.map { Triple(it.via, it.fallback, it.id as String?) } +
+            if (data.settings.serviceVia != DIRECT) listOf(Triple(data.settings.serviceVia, null, null)) else emptyList()
+        if (demands.isEmpty()) return SystemDnsPolicy(DIRECT)
+        if (demands.any { !valid(it.first) }) return SystemDnsPolicy(null,
+            reason = "DNS-путь приложения или служебных запросов недоступен. Выберите общий DNS в настройках.")
+        val distinct = demands.map { (via, fallback, id) -> Triple(via,
+            fallback?.takeIf { it != DIRECT && it != via && valid(it) }, id) }.distinctBy { it.first to it.second }
         if (distinct.size != 1) return SystemDnsPolicy(null,
-            reason = "Приложения используют разные DNS-пути. Выберите общий DNS в настройках для запросов, чей отправитель неизвестен Android.")
-        val (route, fallback) = distinct.single()
-        return SystemDnsPolicy(route.via, fallback, route.id.takeIf { fallback != null })
+            reason = (if (data.settings.serviceVia == DIRECT) "Приложения используют разные DNS-пути."
+                else "Приложения и служебные запросы используют разные DNS-пути.") +
+                " Выберите общий DNS в настройках для запросов, чей отправитель неизвестен Android.")
+        val (via, fallback, id) = distinct.single()
+        return SystemDnsPolicy(via, fallback, id.takeIf { fallback != null })
     }
 
     fun compile(data: AppData, selfPackage: String = "local.waarp.android", previousAuto: String? = null,
-        checkerProfiles: List<TunnelProfile>? = null): CompiledConfiguration {
+        checkerProfiles: List<TunnelProfile>? = null, preload: List<String> = emptyList(), preloadAuto: Boolean = false,
+        autoCandidates: Set<String>? = null, preloadGroups: Set<String> = emptySet()): CompiledConfiguration {
         data.checked()
         val available = data.profiles.filterNot { it.revoked || it.subscriptionMissing }.associateBy { it.id }
-        val references = (listOfNotNull(data.settings.defaultVia, data.settings.systemDnsVia) +
+        val references = (listOfNotNull(data.settings.defaultVia, data.settings.systemDnsVia, data.settings.serviceVia) +
+            (if (preloadAuto) listOf(AUTO) else emptyList()) + preloadGroups +
             data.routes.filter { it.enabled }.flatMap { listOfNotNull(it.via, it.fallback) }).toSet()
         val explicit = linkedSetOf<String>()
         val groups = data.groups.filter { it.id in references }.map { it.copy(members = it.members.filter(available::containsKey)) }.filter { it.members.isNotEmpty() }
@@ -57,7 +64,7 @@ object RoutingCompiler {
             require(explicit.size <= LIVE_PROFILE_LIMIT) { "Одновременно можно использовать не более 64 туннелей; уменьшите группы активных маршрутов" }
             require(explicitEndpoints <= LIVE_ENDPOINT_LIMIT) { "Одновременно можно использовать не более 16 WireGuard/AmneziaWG/OpenVPN; уменьшите активные группы" }
         }
-        val own = available.values.filter { it.source != "public" }.map { it.id }
+        val own = available.values.filter { it.source != "public" && (autoCandidates == null || it.id in autoCandidates) }.map { it.id }
         val auto = if (AUTO in references) {
             val head = listOfNotNull(previousAuto?.takeIf { it in own })
             val chosen = mutableListOf<String>(); var extras = 0; var endpoints = explicitEndpoints
@@ -71,8 +78,16 @@ object RoutingCompiler {
             chosen
         } else emptyList()
         val liveGroups = groups + if (auto.isNotEmpty()) listOf(TunnelGroup(AUTO, "Авто", "fastest", auto)) else emptyList()
+        val loadedIds = (explicit + auto).toMutableSet()
+        var loadedEndpoints = loadedIds.count { available[it]?.endpoint == true }
+        for (id in preload) {
+            val profile = available[id] ?: continue
+            if (id in loadedIds || loadedIds.size >= LIVE_PROFILE_LIMIT || profile.endpoint && loadedEndpoints >= LIVE_ENDPOINT_LIMIT) continue
+            loadedIds += id
+            if (profile.endpoint) loadedEndpoints++
+        }
         val loaded = checkerProfiles?.filterNot { it.revoked || it.subscriptionMissing }
-            ?: (explicit + auto).mapNotNull(available::get)
+            ?: loadedIds.mapNotNull(available::get)
         val loadedById = loaded.associateBy { it.id }
         val groupById = liveGroups.associateBy { it.id }
         val blocked = linkedSetOf<String>()
@@ -123,8 +138,13 @@ object RoutingCompiler {
             obj("ip_cidr" to listOf("172.19.0.0/30", "fdfe:dcba:9876::/126"), "action" to "reject"))
         val dnsRules = mutableListOf<JSONObject>()
         if (data.settings.lanDirect) rules.add(obj("ip_is_private" to true, "outbound" to DIRECT))
-        rules.add(obj("package_name" to listOf(selfPackage), "outbound" to DIRECT))
-        dnsRules.add(obj("package_name" to listOf(selfPackage), "server" to "local"))
+        val serviceTarget = tag(data.settings.serviceVia)
+        rules.add(obj("package_name" to listOf(selfPackage)).apply {
+            if (serviceTarget == BLOCK) put("action", "reject") else put("outbound", serviceTarget)
+        })
+        dnsRules.add(obj("package_name" to listOf(selfPackage)).apply {
+            if (serviceTarget == BLOCK) put("action", "reject") else put("server", if (serviceTarget == DIRECT) "local" else "dns-${data.settings.serviceVia}")
+        })
         if (data.settings.ruDirect) {
             rules.add(obj("domain_suffix" to ruDomains, "outbound" to DIRECT))
             dnsRules.add(obj("domain_suffix" to ruDomains, "server" to "local"))
@@ -171,7 +191,7 @@ object RoutingCompiler {
             }
             routePlans.add(CompiledRoute(route.id, route.via, target.takeUnless { it == BLOCK }, fallback))
         }
-        if (data.settings.defaultVia == DIRECT && data.routes.any { it.enabled && it.kind == "app" && it.via != DIRECT }) {
+        if (data.settings.defaultVia == DIRECT && (data.settings.serviceVia != DIRECT || data.routes.any { it.enabled && it.kind == "app" && it.via != DIRECT })) {
             // An unavailable socket owner must not turn a protected app flow into Direct.
             // Explicit destination/LAN/self rules above still have their normal priority.
             rules.add(obj("package_name_regex" to listOf(".+"), "invert" to true, "action" to "reject"))

@@ -264,7 +264,11 @@ for (const [address, prefix] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0',
 for (const [address, prefix] of [['::', 128], ['::1', 128], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8]] as const) PRIVATE_ADDRESSES.addSubnet(address, prefix, 'ipv6')
 const hostnameOf = (u: URL): string => u.hostname.replace(/^\[|\]$/g, '')
 
-export interface FetchOpts { fetchImpl?: typeof fetch; timeoutMs?: number; maxBytes?: number; maxRedirects?: number }
+/** Production alternative transport receives only public, already resolved
+ * addresses. It must pin the connection to one of them and keep HTTPS identity. */
+export type PublicResolver = (hostname: string, signal: AbortSignal) => Promise<LookupAddress[]>
+export type PinnedHttpGet = ((url: URL, addresses: readonly LookupAddress[], signal: AbortSignal, maxBytes: number) => Promise<Response>) & { resolve?: PublicResolver }
+export interface FetchOpts { fetchImpl?: typeof fetch; transport?: PinnedHttpGet; signal?: AbortSignal; timeoutMs?: number; maxBytes?: number; maxRedirects?: number }
 
 function checkUrl(u: URL) {
   if (u.protocol !== 'https:') throw new ConfError('Подписка должна быть по https')
@@ -287,16 +291,16 @@ function untilAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   })
 }
 
-async function resolvedPublic(u: URL, signal: AbortSignal): Promise<LookupAddress[]> {
+export async function resolvedPublic(u: URL, signal: AbortSignal, resolve?: PublicResolver): Promise<LookupAddress[]> {
   const hostname = hostnameOf(u)
   if (isIP(hostname)) {
     if (privateIp(hostname)) throw new ConfError('Адрес подписки указывает на локальную сеть')
     return [{ address: hostname, family: isIP(hostname) }]
   }
   let addresses: { address: string; family: number }[]
-  try { addresses = await untilAbort(lookup(hostname, { all: true, verbatim: true }), signal) }
+  try { addresses = await untilAbort(resolve ? resolve(hostname, signal) : lookup(hostname, { all: true, verbatim: true }), signal) }
   catch (error) { if (signal.aborted) throw error; throw new ConfError('Не удалось определить адрес сервера подписки') }
-  if (!addresses.length || addresses.some(x => privateIp(x.address))) throw new ConfError('Адрес подписки указывает на локальную сеть')
+  if (!addresses.length || addresses.some(x => !isIP(x.address) || isIP(x.address) !== x.family || privateIp(x.address))) throw new ConfError('Адрес подписки указывает на локальную сеть или ответ DNS не прочитался')
   return addresses
 }
 
@@ -342,6 +346,7 @@ export async function fetchSubscription(url: string, o: FetchOpts = {}): Promise
   const max = o.maxBytes ?? 1024 * 1024
   const ctl = new AbortController()
   const timer = setTimeout(() => ctl.abort(), o.timeoutMs ?? 10_000)
+  const signal = o.signal ? AbortSignal.any([o.signal, ctl.signal]) : ctl.signal
   try {
     let cur: URL
     try { cur = new URL(url.trim()) } catch { throw new ConfError('Ссылка на подписку не читается') }
@@ -351,10 +356,11 @@ export async function fetchSubscription(url: string, o: FetchOpts = {}): Promise
       try {
         // Production sockets are pinned to the address that passed the private-range check, preventing DNS rebinding.
         // Injected transports keep parser tests deterministic and never touch the network.
-        res = await untilAbort(o.fetchImpl ? f(cur.toString(), { redirect: 'manual', signal: ctl.signal }) : pinnedFetch(cur, ctl.signal), ctl.signal)
+        res = await untilAbort(o.transport ? o.transport(cur, await resolvedPublic(cur, signal, o.transport.resolve), signal, max)
+          : o.fetchImpl ? f(cur.toString(), { redirect: 'manual', signal }) : pinnedFetch(cur, signal), signal)
       } catch (e) {
         if (e instanceof ConfError) throw e
-        throw new ConfError(ctl.signal.aborted ? 'Подписка не ответила за 10 секунд' : 'Не удалось загрузить подписку')
+        throw new ConfError(signal.aborted ? 'Загрузка подписки отменена или не завершилась вовремя' : 'Не удалось загрузить подписку')
       }
       if (res.status >= 300 && res.status < 400) {
         const loc = res.headers.get('location')
@@ -373,7 +379,7 @@ export async function fetchSubscription(url: string, o: FetchOpts = {}): Promise
       try {
         for (;;) {
           let r: ReadableStreamReadResult<Uint8Array>
-          try { r = await untilAbort(reader.read(), ctl.signal) } catch { throw new ConfError(ctl.signal.aborted ? 'Подписка не ответила за 10 секунд' : 'Подписка оборвалась') }
+          try { r = await untilAbort(reader.read(), signal) } catch { throw new ConfError(signal.aborted ? 'Загрузка подписки отменена или не завершилась вовремя' : 'Подписка оборвалась') }
           if (r.done) break
           size += r.value.length
           if (size > max) throw new ConfError('Подписка слишком большая (больше 1 МБ)')

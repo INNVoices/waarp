@@ -309,8 +309,7 @@ class WaarpVpnService : VpnService() {
         }
     }
 
-    private fun settledOff(): Boolean = restoringGeneration == null && !RuntimeState.wanted() &&
-        RuntimeState.status.value.phase in setOf(RuntimePhase.OFF, RuntimePhase.ERROR)
+    private fun settledOff(): Boolean = restoringGeneration == null && RuntimeState.mayRetireService()
 
     private fun notification(): Notification {
         val state = RuntimeState.status.value

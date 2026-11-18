@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { Profile } from '../shared/types'
 
-export type TunePatch = { fp?: string; recordFragment?: boolean; jc?: number; jmin?: number; jmax?: number; mtu?: number }
+export type TunePatch = { fp?: string; recordFragment?: boolean; jc?: number; jmin?: number; jmax?: number; mtu?: number; vhttp?: 'auto' | 'h2' | 'h3' }
 export interface TuneVariant { label: string; patch: TunePatch }
 export interface TuneEntry { net: string; sig: string; label: string; patch: TunePatch; at: number }
 export type Tunes = Record<string, TuneEntry>
@@ -23,6 +23,7 @@ const tlsOf = (p: Profile): { fp?: string } | undefined => {
 }
 
 export function variants(p: Profile): TuneVariant[] {
+  if (p.revoked || ('subMissing' in p && p.subMissing) || p.source === 'public' || p.source === 'managed') return []
   const out: TuneVariant[] = []
   const tls = tlsOf(p)
   if (tls) {
@@ -34,7 +35,10 @@ export function variants(p: Profile): TuneVariant[] {
     const a = p.awg
     const junk = [{ jc: 4, jmin: 8, jmax: 80 }, { jc: 8, jmin: 50, jmax: 1000 }].filter(j => j.jc !== a.jc || j.jmin !== a.jmin || j.jmax !== a.jmax)
     for (const j of junk) out.push({ label: `junk Jc ${j.jc} ${j.jmin}–${j.jmax}`, patch: j })
-    for (const mtu of [1200, 1360]) if (mtu !== (p.mtu ?? 1280)) out.push({ label: 'MTU ' + mtu, patch: { mtu } })
+    for (const mtu of [1280, 1360]) if (mtu !== (p.mtu ?? 1280)) out.push({ label: 'MTU ' + mtu, patch: { mtu } })
+  }
+  if (p.kind === 'out' && p.outbound.type === 'masque' && p.outbound.profile === 'cloudflare') {
+    for (const vhttp of ['auto', 'h3', 'h2'] as const) if (vhttp !== p.outbound.vhttp) out.push({ label: 'WARP · ' + vhttp.toUpperCase(), patch: { vhttp } })
   }
   return out.slice(0, TUNE_MAX_VARIANTS)
 }
@@ -43,6 +47,11 @@ export function applyTune(p: Profile, t: TunePatch): Profile {
   if (p.kind === 'vless') return { ...p, vless: { ...p.vless, ...(t.fp ? { fp: t.fp } : {}), ...(t.recordFragment ? { recordFragment: true } : {}) } }
   if (p.kind === 'out') {
     const o = p.outbound as Record<string, any>
+    if (o.type === 'masque' && o.profile === 'cloudflare' && t.vhttp) {
+      const tls = { ...o.tls }
+      if (t.vhttp === 'h3') { delete tls.fragment; delete tls.record_fragment; delete tls.fragment_fallback_delay }
+      return { ...p, outbound: { ...o, vhttp: t.vhttp, tls } }
+    }
     if (!tlsOf(p)) return p
     const tls = { ...o.tls, ...(t.recordFragment ? { record_fragment: true } : {}), ...(t.fp ? { utls: { ...o.tls.utls, enabled: true, fingerprint: t.fp } } : {}) }
     return { ...p, outbound: { ...o, tls } }
@@ -52,6 +61,15 @@ export function applyTune(p: Profile, t: TunePatch): Profile {
     return { ...p, awg, ...(t.mtu ? { mtu: t.mtu } : {}) }
   }
   return p
+}
+
+/** Non-secret preview for the existing helper; proposed changes are visible before any measurement. */
+export function tuneOptions(p: Profile): { label: string; detail: string }[] {
+  return variants(p).map(v => ({ label: v.label, detail: v.patch.vhttp
+    ? 'Тот же endpoint и ключи Cloudflare; HTTP/3 использует UDP, HTTP/2 — TCP'
+    : v.patch.mtu ? 'Размер пакета внутри туннеля; ключи и сервер сохраняются'
+    : v.patch.jc !== undefined ? 'Только служебные пакеты клиента; H, S, I и ключи сохраняются'
+    : 'Только ClientHello или разделение записей TLS; SNI, ключи и проверка сервера сохраняются' }))
 }
 
 /** a stored tune applies only on the same network, to the unchanged profile, while fresh */

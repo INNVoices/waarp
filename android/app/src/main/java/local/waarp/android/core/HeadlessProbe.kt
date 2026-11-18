@@ -33,7 +33,7 @@ internal class HeadlessProbe(
 
     private fun current(): Boolean = !cancelled.get() && RuntimeState.isIdleGeneration(idleGeneration)
 
-    fun execute(): List<RuntimeProbeResult> {
+    private fun startControl(): CommandClient {
         require(tags.isNotEmpty() && tags.size <= 16 && tags.all { it.isNotBlank() }) { "За одну проверку допустимо от 1 до 16 профилей" }
         require(timeoutMs in 100..60_000)
         val target = URI(url)
@@ -55,6 +55,11 @@ internal class HeadlessProbe(
         check(current() && core.ready()) { "Проверка отменена или ядро не готово" }
         val control = Libbox.newStandaloneCommandClient()
         client.set(control)
+        return control
+    }
+
+    fun execute(): List<RuntimeProbeResult> {
+        val control = startControl()
         val result = mutableListOf<RuntimeProbeResult>()
         for (tag in tags.distinct()) {
             check(current()) { "Проверка отменена" }
@@ -70,6 +75,15 @@ internal class HeadlessProbe(
             }
         }
         return result
+    }
+
+    fun fetch(maxBytes: Int): RuntimeHttpResult {
+        require(tags.size == 1)
+        validateHttpFetch(tags.single(), url, timeoutMs, maxBytes)
+        val control = startControl()
+        val response = control.getURLViaOutbound(tags.single(), url, timeoutMs, maxBytes, null)
+        check(current()) { "Проверка отменена" }
+        return RuntimeHttpResult(response.status(), response.content(), response.truncated(), response.contentType(), response.elapsedMs().toLong())
     }
 
     fun cancel() {

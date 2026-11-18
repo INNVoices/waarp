@@ -26,6 +26,19 @@ fun JSONArray.objects(): List<JSONObject> = (0 until length()).map { getJSONObje
 fun JSONObject.stringList(key: String): List<String> = optJSONArray(key)?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
 fun JSONObject.optionalString(key: String): String? = if (has(key) && !isNull(key)) getString(key).takeIf { it.isNotBlank() } else null
 
+/** Kept inside the same encrypted store as the profile. Never projected or exported as raw JSON. */
+data class StoredProfileTune(val variantId: String, val label: String, val originalConfig: String, val originalProtocol: String,
+    val appliedSignature: String, val networkKey: String, val networkLabel: String, val checkedAt: Long) {
+    fun json() = obj("variantId" to variantId, "label" to label, "originalConfig" to JSONObject(originalConfig), "originalProtocol" to originalProtocol,
+        "appliedSignature" to appliedSignature, "networkKey" to networkKey, "networkLabel" to networkLabel, "checkedAt" to checkedAt)
+    override fun toString() = "StoredProfileTune(credentials=[redacted])"
+    companion object {
+        fun fromJson(j: JSONObject) = StoredProfileTune(j.getString("variantId"), j.getString("label"),
+            j.getJSONObject("originalConfig").toString(), j.getString("originalProtocol"), j.getString("appliedSignature"), j.getString("networkKey"),
+            j.getString("networkLabel"), j.getLong("checkedAt"))
+    }
+}
+
 /** Secrets are confined to encrypted persistence and native configuration, never screen DTOs. */
 data class TunnelProfile(
     val id: String = newId(), val name: String, val protocol: String, val host: String, val port: Int,
@@ -35,19 +48,21 @@ data class TunnelProfile(
     val addedAt: Long = System.currentTimeMillis(), val subscription: String? = null,
     val subscriptionKey: String? = null, val subscriptionMissing: Boolean = false,
     val clientPublicKey: String? = null,
+    val tuning: StoredProfileTune? = null,
 ) {
     override fun toString(): String = "TunnelProfile(id=$id, protocol=$protocol, source=$source, credentials=[redacted])"
     fun json(): JSONObject = obj("id" to id, "name" to name, "protocol" to protocol, "host" to host, "port" to port,
         "config" to JSONObject(config), "endpoint" to endpoint, "addresses" to addresses, "dns" to dns,
         "source" to source, "country" to country, "revoked" to revoked, "addedAt" to addedAt,
         "subscription" to subscription, "subscriptionKey" to subscriptionKey, "subscriptionMissing" to subscriptionMissing,
-        "clientPublicKey" to clientPublicKey)
+        "clientPublicKey" to clientPublicKey, "tuning" to tuning?.json())
     companion object {
         fun fromJson(j: JSONObject) = TunnelProfile(j.getString("id"), j.getString("name"), j.getString("protocol"),
             j.getString("host"), j.getInt("port"), j.getJSONObject("config").toString(), j.optBoolean("endpoint"),
             j.stringList("addresses"), j.stringList("dns"), j.optString("source", "personal"), j.optString("country"),
             j.optBoolean("revoked"), j.optLong("addedAt"), j.optionalString("subscription"), j.optionalString("subscriptionKey"),
-            j.optBoolean("subscriptionMissing"), j.optionalString("clientPublicKey"))
+            j.optBoolean("subscriptionMissing"), j.optionalString("clientPublicKey"),
+            j.optJSONObject("tuning")?.let(StoredProfileTune::fromJson))
     }
 }
 data class TunnelGroup(val id: String = newId("g-"), val name: String, val policy: String = "fastest", val members: List<String>) {
@@ -62,12 +77,13 @@ data class TrafficRoute(val id: String = newId("r-"), val name: String, val kind
 }
 data class AppSettings(val defaultVia: String = DIRECT, val lastWholeDeviceVia: String = AUTO,
     val lanDirect: Boolean = true, val ruDirect: Boolean = false, val autoConnect: Boolean = false,
-    val notifications: Boolean = true, val systemDnsVia: String? = null) {
+    val notifications: Boolean = true, val systemDnsVia: String? = null, val serviceVia: String = DIRECT) {
     fun json() = obj("defaultVia" to defaultVia, "lastWholeDeviceVia" to lastWholeDeviceVia, "lanDirect" to lanDirect,
-        "ruDirect" to ruDirect, "autoConnect" to autoConnect, "notifications" to notifications, "systemDnsVia" to systemDnsVia)
+        "ruDirect" to ruDirect, "autoConnect" to autoConnect, "notifications" to notifications, "systemDnsVia" to systemDnsVia,
+        "serviceVia" to serviceVia)
     companion object { fun fromJson(j: JSONObject) = AppSettings(j.optString("defaultVia", DIRECT), j.optString("lastWholeDeviceVia", AUTO),
         j.optBoolean("lanDirect", true), j.optBoolean("ruDirect"), j.optBoolean("autoConnect"), j.optBoolean("notifications", true),
-        j.optionalString("systemDnsVia")) }
+        j.optionalString("systemDnsVia"), j.optString("serviceVia", DIRECT)) }
 }
 data class AppData(val profiles: List<TunnelProfile> = emptyList(), val groups: List<TunnelGroup> = emptyList(),
     val routes: List<TrafficRoute> = emptyList(), val settings: AppSettings = AppSettings(), val revision: Long = 0) {

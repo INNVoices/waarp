@@ -24,6 +24,9 @@ data class MobileState(
     val appVersion: String = "",
     val engineVersion: String = "",
     val backgroundTask: String? = null,
+    val tuning: TunnelTuningUi? = null,
+    val savedDiagnostics: String? = null,
+    val transfer: TransferUi? = null,
 )
 
 enum class ConnectionPhase { OFF, STARTING, ON, STOPPING, ERROR }
@@ -69,6 +72,10 @@ data class TunnelUi(
     val canRename: Boolean = true,
     val canReplace: Boolean = true,
     val canDelete: Boolean = true,
+    val technical: List<Pair<String, String>> = emptyList(),
+    val canTune: Boolean = false,
+    val tuneLabel: String? = null,
+    val tuneOptions: List<TuneVariantUi> = emptyList(),
 )
 
 data class GroupUi(
@@ -120,6 +127,7 @@ data class SettingsUi(
     val systemDnsViaId: String? = null,
     val systemDnsHint: String? = null,
     val systemDnsBlocked: Boolean = false,
+    val serviceViaId: String = DIRECT_PATH,
 )
 
 data class SettingsPatch(
@@ -186,6 +194,19 @@ data class NoticeUi(val id: String, val level: NoticeLevel, val title: String, v
 data class UiMessage(val id: Long, val text: String, val error: Boolean = false)
 data class UiResult(val ok: Boolean, val message: String? = null)
 
+/** Bounded helper results contain display data only, never copied configurations or keys. */
+data class TuneVariantUi(val id: String, val label: String, val detail: String,
+    val latencyMs: Double? = null, val result: ObservationResult = ObservationResult.UNKNOWN)
+data class TunnelTuningUi(val profileId: String, val running: Boolean = false,
+    val networkLabel: String = "", val checkedAt: Long? = null,
+    val variants: List<TuneVariantUi> = emptyList(), val selectedVariantId: String? = null,
+    val canApply: Boolean = false, val message: String? = null)
+
+data class TransferDirectionUi(val state: String = "not_measured", val bytes: Int = 0,
+    val elapsedMs: Long? = null, val reason: String? = null)
+data class TransferUi(val profileId: String, val running: Boolean = false, val checkedAt: Long? = null,
+    val download: TransferDirectionUi = TransferDirectionUi(), val upload: TransferDirectionUi = TransferDirectionUi())
+
 data class RouteDraft(
     val id: String? = null,
     val kind: RouteKind,
@@ -234,4 +255,12 @@ interface MobileActions {
     suspend fun readLogs(): UiResult
     suspend fun recover(): UiResult
     suspend fun saveSettings(patch: SettingsPatch): UiResult
+    suspend fun runTuning(id: String): UiResult = UiResult(false, "Подбор пока недоступен")
+    suspend fun applyTuning(id: String, variantId: String): UiResult = UiResult(false, "Вариант не проверен")
+    suspend fun resetTuning(id: String): UiResult = UiResult(false, "Нет сохранённого варианта")
+    fun cancelTuning() = Unit
+    suspend fun setServicePath(id: String): UiResult = UiResult(false, "Путь пока недоступен")
+    suspend fun clearDiagnosticHistory(): UiResult = UiResult(false, "История недоступна")
+    suspend fun measureTransfer(profileId: String, uploadEndpoint: String? = null): UiResult = UiResult(false, "Проверка недоступна")
+    fun cancelTransfer() = Unit
 }

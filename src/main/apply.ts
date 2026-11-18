@@ -21,6 +21,8 @@ export interface ApplyDeps {
   start: (s: Settings) => Promise<void>
   /** HOTFIX-RUNTIME-01 B2: switch the running core live; true = applied, no scan or restart needed */
   live?: (s: Settings) => Promise<boolean>
+  /** Operational live failures keep the previous session; only structural misses restart. */
+  liveFailure?: () => string | undefined
   stop: () => Promise<unknown>
   changed: () => void
 }
@@ -37,11 +39,14 @@ export function createApply(d: ApplyDeps): (next: Settings) => Promise<ApplyResu
       // The owner's global close is higher priority than a route write. Save intent, but never live-switch/restart
       // a core that the master is closing; the next explicit open uses the saved settings.
       if (!current()) return { saved: true, applied: false, running }
+      // Compare against the acknowledged runtime inside live(), not the last saved
+      // intent: that intent may belong to an earlier failed apply which needs retrying.
       // B2: a pick the running core already serves is a selector switch; the periodic watch still guards the session
-      if (d.phase() === 'on' && d.live && d.demandsTunnel(next)) {
+      if (d.phase() === 'on' && d.live) {
         const applied = await d.live(next)
         if (!current()) return { saved: true, applied: false, running }
         if (applied) return { saved: true, applied: true, running }
+        if (d.liveFailure?.()) return { saved: true, applied: false, running, code: 'start' }
       }
       const blocked = await d.blocked()
       if (!current()) return { saved: true, applied: false, running }
@@ -51,8 +56,9 @@ export function createApply(d: ApplyDeps): (next: Settings) => Promise<ApplyResu
         if (d.open?.() && d.demandsTunnel(next)) { await d.start(next); return !current() ? { saved: true, applied: false, running } : d.phase() === 'on' ? { saved: true, applied: true, running } : { saved: true, applied: false, running, code: 'start' } }
         return { saved: true, applied: false, running }
       }
-      // E: no card needs a tunnel any more: the core stops, the master stays open (the caller keeps its intent)
-      if (!d.demandsTunnel(next)) { await d.stop(); return { saved: true, applied: current() && d.phase() === 'off', running, ...(d.phase() === 'off' ? {} : { code: 'start' as const }) } }
+      // A running session remains owned by the master even when every card becomes
+      // Direct/disabled. Reconcile structural changes without treating a card
+      // edit as an implicit global OFF; operational failures returned above.
       await d.start(next)
       return !current() ? { saved: true, applied: false, running } : d.phase() === 'on' ? { saved: true, applied: true, running } : { saved: true, applied: false, running, code: 'start' }
     } finally { d.changed() }

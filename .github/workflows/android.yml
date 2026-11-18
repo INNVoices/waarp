@@ -32,6 +32,13 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: Reclaim unused tools only on the disposable GitHub-hosted builder
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/swift
+          mkdir -p "$RUNNER_TEMP/waarp-native-tmp"
+          echo "TMPDIR=$RUNNER_TEMP/waarp-native-tmp" >> "$GITHUB_ENV"
+          df -h /
       - name: Check Android build and evidence script syntax
         run: python3 -m py_compile scripts/android-*.py
       - name: Verify instrumentation failure evidence and shared result parsing
@@ -74,12 +81,84 @@ jobs:
         run: |
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;35.0.0' 'platform-tools' 'ndk;28.2.13676358'
+      - name: Restore native output only for identical pinned source and verification inputs
+        id: native-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: out/android-core
+          key: waarp-native-source-v2-${{ hashFiles('android/native*.json', 'android/native-patches/**', 'android/app/src/main/res/raw/engine_integrity.json', 'scripts/android-core-build.py', 'scripts/android-verify.py', 'scripts/android-native-notices.py') }}
+      - name: Restore the previous exact source cache only for mandatory revalidation
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        id: native-legacy
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: out/android-core
+          key: waarp-native-source-v1-${{ hashFiles('android/native*.json', 'android/native-patches/**', 'scripts/android-core-build.py') }}
       - name: Build native core from source and require the frozen AAR and native pins
+        if: steps.native-cache.outputs.cache-hit != 'true' && steps.native-legacy.outputs.cache-hit != 'true'
         run: python3 scripts/android-core-build.py --output out/android-core
+      - name: Verify restored or newly built native provenance and AAR
+        run: |
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          lock=json.loads(Path('android/native-source.json').read_text())
+          pin=json.loads(Path('android/app/src/main/res/raw/engine_integrity.json').read_text())
+          report=json.loads(Path('out/android-core/build-report.json').read_text())
+          expected=hashlib.sha256(json.dumps(lock,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+          assert expected == pin['sourceBuild']['inputsSha256'] == report['sourceInputsSha256']
+          assert report['passed'] and report['aarSha256'] == pin['sha256']
+          print('Verified native source inputs:',expected)
+          PY
+          mkdir -p android/app/libs
+          cp out/android-core/libbox.aar android/app/libs/libbox.aar
+          node scripts/android-core.mjs verify
+      - name: Cache the verified native build for identical inputs
+        if: steps.native-cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: out/android-core
+          key: waarp-native-source-v2-${{ hashFiles('android/native*.json', 'android/native-patches/**', 'android/app/src/main/res/raw/engine_integrity.json', 'scripts/android-core-build.py', 'scripts/android-verify.py', 'scripts/android-native-notices.py') }}
       - name: Build actual APKs and verify their signatures, engine and 16 KB alignment
         run: node scripts/android-build.mjs
       - name: Require real passing JVM regression results
         run: python3 scripts/android-test-report.py android/app/build/test-results/testDebugUnitTest --report out/android/unit-tests.json
+      # This gate uses the actual APKs in this workspace. GitHub artifact-storage
+      # quota failures must not prevent the critical native-TUN regression proof.
+      - name: Enable KVM for focused native route and feedback acceptance
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Prepare the pinned emulator action for focused acceptance
+        run: python3 scripts/android-emulator-action-prepare.py --report out/android/route-smoke/emulator-action-provenance.json
+      - name: Require actual TUN continuity and stable success feedback before uploading artifacts
+        uses: ./out/android-emulator-action
+        with:
+          api-level: 35
+          system-image-api-level: '35'
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 4096M
+          heap-size: 512M
+          disable-animations: true
+          emulator-boot-timeout: 600
+          emulator-port: 5554
+          emulator-options: -no-window -gpu software -noaudio -no-boot-anim -camera-back none -no-snapshot
+          script: |
+            python3 scripts/android-install.py --serial emulator-5554 --with-tests
+            python3 scripts/android-instrument.py --serial emulator-5554 --disposable-emulator --expect-page-size 4096 --route-smoke --timeout 300 --output out/android/route-smoke
+      - name: Print build evidence before artifact upload
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          for name in ['out/android/unit-tests.json','out/android/artifacts.json','out/android-core/build-report.json','out/android/route-smoke/result.json']:
+              path=Path(name)
+              if path.is_file(): print(name+'\n'+path.read_text())
+          PY
       - name: Upload installable debug APKs and explicitly unsigned release APKs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

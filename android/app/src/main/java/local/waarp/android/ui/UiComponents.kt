@@ -36,16 +36,19 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -75,6 +78,15 @@ internal class UiOperation(private val scope: CoroutineScope) {
         private set
     var completions by mutableStateOf(0L)
         private set
+    var messageVersion by mutableStateOf(0L)
+        private set
+    private var handledMessageVersion = 0L
+
+    fun takeMessage(): String? {
+        if (handledMessageVersion == messageVersion) return null
+        handledMessageVersion = messageVersion
+        return message
+    }
 
     fun clearError() { error = null }
 
@@ -91,6 +103,7 @@ internal class UiOperation(private val scope: CoroutineScope) {
                 val result = work()
                 if (result.ok) {
                     message = result.message
+                    messageVersion++
                     if (completeForm) completions++
                 } else error = result.message ?: "Не удалось выполнить действие. Повтори попытку."
             } catch (cancelled: CancellationException) {
@@ -113,9 +126,17 @@ internal fun rememberUiOperation(): UiOperation {
 
 @Composable
 internal fun OperationFeedback(operation: UiOperation) {
+    val announce = LocalOperationMessage.current
+    LaunchedEffect(operation, operation.messageVersion) {
+        operation.takeMessage()?.let { announce?.invoke(it) }
+    }
     operation.error?.let { InlineMessage(it, error = true) }
-    operation.message?.let { InlineMessage(it) }
 }
+
+/** Success belongs to the existing snackbar, outside card layout; errors remain next to the action. */
+internal val LocalOperationMessage = staticCompositionLocalOf<((String) -> Unit)?> { null }
+/** One host is shown in the foreground surface, including a still-open modal. */
+internal val LocalOperationSnackbar = staticCompositionLocalOf<SnackbarHostState?> { null }
 
 @Composable
 internal fun Panel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {

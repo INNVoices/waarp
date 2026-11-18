@@ -13,6 +13,27 @@ class SystemDnsPolicyTest {
     private fun netd(node: JSONObject) = node.getJSONObject("dns").getJSONArray("rules").objects()
         .single { it.optJSONArray("user_id")?.optInt(0) == 1051 }
 
+    @Test fun serviceOnlyTunnelProtectsSharedDnsAndUnattributedTraffic() {
+        val data = AppData(profiles = listOf(proxy("service")), settings = AppSettings(serviceVia = "service"))
+        assertEquals("service", RoutingCompiler.systemDnsPolicy(data).via)
+        val config = node(data)
+        assertEquals("dns-service", netd(config).getString("server"))
+        assertTrue(config.getJSONObject("route").getJSONArray("rules").objects()
+            .any { it.has("package_name_regex") && it.optBoolean("invert") && it.optString("action") == "reject" })
+    }
+
+    @Test fun differentServiceAndAppDnsRequireAnExplicitCommonChoice() {
+        val data = AppData(profiles = listOf(proxy("service"), proxy("app")),
+            settings = AppSettings(serviceVia = "service"), routes = listOf(app("browser", "app")))
+        assertTrue(RoutingCompiler.systemDnsPolicy(data).blocked)
+        assertEquals("reject", netd(node(data)).getString("action"))
+        val same = data.copy(settings = AppSettings(serviceVia = "app"))
+        assertFalse(RoutingCompiler.systemDnsPolicy(same).blocked)
+        assertEquals("dns-app", netd(node(same)).getString("server"))
+        assertEquals("local", netd(node(data.copy(settings = data.settings.copy(systemDnsVia = DIRECT)))).getString("server"))
+        assertEquals("dns-app", netd(node(data.copy(settings = data.settings.copy(defaultVia = "app")))).getString("server"))
+    }
+
     @Test fun oldStoresDefaultToAutomaticAndExplicitDirectSurvivesRoundTrip() {
         assertNull(AppSettings.fromJson(JSONObject("{}" )).systemDnsVia)
         val explicit = AppSettings(systemDnsVia = DIRECT)

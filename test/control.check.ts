@@ -44,6 +44,16 @@ function rig() {
 
   // Two sources can request ON before the first native preparation completes.
   {
+    const { control, state } = rig()
+    state.phase = 'on'; state.needed = false; control.set(true)
+    eq(await control.reconnect(control.revision, { restart: true, retainCore: true, preserveIntent: true }), { ok: true }, 'route reconciliation can retain a Direct-only core')
+    eq([control.open, state.phase, state.prepares, state.starts, state.stops], [true, 'on', 1, 1, 0], 'last-card edit does not become an idle cleanup or user OFF')
+    await control.disconnect()
+    eq([control.open, state.phase, state.stops], [false, 'off', 1], 'explicit OFF still releases a retained Direct-only core')
+  }
+
+  // Two sources can request ON before the first native preparation completes.
+  {
     const { control, state, hooks } = rig()
     const preparation = deferred<Prepared>()
     hooks.prepare = () => preparation.promise

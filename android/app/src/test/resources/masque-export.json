@@ -1,0 +1,17 @@
+{
+  "type": "masque",
+  "tag": "Synthetic unenrolled test account",
+  "server": "192.0.2.1",
+  "server_port": 443,
+  "profile": "cloudflare",
+  "vhttp": "auto",
+  "private_key": "MHcCAQEEIBkkbu/sUkdoWN2Pr9y13mYSH+xslqhE9U9vncV5uXqUoAoGCCqGSM49AwEHoUQDQgAEzNmq9SJUKJmlf6+09bAjpNDWWaeXmlznGDRVH+obb0VawQYjLF8vegEB7VVjLOdtaxFQUSmyaCClA8wzdYHTtQ==",
+  "public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEzNmq9SJUKJmlf6+09bAjpNDWWaeXmlznGDRVH+obb0VawQYjLF8vegEB7VVjLOdtaxFQUSmyaCClA8wzdYHTtQ==",
+  "ip": "172.16.0.2",
+  "ipv6": "2606:4700:110:1234::2",
+  "uri": "https://cloudflareaccess.com/fixture-token",
+  "tls": {
+    "enabled": true,
+    "server_name": "www.cloudflare.com"
+  }
+}

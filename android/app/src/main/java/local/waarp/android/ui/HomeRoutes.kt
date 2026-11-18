@@ -50,10 +50,11 @@ internal fun HomeScreen(state: MobileState, actions: MobileActions, onRoutes: ()
             Panel {
                 val active = status.phase == ConnectionPhase.ON
                 val restoring = status.recovering && status.requestedOpen
-                val pending = status.phase == ConnectionPhase.STARTING || restoring
+                // A live route transaction is not a connection start. Actual STARTING/OFF remains visible.
+                val pending = status.phase == ConnectionPhase.STARTING || (restoring && !active)
                 val title = when {
-                    restoring -> "Восстанавливаем соединение"
                     status.phase == ConnectionPhase.ON -> "VPN запущен"
+                    restoring -> "Восстанавливаем соединение"
                     status.phase == ConnectionPhase.STARTING -> "Подключаемся"
                     status.phase == ConnectionPhase.STOPPING -> "Отключаемся"
                     status.phase == ConnectionPhase.ERROR -> "Не удалось запустить"
@@ -371,13 +372,22 @@ internal fun RouteEditorSheet(state: MobileState, actions: MobileActions, id: St
 @Composable
 internal fun FormSheet(title: String, busy: Boolean, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     val busyNow by rememberUpdatedState(busy)
+    val snackbar = LocalOperationSnackbar.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true, confirmValueChange = { next -> !busyNow || next != SheetValue.Hidden })
     ModalBottomSheet(onDismissRequest = { if (!busy) onDismiss() }, sheetState = sheetState,
         sheetMaxWidth = 680.dp) {
-        Column(Modifier.testTag("waarp-form-sheet").fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-            content()
+        Box(Modifier.fillMaxWidth().imePadding()) {
+            Column(Modifier.testTag("waarp-form-sheet").fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                content()
+            }
+            if (snackbar != null) Box(Modifier.matchParentSize()) {
+                // The overlay does not participate in measuring the form and is
+                // above the modal's window, so a success neither shifts controls
+                // nor disappears behind an open bottom sheet.
+                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(12.dp))
+            }
         }
     }
 }

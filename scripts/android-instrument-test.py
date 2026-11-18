@@ -101,6 +101,19 @@ class InstrumentationEvidenceTests(unittest.TestCase):
             with self.subTest(exit_code=exit_code, timed_out=timed_out, tail=output[-45:]):
                 self.assertFalse(runner.parse_instrumentation(output, exit_code, timed_out)["passedGate"])
 
+    def test_focused_route_gate_requires_every_named_case_once_and_no_skips(self):
+        cases = sorted(runner.ROUTE_SMOKE_CASES)
+        def transcript(selected, code=0):
+            return "".join(status(method, code, count=len(selected)).replace(
+                "local.waarp.ExampleTest", cls) for cls, method in selected) + "INSTRUMENTATION_CODE: -1\n"
+        self.assertTrue(runner.parse_instrumentation(transcript(cases), 0, False,
+            required_cases=runner.ROUTE_SMOKE_CASES)["passedGate"])
+        for selected, code in ((cases[:-1], 0), (cases[:-1] + cases[:1], 0),
+                               (cases + [("Unexpected", "passing")], 0), (cases, -3), (cases, -2)):
+            with self.subTest(selected=selected, code=code):
+                self.assertFalse(runner.parse_instrumentation(transcript(selected, code), 0, False,
+                    required_cases=runner.ROUTE_SMOKE_CASES)["passedGate"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

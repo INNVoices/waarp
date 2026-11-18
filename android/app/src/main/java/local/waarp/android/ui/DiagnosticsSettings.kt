@@ -4,6 +4,8 @@ package local.waarp.android.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -62,6 +64,7 @@ private fun ChecksScreen(state: MobileState, actions: MobileActions, onCreateRou
     var target by rememberSaveable { mutableStateOf(state.diagnostic?.target.orEmpty()) }
     val diagnostic = state.diagnostic
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        item { TransferCheck(state, actions) }
         item {
             Panel {
                 SectionHeading("Проверить адрес", "Результаты показывают отдельные слои соединения")
@@ -123,6 +126,46 @@ private fun ChecksScreen(state: MobileState, actions: MobileActions, onCreateRou
         }
         if (state.latencyHistory.isEmpty()) item { Text("Пока нет измерений. Запусти проверку туннелей.", style = MaterialTheme.typography.bodyMedium, color = WaarpMuted) }
         items(state.latencyHistory, key = { it.id }, contentType = { "history" }) { history -> LatencyChart(history) }
+    }
+}
+
+@Composable
+private fun TransferCheck(state: MobileState, actions: MobileActions) {
+    val operation = rememberUiOperation()
+    var profile by rememberSaveable { mutableStateOf("") }
+    var upload by remember { mutableStateOf("") }
+    var advanced by rememberSaveable { mutableStateOf(false) }
+    val profiles = state.profiles.filter { !it.revoked && !it.subscriptionMissing && it.source == ProfileSource.PERSONAL }
+    val choices = profiles.map { PathChoice(it.id, it.name, it.protocol) }
+    val result = state.transfer
+    val busy = operation.busy || result?.running == true
+    Panel {
+        SectionHeading("Проверить передачу данных", "Контрольный текст: 158 КиБ. Целостность проверяется, один пинг не считается успехом.")
+        PathField("Личный туннель", profile, choices, enabled = !busy) { profile = it }
+        Text("Проверка обращается к rfc-editor.org только по нажатию. Работу остальных сайтов она не гарантирует.",
+            style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+        TextButton(onClick = { advanced = !advanced }, enabled = !busy) { Text(if (advanced) "Скрыть проверку отправки" else "Проверить также отправку…") }
+        if (advanced) {
+            OutlinedTextField(upload, { upload = it }, Modifier.fillMaxWidth(), singleLine = true, enabled = !busy,
+                label = { Text("HTTPS-адрес вашего тестового сервера") })
+            Text("Без адреса отправка не измеряется. Сервер должен подтвердить размер и SHA-256 полученных 64 КиБ. Для отправки включите VPN и выберите этот же туннель для служебных загрузок в настройках.",
+                style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+        }
+        if (busy) OutlinedButton(onClick = actions::cancelTransfer, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Отменить проверку") }
+        else ActionButton("Проверить получение и отправку", false, profile in profiles.map { it.id },
+            onClick = { operation.run({ actions.measureTransfer(profile, upload.trim().takeIf(String::isNotBlank)) }) }, modifier = Modifier.fillMaxWidth())
+        OperationFeedback(operation)
+        Column(Modifier.fillMaxWidth().heightIn(min = 80.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            fun text(value: TransferDirectionUi?) = when (value?.state) {
+                "pass" -> "Подтверждено · ${value.bytes} байт · ${value.elapsedMs ?: 0} мс"
+                "fail" -> "Не подтверждено · ${when (value.reason) { "content", "size", "truncated" -> "ответ неполный или другой"; "acknowledgement" -> "сервер не подтвердил данные"; else -> "ошибка соединения или ответа" }}"
+                else -> when (value?.reason) { "service_path" -> "Не измерено · нужен активный служебный путь"; else -> "Не измерено" }
+            }
+            Text("Получение: ${text(result?.download)}", style = MaterialTheme.typography.bodySmall)
+            Text("Отправка: ${text(result?.upload)}", style = MaterialTheme.typography.bodySmall)
+            if (result?.checkedAt != null) Text("${profiles.find { it.id == result.profileId }?.name ?: "Выбранный профиль"} · ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(result.checkedAt))}",
+                style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
+        }
     }
 }
 
@@ -224,13 +267,14 @@ private fun FlowsScreen(state: MobileState) {
 private fun LogsScreen(state: MobileState, actions: MobileActions) {
     val operation = rememberUiOperation()
     var query by rememberSaveable { mutableStateOf("") }
+    var preview by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) { operation.run({ actions.readLogs() }) }
     val lines = remember(state.logs, query) { state.logs.filter { it.text.contains(query, true) }.takeLast(400) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { operation.run({ actions.readLogs() }) }, enabled = !operation.busy, modifier = Modifier.weight(1f).heightIn(min = 50.dp)) { Icon(Icons.Outlined.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Обновить") }
-                OutlinedButton(onClick = actions::shareDiagnostics, modifier = Modifier.weight(1f).heightIn(min = 50.dp)) { Icon(Icons.Outlined.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Отчёт") }
+                OutlinedButton(onClick = { preview = true }, modifier = Modifier.weight(1f).heightIn(min = 50.dp)) { Icon(Icons.Outlined.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Отчёт") }
             }
             OperationFeedback(operation)
         }
@@ -245,13 +289,23 @@ private fun LogsScreen(state: MobileState, actions: MobileActions) {
             }
         }
     }
+    if (preview) AlertDialog(onDismissRequest = { preview = false }, title = { Text("Диагностика доступна без VPN") },
+        text = {
+            Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("В отчёте: версии, состояния VPN, счётчики, категории ошибок и проверка передачи. Конфиги, адреса серверов, ссылки подписок и строки журнала не включаются.")
+                SelectionContainer { Text(state.savedDiagnostics ?: "Сохранённых сессий пока нет", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
+                TextButton(onClick = { operation.run({ actions.clearDiagnosticHistory() }) }, enabled = !operation.busy) { Text("Удалить сохранённую историю") }
+            }
+        }, confirmButton = { TextButton(onClick = actions::shareDiagnostics) { Text("Поделиться отчётом") } },
+        dismissButton = { TextButton(onClick = { preview = false }) { Text("Закрыть") } })
 }
 
 @Composable
 internal fun SettingsScreen(state: MobileState, actions: MobileActions) {
     val operation = rememberUiOperation()
     Column(Modifier.fillMaxSize()) {
-    if (operation.error != null || operation.message != null) Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) { OperationFeedback(operation) }
+    if (operation.error != null) Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) { OperationFeedback(operation) }
+    else OperationFeedback(operation)
     LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             Panel {
@@ -281,6 +335,19 @@ internal fun SettingsScreen(state: MobileState, actions: MobileActions) {
                 else if (state.settings.systemDnsBlocked) {
                     InlineMessage("Общий DNS заблокирован: у приложений разные пути. Выбери туннель или группу для общих DNS-запросов.", error = true)
                 }
+            }
+        }
+        item {
+            Panel {
+                SectionHeading("Служебные загрузки", "Обновление подписок и публичного каталога")
+                val choices = listOf(PathChoice(DIRECT_PATH, "Напрямую", "Через физическую сеть")) +
+                    state.profiles.filter { !it.revoked && !it.subscriptionMissing && it.source == ProfileSource.PERSONAL }
+                        .map { PathChoice(it.id, it.name, it.protocol) }
+                PathField("Разрешённый путь", state.settings.serviceViaId, choices, enabled = !operation.busy) { id ->
+                    operation.run({ actions.setServicePath(id) })
+                }
+                Text("Для выбранного туннеля нужен включённый VPN. При его отказе прямого резерва нет. Последний успешно загруженный каталог остаётся доступен без сети.",
+                    style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
             }
         }
         item {

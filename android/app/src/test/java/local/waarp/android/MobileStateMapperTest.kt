@@ -33,6 +33,21 @@ class MobileStateMapperTest {
         }
     }
 
+    @Test fun newLatencyDoesNotRebuildProtocolDetailsAndHelperCandidates() {
+        val p = profile("one")
+        val input = snapshot(AppData(profiles = listOf(p)))
+        val mapper = MobileStateMapper()
+        val before = mapper.map(input).profiles.single()
+        val measured = mapper.map(input.copy(measured = mapOf("one" to ProbeHealth(25, 0, 300, 300)))).profiles.single()
+        assertTrue(before.canTune)
+        assertSame(before.tuneOptions, measured.tuneOptions)
+        assertSame(before.technical, measured.technical)
+        assertEquals(TunnelHealth.OK, measured.health)
+        val unavailable = mapper.map(input.copy(data = input.data!!.copy(profiles = listOf(p.copy(source = "managed"))))).profiles.single()
+        assertFalse(unavailable.canTune)
+        assertTrue(unavailable.tuneOptions.isEmpty())
+    }
+
     @Test fun fallbackCannotClaimWorkingWhenItsLastMeasurementsAreDown() {
         val input = snapshot(AppData(profiles = listOf(profile("one"), profile("two")),
             routes = listOf(TrafficRoute("r", "Route", "custom", "example.test", "one", "two"))))
@@ -46,6 +61,24 @@ class MobileStateMapperTest {
         assertFalse(failed.notices.any { it.id == "blocked-routes" })
         val recovered = mapper.map(input.copy(measured = input.measured + ("two" to ProbeHealth(10, 0, 500, 500))))
         assertEquals(RouteState.FALLBACK, recovered.routes.single().state)
+    }
+
+    @Test fun liveSlotFallbackDisplaysTheActualActivePath() {
+        val input = snapshot(AppData(profiles = listOf(profile("one"), profile("two")),
+            routes = listOf(TrafficRoute("r", "Route", "custom", "example.test", "one", "two"))))
+            .copy(compiledRoutes = listOf(CompiledRoute("r", "one", "rt-d0", "p-two")),
+                nativeGroups = listOf(RuntimeGroup("rt-d0", "selector", true, "p-two", emptyList())),
+                measured = mapOf("one" to ProbeHealth(failures = 2, checkedAt = 300), "two" to ProbeHealth(20, 0, 300, 300)))
+        val view = MobileStateMapper().map(input).routes.single()
+        assertEquals(RouteState.FALLBACK, view.state)
+        assertEquals("two", view.effectiveViaId)
+    }
+
+    @Test fun activeStaticFallbackExplainsWhyRouteEditsNeedReconnect() {
+        val input = snapshot().copy(liveUpdateNote = "Большая таблица требует переподключения")
+        val mapper = MobileStateMapper()
+        assertEquals(NoticeLevel.WARNING, mapper.map(input).notices.single { it.id == "live-update-limit" }.level)
+        assertFalse(mapper.map(input.copy(runtime = RuntimeStatus())).notices.any { it.id == "live-update-limit" })
     }
 
     @Test fun compiledBudgetRejectionIsBlockedOnlyForTheRunningConfiguration() {

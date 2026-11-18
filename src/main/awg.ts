@@ -11,6 +11,8 @@ import { vlessOutbound } from './vless'
 import { AUTO_ID, autoLivePool, grpTag, liveGroups, withAuto, type LiveGroup } from '../shared/groups'
 import { compilePlan, planProfileIds } from '../shared/plan'
 import { serviceGuardRule, TUN, TUN_ADDRESSES } from './tun'
+import { diagnosticConfig, type DiagnosticProxy } from './diagnostic-proxy'
+import { DnsPriority } from './dns-priority'
 
 export { validateCustom } from '../shared/route-validation'
 
@@ -290,6 +292,9 @@ export interface BuildOpts {
   slots?: Slots
   ruleDir?: string
   preload?: readonly string[]
+  /** Keep complete groups over the warm private pool available for selector-only switches. */
+  preloadGroups?: boolean
+  diagnostic?: DiagnosticProxy
 }
 
 /** HOTFIX-RUNTIME-01: what one core run has loaded: profiles (ids, in profile order), live groups, fallback pairs */
@@ -321,7 +326,16 @@ function fit(ids: string[], prev: string[]): string[] | undefined {
 
 export function planSlots(s: Settings, prev?: Slots): Slots | undefined {
   if (!prev) { const a = appPool(s), d = domPool(s); return { app: pad(a, room(a.length)), dom: pad(d, room(d.length)) } }
-  const app = fit(appPool(s), prev.app), dom = fit(domPool(s), prev.dom)
+  const active = new Set(s.routes.filter(r => r.on).map(r => r.id))
+  const capacity = (ids: string[], pool: string[]) => {
+    if (ids.length <= pool.length) return fit(ids, pool)
+    // Library-only additions may outnumber the running pool. They must not force
+    // a restart when the next action edits an unrelated active/global route.
+    const needed = ids.filter(id => active.has(id))
+    const inactive = new Set(pool.filter(id => id && !active.has(id) && ids.includes(id)).slice(0, Math.max(0, pool.length - needed.length)))
+    return fit(ids.filter(id => active.has(id) || inactive.has(id)), pool)
+  }
+  const app = capacity(appPool(s), prev.app), dom = capacity(domPool(s), prev.dom)
   return app && dom ? { app, dom } : undefined
 }
 
@@ -390,14 +404,22 @@ function mergeKept<T>(fresh: T[], kept: T[] | undefined, key: (x: T) => string):
 }
 
 /** the loaded sets of a build (profiles, live groups, fallback pairs); one source for buildConfig and the engine */
-export function loadedSets(profiles: Profile[], given: Settings, o: Pick<BuildOpts, 'autoLive' | 'keep' | 'preload'> = {}): { used: Profile[]; lg: LiveGroup[]; fbs: FbGroup[] } {
+export function loadedSets(profiles: Profile[], given: Settings, o: Pick<BuildOpts, 'autoLive' | 'keep' | 'preload' | 'preloadGroups'> = {}): { used: Profile[]; lg: LiveGroup[]; fbs: FbGroup[] } {
   const live = { autoLive: o.autoLive }
   const s = withAuto(given, profiles, o.autoLive)
   const base = new Set(usedProfiles(given, profiles, live).map(p => p.id))
   const kept = new Set([...(o.keep?.profiles ?? []), ...(o.preload ?? [])])
-  const used = profiles.filter(p => !p.revoked && (base.has(p.id) || kept.has(p.id)))
+  const selected = profiles.filter(p => !p.revoked && (base.has(p.id) || kept.has(p.id)))
+  const byId = new Map(selected.map(p => [p.id, p]))
+  // Library reorder/name changes do not change the identity/order of loaded core
+  // objects. Changed credentials still use the fresh definition and require reload.
+  const used = mergeKept(selected, o.keep?.profiles.flatMap(id => byId.has(id) ? [byId.get(id)!] : []), p => p.id)
   const have = new Set(used.map(p => p.id))
-  const lg = mergeKept(liveGroups(s, new Set(profiles.filter(p => !p.revoked).map(p => p.id))), o.keep?.groups.filter(g => g.members.every(m => have.has(m))), g => g.id)
+  const activeGroups = liveGroups(s, new Set(profiles.filter(p => !p.revoked).map(p => p.id)))
+  const allGroups = o.preloadGroups ? liveGroups(withAuto({ ...given, rest: AUTO_ID }, profiles, o.autoLive),
+    new Set(profiles.filter(p => !p.revoked).map(p => p.id)), true).filter(g => g.members.every(m => have.has(m))) : []
+  const warmGroups = allGroups.filter(g => !activeGroups.some(a => a.id === g.id))
+  const lg = mergeKept([...activeGroups, ...warmGroups], o.keep?.groups.filter(g => g.members.every(m => have.has(m))), g => g.id)
   const fbs = mergeKept(fallbackGroups(profiles, given, live), o.keep?.fbs.filter(g => have.has(g.main) && have.has(g.fb)), g => g.tag)
   return { used, lg, fbs }
 }
@@ -490,6 +512,7 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
   const act = activeRoutes(s)
   // HOTFIX-RUNTIME-01 selector layer: one selector per route over everything this core has loaded; BLOCK stays a reject rule
   const loadedTags = [DIRECT, ...used.map(p => tagOf(p.id)), ...lg.map(g => grpTag(g.id)), ...fbs.map(g => g.tag)]
+  const diagnostic = diagnosticConfig(o.diagnostic, [DIRECT, ...used.map(p => tagOf(p.id))])
   const sels: Record<string, unknown>[] = []
   const routeDns: { tag: string; from: string; detour: string }[] = []
   const via = (sel: string, target: string) => {
@@ -506,7 +529,11 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
   // interface address and an IPv6 AllowedIPs prefix; OpenVPN = unknown until the server pushes it -> treated as IPv4-only; proxies (VLESS/out) carry IPv6
   // to their server. A group is capable only if every loaded member is (the live pick may move). IPv6 to a path that cannot
   // carry it is rejected (fail closed), never sent Direct; hostname traffic keeps the IPv4-first DNS.
-  const v6p = (p: Profile) => (p.kind === 'awg' ? p.address.some(a => a.includes(':')) && (!p.peer.allowedIPs || p.peer.allowedIPs.some(a => a.includes(':'))) : p.kind !== 'openvpn')
+  const v6p = (p: Profile) => (p.kind === 'awg'
+    ? p.address.some(a => a.includes(':')) && (!p.peer.allowedIPs || p.peer.allowedIPs.some(a => a.includes(':')))
+    : p.kind === 'out' && p.outbound.type === 'masque'
+      ? typeof p.outbound.ipv6 === 'string' && p.outbound.ipv6.includes(':')
+      : p.kind !== 'openvpn')
   const v6id = (id: string) => { const p = used.find(x => x.id === id); return !!p && v6p(p) }
   const v6 = (tag: string): boolean => {
     if (tag === DIRECT) return o.hostV6 !== false
@@ -522,6 +549,7 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
   const targetOf = (key: string, list: Route[]) => (o.selectors ? via(key, outR(list[0])) : key)
 
   const rules: Record<string, unknown>[] = [
+    ...diagnostic.rules,
     { action: 'sniff' },
     { protocol: 'dns', action: 'hijack-dns' },
     // R1.1: Waarp's own TUN service pair never goes direct (direct -> TUN recursion); before the private/LAN rule
@@ -534,13 +562,22 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
   const files: Record<string, string> = {}
   const sets: string[] = []
   // HOTFIX-RUNTIME-01 C: "Russian sites direct" is a global bypass: it wins over app and card routes, and its DNS stays local first
-  if (s.ruDirect) {
+  if (s.ruDirect && !slotMode) {
     rules.push({ domain_suffix: RU_DIRECT, outbound: DIRECT })
     dnsRules.push({ domain_suffix: RU_DIRECT, server: 'local' })
   }
 
   if (slotMode) {
     const set = (tag: string, list: Record<string, unknown>[]) => { sets.push(tag); files[tag] = JSON.stringify({ version: 3, rules: list }) }
+    // A selector and its DNS/IPv6 rules are separate native objects. During a
+    // transaction reject only the edited matches until all watchers acknowledge
+    // their generation. Existing unrelated connections are left alone.
+    set('apply-guard', [])
+    rules.push({ rule_set: ['apply-guard'], action: 'reject' })
+    dnsRules.push({ rule_set: ['apply-guard'], rule_set_ip_cidr_match_source: true, action: 'reject' })
+    set('bypass-ru', s.ruDirect ? [{ domain_suffix: RU_DIRECT }] : [])
+    rules.push({ rule_set: ['bypass-ru'], outbound: DIRECT })
+    dnsRules.push({ rule_set: ['bypass-ru'], server: 'local' })
     const appSet = (r: Route): Record<string, unknown>[] => {
       const p = appPatterns(r)
       const m: Record<string, unknown> = {}
@@ -555,6 +592,8 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
     }
     const dnsKey = (t: string) => (t === BLOCK ? 'dn-block' : t === DIRECT ? 'dn-direct' : 'dn-' + t)
     const buckets = new Map<string, Record<string, unknown>[]>([['dn-block', []], ['dn-direct', []], ...loadedTags.filter(t => t !== DIRECT).map((t): [string, Record<string, unknown>[]] => ['dn-' + t, []])])
+    const earlierApps: { target: string; matches: Record<string, unknown>[] }[] = []
+    const dnsPriority = new DnsPriority()
     for (const [p, list] of [['a', o.slots!.app], ['d', o.slots!.dom]] as const) {
       list.forEach((id, i) => {
         const n = p + i
@@ -565,7 +604,22 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
         set('f' + n, t === DIRECT && r?.dpi === true ? m : [])
         set('x' + n, t === BLOCK ? m : [])
         set('v' + n, t !== BLOCK && !v6(t) ? m : [])
-        if (r) buckets.get(dnsKey(t))?.push(...(r.kind === 'app' ? appSet(r) : domSet(r, false)))
+        if (r) {
+          const domainMatch = r.kind === 'app' ? undefined : dnsPriority.claim(routeTargets(r).domains, t)
+          const matches = r.kind === 'app' ? appSet(r) : domainMatch!.domains.length ? [{ domain_suffix: domainMatch!.domains }] : []
+          const earlierOther = [...earlierApps.filter(entry => entry.target !== t).flatMap(entry => entry.matches),
+            ...(domainMatch?.excludes.length ? [{ domain_suffix: domainMatch.excludes }] : [])]
+          // Profile buckets have a stable native order. Preserve the card order
+          // inside them, so overlapping cards cannot send DNS through another
+          // tunnel merely because that profile was imported earlier.
+          buckets.get(dnsKey(t))?.push(...(!matches.length ? [] : !earlierOther.length ? matches : [{
+            type: 'logical', mode: 'and', rules: [
+              ...(matches.length === 1 ? matches : [{ type: 'logical', mode: 'or', rules: matches }]),
+              { type: 'logical', mode: 'or', rules: earlierOther, invert: true }
+            ]
+          }]))
+          if (r.kind === 'app') earlierApps.push({ target: t, matches })
+        }
         sels.push({ type: 'selector', tag: 'rt-' + n, outbounds: loadedTags, default: t === BLOCK ? DIRECT : t, interrupt_exist_connections: true })
         rules.push({ rule_set: ['x' + n], action: 'reject' }, { ip_version: 6, rule_set: ['v' + n], action: 'reject' },
           { rule_set: ['f' + n], network: 'udp', port: 443, action: 'reject' }, { rule_set: ['f' + n], action: 'route', outbound: 'rt-' + n, tls_record_fragment: true },
@@ -602,15 +656,31 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
       else if (domains.length) dnsRules.push({ domain_suffix: domains, server: dns })
     }
   }
-  if (rest === BLOCK) dnsRules.push({ action: 'reject' })
+  if (rest === BLOCK && !slotMode) dnsRules.push({ action: 'reject' })
   // G: everything else over an IPv4-only rest path: IPv6 is rejected, not leaked Direct
-  rules.push(...noV6({}, rest))
+  if (slotMode) {
+    const append = (tag: string, body: Record<string, unknown>[]) => {
+      sets.push(tag); files[tag] = JSON.stringify({ version: 3, rules: body })
+    }
+    append('rest-v6', rest !== BLOCK && !v6(rest) ? [{ network: ['tcp', 'udp'] }] : [])
+    append('rest-block', rest === BLOCK ? [{ network: ['tcp', 'udp'] }] : [])
+    rules.push({ ip_version: 6, rule_set: ['rest-v6'], action: 'reject' },
+      { rule_set: ['rest-block'], action: 'reject' })
+    for (const target of [BLOCK, ...loadedTags]) {
+      const name = 'rest-dns-' + target
+      append(name, rest === target ? [{ domain_regex: ['.*'] }] : [])
+      if (target === BLOCK) dnsRules.push({ rule_set: [name], action: 'reject' })
+      else dnsRules.push({ rule_set: [name], server: target === DIRECT ? 'local'
+        : target.startsWith('p-') ? 'dns-' + target.slice(2)
+        : target.startsWith('grp-') ? 'dns-' + target.slice(4) : 'dns-' + target })
+    }
+  } else rules.push(...noV6({}, rest))
   rules.push({ process_path_regex: VPN_CLIENT_DIRS, outbound: DIRECT })
 
   // Card-only mode has no single tunnel that can honestly own global DNS.
   // Keep DNS local until the UI offers an explicit DNS route instead of choosing used[0].
-  const dnsFinal = rest !== DIRECT && rest !== BLOCK ? viaDns(REST_SEL, dnsOf(s.rest)) : 'local'
-  const final = rest === BLOCK ? 'direct' : via(REST_SEL, rest)
+  const dnsFinal = !slotMode && rest !== DIRECT && rest !== BLOCK ? viaDns(REST_SEL, dnsOf(s.rest)) : 'local'
+  const final = slotMode ? via(REST_SEL, rest === BLOCK ? DIRECT : rest) : rest === BLOCK ? DIRECT : via(REST_SEL, rest)
 
   const dnsServers: Record<string, unknown>[] = [{ type: 'local', tag: 'local' }]
   // WireGuard Interface DNS entries are ordinary DNS servers, not implicit DoH endpoints.
@@ -645,7 +715,7 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
   const cfg = {
     log: { level: ENGINE_LOG, timestamp: true },
     dns: { servers: dnsServers, rules: dnsRules, final: dnsFinal, strategy: 'ipv4_only' },
-    inbounds: [{
+    inbounds: [...diagnostic.inbounds, {
       type: 'tun',
       tag: 'tun',
       interface_name: TUN.name,
@@ -662,6 +732,7 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
     endpoints: used.flatMap(p => (p.kind === 'awg' ? [endpoint(p)] : p.kind === 'openvpn' ? [{ ...p.endpoint, tag: tagOf(p.id) }] : [])),
     outbounds: [
       { type: 'direct', tag: DIRECT },
+      ...diagnostic.outbounds,
       ...used.flatMap(p => (p.kind === 'vless' ? [vlessOutbound(p, tagOf(p.id))] : p.kind === 'out' ? [{ ...p.outbound, tag: tagOf(p.id) }] : [])),
       // every group is a selector driven by Waarp's own probe rounds (engine.groupStep): no urltest ping-chasing (W2.2).
       // A failed path must release old TCP/UDP sessions. The controller holds healthy paths while traffic is active.
@@ -669,7 +740,7 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
       ...fbs.map(g => ({ type: 'selector', tag: g.tag, outbounds: [tagOf(g.main), tagOf(g.fb)], default: tagOf(g.main), interrupt_exist_connections: true })),
       ...sels
     ],
-    route: { ...(ruleSets.length ? { rule_set: ruleSets } : {}), rules: blockRules(rest === BLOCK ? [...rules, { network: ['tcp', 'udp'], outbound: BLOCK }] : rules), final, auto_detect_interface: true, find_process: true, default_domain_resolver: 'local' },
+    route: { ...(ruleSets.length ? { rule_set: ruleSets } : {}), rules: blockRules(rest === BLOCK && !slotMode ? [...rules, { network: ['tcp', 'udp'], outbound: BLOCK }] : rules), final, auto_detect_interface: true, find_process: true, default_domain_resolver: 'local' },
     experimental: { clash_api: { external_controller: `127.0.0.1:${o.api.port}`, secret: o.api.secret } }
   }
   return { cfg, files }
@@ -677,16 +748,18 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
 
 /** WRP-013 local checker config: no inbound, no TUN, userspace WireGuard, clash API on localhost only.
  *  Lets Waarp measure every tunnel (urltest / site probe) while the system tunnel is closed. */
-export function checkConfig(profiles: Profile[], api: { port: number; secret: string }) {
+export function checkConfig(profiles: Profile[], api: { port: number; secret: string }, proxy?: DiagnosticProxy) {
   const active = profiles.filter(p => !p.revoked)
+  const diagnostic = diagnosticConfig(proxy, ['direct', ...active.map(p => tagOf(p.id))])
   return {
     log: { level: 'warn', timestamp: false },
     // Endpoint bootstrap and probe target names use an explicit local resolver, matching main's
     // bootstrap policy. IPv4-only AWG clients must not be judged by an unrouteable AAAA candidate.
     dns: { servers: [{ type: 'local', tag: 'local' }], final: 'local', strategy: 'ipv4_only' },
+    ...(proxy ? { inbounds: diagnostic.inbounds } : {}),
     endpoints: active.flatMap((p): Record<string, unknown>[] => (p.kind === 'awg' ? [{ ...endpoint(p), system: false }] : p.kind === 'openvpn' ? [{ ...p.endpoint, tag: tagOf(p.id) }] : [])),
-    outbounds: [{ type: 'direct', tag: 'direct' }, ...active.flatMap(p => (p.kind === 'vless' ? [vlessOutbound(p, tagOf(p.id))] : p.kind === 'out' ? [{ ...p.outbound, tag: tagOf(p.id) }] : []))],
-    route: { final: 'direct', default_domain_resolver: 'local' },
+    outbounds: [{ type: 'direct', tag: 'direct' }, ...diagnostic.outbounds, ...active.flatMap(p => (p.kind === 'vless' ? [vlessOutbound(p, tagOf(p.id))] : p.kind === 'out' ? [{ ...p.outbound, tag: tagOf(p.id) }] : []))],
+    route: { ...(proxy ? { rules: diagnostic.rules } : {}), final: 'direct', default_domain_resolver: 'local' },
     experimental: { clash_api: { external_controller: `127.0.0.1:${api.port}`, secret: api.secret } }
   }
 }

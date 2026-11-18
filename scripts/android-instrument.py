@@ -17,6 +17,19 @@ import subprocess
 import sys
 import time
 
+ROUTE_SMOKE_CASES = frozenset({
+    ("local.waarp.android.core.VpnLifecycleInstrumentedTest", "watchedRouteMutationsKeepOneRealTunAndAcknowledgeInsideTheNativeCore"),
+    ("local.waarp.android.ui.OperationFeedbackInstrumentedTest", "repeatedSuccessDoesNotMoveFollowingControlAndRemainsAnnounced"),
+    ("local.waarp.android.ui.OperationFeedbackInstrumentedTest", "blockingFailureStillAppearsNextToAction"),
+    ("local.waarp.android.ui.OperationFeedbackInstrumentedTest", "successInOpenSheetDoesNotMoveFormControls"),
+})
+
+ROUTE_SMOKE_MUTATIONS = [
+    "direct to real profile", "real profile to another", "disable card",
+    "delete last disabled card", "add card", "delete last active card",
+    "change default route", "restore default direct",
+]
+
 
 def compact_failure_header(stack):
     """Console diagnostics only; never emit a configuration or a native dump."""
@@ -44,7 +57,7 @@ def compact_failure_header(stack):
     return header[:768] + (" [truncated]" if len(header) > 768 else "")
 
 
-def parse_instrumentation(output, exit_code, timed_out, *, failure_diagnostics=None):
+def parse_instrumentation(output, exit_code, timed_out, *, failure_diagnostics=None, required_cases=None):
     """Read AndroidJUnitRunner's protocol, shared by debug and external release gates."""
     bundle, cases = {}, []
     expected_tests = 0
@@ -72,6 +85,12 @@ def parse_instrumentation(output, exit_code, timed_out, *, failure_diagnostics=N
     final_codes = re.findall(r"^INSTRUMENTATION_CODE: (-?\d+)\s*$", output, re.M)
     totals = {status: sum(case["status"] == status for case in cases) for status in ("passed", "failed", "skipped")}
     success = exit_code == 0 and not timed_out and final_codes == ["-1"] and len(cases) > 0 and len(cases) == expected_tests and not totals["failed"] and not totals["skipped"]
+    if required_cases is not None:
+        # A filtered run must prove its exact intended cases, not an empty or
+        # accidentally different passing suite accepted by AndroidJUnitRunner.
+        success = success and len(cases) == len(required_cases) and {
+            (case["class"], case["name"]) for case in cases
+        } == set(required_cases)
     return {"tests": len(cases), "expectedTests": expected_tests, **totals, "timedOut": timed_out,
             "passedGate": success, "cases": cases}
 
@@ -171,6 +190,8 @@ def main():
     parser.add_argument("--expect-page-size", type=int, choices=(4096, 16384), required=True)
     parser.add_argument("--output", type=Path, default=Path("out/android/device-tests"))
     parser.add_argument("--timeout", type=int, default=900)
+    parser.add_argument("--route-smoke", action="store_true",
+                        help="Run the exact real-TUN route mutations and feedback regressions before artifact uploads; the full API matrix remains separate")
     parser.add_argument("--disposable-emulator", action="store_true",
                         help="Read-only verification of the explicitly selected owned CI emulator image")
     options = parser.parse_args()
@@ -201,7 +222,8 @@ def main():
     started = time.monotonic()
     timed_out = False
     try:
-        result = subprocess.run(prefix + ["shell", "am", "instrument", "-w", "-r", "local.waarp.android.debug.test/androidx.test.runner.AndroidJUnitRunner"], capture_output=True, text=True, timeout=options.timeout)
+        selection = ["-e", "class", ",".join(f"{cls}#{method}" for cls, method in sorted(ROUTE_SMOKE_CASES))] if options.route_smoke else []
+        result = subprocess.run(prefix + ["shell", "am", "instrument", "-w", "-r", *selection, "local.waarp.android.debug.test/androidx.test.runner.AndroidJUnitRunner"], capture_output=True, text=True, timeout=options.timeout)
         output = result.stdout + result.stderr
         exit_code = result.returncode
     except subprocess.TimeoutExpired as error:
@@ -213,12 +235,14 @@ def main():
     (options.output / "instrumentation.txt").write_text(output)
     failure_headers = []
     parsed = parse_instrumentation(output, exit_code, timed_out,
-                                   failure_diagnostics=failure_headers)
+                                   failure_diagnostics=failure_headers,
+                                   required_cases=ROUTE_SMOKE_CASES if options.route_smoke else None)
     (options.output / "failure-headers.json").write_text(json.dumps(failure_headers, indent=2) + "\n")
     success = parsed["passedGate"]
     if not success:
         capture_test_failure_logs(prefix, options.output)
     report = {"schemaVersion": 1, "checkedAtUtc": datetime.now(timezone.utc).isoformat(), "device": device, "preflight": preflight, "wallSeconds": elapsed, **parsed}
+    report["scope"] = "focused real-TUN route mutations and feedback UI; no external tunnel reachability claim" if options.route_smoke else "full debug instrumentation suite"
     if image_proof is not None:
         report["emulatorImage"] = image_proof
     native = capture_logs(prefix, options.output, failed=not success)
@@ -236,7 +260,20 @@ def main():
     report["uiScreenshotCount"] = screenshot_count
     required_screenshots = {"01-home-empty.png", "02-settings.png", "03-saved-route.png", "04-groups.png"}
     actual_screenshots = {path.name for path in screenshots.rglob("*.png")} if screenshots.exists() else set()
-    if not required_screenshots.issubset(actual_screenshots):
+    if options.route_smoke:
+        try:
+            path = next(screenshots.rglob("android-live-route-continuity.json"))
+            if path.stat().st_size > 16_384:
+                raise ValueError("oversized route evidence")
+            continuity = json.loads(path.read_text())
+            if continuity.get("completed") != ROUTE_SMOKE_MUTATIONS or not isinstance(continuity.get("nativeSession"), int) or continuity["nativeSession"] <= 0:
+                raise ValueError("incomplete route evidence")
+            report["routeContinuity"] = {"nativeSession": continuity["nativeSession"], "completed": continuity["completed"]}
+        except (OSError, StopIteration, ValueError, TypeError):
+            success = False
+            report["passedGate"] = False
+            report["routeContinuityError"] = "The real-TUN test did not provide all eight acknowledged route mutations in one native session."
+    elif not required_screenshots.issubset(actual_screenshots):
         success = False
         report["passedGate"] = False
         report["uiScreenshotError"] = "The UI instrumentation scenarios did not provide their required screenshots."

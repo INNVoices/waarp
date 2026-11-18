@@ -17,6 +17,10 @@ import { RuntimeJournal, type ProcessIdentity } from './runtime-journal'
 import { protectPrivateFile } from './private-file'
 import { pickPort, START_BUDGET_MS, untilCancelled, waitReady, type Preflight } from './tun'
 import { ctrlBreak, waitExit } from './stop'
+import { runtimePreload } from './runtime-pool'
+import { sameEffectiveRouting } from '../shared/routing-edit'
+import { routeEditGuard } from './live-routing'
+import { DIAGNOSTIC_SELECTOR, type DiagnosticProxy, type DiagnosticTransport } from './diagnostic-proxy'
 
 interface CardRuleFiles { slots?: Slots; files: Record<string, string> }
 
@@ -75,6 +79,8 @@ export class Engine extends EventEmitter {
   conns: Conn[] = []
   private child?: ChildProcess
   private api = { port: 0, secret: '' }
+  private diagnostic?: DiagnosticProxy
+  private diagnosticOwner?: AbortController
   private timer?: NodeJS.Timeout
   private pingTimer?: NodeJS.Timeout
   private last?: { t: number; d: number; u: number }
@@ -97,6 +103,13 @@ export class Engine extends EventEmitter {
   private run?: { cfg: ReturnType<typeof buildConfig>; loaded: Loaded; autoLive: string[]; files: Record<string, string>; settings: Settings; hostV6?: boolean }
   /** count of live route applies in this process (tests, log) */
   liveApplies = 0
+  /** A failed live transaction is not a request to recreate TUN. Keep the last
+   * acknowledged session and, when rollback cannot be confirmed, its edit guard. */
+  private liveProblem?: string
+  private pendingLive?: { guard: string; files: Record<string, string>; selectors: { tag: string; to: string }[] }
+  get liveApplyFailure(): string | undefined { return this.liveProblem }
+  get acknowledgedSettings(): Settings | undefined { return this.run?.settings }
+  get routingGuarded(): boolean { return !!this.pendingLive }
   private pingSeq = 0
   /** R1.4: read-only Windows check before a TUN start (set by main); absent in offline tests */
   preflight?: () => Promise<Preflight>
@@ -117,6 +130,8 @@ export class Engine extends EventEmitter {
 
   log(): string[] { return this.tail.slice(-300) }
   get recoveryReady(): boolean { return this.recoveryOk }
+  /** True includes prewarmed profiles: removing credentials still owned by the core needs its normal reconciliation. */
+  isProfileLoaded(id: string): boolean { return this.run?.loaded.profiles.includes(id) ?? this.ids.includes(id) }
 
   /** OFF checker samples share the same sequence as running-core health rounds. */
   recordIdlePings(pings: Status['pings'], health?: Status['health']): void {
@@ -126,6 +141,7 @@ export class Engine extends EventEmitter {
 
   private set(s: Partial<Status>) {
     const prev = this.status
+    if (this.liveProblem && (s.phase ?? prev.phase) === 'on') s = { ...s, error: this.liveProblem }
     this.status = { ...this.status, ...s }
     if (s.phase && s.phase !== prev.phase) this.push(`[phase] ${prev.phase} -> ${s.phase}${this.status.error ? ' | ' + this.status.error : ''}`)
     else if (s.error && s.error !== prev.error) this.push(`[error] ${s.error}`)
@@ -198,7 +214,10 @@ export class Engine extends EventEmitter {
    *  always restarts, so resume / explicit restarts keep their meaning. */
   applyLive(profiles: Profile[], s: Settings): Promise<boolean> {
     const version = this.stopVersion
-    return this.serialize(async () => (version === this.stopVersion && this.child && this.status.phase === 'on' && this.run ? this.liveApply(profiles, s) : false))
+    return this.serialize(async () => {
+      this.liveProblem = undefined
+      return version === this.stopVersion && this.child && this.status.phase === 'on' && this.run ? this.liveApply(profiles, s) : false
+    })
   }
 
   private async startNow(profiles: Profile[], s: Settings, signal: AbortSignal, retry = true): Promise<void> {
@@ -233,16 +252,24 @@ export class Engine extends EventEmitter {
     if (!pf.ok) { this.set({ phase: 'error', engine: 'down', since: undefined, error: pf.text, recovery: pf.kind }); return }
     if (!port) { this.set({ phase: 'error', error: 'Нет свободного локального порта для управления движком. Туннель не запущен', recovery: undefined }); return }
     this.api = { port, secret: randomBytes(16).toString('hex') }
-    this.secrets = profiles.flatMap(p => (p.kind === 'vless' ? vlessSecrets(p) : p.kind === 'out' ? outSecrets(p) : p.kind === 'openvpn' ? openVpnSecrets(p) : []))
+    // Select a distinct loopback port. The random credentials remain in this main
+    // process and the private native configuration, never in the renderer.
+    let proxyPort = await untilCancelled(pickPort(), signal)
+    if (proxyPort === port) proxyPort = await untilCancelled(pickPort(), signal)
+    if (signal.aborted) return
+    if (!proxyPort || proxyPort === port) { this.set({ phase: 'error', error: 'Нет свободного локального порта для проверки соединения' }); return }
+    this.diagnostic = { port: proxyPort, username: randomBytes(12).toString('hex'), password: randomBytes(24).toString('hex') }
+    this.secrets = [this.api.secret, this.diagnostic.username, this.diagnostic.password,
+      ...profiles.flatMap(p => (p.kind === 'vless' ? vlessSecrets(p) : p.kind === 'out' ? outSecrets(p) : p.kind === 'openvpn' ? openVpnSecrets(p) : []))]
     let cfg: ReturnType<typeof buildConfig>
     let files: Record<string, string>
     // R5: the core gets a bounded Auto live pool; the plan/UI keep the full logical Auto membership
     const autoLive = runtimeAutoLive(s, profiles, this.lastAutoPick)
     const live = { autoLive }
-    const preload = profiles.filter(p => !p.revoked && p.kind !== 'openvpn' && (p as { source?: string }).source !== 'public' && (p.kind !== 'awg' || isIP(p.peer.host) !== 0)).slice(0, 8).map(p => p.id)
+    const preload = runtimePreload(profiles, s, usedProfiles(s, profiles, live).map(p => p.id))
     const slots = planSlots(s)!
     const ruleDir = join(this.dir, 'rules')
-    try { ({ cfg, files } = buildRuntime(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive, selectors: true, slots, ruleDir, hostV6, preload })) }
+    try { ({ cfg, files } = buildRuntime(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive, selectors: true, slots, ruleDir, hostV6, preload, preloadGroups: true, diagnostic: this.diagnostic })) }
     catch { this.set({ phase: 'error', error: 'Не удалось подготовить конфиг движка' }); return }
     try {
       mkdirSync(ruleDir, { recursive: true })
@@ -344,7 +371,7 @@ export class Engine extends EventEmitter {
       }
       return
     }
-    this.run = { cfg, loaded: { ...loadedOf(loadedSets(profiles, s, { ...live, preload })), slots }, autoLive, files, settings: s, hostV6 }
+    this.run = { cfg, loaded: { ...loadedOf(loadedSets(profiles, s, { ...live, preload, preloadGroups: true })), slots }, autoLive, files, settings: s, hostV6 }
     this.push(`[start] ready in ${Date.now() - began} ms; card slots ${slots.app.length}+${slots.dom.length}; host IPv6 ${hostV6 === undefined ? 'unknown' : hostV6 ? 'yes' : 'no'}`)
     this.timer = setInterval(() => void this.poll(), 1000)
     // Controller readiness is the start boundary. Health probes continue independently and must
@@ -382,34 +409,99 @@ export class Engine extends EventEmitter {
     if (this.child === child) this.pingTimer = setInterval(() => void round(false), 15000)
   }
 
-  /** HOTFIX-RUNTIME-01: switch route selectors in the running core when the new settings need nothing it has not loaded.
-   *  false = not live-applicable (or a switch failed): the caller does the one controlled restart. Keeps Auto pool, groups,
-   *  fallback pairs and loaded paths exactly as running; DNS of each route follows its own selector. */
+  /** Switch already loaded routes without rebuilding TUN. A structural miss
+   * returns false; an operational failure additionally sets liveApplyFailure so
+   * callers preserve this session instead of turning an ACK timeout into a restart. */
   private async liveApply(profiles: Profile[], s: Settings): Promise<boolean> {
     const run = this.run!, child = this.child, version = this.stopVersion
     const current = () => this.child === child && this.stopVersion === version && !this.stopping
-    const slots = planSlots(s, run.loaded.slots)
+    const failed = async (stage: string): Promise<false> => {
+      if (!current()) return false
+      const restored = await this.restoreLive(current)
+      if (!current()) return false
+      this.liveProblem = restored
+        ? 'Изменение сохранено, но движок его не подтвердил. Прежние маршруты восстановлены; повтори действие'
+        : 'Изменение сохранено, но состояние изменяемых маршрутов ещё не подтверждено. Сессия VPN сохранена; повтори действие'
+      this.push(`[apply] ${stage}; ${restored ? 'previous routing restored' : 'edit barrier reconciliation pending'}; core and TUN kept`)
+      this.set({ error: this.liveProblem })
+      return false
+    }
+    // A retry must first reconcile a possibly half-applied native state, even if
+    // the desired settings now happen to equal the last acknowledged snapshot.
+    if (this.pendingLive && !(await this.restoreLive(current))) return failed('previous edit still unconfirmed')
+    if (!current()) return false
+    // Disabled/library metadata must not exhaust or reshuffle a running slot pool.
+    // The comparison uses the last acknowledged runtime, not an intent on disk.
+    const slots = sameEffectiveRouting(run.settings, s) && run.loaded.slots
+      ? run.loaded.slots : planSlots(s, run.loaded.slots)
     if (!slots) { this.push('[apply] no free card slot; restarting the core once'); return false }
     let next: ReturnType<typeof buildRuntime>
-    try { next = buildRuntime(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive: run.autoLive, selectors: true, keep: run.loaded, slots, ruleDir: join(this.dir, 'rules'), hostV6: run.hostV6 }) }
+    try { next = buildRuntime(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive: run.autoLive, selectors: true, keep: run.loaded, slots, ruleDir: join(this.dir, 'rules'), hostV6: run.hostV6, diagnostic: this.diagnostic }) }
     catch { return false }
     const switches = liveSwitches(run.cfg, next.cfg)
-    if (!switches) { this.push('[apply] the change needs a new tunnel or core setting; restarting the core once'); return false }
-    for (const x of switches) {
-      if (!current() || !(await this.select(x.tag, x.to))) { this.push(`live route apply failed at ${x.tag}; restarting the core once`); return false }
+    if (!switches) {
+      const sections = Object.keys(run.cfg).filter(key => JSON.stringify((run.cfg as any)[key]) !== JSON.stringify((next.cfg as any)[key]))
+      this.push('[apply] structural change in ' + sections.join(', ') + '; controlled reconfiguration required')
+      return false
     }
     const changed = Object.keys(next.files).filter(k => next.files[k] !== run.files[k])
-    if (changed.length && !(await this.writeRules(changed, next.files, current))) { this.push('[apply] the core did not confirm the new card rules; restarting the core once'); return false }
+    const guarded = !!(switches.length || changed.length)
+    if (guarded) {
+      this.pendingLive = { guard: routeEditGuard(run.files, next.files, switches),
+        files: Object.fromEntries(changed.map(name => [name, run.files[name]])),
+        selectors: liveSwitches(next.cfg, run.cfg)! }
+      if (!(await this.writeRules(['apply-guard'], { 'apply-guard': this.pendingLive.guard }, current))) return failed('edit barrier ACK failed')
+    }
+    for (const x of switches) {
+      if (!current() || !(await this.select(x.tag, x.to))) return failed(`selector ${x.tag} failed`)
+    }
+    if (changed.length && !(await this.writeRules(changed, next.files, current))) return failed('card rules ACK failed')
     if (!current()) return false
-    this.run = { ...run, cfg: next.cfg, files: next.files, loaded: { ...run.loaded, slots }, settings: s }
-    this.fbRoutes = new Map(run.loaded.fbs.map(g => [g.tag, activeRoutes(s).filter(r => r.via === g.main && r.fallback === g.fb).map(r => ({ id: r.id, name: r.name }))]))
     const closed = await this.closeTouched(run.settings.routes, s.routes,
       { slots: run.loaded.slots, files: run.files }, { slots, files: next.files })
     if (!current()) return false
+    if (closed.closed !== closed.tried) {
+      return failed('edited connections did not confirm close')
+    }
+    if (guarded && !(await this.writeRules(['apply-guard'], next.files, current))) {
+      return failed('edit barrier release ACK failed')
+    }
+    if (!current()) return false
+    this.pendingLive = undefined
+    this.liveProblem = undefined
+    this.run = { ...run, cfg: next.cfg, files: next.files, loaded: { ...run.loaded, slots }, settings: s }
+    this.fbRoutes = new Map(run.loaded.fbs.map(g => [g.tag, activeRoutes(s).filter(r => r.via === g.main && r.fallback === g.fb).map(r => ({ id: r.id, name: r.name }))]))
+    // The loaded pool and the active routing set are different. A newly chosen warm
+    // path must join health checks immediately; an unused path must stop being probed.
+    this.ids = usedProfiles(s, profiles, { autoLive: run.autoLive }).map(p => p.id)
+    this.groups = liveGroups(withAuto(s, profiles, run.autoLive), new Set(run.loaded.profiles))
+    this.firstSelected = new Map(run.loaded.groups.map(g => [g.id,
+      g.members.includes(this.firstSelected.get(g.id) ?? '') ? this.firstSelected.get(g.id)! : g.members[0]]))
+    this.slowStreak = new Map(run.loaded.groups.map(g => [g.id, this.slowStreak.get(g.id) ?? 0]))
+    const activeAuto = this.groups.find(g => g.id === AUTO_ID)
+    const explicit = new Set(usedProfiles(withoutAuto(s), profiles).map(p => p.id))
+    this.autoOnly = activeAuto ? activeAuto.members.filter(id => !explicit.has(id)) : []
+    this.autoPool = activeAuto ? { live: activeAuto.members.length, total: autoMembers(profiles).length } : undefined
+    this.lastHealth = Object.fromEntries(Object.entries(this.lastHealth).filter(([id]) => this.ids.includes(id)))
     this.liveApplies++
     const written = changed.length ? `${changed.length} rule file(s) written, each reload confirmed` : 'no rule file changes'
     this.push(`live route apply: ${switches.length} selector switch(es), ${written}; connections closed ${closed.closed}/${closed.tried}; core and TUN kept`)
     this.set({ error: undefined })
+    return true
+  }
+
+  /** Restore only the edited decision surface; never stop the process, clear all
+   * connections, or release the barrier on an unacknowledged rollback. */
+  private async restoreLive(current: () => boolean): Promise<boolean> {
+    const pending = this.pendingLive
+    if (!pending) return current()
+    if (!current() || !(await this.writeRules(['apply-guard'], { 'apply-guard': pending.guard }, current))) return false
+    for (const item of pending.selectors) if (!current() || !(await this.select(item.tag, item.to))) return false
+    const names = Object.keys(pending.files)
+    if (names.length && !(await this.writeRules(names, pending.files, current))) return false
+    if (!current() || !(await this.writeRules(['apply-guard'], this.run!.files, current))) return false
+    if (!current()) return false
+    this.pendingLive = undefined
     return true
   }
 
@@ -466,9 +558,18 @@ export class Engine extends EventEmitter {
         return { route, matches: bodies ? cardRuleMatcher(bodies) : (c: Conn) => routeHits(route, c) }
       })
     const oldCards = compiled(before, previous), newCards = compiled(after, next)
+    const bypassChanged = previous?.files['bypass-ru'] !== next?.files['bypass-ru']
+    const newBypass = next?.files['bypass-ru'] ? cardRuleMatcher([next.files['bypass-ru']]) : () => false
     const was = new Map(before.map(r => [r.id, r]))
     const forwarding = (r?: Route) => r ? JSON.stringify([r.via, r.fallback, r.via === 'direct' && r.dpi === true]) : ''
     const ids = this.conns.filter(c => {
+      if (bypassChanged) {
+        // The core tells us which early global rule owned a connection. Preserve
+        // LAN/self exemptions; only a removed RU bypass or a newly bypassed card
+        // / final route needs a new connection under the changed policy.
+        if (c.rule?.includes('bypass-ru') && !newBypass(c)) return true
+        if (newBypass(c) && !c.rule?.includes('bypass-ru') && (c.route || c.rule === 'final')) return true
+      }
       const oldMatch = oldCards.find(card => card.matches(c))?.route
       // A core-attributed global/LAN bypass beats the card rules. Do not interrupt
       // that session just because a broader domain card also happens to match it.
@@ -498,6 +599,7 @@ export class Engine extends EventEmitter {
   private abortRequests() {
     for (const controller of this.requests) controller.abort()
     this.requests.clear()
+    this.diagnosticOwner?.abort()
   }
 
   private halt() {
@@ -505,6 +607,9 @@ export class Engine extends EventEmitter {
     this.polling = undefined
     this.pollFailures = 0
     this.run = undefined
+    this.liveProblem = undefined
+    this.pendingLive = undefined
+    this.diagnostic = undefined
     clearInterval(this.timer); clearInterval(this.pingTimer)
     this.timer = this.pingTimer = undefined
     this.last = undefined
@@ -587,20 +692,26 @@ export class Engine extends EventEmitter {
     try { this.child.kill() } catch {}
   }
 
-  private async select(tag: string, to: string): Promise<boolean> {
+  private async select(tag: string, to: string, signal?: AbortSignal): Promise<boolean> {
     const child = this.child, api = this.api, version = this.stopVersion
-    if (!child || this.stopping) return false
+    if (!child || this.stopping || signal?.aborted) return false
     const ctl = new AbortController()
     this.requests.add(ctl)
     const t = setTimeout(() => ctl.abort(), 3000)
+    const requestSignal = signal ? AbortSignal.any([ctl.signal, signal]) : ctl.signal
     try {
       const r = await fetch(`http://127.0.0.1:${api.port}/proxies/${encodeURIComponent(tag)}`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${api.secret}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: to }),
-        signal: ctl.signal
+        signal: requestSignal
       })
-      return r.ok && this.child === child && this.api === api && this.stopVersion === version && !this.stopping
+      if (!r.ok || this.child !== child || this.api !== api || this.stopVersion !== version || this.stopping) return false
+      const confirmed = await fetch(`http://127.0.0.1:${api.port}/proxies/${encodeURIComponent(tag)}`, {
+        headers: { Authorization: `Bearer ${api.secret}` }, signal: requestSignal
+      })
+      const selection = confirmed.ok ? await confirmed.json() : undefined
+      return selection?.now === to && this.child === child && this.api === api && this.stopVersion === version && !this.stopping
     } catch { return false } finally { clearTimeout(t); this.requests.delete(ctl) }
   }
 
@@ -667,6 +778,30 @@ export class Engine extends EventEmitter {
       out[id] = ms ?? null
     })
     return this.child === child && this.stopVersion === version ? out : {}
+  }
+
+  /** Read payload through one already loaded path. No new core, global selector
+   * or OS proxy is used. OFF/reconfiguration cancels the caller's sockets too. */
+  async withHttpProxy<T>(profileId: string, signal: AbortSignal,
+    work: (proxy: DiagnosticTransport) => Promise<T>): Promise<T> {
+    if (signal.aborted) throw new Error('cancelled')
+    if (this.diagnosticOwner) throw new Error('busy')
+    const child = this.child, version = this.stopVersion, proxy = this.diagnostic
+    if (!child || !proxy || this.status.phase !== 'on' || this.stopping) throw new Error('engine')
+    if (profileId !== 'direct' && !this.run?.loaded.profiles.includes(profileId)) throw new Error('not_loaded')
+    const owner = new AbortController()
+    this.diagnosticOwner = owner
+    const linked = AbortSignal.any([signal, owner.signal])
+    const current = () => !linked.aborted && this.child === child && this.stopVersion === version && !this.stopping
+    try {
+      if (!(await this.select(DIAGNOSTIC_SELECTOR, profileId === 'direct' ? 'direct' : tagOf(profileId), linked)) || !current()) throw new Error('cancelled')
+      const result = await work({ ...proxy, host: '127.0.0.1', signal: linked })
+      if (!current()) throw new Error('cancelled')
+      return result
+    } finally {
+      owner.abort()
+      if (this.diagnosticOwner === owner) this.diagnosticOwner = undefined
+    }
   }
 
   /** W3 diagnosis: through the given own paths only; Direct is measured separately by the layered prober */

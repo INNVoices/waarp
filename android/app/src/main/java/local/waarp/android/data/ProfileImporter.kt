@@ -17,7 +17,7 @@ data class ImportResult(val profiles: List<TunnelProfile>, val skipped: Int = 0)
 object ProfileImporter {
     private val uuid = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
     const val DEFAULT_FINGERPRINT = "ios"
-    private val fingerprints = setOf("chrome", "firefox", "safari", "edge", "ios", "android", "360", "qq", "random", "randomized")
+    private val fingerprints = setOf("chrome", "chrome_155", "firefox", "safari", "edge", "ios", "android", "360", "qq", "random", "randomized")
     private val links = Regex("(?:vless|vmess|trojan|ss|hysteria2|hy2|tuic)://[^\\s\"'<>\\\\]+", RegexOption.IGNORE_CASE)
     fun name(value: String, default: String = "Сервер") = value.replace(Regex("[\\p{Cntrl}]"), " ").trim().take(80).ifEmpty { default }
     fun decode(value: String): String = URLDecoder.decode(value.replace("+", "%2B"), "UTF-8")
@@ -50,6 +50,7 @@ object ProfileImporter {
         require(raw.toByteArray(Charsets.UTF_8).size <= MAX_IMPORT_BYTES) { "Конфиг слишком большой: максимум 1 МБ" }
         var text = raw.trim().removePrefix("\uFEFF")
         require(text.isNotEmpty()) { "Вставьте конфиг или ссылку" }
+        if (MasqueImporter.matches(text)) return MasqueImporter.parse(text, suggestedName, limit)
         if (text.startsWith("vpn://", true) || text.contains(Regex("\\[Interface]", RegexOption.IGNORE_CASE))) {
             return ImportResult(listOf(wireGuard(text, suggestedName)))
         }
@@ -304,7 +305,8 @@ object ProfileImporter {
             return TunnelProfile(name = name(decode(fragment), server), protocol = "Shadowsocks", host = server, port = serverPort,
                 config = obj("type" to "shadowsocks", "server" to server, "server_port" to serverPort, "method" to method, "password" to password).toString())
         }
-        val u = share(raw); val q = u.query
+        val hopping = if (scheme == "hy2" || scheme == "hysteria2") Hysteria2Ports.normalize(raw) else null
+        val u = share(hopping?.url ?: raw); val q = u.query
         val tlsKeys = setOf("sni", "peer", "alpn", "fp", "allowInsecure", "insecure", "pinSHA256", "ech")
         val transportKeys = setOf("type", "path", "host", "serviceName", "headerType")
         val allowedQuery = when (scheme) {
@@ -347,6 +349,7 @@ object ProfileImporter {
             }
             "hy2", "hysteria2" -> {
                 require(u.credential.isNotEmpty()); node.put("type", "hysteria2").put("password", decode(u.credential)).put("tls", tls(q, u.host))
+                hopping?.ports?.let { node.put("server_ports", jsonArray(it)).put("hop_interval", "30s") }
                 q["obfs"]?.takeIf(String::isNotBlank)?.let {
                     require(it == "salamander" && !q["obfs-password"].isNullOrBlank()) { "Неполная обфускация Hysteria2" }
                     node.put("obfs", obj("type" to it, "password" to q["obfs-password"]))

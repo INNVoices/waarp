@@ -1,7 +1,7 @@
 import { Tooltip } from './tooltip'
 import { wPath } from '../../../shared/brand-w'
 export { Tooltip }
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from 'react'
+import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
 
 const P: Record<string, ReactNode> = {
   search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="M15.3 15.3 20 20" /></>,
@@ -132,6 +132,10 @@ export function Field({ icon, bad, className = '', ...p }: InputHTMLAttributes<H
 
 export function Input(p: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...p} />
+}
+
+export function Select({ className = '', ...p }: SelectHTMLAttributes<HTMLSelectElement>) {
+  return <select className={'select-field ' + className} {...p} />
 }
 
 export function Area(p: TextareaHTMLAttributes<HTMLTextAreaElement>) {

@@ -47,10 +47,14 @@ internal fun rememberModalOperation(onSuccess: (() -> Unit)? = null): UiOperatio
     val session = LocalModalSession.current
     val operation = session?.operation ?: rememberUiOperation()
     val successNow by rememberUpdatedState(onSuccess)
+    val announceNow by rememberUpdatedState(LocalOperationMessage.current)
     // Execute a completion against the current composition, never an old Activity's close callback.
     LaunchedEffect(operation, operation.completions) {
         if (operation.completions > (session?.handledCompletion ?: 0) && successNow != null) {
             session?.handledCompletion = operation.completions
+            // Closing the modal can dispose its OperationFeedback effect first.
+            // Consume the one-shot message before handing off to the main host.
+            operation.takeMessage()?.let { announceNow?.invoke(it) }
             successNow?.invoke()
         }
     }

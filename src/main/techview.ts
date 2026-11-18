@@ -31,6 +31,11 @@ export function techOf(p: Profile): { tech: Tech; notApplied?: string[] } {
     add('alpn', list(o.tls?.alpn))
     add('obfs', str(o.obfs?.type))
     add('ports', list(o.server_ports))
+    if (o.type === 'masque') {
+      add('transport', str(o.vhttp)?.toUpperCase())
+      add('profile', str(o.profile))
+      add('mtu', typeof o.mtu === 'number' ? o.mtu : undefined)
+    }
     return { tech: out }
   }
   if (p.kind === 'awg') {
@@ -46,7 +51,7 @@ export function techOf(p: Profile): { tech: Tech; notApplied?: string[] } {
   return { tech: out }
 }
 
-const SECRET = /uuid|password|passwd|private|pre_?shared|secret|token|auth|encryption|header_protection|psk|cookie|username|short_id|(?:^|[_-])key$|^(?:path|service_name|client_certificate)$/i
+const SECRET = /uuid|password|passwd|private|pre_?shared|secret|token|auth|encryption|header_protection|psk|cookie|username|short_id|(?:^|[_-])key$|^(?:path|uri|service_name|client_certificate)$/i
 const PUBLIC = /^(?:public_key|key_share)$/i
 
 export function redact(v: unknown): unknown {

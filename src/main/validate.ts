@@ -53,6 +53,7 @@ export function cleanPatch(p: unknown): Partial<Settings> {
   const out: Partial<Settings> = {}
   if ('rest' in x && via(x.rest)) out.rest = x.rest
   if ('allVia' in x && (x.allVia === undefined || via(x.allVia))) out.allVia = x.allVia as Via | undefined
+  if ('serviceVia' in x && (x.serviceVia === undefined || (via(x.serviceVia) && !x.serviceVia.startsWith('g-')))) out.serviceVia = x.serviceVia as string | undefined
   for (const k of ['ruDirect', 'dnsAll', 'lanDirect', 'tray', 'autoConnect', 'autostart', 'notify'] as const) if (k in x && bool(x[k])) out[k] = x[k] as boolean
   if ('routes' in x && Array.isArray(x.routes) && x.routes.length <= 500) {
     const r = x.routes.map(route)
@@ -65,7 +66,7 @@ export function cleanPatch(p: unknown): Partial<Settings> {
   return out
 }
 
-const SETTINGS_KEYS = new Set(['rest', 'allVia', 'ruDirect', 'dnsAll', 'lanDirect', 'tray', 'autoConnect', 'autostart', 'notify', 'routes', 'groups'])
+const SETTINGS_KEYS = new Set(['rest', 'allVia', 'serviceVia', 'ruDirect', 'dnsAll', 'lanDirect', 'tray', 'autoConnect', 'autostart', 'notify', 'routes', 'groups'])
 
 export function checkedPatch(p: unknown): { ok: true; patch: Partial<Settings> } | { ok: false; error: string } {
   if (!p || typeof p !== 'object' || Array.isArray(p)) return { ok: false, error: 'Неверный формат настроек' }

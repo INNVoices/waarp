@@ -134,7 +134,7 @@ class VpnController(context: Context) {
         require(config.isNotBlank())
         if (!RuntimeState.isIdleGeneration(expectedIdleGeneration)) return false
         check(prepare() == null) { "Разрешение VPN отозвано" }
-        val request = RuntimeState.startIfIdle(expectedIdleGeneration, config) ?: return false
+        val request = RuntimeState.resumeUpdateIfIdle(expectedIdleGeneration, config) ?: return false
         return launchStart(request, newUserIntent = false)
     }
 
@@ -268,6 +268,45 @@ class VpnController(context: Context) {
         expectedGeneration: Long = sessionGeneration(),
     ): Long = withBackend(expectedGeneration) { it.urlTest(outboundTag, url, timeoutMs) }
 
+    internal suspend fun applyLiveRouting(before: local.waarp.android.data.MobileLivePlan,
+        after: local.waarp.android.data.MobileLivePlan, expectedGeneration: Long) = withBackend(expectedGeneration) {
+        it.applyRouting(before, after)
+    }
+
+    internal suspend fun markRoutingUncertain(error: Throwable, expectedGeneration: Long) = withBackend(expectedGeneration) {
+        it.markRoutingUncertain(error)
+    }
+
+    suspend fun fetchOutbound(outboundTag: String, url: String, timeoutMs: Int = 10_000,
+        maxBytes: Int = 262_144, expectedGeneration: Long = sessionGeneration()): RuntimeHttpResult =
+        withBackend(expectedGeneration) { it.fetchOutbound(outboundTag, url, timeoutMs, maxBytes) }
+
+    suspend fun fetchCheckOutbound(config: String, outboundTag: String, url: String,
+        timeoutMs: Int = 10_000, maxBytes: Int = 262_144): RuntimeHttpResult = suspendCancellableCoroutine { continuation ->
+        validateHttpFetch(outboundTag, url, timeoutMs, maxBytes)
+        val idle = RuntimeState.idleGeneration()
+        if (idle == null) {
+            continuation.resumeWith(Result.failure(IllegalStateException("VPN уже работает; используйте проверку действующего профиля")))
+            return@suspendCancellableCoroutine
+        }
+        val probe = HeadlessProbe(context, config, listOf(outboundTag), url, timeoutMs, idle)
+        continuation.invokeOnCancellation { probe.cancel() }
+        NativeLane.executor.execute {
+            try {
+                if (!continuation.isActive) return@execute
+                check(RuntimeState.isIdleGeneration(idle) && RuntimeState.backend.get() == null) { "Состояние VPN изменилось" }
+                check(RuntimeState.headless.compareAndSet(null, probe)) { "Проверка уже выполняется" }
+                val result = probe.fetch(maxBytes)
+                probe.close()
+                if (continuation.isActive) continuation.resumeWith(Result.success(result))
+            } catch (error: Exception) {
+                if (continuation.isActive) continuation.resumeWith(Result.failure(error))
+            } finally {
+                try { probe.close() } finally { RuntimeState.headless.compareAndSet(probe, null) }
+            }
+        }
+    }
+
     suspend fun closeConnection(id: String) = withBackend { it.closeConnection(id) }
     suspend fun closeConnections() = withBackend { it.closeConnections() }
     suspend fun rules(): List<RuntimeRule> = withBackend { it.rules() }
@@ -358,10 +397,14 @@ internal object RuntimeState {
         check(isSessionGeneration(expected)) { "Сессия VPN изменилась" }
     }
 
-    @Synchronized fun idleGeneration(): Long? = counter.get().takeIf { !wanted() }
+    @Synchronized fun idleGeneration(): Long? = counter.get().takeIf { !wanted() && !pausedForUpdate }
     @Synchronized fun isIdleGeneration(token: Long): Boolean = counter.get() == token && !wanted()
 
     @Synchronized fun isPausedForUpdate(): Boolean = pausedForUpdate
+
+    @Synchronized fun mayRetireService(): Boolean = !wanted() && !pausedForUpdate &&
+        status.value.phase in setOf(RuntimePhase.OFF, RuntimePhase.ERROR)
+
 
     /**
      * Invalidate immediately and enqueue durable work before another command can
@@ -380,6 +423,10 @@ internal object RuntimeState {
 
     @Synchronized fun startIfIdle(expected: Long, config: String): StartRequest? =
         if (isIdleGeneration(expected)) requestStart(config) else null
+
+    @Synchronized fun resumeUpdateIfIdle(expected: Long, config: String): StartRequest? =
+        if (isIdleGeneration(expected) && pausedForUpdate && status.value.phase == RuntimePhase.OFF && backend.get() == null && headless.get() == null)
+            requestStart(config) else null
 
     @Synchronized fun stopIfIdle(expected: Long): Long? =
         if (isIdleGeneration(expected)) requestStop() else null

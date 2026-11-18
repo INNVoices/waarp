@@ -144,9 +144,9 @@ export const TCP = `vless://${UUID}@1.2.3.4:8443?type=tcp&security=reality&pbk=$
   await rejects(() => fetchSubscription('https://sub.example.org/x', { fetchImpl: big, maxBytes: 1000 }), 'size cap', /большая/)
   await rejects(() => fetchSubscription('https://sub.example.org/x', { fetchImpl: (async () => mk(403, 'no')) as unknown as typeof fetch }), 'http error', /403/)
   const hang = ((_u: string, init: RequestInit) => new Promise((_r, rej) => init.signal!.addEventListener('abort', () => rej(new Error('abort'))))) as unknown as typeof fetch
-  await rejects(() => fetchSubscription('https://sub.example.org/x', { fetchImpl: hang, timeoutMs: 50 }), 'timeout', /10 секунд/)
+  await rejects(() => fetchSubscription('https://sub.example.org/x', { fetchImpl: hang, timeoutMs: 50 }), 'timeout', /вовремя/)
   const ignoresSignal = (async () => new Promise<Response>(() => undefined)) as typeof fetch
-  await rejects(() => fetchSubscription('https://sub.example.org/x', { fetchImpl: ignoresSignal, timeoutMs: 20 }), 'deadline still settles if the transport does not acknowledge abort', /10 секунд/)
+  await rejects(() => fetchSubscription('https://sub.example.org/x', { fetchImpl: ignoresSignal, timeoutMs: 20 }), 'deadline still settles if the transport does not acknowledge abort', /вовремя/)
   let canceledRedirect = false
   let redirectCall = 0
   const redirectBody = (async () => redirectCall++ === 0
@@ -156,7 +156,7 @@ export const TCP = `vless://${UUID}@1.2.3.4:8443?type=tcp&security=reality&pbk=$
   ok(canceledRedirect, 'redirect response body is canceled before the next request')
   let canceledHang = false
   const bodyHang = (async () => new Response(new ReadableStream({ cancel: () => { canceledHang = true } }))) as typeof fetch
-  await rejects(() => fetchSubscription('https://sub.example.org/x', { fetchImpl: bodyHang, timeoutMs: 20 }), 'body read obeys the same deadline', /10 секунд/)
+  await rejects(() => fetchSubscription('https://sub.example.org/x', { fetchImpl: bodyHang, timeoutMs: 20 }), 'body read obeys the same deadline', /вовремя/)
   ok(canceledHang, 'timed-out response reader is canceled')
   // Exercise Node's real autoSelectFamily connector against a loopback-only fixture. No external DNS/network.
   const local = createServer(socket => socket.end())

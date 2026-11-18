@@ -2,6 +2,7 @@ import type { AwgProfile, Group, Profile, Route, Settings, Via } from '../shared
 import { PRESETS } from '../shared/presets'
 import { dedupeApps } from '../shared/appmatch'
 import { validateCustom, validIpPrefix } from '../shared/route-validation'
+import { masqueNode } from './masque'
 
 export interface Bounds { x: number; y: number; width: number; height: number; max?: boolean }
 export interface Disk { settings: Settings; profiles: string[]; bounds?: Bounds }
@@ -38,6 +39,7 @@ export function migrate(raw: any, firstProfile?: string): Settings {
       ...DEFAULTS,
       rest: via(raw.rest) ? raw.rest : 'direct',
       allVia: raw.allVia === undefined || via(raw.allVia) ? raw.allVia : undefined,
+      serviceVia: via(raw.serviceVia) && !raw.serviceVia.startsWith('g-') ? raw.serviceVia : undefined,
       groups,
       routes,
       ruDirect: typeof raw.ruDirect === 'boolean' ? raw.ruDirect : DEFAULTS.ruDirect,
@@ -74,8 +76,14 @@ export function normalizeProfile(p: Profile): Profile {
   } else if (value.kind === 'vless') {
     if (!value.vless || typeof value.vless.server !== 'string' || !Number.isInteger(value.vless.port) || value.vless.port < 1 || value.vless.port > 65535 || typeof value.vless.uuid !== 'string') throw new Error('Invalid stored VLESS profile')
   } else if (value.kind === 'out') {
-    const allowed = new Set(['vmess', 'trojan', 'shadowsocks', 'hysteria2', 'tuic'])
+    const allowed = new Set(['vmess', 'trojan', 'shadowsocks', 'hysteria2', 'tuic', 'masque'])
     if (typeof value.host !== 'string' || !Number.isInteger(value.port) || value.port < 1 || value.port > 65535 || !value.outbound || typeof value.outbound !== 'object' || !allowed.has(String(value.outbound.type)) || value.outbound.server !== value.host || value.outbound.server_port !== value.port) throw new Error('Invalid stored outbound profile')
+    // Re-validate the same restricted native schema after decrypting persistence. A round trip
+    // must retain a valid imported MASQUE node, without making saved JSON a bypass for import checks.
+    if (value.outbound.type === 'masque') {
+      const checked = masqueNode(value.outbound)
+      return { ...value, host: checked.host, port: checked.port, outbound: checked.outbound }
+    }
   } else if (value.kind === 'openvpn') {
     if (typeof value.host !== 'string' || !Number.isInteger(value.port) || value.port < 1 || value.port > 65535 || !value.endpoint || value.endpoint.type !== 'openvpn-client') throw new Error('Invalid stored OpenVPN profile')
   } else throw new Error('Unknown stored profile kind')
@@ -88,40 +96,5 @@ export function readDisk(raw: string, open: (sealed: string) => string): { profi
   return { profiles, settings: migrate(d.settings, profiles[0]?.id), bounds: d.bounds }
 }
 
-/** a tunnel or group is gone (C03): its cards get the chosen replacement, or keep pointing at the
- *  missing id -> the config compiles that to BLOCK (never silently direct). A fallback to it is cleared. */
-function dropVia(s: Settings, id: string, replace?: Via): Settings {
-  const to = (v: Via) => (v === id && replace ? replace : v)
-  return {
-    ...s,
-    rest: to(s.rest),
-    routes: s.routes.map(r => {
-      const { fallback, ...rest } = r
-      const keep = fallback && fallback !== id ? { fallback } : {}
-      return { ...rest, via: to(r.via), ...keep }
-    }),
-    allVia: s.allVia === id ? (replace && replace !== 'direct' ? replace : undefined) : s.allVia
-  }
-}
-
-/** cards / "rest" that use this tunnel or group: shown before deleting it */
-export function usersOf(s: Settings, id: string): { cards: string[]; rest: boolean; all: boolean } {
-  const affected = new Set([id, ...(s.groups ?? []).filter(g => g.members.includes(id)).map(g => g.id)])
-  return {
-    cards: s.routes.filter(r => affected.has(r.via) || (!!r.fallback && affected.has(r.fallback))).map(r => r.name),
-    rest: affected.has(s.rest),
-    all: !!s.allVia && affected.has(s.allVia)
-  }
-}
-
-/** a tunnel is removed: it leaves every group, a group left without members is removed too */
-export function dropServer(s: Settings, id: string, replace?: Via): Settings {
-  const groups = (s.groups ?? []).map(g => ({ ...g, members: g.members.filter(m => m !== id) }))
-  let out: Settings = { ...dropVia(s, id, replace), groups: groups.filter(g => g.members.length > 0) }
-  for (const g of groups.filter(g => g.members.length === 0)) out = dropVia(out, g.id, replace)
-  return out
-}
-
-export function dropGroup(s: Settings, id: string, replace?: Via): Settings {
-  return { ...dropVia(s, id, replace), groups: (s.groups ?? []).filter(g => g.id !== id) }
-}
+// Browser-safe policy helpers are shared with the renderer; storage validation stays in Main.
+export { dropGroup, dropServer, usersOf } from '../shared/path-usage'

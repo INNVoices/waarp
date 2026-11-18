@@ -1,0 +1,145 @@
+import assert from 'node:assert/strict'
+import net from 'node:net'
+import http from 'node:http'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { Engine } from '../src/main/engine'
+import type { OutProfile, Settings } from '../src/shared/types'
+import type { DiagnosticTransport } from '../src/main/diagnostic-proxy'
+
+async function fixture(label: string) {
+  const sockets = new Set<net.Socket>()
+  const server = net.createServer(socket => {
+    sockets.add(socket); socket.on('error', () => {}); socket.once('close', () => sockets.delete(socket))
+    let stage = 0, data = Buffer.alloc(0)
+    socket.on('data', chunk => {
+      data = Buffer.concat([data, typeof chunk === 'string' ? Buffer.from(chunk) : chunk])
+      if (data.length > 8192) { socket.destroy(); return }
+      if (stage === 0) {
+        if (data.length < 2 || data.length < 2 + data[1]) return
+        data = data.subarray(2 + data[1]); socket.write(Buffer.from([5, 0])); stage = 1
+      }
+      if (stage === 1) {
+        if (data.length < 5) return
+        const length = data[3] === 1 ? 10 : data[3] === 4 ? 22 : data[3] === 3 ? 7 + data[4] : 0
+        if (!length) { socket.destroy(); return }
+        if (data.length < length) return
+        data = data.subarray(length); socket.write(Buffer.from([5,0,0,1,127,0,0,1,0,0])); stage = 2
+      }
+      if (stage === 2 && data.length) {
+        if (data.toString().startsWith('GET ')) {
+          if (!data.includes(Buffer.from('\r\n\r\n'))) return
+          socket.end('HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: ' + label.length + '\r\n\r\n' + label)
+        } else if (data.toString().startsWith('PING')) { socket.write(data); data = Buffer.alloc(0) }
+        else if (data.length > 64) socket.destroy()
+      }
+    })
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  return { port: (server.address() as net.AddressInfo).port, close: async () => {
+    for (const socket of sockets) socket.destroy()
+    await new Promise<void>(resolve => server.close(() => resolve()))
+  } }
+}
+function body(host: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const request = http.get({ host, port: 80, path: '/', agent: false }, response => {
+      let output = ''; response.setEncoding('utf8'); response.on('data', chunk => { output += chunk })
+      response.on('end', () => resolve(output)); response.on('error', reject)
+    })
+    request.setTimeout(6000, () => request.destroy(new Error('fixture request timed out')))
+    request.on('error', reject)
+  })
+}
+function proxyBody(proxy: DiagnosticTransport): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const request = http.request({ host: proxy.host, port: proxy.port, method: 'CONNECT', path: '198.18.0.11:80',
+      headers: { 'Proxy-Authorization': 'Basic ' + Buffer.from(proxy.username + ':' + proxy.password).toString('base64') }, signal: proxy.signal, agent: false })
+    request.on('error', reject)
+    request.once('connect', (response, socket, head) => {
+      if (response.statusCode !== 200) { socket.destroy(); reject(new Error('diagnostic proxy refused authentication')); return }
+      let output = head.toString()
+      socket.setTimeout(6000, () => socket.destroy(new Error('diagnostic proxy fixture timed out')))
+      socket.on('error', reject); socket.on('data', data => { output += data.toString() })
+      socket.once('end', () => resolve(output.split('\r\n\r\n')[1]))
+      socket.write('GET / HTTP/1.1\r\nHost: fixture.invalid\r\nConnection: close\r\n\r\n')
+    })
+    request.setTimeout(6000, () => request.destroy(new Error('diagnostic CONNECT timeout')))
+    request.end()
+  })
+}
+async function main() {
+  if (process.env.WAARP_NATIVE_SWITCH_TEST !== '1') { console.log('route-native: SKIP (explicit disposable Windows opt-in required)'); return }
+  assert.equal(process.platform, 'win32'); assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted')
+  const dir = mkdtempSync(join(tmpdir(), 'waarp-route-native-'))
+  const a = await fixture('A'), b = await fixture('B')
+  const profile = (id: string, port: number): OutProfile => ({ kind: 'out', id, name: id, host: '127.0.0.1', port,
+    version: 'SOCKS fixture', source: 'personal', addedAt: 1,
+    outbound: { type: 'socks', server: '127.0.0.1', server_port: port, version: '5' } })
+  const profiles = [profile('a', a.port), profile('b', b.port)]
+  let settings: Settings = { rest: 'direct', routes: [
+    { id: 'selected', kind: 'custom', name: 'Selected', value: '198.18.0.9', via: 'a', on: true },
+    { id: 'neighbor', kind: 'custom', name: 'Neighbor', value: '198.18.0.10', via: 'a', on: true }
+  ], groups: [], lanDirect: false, ruDirect: false, dnsAll: false, notify: false, tray: true, autoConnect: false, autostart: false }
+  const engine = new Engine(join(process.cwd(), 'engine', 'sing-box.exe'), dir, 'C:\\waarp-test-never.exe')
+  // Test only the controlled fixtures. No public health requests are needed.
+  ;(engine as any).pingAll = async () => ({ a: 1, b: 2 })
+  engine.hostV6 = async () => false
+  let neighbor: net.Socket | undefined
+  try {
+    assert(await engine.killOrphans())
+    await engine.start(profiles, settings)
+    assert.equal(engine.status.phase, 'on', engine.status.error ?? 'core not ready')
+    const pid = (engine as any).child.pid, since = engine.status.since
+    assert.equal(await body('198.18.0.9'), 'A')
+    assert.equal(await engine.withHttpProxy('b', new AbortController().signal, proxyBody), 'B')
+    assert.equal(await body('198.18.0.9'), 'A', 'diagnostic selection does not change the card')
+    await assert.rejects(engine.withHttpProxy('b', new AbortController().signal, proxy => proxyBody({ ...proxy, password: 'wrong' })))
+    console.log('ROUTE_NATIVE authenticated diagnostic CONNECT: selected B; card A preserved PASS')
+    neighbor = net.connect(80, '198.18.0.10'); neighbor.on('error', () => {})
+    await new Promise<void>((resolve, reject) => { neighbor!.once('connect', resolve); neighbor!.once('error', reject) })
+    const echo = (n: number) => new Promise<void>((resolve, reject) => {
+      const expected = Buffer.from('PING' + n)
+      const timeout = setTimeout(() => { cleanup(); reject(new Error('neighbor echo timeout')) }, 6000)
+      let received = Buffer.alloc(0)
+      const cleanup = () => { clearTimeout(timeout); neighbor!.off('data', onData); neighbor!.off('close', onClose) }
+      const onClose = () => { cleanup(); reject(new Error('neighbor closed during unrelated route edit')) }
+      const onData = (data: Buffer) => { received = Buffer.concat([received,data]); if (received.length >= expected.length) {
+        cleanup(); try { assert.deepEqual(received, expected); resolve() } catch (error) { reject(error) }
+      } }
+      neighbor!.on('data', onData); neighbor!.once('close', onClose); neighbor!.write(expected)
+    })
+    await echo(0)
+    for (const [i, via] of ['b','a','direct','b'].entries()) {
+      settings = { ...settings, routes: settings.routes.map(r => r.id === 'selected' ? { ...r, via } : r) }
+      assert(await engine.applyLive(profiles, settings), 'switch to ' + via + '\n' + engine.log().join('\n'))
+      assert.equal((engine as any).child.pid, pid); assert.equal(engine.status.since, since)
+      if (via !== 'direct') assert.equal(await body('198.18.0.9'), via.toUpperCase())
+      await echo(i + 1)
+      console.log('ROUTE_NATIVE switch', via, 'same PID; neighbor alive; selected tunnel verified where applicable')
+    }
+    settings = { ...settings, routes: settings.routes.filter(r => r.id !== 'selected') }
+    assert(await engine.applyLive(profiles, settings)); await echo(5)
+    assert.equal((engine as any).child.pid, pid)
+    console.log('ROUTE_NATIVE delete active selected route: same PID and neighbor alive PASS')
+    settings = { ...settings, routes: [...settings.routes, { id:'disabled',kind:'custom',name:'Off',value:'198.18.0.11',via:'b',on:false }] }
+    assert(await engine.applyLive(profiles, settings)); await echo(6)
+    settings = { ...settings, routes: settings.routes.filter(r => r.id !== 'disabled') }
+    assert(await engine.applyLive(profiles, settings)); await echo(7)
+    assert.equal((engine as any).child.pid, pid); assert.equal(engine.status.since, since)
+    console.log('ROUTE_NATIVE inactive addition/deletion: same PID and neighbor alive PASS')
+    neighbor.destroy(); neighbor = undefined
+    settings = { ...settings, routes: [] }
+    assert(await engine.applyLive(profiles, settings))
+    assert.equal((engine as any).child.pid, pid); assert.equal(engine.status.since, since); assert.equal(engine.status.phase, 'on')
+    settings = { ...settings, routes: [{ id: 'again', kind: 'custom', name: 'Again', value: '198.18.0.9', via: 'b', on: true }] }
+    assert(await engine.applyLive(profiles, settings)); assert.equal(await body('198.18.0.9'), 'B')
+    assert.equal((engine as any).child.pid, pid); assert.equal(engine.status.since, since)
+    console.log('ROUTE_NATIVE last-route removal and re-addition: same PID and new selected path verified PASS')
+  } finally {
+    neighbor?.destroy(); assert(await engine.stop(), 'native cleanup must complete')
+    await a.close(); await b.close(); rmSync(dir, { recursive:true, force:true })
+  }
+}
+main().catch(error => { console.error(error); process.exitCode = 1 })

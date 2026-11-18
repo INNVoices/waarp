@@ -21,8 +21,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.util.UUID
+import kotlinx.coroutines.launch
 
 private data class Destination(val title: String, val icon: ImageVector)
 private val destinations = listOf(
@@ -45,6 +48,8 @@ fun WaarpApp(state: MobileState, actions: MobileActions) {
         var suggestedTarget by rememberSaveable { mutableStateOf<String?>(null) }
         var suggestedVia by rememberSaveable { mutableStateOf<String?>(null) }
         val snackbar = remember { SnackbarHostState() }
+        val messageScope = rememberCoroutineScope()
+        val announce: (String) -> Unit = { text -> messageScope.launch { snackbar.showSnackbar(text, withDismissAction = true) } }
         val screens = rememberSaveableStateHolder()
         val open: (String, String?) -> Unit = { kind, id -> modalSessions.clear(modalId); modalId = UUID.randomUUID().toString(); sheet = kind; selectedId = id }
         val close: () -> Unit = { modalSessions.clear(modalId); sheet = null; selectedId = null; suggestedTarget = null; suggestedVia = null }
@@ -59,6 +64,7 @@ fun WaarpApp(state: MobileState, actions: MobileActions) {
         BackHandler(enabled = settings && sheet == null) { settings = false }
         BackHandler(enabled = !settings && tab != 0 && sheet == null) { tab = 0 }
 
+        CompositionLocalProvider(LocalOperationMessage provides announce, LocalOperationSnackbar provides snackbar) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val wide = maxWidth >= 840.dp
             Scaffold(
@@ -72,7 +78,16 @@ fun WaarpApp(state: MobileState, actions: MobileActions) {
                             }
                         },
                         navigationIcon = { if (settings) IconButton(onClick = { settings = false }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Назад") } },
-                        actions = { if (!settings) IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, "Настройки") } },
+                        actions = {
+                            val progress = state.backgroundTask
+                                ?: "Подбираем параметры подключения…".takeIf { state.tuning?.running == true }
+                                ?: "Проверяем передачу данных…".takeIf { state.transfer?.running == true }
+                                ?: "Применяем изменения маршрутов…".takeIf { state.status.recovering }
+                            if (progress != null) IconButton(onClick = { announce(progress) }) {
+                                CircularProgressIndicator(Modifier.size(20.dp).semantics { contentDescription = progress }, strokeWidth = 2.dp)
+                            }
+                            if (!settings) IconButton(onClick = { settings = true }) { Icon(Icons.Outlined.Settings, "Настройки") }
+                        },
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                     )
                 },
@@ -84,7 +99,7 @@ fun WaarpApp(state: MobileState, actions: MobileActions) {
                         }
                     }
                 },
-                snackbarHost = { SnackbarHost(snackbar) },
+                snackbarHost = { if (sheet == null) SnackbarHost(snackbar) },
                 floatingActionButton = {
                     if (state.initialized && !settings && (tab == 1 || tab == 2)) {
                         FloatingActionButton(onClick = { open(if (tab == 1) "route" else "import", null) }) {
@@ -104,11 +119,8 @@ fun WaarpApp(state: MobileState, actions: MobileActions) {
                     }
                     Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
                         Column(Modifier.widthIn(max = 1000.dp).fillMaxSize()) {
-                            state.backgroundTask?.let { InlineMessage(it, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
                             if (state.initialized && (settings || tab != 0)) {
-                                if (state.status.recovering && state.status.requestedOpen) InlineMessage(
-                                    "Применяем маршруты и переподключаем VPN…", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                                else if (state.status.phase == ConnectionPhase.ERROR) InlineMessage(
+                                if (state.status.phase == ConnectionPhase.ERROR) InlineMessage(
                                     state.status.error ?: "VPN остановился с ошибкой. Открой главную для восстановления.", error = true,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                             }
@@ -154,6 +166,7 @@ fun WaarpApp(state: MobileState, actions: MobileActions) {
             }
             }
         }
+        }
     }
 }
 
@@ -177,11 +190,8 @@ private fun LoadingState(state: MobileState, actions: MobileActions) {
 
 @Composable
 internal fun MissingItemSheet(onDismiss: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("Объект больше недоступен", style = MaterialTheme.typography.titleLarge)
-            Text("Список изменился. Закрой окно и выбери актуальный профиль или маршрут.", color = WaarpMuted)
-            Button(onClick = onDismiss, Modifier.fillMaxWidth().height(50.dp)) { Text("Закрыть") }
-        }
+    FormSheet("Объект больше недоступен", false, onDismiss) {
+        Text("Список изменился. Закрой окно и выбери актуальный профиль или маршрут.", color = WaarpMuted)
+        Button(onClick = onDismiss, Modifier.fillMaxWidth().height(50.dp)) { Text("Закрыть") }
     }
 }

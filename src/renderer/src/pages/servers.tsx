@@ -1,7 +1,7 @@
 // Saved connections, their groups, and the explicitly refreshed public catalog share one destination.
 import { Fragment, useEffect, useRef, useState } from 'react'
 import type { Group, ProfileView, Snapshot, Status } from '../../../shared/types'
-import { dropGroup, usersOf } from '../../../main/store-core'
+import { dropGroup, usersOf } from '../../../shared/path-usage'
 import { Modal } from '../ui/modal'
 import { Area, Btn, Icon, Input, Tooltip } from '../ui/kit'
 import { s, sp } from '../lib/i18n'
@@ -101,13 +101,13 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
   }
   const delDlg = del && (() => {
     const u = usersOf(st, del.id)
-    const others = snap.profiles.filter(x => !x.revoked && x.id !== del.id && !(x.kind === 'group' && x.members?.includes(del.id) && x.members.length === 1))
-    const n = u.cards.length + (u.rest ? 1 : 0) + (u.all ? 1 : 0)
+    const others = snap.profiles.filter(x => !x.revoked && x.id !== del.id && !(x.kind === 'group' && x.members?.includes(del.id) && x.members.length === 1) && (!u.service || (x.kind !== 'group' && x.source !== 'public' && !x.subscriptionMissing)))
+    const n = u.cards.length + (u.rest ? 1 : 0) + (u.all ? 1 : 0) + (u.service ? 1 : 0)
     return (
       <Modal title={s('del.title', { v: del.name })} onClose={() => setDel(undefined)} busy={removing}>
         {n === 0 ? <p className="lead">{s('del.unused')}</p> : <>
           <p className="lead">{sp('del.used', n)}</p>
-          <ul className="del-list">{u.cards.map((c, i) => <li key={i} className="ell">{c}</li>)}{u.rest && <li>{s('rest.label')}</li>}{u.all && <li>{s('del.all')}</li>}</ul>
+          <ul className="del-list">{u.cards.map((c, i) => <li key={i} className="ell">{c}</li>)}{u.rest && <li>{s('rest.label')}</li>}{u.all && <li>{s('del.all')}</li>}{u.service && <li>{s('service.usage')}</li>}</ul>
           <p className="hint">{s('del.how')}</p>
           <div className="del-opts">
             {others.map(o => <Btn disabled={removing} key={o.id} onClick={() => void remove(del, o.id)}><Mark profiles={snap.profiles} via={o.id} />{s('del.to', { v: o.name })}</Btn>)}
@@ -181,7 +181,7 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
               {!!p.notApplied?.length && <><span className="m">{s('tech.notApplied')}</span><span className="warn ell">{p.notApplied.join(', ')}</span></>}
               {live && status.pingAt !== undefined && uses(p.id) > 0 && <><span className="m">{s('tech.measured')}</span><span>{new Date(status.pingAt).toLocaleTimeString()}</span></>}
             </div>
-            {p.kind !== 'group' && p.kind !== 'openvpn' && <Tune p={p} open={status.phase !== 'off' || !!status.open} toast={toast} />}
+            {(!!p.tuneOptions?.length || p.tuneStored) && <Tune p={p} open={status.phase !== 'off' || !!status.open} toast={toast} />}
             {dev && <DevConfig id={p.id} />}
             </details>
             {foot(p)}
@@ -288,6 +288,10 @@ function Tune({ p, open, toast }: { p: ProfileView; open: boolean; toast: (x: st
         {p.tuneStored && !busy && <Btn sm kind="ghost" disabled={writing} onClick={() => void save()}>{s('tune.reset')}</Btn>}
       </div>
       {open && !p.tune && <p className="hint">{s('tune.closed')}</p>}
+      <p className="hint">{s('tune.payload')}</p>
+      {!!p.tuneOptions?.length && <details className="hint"><summary>{s('tune.preview')}</summary>
+        <ul>{p.tuneOptions.map(option => <li key={option.label}><b>{option.label}</b> · {option.detail}</li>)}</ul>
+      </details>}
       {res && <div className="kv mono">
         {res.map(r => <Fragment key={r.label || 'base'}>
           <span className="m">{r.label || s('tune.base')}</span>

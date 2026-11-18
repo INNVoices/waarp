@@ -480,3 +480,8 @@
 @media (max-width: 900px) { .dg { grid-template-columns: 1fr; } }
 
 .rc-open { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; text-align: left; }
+.payload-check .addrow { flex-wrap: wrap; }
+.payload-check details { margin: 12px 0; }
+.payload-check summary { cursor: pointer; }
+.payload-result { min-height: 108px; overflow-wrap: anywhere; }
+.payload-result .kv { grid-template-columns: minmax(80px, auto) minmax(0, 1fr); }

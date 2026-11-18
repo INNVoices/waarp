@@ -7,14 +7,15 @@ import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'nod
 import { basename, join } from 'node:path'
 import type { Notice, Profile, Settings, Snapshot, Status } from '../shared/types'
 import { compilePlan, requiresCore } from '../shared/plan'
+import { sameEffectiveRouting } from '../shared/routing-edit'
 import { ConfError, createWireGuardProfile, parseConf, usedProfiles, validateCustom, withoutAuto } from './awg'
-import { fetchSubscription, isSubscriptionUrl, looksLikeVless } from './vless'
+import { fetchSubscription, isSubscriptionUrl, looksLikeVless, type PinnedHttpGet } from './vless'
 import { describeExe, scanApps, trayImage } from './apps'
 import { directProbe, icmp } from './offline'
 import { Checker } from './checker'
 import { checkedPatch, importRequest, MAX_IMPORT_BYTES, probeTarget, profileName, settingsPatchCurrent } from './validate'
 import { linksInContainer, parseAny } from './links'
-import { Catalog } from './catalog'
+import { Catalog, fetchCatalogSources } from './catalog'
 import { credentialKey, Discovery } from './discovery'
 import { looksLikeOpenVpn, parseOpenVpn } from './openvpn'
 import { Health } from './health'
@@ -30,6 +31,7 @@ import { defaultRoutes, TUN, tunPreflight, tunSnapshot, untilCancelled } from '.
 import { isIP } from 'node:net'
 import { LogFile } from './logfile'
 import { configOf, diagnosticsOf } from './techview'
+import { LastSessionEvidence, clearDiagnosticEvidence, lastTransferEvidence, readSavedPayloadReport } from './last-session'
 import { Lists } from './lists'
 import { setListResolver } from './awg'
 import { activeTune, applyTune, profileSig, provenTune, pruneTunes, tuned, variants, type TuneResult, type Tunes } from './tune'
@@ -40,7 +42,7 @@ import { scanScreenQr } from './qr'
 import { stableEngine, verifyEngine } from './integrity'
 import { reconcileSubscription, subscriptionEntryKey } from './subscription'
 import { trayPresentation } from './tray-view'
-import { effectiveRoutes, moodOf } from '../shared/effective'
+import { confirmedRoutes, moodOf } from '../shared/effective'
 import { bridgeStatus, companionEditsOk, companionPatchSafe, createPending, ensureIntent, listCompanion, parseTarget, routeFor, routeOf, safeVia, sameTarget } from '../shared/companion'
 import { AUTO_BUDGET, AUTO_ID, autoMembers, checkSample } from '../shared/groups'
 import { classify } from '../shared/evidence'
@@ -49,6 +51,11 @@ import { activeIds, diagnosisSet, learn, type NetMemory } from '../shared/netmem
 import { loadMem, saveMem } from './netmem-store'
 import { networkFingerprint } from './netid'
 import { diagnosisCurrent, diagnosisProof, type DiagnosisProof } from './diagnosis'
+import { checkPayload, verifyDownload } from './payload-check'
+import { proxyRequest, transferUrl } from './proxy-http'
+import { serviceTransport } from './service-transport'
+import { PAYLOAD_DOWNLOAD, type PayloadReport, type PayloadReply } from '../shared/payload'
+import { protectPrivateFile } from './private-file'
 import { SerialGate } from './serial'
 import { RuntimeRecovery } from './runtime-recovery'
 import { relaunchArgs, relaunchParent, waitForRelaunchParent } from './relaunch'
@@ -146,12 +153,14 @@ const master = new ConnectionControl({
   start: async () => engine.start(await runtimeProfiles(), store.settings),
   stop: () => engine.stop(),
   serial: work => intentWrites.run(work),
-  changed: () => { void cancelDiagnosis(); send('status', statusView(engine.status)); updateTray() }
+  changed: () => { void cancelDiagnosis(); void cancelPayloadCheck(); cancelServiceDownload(); send('status', statusView(engine.status)); updateTray() }
 })
 const setMaster = (open: boolean) => master.set(open)
 const statusView = (s: Status) => ({ ...withRoutes(s), open: master.open, startup: runtimeRecovery.state })
 async function pauseMeasurements(): Promise<boolean> {
   void cancelDiagnosis()
+  void cancelPayloadCheck()
+  cancelServiceDownload()
   const stopped = await Promise.all([checker?.stop() ?? true, catalog?.pause() ?? true])
   return stopped.every(Boolean)
 }
@@ -492,6 +501,9 @@ function ipc() {
     const checked = checkedPatch(raw)
     if (!checked.ok) { send('toast', checked.error); return { ...snapshot(), saved: false } }
     const patch = checked.patch // C09: reject malformed IPC instead of silently dropping fields
+    if (patch.serviceVia && patch.serviceVia !== 'direct' && !store.profiles.some(p => p.id === patch.serviceVia && !p.revoked && p.source !== 'public' && !('subMissing' in p && p.subMissing))) {
+      send('toast', 'Для загрузок выбери доступное личное подключение'); return { ...snapshot(), saved: false }
+    }
     if (!settingsPatchCurrent(patch, base, store.settings)) { send('toast', 'Настройки уже изменились. Список обновлён — повтори действие.'); return { ...snapshot(), saved: false } }
     // companion routes: never created or redefined by the renderer, never a public / unsafe path or fallback
     if (patch.routes && !companionEditsOk(patch.routes, store.settings.routes)) { send('toast', 'Маршрут приложения нельзя создать или переопределить вручную'); return { ...snapshot(), saved: false } }
@@ -511,19 +523,21 @@ function ipc() {
       if ('autostart' in patch) void setAutostart(previous.autostart)
       send('toast', 'Не удалось сохранить настройки'); return { ...snapshot(), saved: false }
     }
+    if ('serviceVia' in patch && previous.serviceVia !== store.settings.serviceVia) cancelServiceDownload()
     if (routing) {
       const revision = master.revision
       // Owner OFF wins immediately even if this settings write entered the FIFO earlier/later.
       // Save the new intent, but leave engine shutdown to the master toggle and apply it on the next open.
       if (!master.open) { updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true } }
-      if (engine.status.phase === 'on' && demandsTunnel(store.settings) && (await engine.applyLive(await runtimeProfiles(), store.settings))) { updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true } }
+      const retainCore = engine.status.phase === 'on' || engine.status.phase === 'starting'
+      if (engine.status.phase === 'on' && (await engine.applyLive(await runtimeProfiles(false), store.settings))) { updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true } }
+      if (engine.liveApplyFailure) { send('toast', engine.liveApplyFailure); updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true } }
       const currentNotices = await refreshNotices()
       if (!master.current(revision)) return { ...snapshot(), saved: true }
       const action = onRoutingPatch(engine.status.phase, currentNotices.some(n => n.level === 'block'))
       if (action === 'stop') { setMaster(false); await engine.stop() }
-      else if (!demandsTunnel(store.settings)) await engine.stop()
-      else if (action === 'start' || !currentNotices.some(n => n.level === 'block')) {
-        const result = await master.reconnect(revision, { restart: true })
+      else if (action === 'start' || (demandsTunnel(store.settings) && !currentNotices.some(n => n.level === 'block'))) {
+        const result = await master.reconnect(revision, { restart: true, retainCore, preserveIntent: true })
         if (!result.ok && master.revision === revision) send('toast', result.error)
       }
     }
@@ -598,7 +612,7 @@ function ipc() {
     try {
       const link = text.trim()
       const sub = isSubscriptionUrl(link) ? link : undefined
-      const body = sub ? await fetchSubscription(sub) : link
+      const body = sub ? await withServiceTransport((transport, signal) => fetchSubscription(sub, { transport, signal })) : link
       if (looksLikeOpenVpn(body)) {
         const p = parseOpenVpn(body, name || `OpenVPN ${store.profiles.length + 1}`)
         const key = credentialKey(p)
@@ -661,7 +675,7 @@ function ipc() {
     const sub = selected && (selected.kind === 'vless' || selected.kind === 'out') ? selected.sub : undefined
     if (!sub) return { ok: false, error: 'Этот туннель не связан с подпиской' }
     try {
-      const body = await fetchSubscription(sub)
+      const body = await withServiceTransport((transport, signal) => fetchSubscription(sub, { transport, signal }))
       const embedded = linksInContainer(body, 1000)
       const parsed = parseAny(embedded.length ? embedded.join('\n') : body, 1000)
       const incoming = parsed.items.filter((p): p is Extract<Profile, { kind: 'vless' | 'out' }> => p.kind === 'vless' || p.kind === 'out')
@@ -773,6 +787,9 @@ function ipc() {
     const ok = typeof replace === 'string' && replace !== id && (remaining.some(p => p.id === replace && !p.revoked) || remainingSettings.groups.some(g => g.id === replace && g.members.some(m => remaining.some(p => p.id === m && !p.revoked))))
     if (replace !== undefined && !ok) return { ok: false, error: 'Выбранная замена больше недоступна. Выбери другое подключение.' }
     const nextSettings = dropServer(store.settings, id, ok ? replace as string : undefined)
+    if (store.settings.serviceVia === id && ok && !remaining.some(p => p.id === replace && !p.revoked && p.source !== 'public' && !('subMissing' in p && p.subMissing))) {
+      return { ok: false, error: 'Для загрузок нужен доступный личный профиль. Выбери такую замену или сначала измени путь загрузок в настройках.' }
+    }
     // Missing companion targets may stay blocked. A replacement must never turn one into a public route.
     const unsafeReplacement = ok && nextSettings.routes.some((r, i) => r.owner === 'companion' && r.via !== store.settings.routes[i]?.via && !safeVia(r.via, nextSettings, remaining))
     if (unsafeReplacement) return { ok: false, error: COMPANION_SAFE }
@@ -780,19 +797,20 @@ function ipc() {
     if (!(await pauseMeasurements())) return { ok: false, error: 'Проверочный движок не остановился; туннель не удалён' }
     const revision = master.revision
     const wasOn = engine.status.phase === 'on'
-    if (engine.status.phase !== 'off' && !(await engine.stop())) return { ok: false, error: 'Туннель не удалось остановить; профиль не удалён' }
+    const inertRemoval = wasOn && !engine.isProfileLoaded(id) && sameEffectiveRouting(previousSettings, nextSettings)
+    if (!inertRemoval && engine.status.phase !== 'off' && !(await engine.stop())) return { ok: false, error: 'Туннель не удалось остановить; профиль не удалён' }
     store.profiles = remaining
     store.settings = nextSettings
     try { store.save() }
     catch {
       store.profiles = previousProfiles; store.settings = previousSettings
-      if (wasOn && master.current(revision)) await master.reconnect(revision)
+      if (wasOn && !inertRemoval && master.current(revision)) await master.reconnect(revision)
       return { ok: false, error: 'Не удалось сохранить удаление; туннель оставлен без изменений' }
     }
     await refreshNotices()
     updateTray()
     send('snapshot', snapshot())
-    if (wasOn && master.current(revision) && demandsTunnel(store.settings)) {
+    if (wasOn && !inertRemoval && master.current(revision) && demandsTunnel(store.settings)) {
       const result = await master.reconnect(revision)
       if (!result.ok) return { ok: true, warning: 'Профиль удалён, но оставшиеся маршруты не запустились: ' + (result.error ?? 'проверь подключение') }
     }
@@ -893,6 +911,62 @@ function ipc() {
     }
   })
   secureHandle('diagnose:cancel', () => cancelDiagnosis())
+  secureHandle('payload:last', () => {
+    if (lastPayloadReport) return lastPayloadReport
+    lastPayloadReport = readSavedPayloadReport(join(app.getPath('userData'), 'payload-last.json'))
+    return lastPayloadReport
+  })
+  secureHandle('payload:cancel', () => cancelPayloadCheck())
+  secureHandle('payload:run', async (_e, id: unknown, upload: unknown): Promise<PayloadReply> => {
+    if (payloadTask || quitting) return { error: 'busy' }
+    if (typeof id !== 'string' || id.length > 80) return { error: 'gone' }
+    const p = store.profiles.find(profile => profile.id === id && !profile.revoked && profile.source !== 'public' && !('subMissing' in profile && profile.subMissing))
+    if (!p) return { error: 'gone' }
+    const endpoint = typeof upload === 'string' && upload.trim() ? upload.trim() : undefined
+    if ((upload !== undefined && typeof upload !== 'string') || (endpoint && !transferUrl(endpoint))) return { error: 'endpoint' }
+    const task = new AbortController(), signal = AbortSignal.any([task.signal, AbortSignal.timeout(60000)])
+    const revision = master.revision, signature = profileSig(p)
+    payloadTask = task
+    const measured = checker
+    let lease: symbol | undefined, cleanup: Promise<boolean> | undefined
+    const stopOwned = () => { if (lease && measured?.owns(lease)) cleanup = payloadCleanup = measured.stop() }
+    signal.addEventListener('abort', stopOwned, { once: true })
+    const current = () => !signal.aborted && payloadTask === task && !quitting && master.revision === revision &&
+      store.profiles.some(profile => profile.id === id && !profile.revoked && profileSig(profile) === signature)
+    try {
+      let report: PayloadReport
+      if (engine.status.phase === 'on') report = await engine.withHttpProxy(id, signal, proxy => checkPayload(id, proxy, endpoint))
+      else {
+        if (!measured || master.open || engine.status.phase !== 'off') return { error: 'engine' }
+        lease = measured.acquire(() => task.abort())
+        if (!lease) return { error: 'busy' }
+        const list = await untilCancelled(adapters(), signal)
+        if (!list || !current() || !measured.owns(lease)) return { error: 'cancelled' }
+        const actual = (await runtimeProfiles()).find(profile => profile.id === id)
+        if (!actual || !current() || !(await measured.ensure([actual], list)) || !measured.owns(lease)) return { error: 'engine' }
+        report = await measured.withHttpProxy(lease, id, signal, proxy => checkPayload(id, proxy, endpoint))
+      }
+      if (!current()) return { error: 'cancelled' }
+      lastPayloadReport = report
+      const file = join(app.getPath('userData'), 'payload-last.json'), temporary = file + '.tmp'
+      try {
+        writeFileSync(temporary, JSON.stringify(report), { mode: 0o600 })
+        protectPrivateFile(temporary)
+        renameSync(temporary, file)
+      } catch { try { rmSync(temporary, { force: true }) } catch {}; send('toast', 'Проверка завершена, но сохранить её результат на диске не удалось') }
+      return { report }
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      return { error: signal.aborted ? 'cancelled' : code === 'busy' || code === 'not_loaded' ? code : 'engine' }
+    } finally {
+      stopOwned()
+      const clean = cleanup ? await cleanup : true
+      if (lease) measured?.release(lease)
+      signal.removeEventListener('abort', stopOwned)
+      if (payloadTask === task) payloadTask = undefined
+      if (!clean) { send('toast', 'Проверка завершена, но проверочный движок не подтвердил остановку. Открой восстановление сети в настройках'); return { error: 'engine' } }
+    }
+  })
   secureIntentHandle('diagnose:apply', async (_e, token: unknown, via: unknown) => {
     const proof = lastDiagnosis
     if (!proof || typeof via !== 'string' || proof.token !== token) return { ok: false, error: 'stale' }
@@ -916,6 +990,7 @@ function ipc() {
     try {
       if (!master.current(revision) || engine.status.phase !== 'on' || !store.settings.routes.some(r => r.kind === 'list' && r.list === id && r.on)) return true
       if (await engine.applyLive(await runtimeProfiles(false), store.settings)) return true
+      if (engine.liveApplyFailure) { send('toast', engine.liveApplyFailure); return false }
       if (!master.current(revision)) return true // OFF supersedes a pending apply; the next open uses saved data.
       return (await master.reconnect(revision, { restart: true })).ok
     } catch { return false }
@@ -930,7 +1005,8 @@ function ipc() {
     if (pending) return pending
     listAttempts.set(id, Date.now())
     const task = (async (): Promise<ListReply> => {
-      const update = await lists?.download(id)
+      const update = await withServiceTransport((transport, signal) => lists!.download(id, { transport, signal })).catch(() => undefined)
+      if (!update) return { ok: false, error: 'fetch' }
       return intentWrites.run(async () => {
         const next = update && lists?.updated(update)
         if (!lists || !next || !update || quitting) return { ok: false, error: 'gone' }
@@ -1022,11 +1098,20 @@ function ipc() {
         const ready = await measuring.ensure([applyTune(p, v.patch)], observation[1])
         if (!active()) return { error: timedOut ? 'timeout' : 'canceled' }
         if (!ready) return { error: 'engine' } // inability to measure is not evidence that the original failed.
-        const r = await measuring.probe(TUNE_URL, [p.id])
+        // A TLS handshake or tiny 204 is not a working channel. Every accepted
+        // variant must transfer and verify the same bounded public document.
+        const began = Date.now()
+        let ms: number | null = null
+        try {
+          ms = await measuring.withHttpProxy(owner, p.id,
+            AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]), async proxy => {
+              const result = await proxyRequest(proxy, new URL(PAYLOAD_DOWNLOAD.url), { maxBytes: 262144 })
+              return verifyDownload(result.body) ? null : Math.max(1, Date.now() - began)
+            })
+        } catch { /* a failed bounded transfer cannot qualify a variant */ }
         if (!active()) return { error: timedOut ? 'timeout' : 'canceled' }
-        if (!(p.id in r)) return { error: 'engine' }
-        results.push({ label: v.label, ms: r[p.id] })
-        if (!v.label && r[p.id] !== null) break
+        results.push({ label: v.label, ms })
+        if (!v.label && ms !== null) break
       }
       const finalNet = await untilCancelled(currentNet(controller.signal), controller.signal)
       if (!active()) return { error: timedOut ? 'timeout' : 'canceled' }
@@ -1081,10 +1166,17 @@ function ipc() {
     return p ? configOf(p) : null
   })
   secureHandle('diag:export', async () => {
-    const report = diagnosticsOf({ app: app.getVersion(), integrity: engineIntegrity, at: new Date().toISOString(), status: statusView(engine.status), profiles: store.views(), settings: store.settings, log: engine.log() })
+    const report = { ...diagnosticsOf({ app: app.getVersion(), integrity: engineIntegrity, at: new Date().toISOString(), status: statusView(engine.status), profiles: store.views(), settings: store.settings, log: engine.log() }),
+      previousSessions: sessionEvidence.read(),
+      lastTransfer: lastTransferEvidence(join(app.getPath('userData'), 'payload-last.json'), lastPayloadReport) }
     const r = await dialog.showSaveDialog({ defaultPath: `waarp-diagnostics-${Date.now()}.json`, filters: [{ name: 'JSON', extensions: ['json'] }] })
     if (r.canceled || !r.filePath) return { ok: false }
     try { writeFileSync(r.filePath, JSON.stringify(report, null, 1)); return { ok: true } } catch { return { ok: false, error: true } }
+  })
+  secureHandle('diag:history', () => sessionEvidence.read())
+  secureHandle('diag:clear', async () => {
+    cancelPayloadCheck(); lastPayloadReport = undefined
+    return { ok: await clearDiagnosticEvidence(sessionEvidence, join(app.getPath('userData'), 'payload-last.json')) }
   })
   secureHandle('net:reset', () => {
     connectionAction++
@@ -1141,7 +1233,8 @@ app.whenReady().then(async () => {
   engine.preflight = async () => tunPreflight(await tunSnapshot())
   const allowMeasurements = () => runtimeRecovery.ready && !quitting && !master.open && engine.status.phase === 'off'
   checker = engineIntegrity ? new Checker(engineExe, join(app.getPath('userData'), 'check'), allowMeasurements) : undefined
-  catalog = new Catalog(join(app.getPath('userData'), 'catalog'), engineExe, s => send('catalog', s), allowMeasurements)
+  catalog = new Catalog(join(app.getPath('userData'), 'catalog'), engineExe, s => send('catalog', s), allowMeasurements,
+    (sources, signal) => withServiceTransport((transport, scoped) => fetchCatalogSources(sources, scoped, transport), signal))
   discovery = new Discovery()
   // Public checks are explicit. Opening Waarp must not contact third-party nodes or race their checker with TUN.
   // Showing the shell must not wait for PowerShell, orphan recovery, or network-related cleanup.
@@ -1151,7 +1244,8 @@ app.whenReady().then(async () => {
   // Reserve the queue before IPC becomes callable. A first-paint ON cannot run before orphan recovery,
   // and a delayed bootstrap pass cannot subsequently kill a core that ON has just launched.
   const startupRecovery = intentWrites.run(() => runtimeRecovery.ensure())
-  engine.on('status', s => { send('status', statusView(s)); updateTray(); watchPings(s) })
+  sessionEvidence = new LastSessionEvidence(join(app.getPath('userData'), 'last-vpn-session.json'))
+  engine.on('status', s => { void sessionEvidence.record(statusView(s), engine.log()); send('status', statusView(s)); updateTray(); watchPings(s) })
   engine.on('fallback', (e: { main: string; fb: string; toFb: boolean; routes: string[] }) => {
     const name = (id: string) => store.profiles.find(p => p.id === id)?.name ?? '?'
     const what = e.routes.slice(0, 2).map(x => `«${x}»`).join(', ') + (e.routes.length > 2 ? ` и ещё ${e.routes.length - 2}` : '')
@@ -1281,7 +1375,8 @@ function shutdownGate(): Promise<void> {
   quitting = true
   setMaster(false)
   shutdown ??= (async () => {
-    const r = await bounded(Promise.all([pauseMeasurements(), engine?.stop(), runtimeRecovery.settled()]), SHUTDOWN_MS)
+    const stopAndSave = async () => { const stopped = await engine?.stop(); await sessionEvidence?.flush(); return stopped }
+    const r = await bounded(Promise.all([pauseMeasurements(), stopAndSave(), runtimeRecovery.settled()]), SHUTDOWN_MS)
     // past the bound: last resort; the ownership journal stays and the next launch recovers by exact identity
     if (r === 'timeout') engine?.stopSync()
   })().finally(() => { shutdownDone = true })
@@ -1303,6 +1398,63 @@ let diagnoseRun = 0
 let diagnosisAbort: AbortController | undefined
 let diagnosisCleanup: Promise<boolean> = Promise.resolve(true)
 let lastDiagnosis: DiagnosisProof | undefined
+let lastPayloadReport: PayloadReport | undefined
+let sessionEvidence: LastSessionEvidence
+let payloadTask: AbortController | undefined
+let payloadCleanup = Promise.resolve(true)
+async function cancelPayloadCheck(): Promise<boolean> { payloadTask?.abort(); return payloadCleanup }
+let serviceTask: AbortController | undefined
+function cancelServiceDownload(): void { serviceTask?.abort() }
+
+/** One selected path owns the complete download batch. Reuse the live core, or
+ * lease the existing headless checker while OFF; never create a competing core
+ * or silently retry subscription credentials over Direct. */
+async function withServiceTransport<T>(work: (transport: PinnedHttpGet | undefined, signal: AbortSignal) => Promise<T>, cancel?: AbortSignal): Promise<T> {
+  if (serviceTask || quitting) throw new ConfError('Другая загрузка уже выполняется; повтори чуть позже')
+  const id = store.settings.serviceVia ?? 'direct'
+  const profile = id === 'direct' ? undefined : store.profiles.find(p => p.id === id && !p.revoked && p.source !== 'public' && !('subMissing' in p && p.subMissing))
+  if (id !== 'direct' && !profile) throw new ConfError('Выбранное подключение для загрузок недоступно. Выбери другое в настройках')
+  const task = new AbortController(), signal = AbortSignal.any([task.signal, AbortSignal.timeout(60000), ...(cancel ? [cancel] : [])])
+  const revision = master.revision, signature = profile && profileSig(profile)
+  const measured = checker
+  let lease: symbol | undefined, cleanup: Promise<boolean> | undefined
+  serviceTask = task
+  const stopOwned = () => { if (lease && measured?.owns(lease) && !cleanup) cleanup = measured.stop() }
+  signal.addEventListener('abort', stopOwned, { once: true })
+  const current = () => !signal.aborted && !quitting && serviceTask === task && master.revision === revision &&
+    (store.settings.serviceVia ?? 'direct') === id && (!profile || store.profiles.some(p => p.id === id && !p.revoked && profileSig(p) === signature))
+  try {
+    let result: T
+    if (!profile) result = await work(undefined, signal)
+    else if (engine.status.phase === 'on') result = await engine.withHttpProxy(id, signal, proxy => work(serviceTransport(proxy), signal))
+    else {
+      if (!measured || master.open || engine.status.phase !== 'off') throw new Error('engine')
+      lease = measured.acquire(() => task.abort())
+      if (!lease) throw new Error('busy')
+      const list = await untilCancelled(adapters(), signal)
+      if (!list || !current() || !measured.owns(lease)) throw new Error('cancelled')
+      const actual = (await runtimeProfiles()).find(p => p.id === id)
+      if (!actual || !current() || !(await measured.ensure([actual], list)) || !measured.owns(lease)) throw new Error('engine')
+      result = await measured.withHttpProxy(lease, id, signal, proxy => work(serviceTransport(proxy), signal))
+    }
+    if (!current()) throw new Error('cancelled')
+    return result
+  } catch (error) {
+    if (error instanceof ConfError) throw error
+    const code = error instanceof Error ? error.message : ''
+    throw new ConfError(signal.aborted || code === 'cancelled' ? 'Загрузка отменена; прежние данные сохранены'
+      : code === 'busy' ? 'Подключение занято проверкой; повтори загрузку чуть позже'
+        : code === 'not_loaded' ? 'Выбранное подключение ещё не загружено в текущую сессию. Выбери уже используемое или обнови после отключения Waarp'
+          : 'Не удалось загрузить данные по выбранному пути; прежние данные сохранены')
+  } finally {
+    stopOwned()
+    const clean = cleanup ? await cleanup : true
+    if (lease) measured?.release(lease)
+    signal.removeEventListener('abort', stopOwned)
+    if (serviceTask === task) serviceTask = undefined
+    if (!clean) throw new ConfError('Проверочный движок не подтвердил остановку; загрузка не применена. Открой восстановление сети в настройках')
+  }
+}
 const diagnosisContext = () => JSON.stringify([master.revision, engine.status.phase, engine.status.since, tunes])
 async function cancelDiagnosis(): Promise<boolean> {
   diagnoseRun++
@@ -1322,7 +1474,6 @@ let netRead = 0
 let runtimeTuneSignature = '[]'
 let runtimeTuneIds = new Set<string>()
 let runtimeNet: string | undefined
-const TUNE_URL = 'https://www.gstatic.com/generate_204'
 const TUNE_MS = 60_000
 async function currentNet(signal?: AbortSignal): Promise<string | undefined> {
   const read = ++netRead
@@ -1386,6 +1537,7 @@ const applyRouting = createApply({
     if (master.current(revision) && !quitting) await engine.start(await runtimeProfiles(), s)
   },
   live: async s => engine.applyLive(await runtimeProfiles(false), s),
+  liveFailure: () => engine.liveApplyFailure,
   stop: () => engine.stop(),
   changed: () => send('snapshot', snapshot())
 })
@@ -1410,5 +1562,5 @@ function saveNetMem(): void {
 }
 
 function withRoutes<T extends Status>(s: T): T {
-  return { ...s, routes: effectiveRoutes(store.settings, store.profiles, s) }
+  return { ...s, routes: confirmedRoutes(store.settings, store.profiles, s, engine.liveApplyFailure ? engine.acknowledgedSettings : undefined, engine.routingGuarded) }
 }

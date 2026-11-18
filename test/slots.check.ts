@@ -106,7 +106,7 @@ ok(f0[codexSlot].includes('windowsapps') && !f0[codexSlot].includes('26.1027'), 
 const uprofV6 = 'va' + slots.app.indexOf('app:uprof')
 ok(f0[uprofV6].includes('uprof.exe'), 'IPv6 to Direct is refused when the computer has no IPv6')
 eq(JSON.parse(buildRuntime(profiles, S(base), opts(slots, true)).files[uprofV6]).rules, [], 'IPv6 to Direct passes when the computer has IPv6')
-ok(run0.cfg.route.rules.some((r: any) => r.ip_version === 6 && r.action === 'reject' && !r.rule_set), 'everything else over IPv6 is refused fast without host IPv6')
+ok(run0.cfg.route.rules.some((r: any) => r.ip_version === 6 && r.action === 'reject' && r.rule_set?.includes('rest-v6')), 'everything else over IPv6 is refused fast without host IPv6')
 ok(run0.cfg.route.rules.some((r: any) => r.outbound === 'direct' && (r.process_path_regex ?? []).some((x: string) => x.includes('ExitLag'))), 'other VPN clients never get tunnelled twice')
 eq(run0.cfg.log.level, 'warn', 'engine log is warn by default')
 const dpiFiles = files(base.map(r => (r.id === 'app:uprof' ? { ...r, dpi: true } : r.id === 'app:chrome' ? { ...r, dpi: true } : r)))
