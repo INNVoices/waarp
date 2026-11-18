@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package local.waarp.android.ui
 
 import android.graphics.RectF
@@ -100,7 +102,7 @@ internal fun AtlasMap(nodes: List<AtlasNode>, country: String, onCountry: (Strin
             NativeAtlas(available.world, markers, selectedFeatures, logicalRoute,
                 { onCountryNow(it) }, { failure = true }, Modifier.fillMaxWidth().height(260.dp))
             Text("Natural Earth · локальная карта", style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(onClick = { locationExpanded = !locationExpanded }, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text(if (userCountry.isBlank()) "Указать мой регион" else "Вы: ${countryName(userCountry)}")
                 }

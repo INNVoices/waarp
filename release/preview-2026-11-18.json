@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "tag": "preview-2026-11-18-r3",
+  "tag": "preview-2026-11-18-r4",
   "date": "2026-11-18",
   "channel": "prerelease",
   "windows": {
-    "version": "0.4.1-rc.3",
+    "version": "0.4.1-rc.4",
     "architecture": "x64",
     "artifact": "portable-exe",
     "signing": "unsigned"
   },
   "android": {
-    "version": "0.5.0-rc.4",
+    "version": "0.5.0-rc.5",
     "minSdk": 29,
     "abis": [
       "arm64-v8a",
@@ -20,6 +20,6 @@
     "artifact": "installable-debug-apks-only",
     "productionSigned": false
   },
-  "notes": "Server picker and live public-node selection; publish only after both platform gates pass.",
-  "revision": 7
+  "notes": "Local map and contextual connection checks; finish existing UI and route continuity, publish both platforms only after their preview gates pass.",
+  "revision": 8
 }

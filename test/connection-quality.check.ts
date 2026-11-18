@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { assessConnection, connectionUse, summarizeChecks, summarizedPaths, suggestedProbeTarget } from '../src/shared/connection-quality'
 import { sameEffectiveRouting } from '../src/shared/routing-edit'
-import { diagnosisCurrent, diagnosisProof, diagnosisSettings } from '../src/main/diagnosis'
+import { diagnosisCurrent, diagnosisPaths, diagnosisProof, diagnosisSettings } from '../src/main/diagnosis'
 import { checkedPatch } from '../src/main/validate'
 import { DEFAULTS, migrate } from '../src/main/store-core'
 import { backFromDiagnosis, goTo, initialNav, openDiagnosis, openRoute, addEntry } from '../src/renderer/src/lib/flow'
@@ -39,6 +39,20 @@ async function main() {
   assert.equal(suggestedProbeTarget({ ...other, value: '192.0.2.0/24' }), '')
   assert.equal(suggestedProbeTarget({ ...other, value: '*.example.com' }), '')
   assert.equal(suggestedProbeTarget({ ...other, value: '2001:db8::1' }), '[2001:db8::1]')
+
+  const publicProfile = { ...profile('public-current'), source: 'public' as const }
+  const allProfiles = [...profiles, publicProfile, { ...profile('missing'), subMissing: true }]
+  const available = ['public-current', 'a', 'b', 'missing']
+  assert.deepEqual(diagnosisPaths(allProfiles, 'public-current', available, 4, available), ['public-current', 'a', 'b'],
+    'a selected loaded public outbound is measured as the current path, not offered as an alternative')
+  assert.deepEqual(diagnosisPaths(allProfiles, 'public-current', available, 4), ['a', 'b'], 'OFF does not create a public checker')
+  assert.deepEqual(diagnosisPaths(allProfiles, 'public-current', available, 4, ['a', 'b']), ['a', 'b'], 'unloaded public preview is not eligible')
+  assert.deepEqual(diagnosisPaths(allProfiles, 'a', available, 4, available), ['a', 'b'], 'other loaded public profiles never enter the comparison')
+  assert.deepEqual(diagnosisPaths([...profiles, { ...publicProfile, revoked: true }], 'public-current', available, 4, available), ['a', 'b'])
+  const publicSamples = summarizeChecks([{ 'public-current': null, a: 30 }, { 'public-current': null, a: 35 }])
+  assert.equal(assessConnection('web', 'public-current', publicSamples, ['public-current', 'a']).recommendedVia, 'a')
+  assert.equal(diagnosisProof('target.example', { missing: 10, 'public-current': 10 }, allProfiles, 'network', 100, 'runtime'), undefined,
+    'neither a missing subscription nor a public measurement receives alternative apply authority')
 
   const changedUse = { ...settings, routes: [{ ...route, connectionUse: 'interactive' as const }, other] }
   assert(sameEffectiveRouting(settings, changedUse), 'diagnostic purpose does not change native routing')
@@ -97,6 +111,10 @@ async function main() {
     const abort = new AbortController(); abort.abort(); requests.length = 0
     assert.deepEqual(await engine.probePaths('https://target.example/', ['direct', 'a'], abort.signal), {})
     assert.equal(requests.length, 0)
+    nativeEngine.ids = ['a', 'public-current']; nativeEngine.run = { loaded: { profiles: nativeEngine.ids } }
+    const currentPublicPaths = diagnosisPaths(allProfiles, 'public-current', ['a'], 4, engine.loadedProfileIds)
+    assert.deepEqual(await engine.probePaths('https://target.example/', currentPublicPaths), { a: 7, 'public-current': 7 })
+    assert.deepEqual(requests.sort(), ['/proxies/p-a/delay', '/proxies/p-public-current/delay'], 'public-current checks use only explicit loaded outbound tags')
   } finally {
     api.closeAllConnections(); await new Promise<void>(resolve => api.close(() => resolve()))
     rmSync(dir, { recursive: true, force: true })

@@ -8,11 +8,13 @@ import android.view.inspector.WindowInspector
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.ViewRootForTest
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.espresso.Espresso
@@ -287,9 +289,24 @@ class MobileUiInstrumentedTest {
             val mapBounds = compose.onNodeWithTag("waarp-atlas-map").fetchSemanticsNode().boundsInRoot
             assertTrue("Map viewport must finish above the import FAB", mapBounds.bottom <= fab.top)
         }
+        fun assertNavigationLabelsFit() {
+            val bounds = listOf("Главная", "Маршруты", "Туннели", "Диагностика").map { label ->
+                val node = compose.onNode(hasText(label) and hasAnyAncestor(hasTestTag("waarp-bottom-navigation")), useUnmergedTree = true)
+                node.assertIsDisplayed()
+                val layouts = mutableListOf<TextLayoutResult>()
+                node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { action -> assertTrue(action(layouts)) }
+                assertTrue("No measured navigation label: $label", layouts.isNotEmpty())
+                assertTrue("Navigation label is clipped: $label", layouts.none { it.hasVisualOverflow })
+                node.fetchSemanticsNode().boundsInRoot
+            }
+            bounds.zipWithNext().forEach { (left, right) ->
+                assertTrue("Navigation labels overlap", left.right <= right.left)
+            }
+        }
         awaitMap()
         compose.onNode(hasText("Проверить") and hasClickAction()).assertIsDisplayed().assertIsEnabled()
         assertMapControlsClearOfFab()
+        assertNavigationLabelsFit()
         screenshot("05-atlas-local")
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val originalFontScale = device.executeShellCommand("settings get system font_scale").trim().toFloatOrNull() ?: 1f
@@ -305,6 +322,7 @@ class MobileUiInstrumentedTest {
             awaitFocusedWindow(probe, SystemClock.uptimeMillis() + 15_000L)
             probe.assertIsDisplayed().assertIsEnabled()
             assertMapControlsClearOfFab()
+            assertNavigationLabelsFit()
             screenshot("06-atlas-large-font")
             val checkedBefore = repository.health.value[alpha.id]?.checkedAt ?: 0L
             // No performScrollTo/semantic click: exercise the original viewport and Android hit testing.

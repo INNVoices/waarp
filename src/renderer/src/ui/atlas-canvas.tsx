@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { Map as LibreMap, setWorkerUrl, type GeoJSONSource, type MapMouseEvent, type StyleSpecification } from 'maplibre-gl'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import type { FeatureCollection, LineString, Point } from 'geojson'
@@ -18,7 +18,7 @@ const empty = { type: 'FeatureCollection' as const, features: [] }
 function points(props: AtlasCanvasProps): FeatureCollection<Point> {
   return { type: 'FeatureCollection', features: props.projection.countries.flatMap(item => {
     const anchor = countryAnchor(item.country)
-    return anchor ? [{ type: 'Feature' as const, properties: { ...item, preview: item.country === props.country },
+    return anchor ? [{ type: 'Feature' as const, properties: { country: item.country, total: item.total, preview: item.country === props.country },
       geometry: { type: 'Point' as const, coordinates: [anchor.longitude, anchor.latitude] } }] : []
   }) }
 }
@@ -33,6 +33,7 @@ function routes(props: AtlasCanvasProps): FeatureCollection<LineString> {
   }) }
 }
 function update(map: LibreMap, props: AtlasCanvasProps): void {
+  map.getContainer().setAttribute('data-map-ready', 'false')
   ;(map.getSource('regions') as GeoJSONSource | undefined)?.setData(points(props))
   ;(map.getSource('routes') as GeoJSONSource | undefined)?.setData(routes(props))
   const origin = countryAnchor(props.device)
@@ -45,7 +46,12 @@ function update(map: LibreMap, props: AtlasCanvasProps): void {
 export function AtlasCanvas(props: AtlasCanvasProps) {
   const container = useRef<HTMLDivElement>(null)
   const mapRef = useRef<LibreMap | undefined>(undefined)
+  const loaded = useRef(false)
   const latest = useRef(props); latest.current = props
+  // Health-only events do not change these layers. Compare their actual inputs
+  // so a manual selection is immediate and cannot wait behind a busy catalogue.
+  const frameKey = JSON.stringify([props.projection.countries.map(({ country, total }) => [country, total]),
+    props.country, props.device, props.route?.active?.country, props.route?.pending?.country])
   useEffect(() => {
     if (!container.current) return
     let map: LibreMap | undefined
@@ -86,32 +92,30 @@ export function AtlasCanvas(props: AtlasCanvasProps) {
       map.getCanvas().setAttribute('aria-label', s('atlas.canvas.label'))
       map.once('load', () => {
         if (!disposed && map) {
+          loaded.current = true
           update(map, latest.current)
-          map.once('idle', () => { if (!disposed) container.current?.setAttribute('data-map-ready', 'true') })
         }
       })
+      map.on('idle', () => { if (!disposed && loaded.current) container.current?.setAttribute('data-map-ready', 'true') })
       map.on('error', () => { if (!disposed) latest.current.onFailed() })
       const choose = (event: MapMouseEvent) => {
-        if (!map) return
+        if (!map || !loaded.current) return
         const hit = map.queryRenderedFeatures(event.point, { layers: ['region-dots'] })[0]
         if (typeof hit?.properties?.country === 'string') latest.current.onCountry(hit.properties.country)
       }
       map.on('click', choose)
-      map.on('mousemove', event => { if (map) map.getCanvas().style.cursor = map.queryRenderedFeatures(event.point, { layers: ['region-dots'] }).length ? 'pointer' : '' })
+      map.on('mousemove', event => { if (map && loaded.current) map.getCanvas().style.cursor = map.queryRenderedFeatures(event.point, { layers: ['region-dots'] }).length ? 'pointer' : '' })
       resize = new ResizeObserver(() => { if (!disposed) map?.resize() })
       resize.observe(container.current)
     } catch { latest.current.onFailed() }
-    return () => { disposed = true; resize?.disconnect(); mapRef.current = undefined; map?.remove() }
+    return () => { disposed = true; loaded.current = false; resize?.disconnect(); mapRef.current = undefined; map?.remove() }
   }, [])
-  useEffect(() => {
+  useLayoutEffect(() => {
     const map = mapRef.current
-    // isStyleLoaded also becomes false while a prior GeoJSON update is processing.
-    // A newer selection must still replace that data; initial load reads latest.current.
-    if (!map?.getSource('regions')) return
-    // Coalesce catalogue health events; no scan is triggered by a map update.
-    const timer = setTimeout(() => update(map, latest.current), 250)
-    return () => clearTimeout(timer)
-  }, [props.projection, props.country, props.device, props.route])
+    // Initial load reads latest.current. After that, even an update still being
+    // processed by the worker must be superseded by the latest visible state.
+    if (map && loaded.current) update(map, latest.current)
+  }, [frameKey])
   return <>
     <div className="atlas-canvas" ref={container} />
     <div className="atlas-map-controls">

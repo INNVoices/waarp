@@ -11,7 +11,7 @@ on:
         description: 'Preview tag (must target this exact commit)'
         required: true
         type: string
-        default: 'preview-2026-11-18-r3'
+        default: 'preview-2026-11-18-r4'
 permissions:
   contents: write
 concurrency:
@@ -48,6 +48,8 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       tag: ${{ steps.intent.outputs.tag }}
+      windows: ${{ steps.intent.outputs.windows }}
+      android: ${{ steps.intent.outputs.android }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -113,10 +115,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          WINDOWS_VERSION: ${{ needs.prepare.outputs.windows }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $waarpPortableFiles = @(Get-ChildItem -Path dist -Filter 'Waarp-0.4.1-rc.3-portable.exe' -File)
-          if ($waarpPortableFiles.Count -ne 1) { throw "Expected exactly one Windows 0.4.1-rc.3 portable EXE" }
+          $waarpPortableFiles = @(Get-ChildItem -Path dist -Filter "Waarp-$($env:WINDOWS_VERSION)-portable.exe" -File)
+          if ($waarpPortableFiles.Count -ne 1) { throw "Expected exactly one Windows $env:WINDOWS_VERSION portable EXE" }
           $exe = $waarpPortableFiles[0]
           $hash = (Get-FileHash -Path $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           [System.IO.File]::WriteAllText((Join-Path (Get-Location) 'dist/SHA256SUMS-windows.txt'), "$hash  $($exe.Name)`n")
@@ -290,12 +293,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          ANDROID_VERSION: ${{ needs.prepare.outputs.android }}
         run: |
           set -euo pipefail
           shopt -s nullglob
-          apks=(out/android/waarp-android-0.5.0-rc.4-*-debug.apk)
+          apks=(out/android/waarp-android-"$ANDROID_VERSION"-*-debug.apk)
           test "${#apks[@]}" -eq 3 || { echo 'Expected precisely three verified Android debug APKs'; exit 1; }
-          ( cd out/android && sha256sum waarp-android-0.5.0-rc.4-*-debug.apk > SHA256SUMS-android-debug.txt )
+          ( cd out/android && sha256sum waarp-android-"$ANDROID_VERSION"-*-debug.apk > SHA256SUMS-android-debug.txt )
           python3 - <<'PYREPORT'
           import json, os
           from pathlib import Path

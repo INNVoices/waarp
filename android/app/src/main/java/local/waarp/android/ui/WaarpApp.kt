@@ -19,7 +19,10 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -92,10 +95,15 @@ fun WaarpApp(state: MobileState, actions: MobileActions) {
                     )
                 },
                 bottomBar = {
-                    if (!wide && !settings) NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                    if (!wide && !settings) NavigationBar(modifier = Modifier.testTag("waarp-bottom-navigation"), containerColor = MaterialTheme.colorScheme.surface) {
                         destinations.forEachIndexed { index, destination ->
                             NavigationBarItem(selected = index == tab, onClick = { tab = index },
-                                icon = { Icon(destination.icon, null) }, label = { Text(destination.title, maxLines = 1) })
+                                icon = { Icon(destination.icon, null) }, label = {
+                                    // Keep every label inside its own destination and align icons when
+                                    // large text wraps. Material's item grows to the measured label height.
+                                    Text(destination.title, Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                                        minLines = 2, maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis)
+                                })
                         }
                     }
                 },

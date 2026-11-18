@@ -50,6 +50,7 @@ export async function runAtlasChecks({ browser, url, fileUrl, screenshotDir, fix
   }
   const capture = async (page, name) => {
     if (!screenshotDir) return
+    if (await page.locator('.atlas-canvas').count()) await mapReady(page)
     await page.evaluate(() => document.fonts.ready)
     await page.screenshot({ path: resolve(screenshotDir, name), animations: 'disabled' })
   }

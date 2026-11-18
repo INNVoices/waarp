@@ -56,7 +56,7 @@ import { parseProbe, probeLayers } from './layered'
 import { activeIds, diagnosisSet, learn, type NetMemory } from '../shared/netmemory'
 import { loadMem, saveMem } from './netmem-store'
 import { networkFingerprint } from './netid'
-import { DiagnosisRequests, diagnosisCurrent, diagnosisProof, diagnosisRequestScope, diagnosisSettings, type DiagnosisProof } from './diagnosis'
+import { DiagnosisRequests, diagnosisCurrent, diagnosisPaths, diagnosisProof, diagnosisRequestScope, diagnosisSettings, type DiagnosisProof } from './diagnosis'
 import { assessConnection, connectionUse, summarizeChecks, summarizedPaths, type DiagnosisResult, type DiagnosisScope } from '../shared/connection-quality'
 import { checkPayload, verifyDownload } from './payload-check'
 import { proxyRequest, transferUrl } from './proxy-http'
@@ -937,7 +937,7 @@ function ipc() {
     const [direct, via] = await Promise.all([directProbe(target), viaPaths()])
     return { direct, ...via }
   })
-  /** W3.2: layered Direct evidence + own eligible paths (bounded, never public) -> a cautious finding */
+  /** Bounded system-layer evidence and personal alternatives; an already loaded public current path may also be measured. */
   secureHandle('diagnose', async (_e, t: unknown, routeId?: unknown) => {
     const target = probeTarget(t)
     const parsed = target ? parseProbe(target) : undefined
@@ -973,8 +973,8 @@ function ipc() {
         if (!current()) return null
         // Two checks per candidate share the existing eight-check budget. The inspected card goes first.
         const candidates = diagnosisSet(autoMembers(store.profiles), used, netMem.data, net, host, Date.now(), AUTO_BUDGET)
-        const primary = effective === 'direct' || autoMembers(store.profiles).includes(effective ?? '') ? effective : undefined
-        const eligible = [...new Set([...(primary ? [primary] : []), ...candidates])].slice(0, Math.floor(AUTO_BUDGET / 2))
+        const eligible = diagnosisPaths(store.profiles, effective, candidates, Math.floor(AUTO_BUDGET / 2),
+          engine.status.phase === 'on' ? engine.loadedProfileIds : undefined)
         const checked = store.profiles.filter(p => eligible.includes(p.id))
         const signatures = new Map(checked.map(p => [p.id, profileSig(p)]))
         const viaPaths = async (): Promise<Record<string, number | null>> => {

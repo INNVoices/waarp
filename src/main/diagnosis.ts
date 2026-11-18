@@ -3,6 +3,7 @@ import type { Profile, Route, Settings } from '../shared/types'
 import { profileSig } from './tune'
 import { selectVia } from './apply'
 import { routeEvidenceSignature } from '../shared/connection-quality'
+import { autoMembers } from '../shared/groups'
 
 export const DIAGNOSIS_TTL_MS = 5 * 60_000
 export interface DiagnosisProof {
@@ -18,6 +19,18 @@ export interface DiagnosisProof {
 /** Match and policy are Main-owned. A changed/removed/replaced card invalidates its old result. */
 export function diagnosisRouteSignature(route: Route): string {
   return routeEvidenceSignature(route)
+}
+
+/** Compare a card's actual path first. Public paths are measured only when the
+ * card already uses that loaded outbound; they never enter the alternative pool. */
+export function diagnosisPaths(profiles: readonly Profile[], current: string | undefined,
+  candidates: readonly string[], limit: number, loaded?: readonly string[]): string[] {
+  const usable = profiles.filter(p => !p.revoked && !('subMissing' in p && p.subMissing))
+  const own = new Set(autoMembers(usable))
+  const selected = usable.find(p => p.id === current)
+  const primary = current === 'direct' || (current && (own.has(current) ||
+    selected?.source === 'public' && loaded?.includes(current))) ? current : undefined
+  return [...new Set([...(primary ? [primary] : []), ...candidates.filter(id => own.has(id))])].slice(0, limit)
 }
 
 /** Main-owned identity before the asynchronous physical-network read. Never log this key. */
@@ -98,7 +111,7 @@ export class DiagnosisRequests<T> {
 /** A result is a short-lived capability for the exact personal paths actually measured. */
 export function diagnosisProof(host: string, paths: Record<string, number | null>, profiles: Profile[], net: string | undefined, at: number, context: string, route?: Route): DiagnosisProof | undefined {
   if (!net) return undefined
-  const checked = profiles.filter(p => !p.revoked && p.source !== 'public' && typeof paths[p.id] === 'number' && Number.isFinite(paths[p.id]) && paths[p.id]! >= 0)
+  const checked = profiles.filter(p => !p.revoked && !('subMissing' in p && p.subMissing) && p.source !== 'public' && typeof paths[p.id] === 'number' && Number.isFinite(paths[p.id]) && paths[p.id]! >= 0)
   if (!checked.length) return undefined
   return { token: randomBytes(16).toString('hex'), host, net, at, context, profiles: Object.fromEntries(checked.map(p => [p.id, profileSig(p)])),
     ...(route ? { route: { id: route.id, signature: diagnosisRouteSignature(route) } } : {}) }
@@ -107,7 +120,7 @@ export function diagnosisProof(host: string, paths: Record<string, number | null
 /** Renderer input never supplies the target or a replacement profile for an old result. */
 export function diagnosisCurrent(proof: DiagnosisProof | undefined, token: unknown, via: unknown, profiles: Profile[], net: string | undefined, now: number, context: string, routes?: readonly Route[]): proof is DiagnosisProof {
   if (!proof || typeof token !== 'string' || token !== proof.token || typeof via !== 'string' || !net || net !== proof.net || context !== proof.context || now < proof.at || now - proof.at >= DIAGNOSIS_TTL_MS) return false
-  const p = profiles.find(p => p.id === via && !p.revoked && p.source !== 'public')
+  const p = profiles.find(p => p.id === via && !p.revoked && !('subMissing' in p && p.subMissing) && p.source !== 'public')
   if (proof.route) {
     const route = routes?.find(r => r.id === proof.route!.id)
     if (!route || diagnosisRouteSignature(route) !== proof.route.signature) return false
