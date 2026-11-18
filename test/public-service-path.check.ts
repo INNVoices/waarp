@@ -86,6 +86,16 @@ function environment(initial: Status['phase'] = 'off') {
 
 async function main() {
   {
+    const { env, control, stats } = environment('off')
+    control.open = true
+    assert.equal(await withPublicServicePath({ id: 'direct' }, env, new AbortController().signal, 1000, async proxy => {
+      assert.equal(proxy, undefined); return 'open-idle list'
+    }), 'open-idle list', 'an open master without a core still permits explicitly selected Direct list I/O')
+    assert.deepEqual(stats, { acquire: 0, release: 0, ensure: 0, stop: 0, checkerProxy: 0, liveProxy: 0, adapters: 0, profile: 0 })
+    await assert.rejects(withPublicServicePath(path, env, new AbortController().signal, 1000, async () => 'unreachable'), /engine/)
+    assert.equal(stats.acquire, 0, 'open-idle cannot create a headless checker for a profile')
+  }
+  {
     const { env, stats } = environment('on')
     const task = new AbortController()
     assert.equal(await withPublicServicePath(path, env, task.signal, 1000, async (proxy, signal) => {

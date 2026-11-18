@@ -59,12 +59,14 @@ export async function withPublicServicePath<T>(path: PublicServicePath, env: Pat
       // from every application route and never edits the running plan.
       result = await env.live.withHttpProxy(path.id, ownedSignal, download)
     } else {
-      if (env.open() || env.phase() !== 'off') throw new Error('engine')
+      if (env.phase() !== 'off') throw new Error('engine')
       if (!path.profile) {
         if (path.id !== 'direct') throw new Error('not_loaded')
+        // The master can be open while no route needs a core (open-idle).
+        // Explicit Direct still needs no checker, process or TUN transition.
         result = await download()
       } else {
-        if (!measured) throw new Error('engine')
+        if (env.open() || !measured) throw new Error('engine')
         lease = measured.acquire(() => owner.abort())
         if (!lease) throw new Error('busy')
         const actual = await untilCancelled(env.profile(path, ownedSignal), ownedSignal)
