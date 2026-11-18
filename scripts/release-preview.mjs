@@ -55,15 +55,20 @@ if (process.argv[2] === 'prepare') {
     assert(current.target_commitish === sha || current.assets.length === 0, 'Use a new preview tag for another source commit with existing assets')
   }
   const temporary = mkdtempSync(join(tmpdir(), 'waarp-release-'))
+  let draft
   try {
     let notes = readFileSync(join(root, 'release/preview-2026-11-18.md'), 'utf8')
     notes = notes.replace(/\]\(\.\.\/([^)]*)\)/g, `](https://github.com/${repo}/blob/${sha}/$1)`)
     notes += `\n\nSource commit: [${sha.slice(0, 12)}](https://github.com/${repo}/commit/${sha}).\n`
-    const path = join(temporary, 'notes.md'); writeFileSync(path, notes)
-    gh('release', current ? 'edit' : 'create', tag, '--target', sha, '--title', `Waarp preview · Windows ${windows} / Android ${android}`, '--notes-file', path, '--draft', '--prerelease')
+    const path = join(temporary, 'release.json')
+    writeFileSync(path, JSON.stringify({ tag_name: tag, target_commitish: sha,
+      name: `Waarp preview · Windows ${windows} / Android ${android}`, body: notes,
+      draft: true, prerelease: true, make_latest: 'false' }))
+    // A freshly created draft can be absent from the cached release listing.
+    // Validate the authoritative mutation response instead of an immediate list reread.
+    draft = api(current ? `releases/${current.id}` : 'releases', '--method', current ? 'PATCH' : 'POST', '--input', path)
   } finally { rmSync(temporary, { recursive: true, force: true }) }
-  const draft = findRelease()
-  assert(draft?.draft && draft.target_commitish === sha)
+  assert(draft?.draft && draft.target_commitish === sha && draft.tag_name === tag && Number.isSafeInteger(draft.id))
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `tag=${tag}\nwindows=${windows}\nandroid=${android}\n`)
   console.log(`Prepared draft ${tag} at ${sha}; no download is advertised before both platform gates pass.`)
 } else if (process.argv[2] === 'publish') {
@@ -108,8 +113,7 @@ if (process.argv[2] === 'prepare') {
     }
   } finally { rmSync(temporary, { recursive: true, force: true }) }
   if (!checkTag()) api('git/refs', '-X', 'POST', '-f', `ref=refs/tags/${tag}`, '-f', `sha=${sha}`)
-  gh('release', 'edit', tag, '--draft=false', '--prerelease', '--latest=false')
-  const published = findRelease()
-  assert(published && !published.draft && published.prerelease)
+  const published = api(`releases/${draft.id}`, '--method', 'PATCH', '-F', 'draft=false', '-F', 'prerelease=true', '-f', 'make_latest=false')
+  assert(published && !published.draft && published.prerelease && published.tag_name === tag && published.target_commitish === sha)
   console.log(published.html_url)
 } else throw new Error('Usage: node scripts/release-preview.mjs validate|prepare|publish')

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import net from 'node:net'
 import http from 'node:http'
-import { mkdtempSync, rmSync } from 'node:fs'
+import fs, { mkdtempSync, rmSync } from 'node:fs'
+import type { ChildProcess } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Engine } from '../src/main/engine'
@@ -9,6 +10,8 @@ import { Checker } from '../src/main/checker'
 import type { OutProfile, Profile, Settings } from '../src/shared/types'
 import type { DiagnosticTransport } from '../src/main/diagnostic-proxy'
 import { fixture, datagram, nativeDns } from './route-native-fixtures'
+import { NATIVE_TEST_CA } from './route-native-tls'
+import { redactVless } from '../src/main/vless'
 
 function body(host: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -41,7 +44,7 @@ async function main() {
   if (process.env.WAARP_NATIVE_SWITCH_TEST !== '1') { console.log('route-native: SKIP (explicit disposable Windows opt-in required)'); return }
   assert.equal(process.platform, 'win32'); assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted')
   const dir = mkdtempSync(join(tmpdir(), 'waarp-route-native-'))
-  const a = await fixture('A'), b = await fixture('B'), c = await fixture('C')
+  const a = await fixture('A'), b = await fixture('B'), c = await fixture('C', { https: true })
   const profile = (id: string, port: number): OutProfile => ({ kind: 'out', id, name: id, host: '127.0.0.1', port,
     version: 'SOCKS fixture', source: 'personal', addedAt: 1,
     outbound: { type: 'socks', server: '127.0.0.1', server_port: port, version: '5' } })
@@ -62,10 +65,58 @@ async function main() {
     return structuredClone(candidate)
   }
   let neighbor: net.Socket | undefined
-  // Late-public readiness uses the same real native checker, but an entirely local HTTP fixture.
+  // Trust the synthetic HTTPS identity only in this one owned test worker.
+  // The application builder, system certificate store and production TLS policy
+  // remain untouched; every native measurement still verifies its certificate.
+  const originalWrite = fs.writeFileSync
+  const ownedWorkerConfig = join(dir, 'live-outbounds', '0', 'check.json')
+  let trustedConfigs = 0
+  fs.writeFileSync = ((file, data, options) => {
+    if (file === ownedWorkerConfig) {
+      const config = JSON.parse(String(data))
+      assert.equal(config.route.final, 'p-late-public')
+      assert.equal(config.inbounds.length, 1)
+      assert.equal(config.inbounds[0].type, 'socks')
+      assert.equal(config.inbounds[0].listen, '127.0.0.1')
+      assert.deepEqual(config.endpoints, [])
+      const selected = config.outbounds.filter((item: { tag: string }) => item.tag.startsWith('p-'))
+      assert.equal(selected.length, 1); assert.equal(selected[0].tag, 'p-late-public')
+      assert.equal(selected[0].server, '127.0.0.1'); assert.equal(selected[0].server_port, c.port)
+      assert.equal(config.certificate, undefined)
+      config.certificate = { store: 'none', certificate: [NATIVE_TEST_CA] }
+      trustedConfigs++
+      return originalWrite(file, JSON.stringify(config), options)
+    }
+    return originalWrite(file, data, options)
+  }) as typeof fs.writeFileSync
+  // Clash API replaces plain http:// probe URLs with its external HTTPS
+  // default. Use real HTTPS here so it measures precisely this local fixture.
   const originalPings = Checker.prototype.pings
   Checker.prototype.pings = async function () {
-    const result = await this.probe('http://198.18.0.11')
+    const state = this as unknown as { api: { port: number; secret: string }; ids: string[];
+      child?: ChildProcess; diagnostic?: { username: string; password: string } }
+    const known = [state.api.secret, state.diagnostic?.username, state.diagnostic?.password].filter((value): value is string => !!value)
+    const nativeFetch = globalThis.fetch, responses: { status?: number; body?: string; error?: string }[] = []
+    let logs = '', result: Record<string, number | null> = {}
+    const capture = (chunk: Buffer) => { logs = (logs + chunk.toString()).slice(-4000) }
+    state.child?.stdout?.on('data', capture); state.child?.stderr?.on('data', capture)
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      const measured = url.hostname === '127.0.0.1' && url.port === String(state.api.port) && url.pathname.endsWith('/delay')
+      try {
+        const response = await nativeFetch(input, init)
+        if (measured) responses.push({ status: response.status, body: redactVless(await response.clone().text(), known).slice(0, 512) })
+        return response
+      } catch (error) { if (measured) responses.push({ error: redactVless(String(error), known) }); throw error }
+    }
+    try { result = await this.probe('https://198.18.0.11') }
+    finally {
+      globalThis.fetch = nativeFetch
+      state.child?.stdout?.off('data', capture); state.child?.stderr?.off('data', capture)
+      console.log('ROUTE_NATIVE readiness evidence', JSON.stringify({ ids: state.ids, result, responses,
+        trustedConfigs, received: c.received, requests: c.requests, tlsErrors: c.tlsErrors,
+        workerLogs: redactVless(logs, known) }))
+    }
     return Object.fromEntries(Object.entries(result).map(([id, ms]) => [id, ms ?? undefined]))
   }
   try {
@@ -104,8 +155,11 @@ async function main() {
     const late = { ...profile('late-public', c.port), source: 'public' as const }
     profiles.push(late)
     settings = { ...settings, routes: settings.routes.map(r => r.id === 'selected' ? { ...r, via: late.id } : r) }
-    assert(await engine.applyLive(profiles, settings), engine.log().join('\n'))
-    assert(c.received.head > 0, 'real native readiness probe received its HTTP HEAD response')
+    assert(await engine.applyLive(profiles, settings), engine.log().join('\n') + '\n' + JSON.stringify({
+      trustedConfigs, received: c.received, requests: c.requests, tlsErrors: c.tlsErrors
+    }))
+    assert.equal(trustedConfigs, 1, 'only the exact owned late-public worker receives the fixture trust root')
+    assert(c.received.httpsHead > 0, 'real native readiness verified HTTPS and received its HEAD response')
     assert.equal((engine as any).child.pid, pid); assert.equal(engine.status.since, since)
     assert.equal(await body('198.18.0.9'), 'C', 'late selected public server carries real TCP payload')
     assert.equal(await engine.withHttpProxy(late.id, new AbortController().signal, proxyBody), 'C')
@@ -145,6 +199,7 @@ async function main() {
     try { assert(await engine.stop(), 'native cleanup must complete') }
     finally {
       Checker.prototype.pings = originalPings
+      fs.writeFileSync = originalWrite
       await a.close(); await b.close(); await c.close(); rmSync(dir, { recursive:true, force:true })
     }
   }

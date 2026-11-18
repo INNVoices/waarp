@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import net from 'node:net'
 import dgram from 'node:dgram'
+import https from 'node:https'
 import { spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
@@ -9,16 +10,32 @@ import { checkConfig, tagOf } from '../src/main/awg'
 import { RELAY_DNS_IP, relayOutbounds } from '../src/main/relay-config'
 import { pickPort, waitReady } from '../src/main/tun'
 import { waitExit } from '../src/main/stop'
+import { NATIVE_TEST_CERT, NATIVE_TEST_KEY } from './route-native-tls'
 
 /** Controlled SOCKS5 server: it never opens an Internet socket. TCP and UDP
  * replies identify the selected fixture, making direct fallback fail the test. */
-export async function fixture(label: string) {
+export async function fixture(label: string, options: { https?: boolean } = {}) {
   const sockets = new Set<net.Socket>(), datagrams = new Set<dgram.Socket>()
-  const received = { udp: 0, dns: 0, head: 0 }
+  const received = { udp: 0, dns: 0, head: 0, httpsHead: 0 }
+  const requests: { host: string; port: number; command: number }[] = [], tlsErrors: string[] = []
+  const secure = options.https ? https.createServer({ key: NATIVE_TEST_KEY, cert: NATIVE_TEST_CERT }, (request, response) => {
+    if (request.method === 'HEAD') received.httpsHead++
+    response.writeHead(200, { 'Content-Length': Buffer.byteLength(label), Connection: 'close' })
+    // Native Clash API deliberately rejects a measured zero milliseconds.
+    setTimeout(() => response.end(request.method === 'HEAD' ? undefined : label), 10)
+  }) : undefined
+  secure?.on('connection', socket => {
+    sockets.add(socket); socket.on('error', () => {}); socket.once('close', () => sockets.delete(socket))
+  })
+  secure?.on('tlsClientError', error => { if (tlsErrors.length < 8) tlsErrors.push(error.message.slice(0,300)) })
+  if (secure) await new Promise<void>((resolve, reject) => {
+    secure.once('error', reject); secure.listen(0, '127.0.0.1', resolve)
+  })
+  const tlsPort = secure ? (secure.address() as net.AddressInfo).port : undefined
   const server = net.createServer(socket => {
     sockets.add(socket); socket.on('error', () => {}); socket.once('close', () => sockets.delete(socket))
     let stage = 0, data = Buffer.alloc(0)
-    socket.on('data', chunk => {
+    const onData = (chunk: Buffer | string) => {
       data = Buffer.concat([data, typeof chunk === 'string' ? Buffer.from(chunk) : chunk])
       if (data.length > 8192) { socket.destroy(); return }
       if (stage === 0) {
@@ -32,6 +49,10 @@ export async function fixture(label: string) {
         if (!length) { socket.destroy(); return }
         if (data.length < length) return
         const command = data[1]
+        const destinationPort = data.readUInt16BE(length - 2)
+        const host = data[3] === 1 ? [...data.subarray(4, 8)].join('.')
+          : data[3] === 3 ? data.subarray(5, 5 + data[4]).toString() : data.subarray(4, 20).toString('hex')
+        if (requests.length < 24) requests.push({ host, port: destinationPort, command })
         data = data.subarray(length)
         if (command === 3) {
           stage = 3
@@ -63,6 +84,21 @@ export async function fixture(label: string) {
           return
         }
         if (command !== 1) { socket.destroy(); return }
+        if (tlsPort && host === '198.18.0.11' && destinationPort === 443) {
+          // Forward only this reserved HTTPS fixture destination to its local
+          // TLS listener. Every other destination stays in the local fake server.
+          stage = 4; socket.off('data', onData); socket.pause()
+          const upstream = net.connect(tlsPort, '127.0.0.1')
+          sockets.add(upstream)
+          upstream.once('close', () => sockets.delete(upstream))
+          upstream.on('error', () => socket.destroy()); socket.once('close', () => upstream.destroy())
+          upstream.once('connect', () => {
+            socket.write(Buffer.from([5, 0, 0, 1, 127, 0, 0, 1, 0, 0]))
+            if (data.length) upstream.write(data)
+            socket.pipe(upstream).pipe(socket); socket.resume()
+          })
+          return
+        }
         socket.write(Buffer.from([5, 0, 0, 1, 127, 0, 0, 1, 0, 0])); stage = 2
       }
       if (stage === 2 && data.length) {
@@ -77,13 +113,15 @@ export async function fixture(label: string) {
         } else if (request.startsWith('PING')) { socket.write(data); data = Buffer.alloc(0) }
         else if (data.length > 64) socket.destroy()
       }
-    })
+    }
+    socket.on('data', onData)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-  return { port: (server.address() as net.AddressInfo).port, received, close: async () => {
+  return { port: (server.address() as net.AddressInfo).port, received, requests, tlsErrors, close: async () => {
     for (const socket of sockets) socket.destroy()
     for (const udp of datagrams) { try { udp.close() } catch {} }
     await new Promise<void>(resolve => server.close(() => resolve()))
+    if (secure) await new Promise<void>(resolve => secure.close(() => resolve()))
   } }
 }
 

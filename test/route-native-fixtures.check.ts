@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import net from 'node:net'
 import dgram from 'node:dgram'
+import tls from 'node:tls'
+import { X509Certificate } from 'node:crypto'
 import { fixture, datagram, dnsQuestion, udpPortFree } from './route-native-fixtures'
+import { NATIVE_TEST_CA, NATIVE_TEST_CERT } from './route-native-tls'
 
 function exchange(socket: net.Socket, request: Buffer, length: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -35,8 +38,25 @@ async function httpReply(port: number, method: 'HEAD' | 'GET'): Promise<string> 
   } finally { socket.destroy() }
 }
 
+async function httpsReply(port: number, ca?: string): Promise<string> {
+  const socket = net.connect(port, '127.0.0.1')
+  let secure: tls.TLSSocket | undefined
+  try {
+    assert.deepEqual([...await exchange(socket, Buffer.from([5, 1, 0]), 2)], [5, 0])
+    assert.equal((await exchange(socket, Buffer.from([5, 1, 0, 1, 198, 18, 0, 11, 1, 187]), 10))[1], 0)
+    secure = tls.connect({ socket, ca, servername: 'waarp-native.invalid', rejectUnauthorized: true })
+    return await new Promise<string>((resolve, reject) => {
+      let reply = ''
+      secure!.setTimeout(3000, () => secure!.destroy(new Error('fixture HTTPS reply timeout')))
+      secure!.setEncoding('utf8'); secure!.on('data', data => { reply += data })
+      secure!.once('error', reject); secure!.once('end', () => resolve(reply))
+      secure!.once('secureConnect', () => secure!.write('HEAD / HTTP/1.1\r\nHost: 198.18.0.11\r\nConnection: close\r\n\r\n'))
+    })
+  } finally { secure?.destroy(); socket.destroy() }
+}
+
 async function main() {
-  const server = await fixture('C')
+  const server = await fixture('C', { https: true })
   const control = net.connect(server.port, '127.0.0.1')
   const occupied = dgram.createSocket('udp4')
   try {
@@ -46,6 +66,14 @@ async function main() {
     assert.equal(head.split('\r\n\r\n')[1], '', 'HEAD must not include a body')
     assert.equal(get.split('\r\n\r\n')[1], 'C', 'GET retains the selected fixture payload')
     assert.equal(server.received.head, 1)
+    const certificate = new X509Certificate(NATIVE_TEST_CERT)
+    assert.equal(certificate.checkIP('198.18.0.11'), '198.18.0.11', 'native HTTPS probe IP has a matching SAN')
+    assert.equal(certificate.checkIP('198.18.0.12'), undefined)
+    await assert.rejects(httpsReply(server.port), /certificate|issuer|verify/, 'fixture TLS must reject an untrusted certificate')
+    const secure = await httpsReply(server.port, NATIVE_TEST_CA)
+    assert(secure.startsWith('HTTP/1.1 200 OK\r\n'))
+    assert.equal(secure.split('\r\n\r\n')[1], '', 'verified HTTPS HEAD has no response body')
+    assert.equal(server.received.httpsHead, 1, 'only the trusted native-style HTTPS request reached the fixture')
 
     assert.deepEqual([...await exchange(control, Buffer.from([5, 1, 0]), 2)], [5, 0])
     const association = await exchange(control, Buffer.from([5, 3, 0, 1, 0, 0, 0, 0, 0, 0]), 10)
@@ -60,12 +88,12 @@ async function main() {
     ]))
     assert.equal(answer.readUInt16BE(10), 0x5752)
     assert.deepEqual([...answer.subarray(-4)], [198, 18, 0, 12])
-    assert.deepEqual(server.received, { udp: 1, dns: 1, head: 1 })
+    assert.deepEqual(server.received, { udp: 1, dns: 1, head: 1, httpsHead: 1 })
 
     await new Promise<void>(resolve => occupied.bind({ address: '127.0.0.1', port: 0, exclusive: true }, resolve))
     assert.equal(await udpPortFree(occupied.address().port), false, 'a UDP-only occupied port is rejected')
     assert.equal(await udpPortFree(0), true, 'a free UDP port is accepted and released')
-    console.log('route-native-fixtures: real SOCKS HEAD/GET, UDP association/echo, DNS response and occupied UDP port checks PASS')
+    console.log('route-native-fixtures: real SOCKS HEAD/GET, trusted HTTPS and rejected untrusted TLS, UDP/DNS and occupied UDP port checks PASS')
   } finally {
     control.destroy(); try { occupied.close() } catch {}; await server.close()
   }

@@ -21,5 +21,5 @@
     "productionSigned": false
   },
   "notes": "Server picker and live public-node selection; publish only after both platform gates pass.",
-  "revision": 3
+  "revision": 4
 }

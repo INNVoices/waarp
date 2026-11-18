@@ -16,9 +16,35 @@ permissions:
   contents: write
 concurrency:
   group: waarp-preview-${{ github.ref }}
-  cancel-in-progress: false
+  # A newer preview intent supersedes an unfinished attempt; its draft remains tied to its original commit.
+  cancel-in-progress: true
 jobs:
+  native-routing:
+    name: Native route preflight on Windows
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run engine:fetch
+      - name: Compile the actual native route gate
+        run: node --input-type=module -e "import { build } from 'esbuild'; await build({entryPoints:['test/route-native.check.ts'],bundle:true,platform:'node',outfile:'out/test/route-native.check.js',sourcemap:true,alias:{electron:'./test/stubs/electron.ts'}})"
+      - name: Require same-session TCP, UDP and DNS before starting both platform builds
+        env:
+          WAARP_NATIVE_SWITCH_TEST: '1'
+        run: node --enable-source-maps out/test/route-native.check.js
   prepare:
+    needs: native-routing
     runs-on: ubuntu-24.04
     outputs:
       tag: ${{ steps.intent.outputs.tag }}
