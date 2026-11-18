@@ -677,6 +677,63 @@ try {
     assert.deepEqual(pageConsoleErrors.get(page), [], 'technical details and developer actions log no renderer errors')
     await page.context().close()
   })
+  await check('route and backup server pickers remain bounded, searchable and readable with 160 long names', async () => {
+    const page = await pageFor()
+    await ready(page)
+    await page.evaluate(() => {
+      const f = window.__waarpTest, seed = f.state.profiles[0]
+      f.state.profiles = Array.from({ length: 160 }, (_, i) => ({
+        ...seed, id: 'bulk-' + i,
+        name: 'UnbreakableVeryLongImportedServerNameWithoutSeparators-' + i + '-AcrossEveryRegionAndProtocol',
+        host: '192.0.2.' + (i % 200 + 1),
+      }))
+      f.state.settings.routes[0].via = 'bulk-159'
+      f.state.status = { ...f.state.status, phase: 'on', open: true,
+        pings: Object.fromEntries(f.state.profiles.map((p, i) => [p.id, 50 + i])) }
+      f.push()
+    })
+    await page.locator('.rc-open').first().click()
+    await page.locator('.route-choices').first().waitFor()
+    const lists = page.locator('.route-choices')
+    assert.equal(await lists.count(), 2, 'primary and backup options remain available')
+    assert.equal(await lists.first().locator('.vopt').count(), 8, 'default primary choices are bounded')
+    assert.equal(await lists.nth(1).locator('.vopt').count(), 8, 'default backup choices are bounded')
+    assert.ok((await lists.first().locator('.vopt.on .vo-name').textContent()).includes('159'), 'selected path always remains visible')
+    const search = page.getByRole('searchbox', { name: 'Поиск подключений' })
+    await search.fill('-117-AcrossEvery')
+    assert.equal(await lists.first().locator('.vopt').count(), 1)
+    await search.fill('')
+    await page.getByRole('button', { name: /^Показать ещё/ }).first().click()
+    assert.equal(await lists.first().locator('.vopt').count(), 24)
+    await page.getByRole('button', { name: /^Показать ещё/ }).first().click()
+    assert.equal(await lists.first().locator('.vopt').count(), 40)
+    const backupSearch = page.getByRole('searchbox', { name: 'Поиск резервных подключений' })
+    await backupSearch.fill('-120-AcrossEvery')
+    assert.equal(await lists.nth(1).locator('.vopt').count(), 1)
+    await backupSearch.fill('')
+    for (const width of [1240, 900, 720, 620]) {
+      await page.setViewportSize({ width, height: 780 })
+      await settle(page)
+      const measures = await page.evaluate(() => {
+        const main = document.querySelector('.main')
+        const cards = [...document.querySelectorAll('.route-choices .vopt')].slice(0, 20)
+        return { overflow: main.scrollWidth - main.clientWidth,
+          cards: cards.map(card => {
+            const name = card.querySelector('.vo-name'), metric = card.querySelector('.vo-metric')
+            return { width: card.scrollWidth - card.clientWidth,
+              name: name ? name.getBoundingClientRect().right - card.getBoundingClientRect().right : 0,
+              metric: metric ? metric.getBoundingClientRect().right - card.getBoundingClientRect().right : 0 }
+          }) }
+      })
+      assert.ok(measures.overflow <= 1, 'route page must not overflow main container at ' + width)
+      assert.ok(measures.cards.every(card => card.width <= 1 && card.name <= 1 && card.metric <= 1),
+        'labels and metrics must remain within their cards at ' + width + ': ' + JSON.stringify(measures.cards))
+    }
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.selectRoute ?? 0), 0,
+      'search and expansion never change routing or toggle TUN')
+    await capture(page, 'route-picker-long-labels.png')
+    await page.context().close()
+  })
   // This specifically uses the production bundle. Do not run this check against the browser-only dev demo.
   await check('production without preload cannot pretend the VPN is working', async () => {
     const context = await browser.newContext()
