@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """Regression fixtures for bounded AndroidJUnitRunner failure evidence."""
 import importlib.util
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
+import json
 from pathlib import Path
+from subprocess import CompletedProcess
+from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
     "waarp_android_instrument", Path(__file__).with_name("android-instrument.py"))
@@ -115,6 +121,80 @@ class InstrumentationEvidenceTests(unittest.TestCase):
             with self.subTest(selected=selected, code=code):
                 self.assertFalse(runner.parse_instrumentation(transcript(selected, code), 0, False,
                     required_cases=runner.ROUTE_SMOKE_CASES)["passedGate"])
+
+    def test_ui_gallery_is_exclusive_and_preserves_default_and_smoke_modes(self):
+        required = ["--expect-page-size", "4096"]
+        for mode in ([], ["--route-smoke"], ["--ui-gallery"]):
+            options = runner.parse_options(required + mode)
+            self.assertEqual(options.route_smoke, mode == ["--route-smoke"])
+            self.assertEqual(options.ui_gallery, mode == ["--ui-gallery"])
+        with redirect_stderr(StringIO()), self.assertRaises(SystemExit) as rejected:
+            runner.parse_options(required + ["--route-smoke", "--ui-gallery"])
+        self.assertEqual(rejected.exception.code, 2)
+
+    def test_ui_gallery_requires_exactly_its_three_existing_cases_and_no_skips(self):
+        cases = sorted(runner.UI_GALLERY_CASES)
+        self.assertEqual(len(cases), 3)
+        source = (Path(__file__).parent.parent / "android/app/src/androidTest/java/local/waarp/android/ui/MobileUiInstrumentedTest.kt").read_text()
+        for cls, method in cases:
+            self.assertEqual(cls, "local.waarp.android.ui.MobileUiInstrumentedTest")
+            self.assertIn("@Test fun " + method + "()", source)
+        for selected, code, accepted in ((cases, 0, True), (cases[:-1], 0, False),
+                                         (cases[:-1] + cases[:1], 0, False),
+                                         (sorted(runner.ROUTE_SMOKE_CASES), 0, False),
+                                         (cases, -3, False), (cases, -2, False)):
+            transcript = "".join(status(method, code, count=len(selected)).replace(
+                "local.waarp.ExampleTest", cls) for cls, method in selected) + "INSTRUMENTATION_CODE: -1\n"
+            with self.subTest(selected=selected, code=code):
+                self.assertEqual(runner.parse_instrumentation(transcript, 0, False,
+                    required_cases=runner.UI_GALLERY_CASES)["passedGate"], accepted)
+
+    def test_ui_gallery_executes_only_selected_cases_and_keeps_existing_evidence_gates(self):
+        cases = sorted(runner.UI_GALLERY_CASES)
+        transcript = "".join(status(method, 0, count=3).replace(
+            "local.waarp.ExampleTest", cls) for cls, method in cases) + "INSTRUMENTATION_CODE: -1\n"
+        names = ["01-home-empty.png", "02-settings.png", "03-saved-route.png", "04-groups.png"]
+        for files, native_ok, expected in ((names, True, 0), (names[:-1], True, 1), (names, False, 1)):
+            with self.subTest(files=files, native_ok=native_ok), TemporaryDirectory() as temporary:
+                output = Path(temporary)
+                options = runner.parse_options(["--expect-page-size", "4096", "--ui-gallery", "--output", temporary])
+                instrument_calls = []
+
+                def run(command, **_kwargs):
+                    arguments = command[1:]
+                    text = ""
+                    if arguments[:3] == ["shell", "am", "instrument"]:
+                        instrument_calls.append(arguments)
+                        text = transcript
+                    elif arguments[0] == "pull":
+                        screenshots = output / "ui-screenshots"
+                        screenshots.mkdir()
+                        for name in files:
+                            (screenshots / name).write_bytes(b"\x89PNG\r\n\x1a\n")
+                    elif arguments == ["shell", "getconf", "PAGE_SIZE"]:
+                        text = "4096"
+                    elif arguments[:2] == ["shell", "getprop"]:
+                        text = {"ro.build.version.sdk": "35", "ro.build.version.release": "15",
+                                "ro.product.cpu.abi": "x86_64"}[arguments[2]]
+                    elif arguments[:3] == ["shell", "am", "start"]:
+                        text = "Status: ok\nTotalTime: 100\n"
+                    return CompletedProcess(command, 0, stdout=text, stderr="")
+
+                with patch.object(runner, "parse_options", return_value=options), \
+                     patch.object(runner.shutil, "which", return_value="adb"), \
+                     patch.object(runner.subprocess, "run", side_effect=run), \
+                     patch.object(runner, "capture_preflight", return_value={}), \
+                     patch.object(runner, "capture_logs", return_value={"passed": native_ok}), \
+                     redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                    self.assertEqual(runner.main(), expected)
+                self.assertEqual(instrument_calls, [["shell", "am", "instrument", "-w", "-r", "-e", "class",
+                    ",".join(f"{cls}#{method}" for cls, method in cases),
+                    "local.waarp.android.debug.test/androidx.test.runner.AndroidJUnitRunner"]])
+                report = json.loads((output / "result.json").read_text())
+                self.assertEqual(report["passedGate"], expected == 0)
+                self.assertEqual(report["tests"], 3)
+                self.assertEqual(report["uiScreenshotCount"], len(files))
+                self.assertIn("three offline scenarios", report["scope"])
 
 
 if __name__ == "__main__":

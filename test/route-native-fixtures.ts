@@ -14,7 +14,7 @@ import { waitExit } from '../src/main/stop'
  * replies identify the selected fixture, making direct fallback fail the test. */
 export async function fixture(label: string) {
   const sockets = new Set<net.Socket>(), datagrams = new Set<dgram.Socket>()
-  const received = { udp: 0, dns: 0 }
+  const received = { udp: 0, dns: 0, head: 0 }
   const server = net.createServer(socket => {
     sockets.add(socket); socket.on('error', () => {}); socket.once('close', () => sockets.delete(socket))
     let stage = 0, data = Buffer.alloc(0)
@@ -66,10 +66,15 @@ export async function fixture(label: string) {
         socket.write(Buffer.from([5, 0, 0, 1, 127, 0, 0, 1, 0, 0])); stage = 2
       }
       if (stage === 2 && data.length) {
-        if (data.toString().startsWith('GET ')) {
+        const request = data.toString()
+        if (request.startsWith('GET ') || request.startsWith('HEAD ')) {
           if (!data.includes(Buffer.from('\r\n\r\n'))) return
-          socket.end('HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: ' + label.length + '\r\n\r\n' + label)
-        } else if (data.toString().startsWith('PING')) { socket.write(data); data = Buffer.alloc(0) }
+          // The pinned core's URLTest sends HEAD. Keep its actual native
+          // readiness measurement; answer HEAD with GET headers and no body.
+          const head = request.startsWith('HEAD ')
+          if (head) received.head++
+          socket.end('HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: ' + label.length + '\r\n\r\n' + (head ? '' : label))
+        } else if (request.startsWith('PING')) { socket.write(data); data = Buffer.alloc(0) }
         else if (data.length > 64) socket.destroy()
       }
     })
@@ -106,20 +111,28 @@ export function datagram(host: string, port: number, payload: Buffer): Promise<B
   })
 }
 
+export function udpPortFree(port: number): Promise<boolean> {
+  return new Promise(resolve => {
+    const socket = dgram.createSocket('udp4')
+    socket.once('error', () => { try { socket.close() } catch {}; resolve(false) })
+    socket.bind({ address: '127.0.0.1', port, exclusive: true }, () => socket.close(() => resolve(true)))
+  })
+}
+
 /** Use the production UoT outbound and worker hijack rule. Only the remote DNS
  * endpoint is replaced by the deterministic fixture; it still travels through
  * the selected profile. Neither additional native process has a TUN inbound. */
 export async function nativeDns(exe: string, dir: string, profile: OutProfile): Promise<void> {
   mkdirSync(dir, { recursive: true })
   const chosen = new Set<number>()
-  const port = async () => {
+  const port = async (udp = false) => {
     for (let i = 0; i < 30; i++) {
-      const value = await pickPort()
+      const value = await pickPort(udp ? udpPortFree : undefined)
       if (value && !chosen.has(value)) { chosen.add(value); return value }
     }
     throw new Error('native DNS fixture has no free port')
   }
-  const workerApi = await port(), clientApi = await port(), input = await port()
+  const workerApi = await port(), clientApi = await port(), input = await port(true)
   const slot = { id: 'dns-fixture-relay', port: await port(), username: 'native-fixture-user', password: 'native-fixture-password' }
   const secret = 'native-dns-fixture-controller'
   const worker = checkConfig([profile], { port: workerApi, secret }, undefined, { proxy: slot, profileId: profile.id })

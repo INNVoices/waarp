@@ -205,6 +205,20 @@ const capture = async (page, name) => {
   await page.evaluate(() => document.fonts.ready)
   await page.screenshot({ path: resolve(screenshotDir, name), animations: 'disabled' })
 }
+const capturePickerPage = async (page, name, width) => {
+  if (!screenshotDir) return
+  await page.setViewportSize({ width, height: 900 })
+  await page.evaluate(() => document.fonts.ready)
+  await settle(page)
+  // .main is the app's scroll container. A taller real viewport retains the header,
+  // every row and the page buttons in one screenshot without changing app styles.
+  const height = await page.locator('.main').evaluate(main => Math.ceil(main.getBoundingClientRect().top + main.scrollHeight))
+  await page.setViewportSize({ width, height: Math.max(900, height) })
+  await page.locator('.main').evaluate(main => main.scrollTo(0, 0))
+  await page.mouse.move(0, 0)
+  await settle(page)
+  await capture(page, name)
+}
 async function check(name, work) { await work(); passed++; console.log('PASS ', name) }
 
 // Fixed before measurement. These bound retained renderer state and long-run regressions;
@@ -606,6 +620,16 @@ try {
     assert.equal(await panel.getByRole('button', { name: strings['pages.next'], exact: true }).count(), 0)
     assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.catalogAdd ?? 0), 0)
     await capture(page, 'public-full-pool-search.png')
+    if (screenshotDir) {
+      await page.evaluate(() => { const f = window.__waarpTest; f.state.status = { ...f.state.status, phase: 'on', open: true }; f.push() })
+      await clickNav(page, 'home')
+      await page.locator('.rc-open').first().click()
+      const picker = page.locator('.server-picker')
+      await picker.locator('.server-source-tabs').getByRole('button', { name: strings['server.public'], exact: true }).click()
+      await picker.locator('.public-server-list .server-row').nth(11).waitFor()
+      await picker.getByRole('button', { name: strings['pages.number'].replace('{n}', '22'), exact: true }).waitFor()
+      await capturePickerPage(page, 'app-public-server-picker-pages.png', 1240)
+    }
     await page.context().close()
   })
   await check('selecting a public server from an app uses one chooser and never toggles the master', async () => {
@@ -849,6 +873,10 @@ try {
     assert.equal(await page.getByRole('combobox', { name: strings['route.fb'], exact: true }).inputValue(), 'bulk-158')
     assert.deepEqual(await page.evaluate(() => { const c = window.__waarpTest.state.calls; return [c.settings ?? 0, c.selectRoute ?? 0, c.toggle ?? 0, c.disconnect ?? 0] }), [0, 0, 0, 0])
     await capture(page, 'route-picker-long-labels.png')
+    if (screenshotDir) {
+      await page.locator('.route-details > summary').click()
+      await capturePickerPage(page, 'saved-server-picker-pages.png', 900)
+    }
     await page.context().close()
   })
   await check('long labels remain readable in card menus, bounded group previews and diagnostics', async () => {

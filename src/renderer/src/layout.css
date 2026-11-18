@@ -559,7 +559,7 @@
 .server-row-health .ping { max-width: 100%; white-space: normal; }
 .server-row-action { justify-self: end; justify-content: center; min-width: 88px; max-width: 100%; }
 .server-row-action.saved { display: inline-flex; gap: 5px; align-items: center; color: var(--ok); font-size: 11px; }
-.public-server-list .server-list-head, .public-server-list .server-row { grid-template-columns: 32px minmax(0, 1fr) 84px 156px; }
+.public-server-list .server-list-head, .public-server-list .server-row { grid-template-columns: 44px minmax(0, 1fr) 84px 156px; }
 .public-server-list .server-row-action { padding-inline: 9px; font-size: 11px; }
 .server-list-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 40px 24px; min-height: 170px; color: var(--m); font-size: 12px; line-height: 19px; text-align: center; background: var(--field); border: 1px solid var(--line); border-radius: var(--r-md); }
 .server-list-empty > p { max-width: 440px; }
@@ -609,7 +609,7 @@
   .server-mode { padding: 14px 10px; grid-template-columns: 14px minmax(0, 1fr); gap: 8px; }
   .server-mode > .ic { display: none; }
   .server-row, .server-list-head { gap: 9px; padding-inline: 10px; }
-  .public-server-list .server-list-head, .public-server-list .server-row { grid-template-columns: 28px minmax(0, 1fr) 68px 145px; }
+  .public-server-list .server-list-head, .public-server-list .server-row { grid-template-columns: 38px minmax(0, 1fr) 68px 145px; }
   .saved-server-list .server-list-head, .saved-server-list .server-row { grid-template-columns: 12px minmax(0, 1fr) 76px 88px; }
   .server-catalog .pub-head .grow { display: none; }
   .server-catalog .pub-t { flex-basis: 100%; }

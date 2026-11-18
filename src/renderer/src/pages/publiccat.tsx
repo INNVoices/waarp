@@ -134,7 +134,7 @@ export function PublicCatalog({ toast, used, onAdded, selectedId, onBusyChange, 
     <div className="pub-head">
       <div className="pub-t">
         <b className={readyCount ? 'server-ready-count' : ''}>{s('server.public.available', { n: readyCount })}</b>
-        <span className="m">{st?.busy ? (st.planned ? s('pub.checking', { n: st.checked, t: st.planned }) : s('pub.fetching')) : s('server.public.stored', { n: st?.total ?? 0, ago: ago(st?.updatedAt) })}</span>
+        <span className="m">{st?.busy ? (st.planned ? s('pub.checking', { n: st.checked, t: st.planned }) : s('pub.fetching')) : s('server.public.stored', { count: sp('server.public.candidates', st?.total ?? 0), ago: ago(st?.updatedAt) })}</span>
       </div>
       <div className="grow" />
       <Btn kind="ghost" onClick={() => void run('refresh', () => api.catalogRefresh())} disabled={disabled || checking} title={s('pub.refresh.tip')}><span className={checking ? 'spin' : ''}><Icon n="refresh" /></span>{s('pub.refresh')}</Btn>

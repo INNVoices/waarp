@@ -25,6 +25,12 @@ ROUTE_SMOKE_CASES = frozenset({
     ("local.waarp.android.ui.OperationFeedbackInstrumentedTest", "successInOpenSheetDoesNotMoveFormControls"),
 })
 
+UI_GALLERY_CASES = frozenset({
+    ("local.waarp.android.ui.MobileUiInstrumentedTest", "everyDestinationAndAndroidSettingsScreenOpensWithoutStartingVpn"),
+    ("local.waarp.android.ui.MobileUiInstrumentedTest", "rejectedImportAndRouteSaveKeepDraftsUntilCorrectedThenPersist"),
+    ("local.waarp.android.ui.MobileUiInstrumentedTest", "groupMemberOrderAndExplicitDeletionReassignmentPersistThroughTheRealUi"),
+})
+
 ROUTE_SMOKE_MUTATIONS = [
     "direct to real profile", "real profile to another", "disable card",
     "delete last disabled card", "add card", "delete last active card",
@@ -185,17 +191,25 @@ def capture_logs(prefix, output, failed):
     return native
 
 
-def main():
+def parse_options(arguments=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial")
     parser.add_argument("--expect-page-size", type=int, choices=(4096, 16384), required=True)
     parser.add_argument("--output", type=Path, default=Path("out/android/device-tests"))
     parser.add_argument("--timeout", type=int, default=900)
-    parser.add_argument("--route-smoke", action="store_true",
-                        help="Run the exact real-TUN route, lifecycle ownership and feedback regressions before artifact uploads; the full API matrix remains separate")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--route-smoke", action="store_true",
+                      help="Run the exact real-TUN route, lifecycle ownership and feedback regressions before artifact uploads; the full API matrix remains separate")
+    mode.add_argument("--ui-gallery", action="store_true",
+                      help="Capture the four existing sanitized UI screenshots using only their three offline MobileUiInstrumentedTest scenarios")
     parser.add_argument("--disposable-emulator", action="store_true",
                         help="Read-only verification of the explicitly selected owned CI emulator image")
-    options = parser.parse_args()
+    return parser.parse_args(arguments)
+
+
+def main():
+    options = parse_options()
+    required_cases = ROUTE_SMOKE_CASES if options.route_smoke else UI_GALLERY_CASES if options.ui_gallery else None
     sdk = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
     adb = shutil.which("adb") or (str(Path(sdk) / "platform-tools" / ("adb.exe" if os.name == "nt" else "adb")) if sdk else None)
     if not adb:
@@ -223,7 +237,7 @@ def main():
     started = time.monotonic()
     timed_out = False
     try:
-        selection = ["-e", "class", ",".join(f"{cls}#{method}" for cls, method in sorted(ROUTE_SMOKE_CASES))] if options.route_smoke else []
+        selection = ["-e", "class", ",".join(f"{cls}#{method}" for cls, method in sorted(required_cases))] if required_cases is not None else []
         result = subprocess.run(prefix + ["shell", "am", "instrument", "-w", "-r", *selection, "local.waarp.android.debug.test/androidx.test.runner.AndroidJUnitRunner"], capture_output=True, text=True, timeout=options.timeout)
         output = result.stdout + result.stderr
         exit_code = result.returncode
@@ -237,13 +251,15 @@ def main():
     failure_headers = []
     parsed = parse_instrumentation(output, exit_code, timed_out,
                                    failure_diagnostics=failure_headers,
-                                   required_cases=ROUTE_SMOKE_CASES if options.route_smoke else None)
+                                   required_cases=required_cases)
     (options.output / "failure-headers.json").write_text(json.dumps(failure_headers, indent=2) + "\n")
     success = parsed["passedGate"]
     if not success:
         capture_test_failure_logs(prefix, options.output)
     report = {"schemaVersion": 1, "checkedAtUtc": datetime.now(timezone.utc).isoformat(), "device": device, "preflight": preflight, "wallSeconds": elapsed, **parsed}
-    report["scope"] = "focused real-TUN route mutations, lifecycle ownership and feedback UI; no external tunnel reachability claim" if options.route_smoke else "full debug instrumentation suite"
+    report["scope"] = ("focused real-TUN route mutations, lifecycle ownership and feedback UI; no external tunnel reachability claim" if options.route_smoke
+                       else "four actual UI screenshots from three offline scenarios with synthetic fixtures; no VPN connection or external reachability claim" if options.ui_gallery
+                       else "full debug instrumentation suite")
     if image_proof is not None:
         report["emulatorImage"] = image_proof
     native = capture_logs(prefix, options.output, failed=not success)

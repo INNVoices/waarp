@@ -105,6 +105,7 @@ async function main() {
     profiles.push(late)
     settings = { ...settings, routes: settings.routes.map(r => r.id === 'selected' ? { ...r, via: late.id } : r) }
     assert(await engine.applyLive(profiles, settings), engine.log().join('\n'))
+    assert(c.received.head > 0, 'real native readiness probe received its HTTP HEAD response')
     assert.equal((engine as any).child.pid, pid); assert.equal(engine.status.since, since)
     assert.equal(await body('198.18.0.9'), 'C', 'late selected public server carries real TCP payload')
     assert.equal(await engine.withHttpProxy(late.id, new AbortController().signal, proxyBody), 'C')
