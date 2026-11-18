@@ -33,6 +33,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import java.util.UUID
 import kotlinx.coroutines.launch
 
+internal val LocalDeveloperMode = compositionLocalOf { false }
+
 private data class Destination(val title: String, val icon: ImageVector)
 private val destinations = listOf(
     Destination("Главная", Icons.Outlined.Home),
@@ -46,6 +48,9 @@ private val destinations = listOf(
 fun WaarpApp(state: MobileState, actions: MobileActions) {
     WaarpTheme {
         val atlasRegion = rememberAtlasRegion()
+        val context = androidx.compose.ui.platform.LocalContext.current.applicationContext
+        val prefs = remember(context) { context.getSharedPreferences("waarp-ui", android.content.Context.MODE_PRIVATE) }
+        var developer by remember(prefs) { mutableStateOf(prefs.getBoolean("developer", false)) }
         var tab by rememberSaveable { mutableIntStateOf(0) }
         var settings by rememberSaveable { mutableStateOf(false) }
         var sheet by rememberSaveable { mutableStateOf<String?>(null) }
@@ -72,18 +77,15 @@ fun WaarpApp(state: MobileState, actions: MobileActions) {
         BackHandler(enabled = !settings && tab != 0 && sheet == null) { tab = 0 }
 
         CompositionLocalProvider(LocalOperationMessage provides announce, LocalOperationSnackbar provides snackbar,
-            LocalAtlasRegion provides atlasRegion) {
+            LocalAtlasRegion provides atlasRegion, LocalDeveloperMode provides developer) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val wide = maxWidth >= 840.dp
             Scaffold(
                 topBar = {
                     TopAppBar(
                         title = {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Text(if (settings) "Настройки" else if (tab == 0) "waarp" else destinations[tab].title,
-                                    fontWeight = FontWeight.SemiBold)
-                                if (!settings && tab == 0) Text("ANDROID", style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
-                            }
+                            Text(if (settings) "Настройки" else if (tab == 0) "waarp" else destinations[tab].title,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
                         },
                         navigationIcon = { if (settings) IconButton(onClick = { settings = false }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Назад") } },
                         actions = {
@@ -143,7 +145,10 @@ fun WaarpApp(state: MobileState, actions: MobileActions) {
                             screens.SaveableStateProvider(if (!state.initialized) "loading" else if (settings) "settings" else "tab-$tab") {
                             when {
                                 !state.initialized -> LoadingState(state, actions)
-                                settings -> SettingsScreen(state, actions)
+                                settings -> SettingsScreen(state, actions) { enabled ->
+                                    developer = enabled
+                                    prefs.edit().putBoolean("developer", enabled).apply()
+                                }
                                 tab == 0 -> HomeScreen(state, actions,
                                     onRoutes = { tab = 1 }, onAddTunnel = { open("import", null) },
                                     onWholeDevice = { open("whole", null) })

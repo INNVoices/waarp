@@ -242,7 +242,7 @@ private fun RouteCard(route: RouteUi, app: AppUi?, primaryName: String, fallback
                 Text(when (route.kind) { RouteKind.APP -> route.packageName.orEmpty(); RouteKind.SERVICE -> "Сервис"; RouteKind.CUSTOM -> route.selector.orEmpty() },
                     style = MaterialTheme.typography.bodySmall, color = WaarpMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Switch(route.enabled, { enabled -> operation.run({ actions.setRouteEnabled(route.id, enabled) }) }, enabled = !operation.busy,
+            Checkbox(route.enabled, { enabled -> operation.run({ actions.setRouteEnabled(route.id, enabled) }) }, enabled = !operation.busy,
                 modifier = Modifier.semantics { contentDescription = "Маршрут ${route.name}" })
         }
         Row(Modifier.fillMaxWidth().clickable(onClick = onEdit).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -337,8 +337,7 @@ internal fun RouteEditorSheet(state: MobileState, actions: MobileActions, id: St
                 packageName?.let { KeyValue("Выбрано", state.apps.find { app -> app.packageName == it }?.name ?: it) }
                 SearchField(query, { query = it }, "Название или пакет")
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    FilterChip(showSystem, { showSystem = !showSystem }, label = { Text("Системные") }, modifier = Modifier.heightIn(min = 48.dp))
-                    Spacer(Modifier.weight(1f))
+                    BooleanOption("Системные приложения", value = showSystem, modifier = Modifier.weight(1f)) { showSystem = it }
                     TextButton(onClick = { operation.run({ actions.refreshApps() }) }, enabled = !operation.busy) { Text("Обновить") }
                 }
                 if (eligibleApps.isEmpty()) Text("Приложения не найдены. Обнови список или измени поиск.", color = WaarpMuted, style = MaterialTheme.typography.bodySmall)
@@ -389,7 +388,7 @@ internal fun RouteEditorSheet(state: MobileState, actions: MobileActions, id: St
             Text("Резервный туннель или группа; без выхода напрямую.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Маршрут включён", Modifier.weight(1f)); Switch(enabled, { enabled = it }, enabled = !operation.busy)
+            Text("Маршрут включён", Modifier.weight(1f)); Checkbox(enabled, { enabled = it }, enabled = !operation.busy)
         }
         OperationFeedback(operation)
         val hasTarget = when (selectedKind) { RouteKind.APP -> packageName != null; RouteKind.SERVICE -> presetId != null; RouteKind.CUSTOM -> selector.isNotBlank() }

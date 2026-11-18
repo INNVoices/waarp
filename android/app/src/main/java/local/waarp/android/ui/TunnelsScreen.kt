@@ -209,7 +209,7 @@ private fun PublicCatalog(state: MobileState, actions: MobileActions) {
                     Box(Modifier.weight(1f)) { PathField("Страна", country, listOf(PathChoice("", "Все страны", "Без фильтра")) + countries.map { PathChoice(it, it, "") }) { country = it } }
                     Box(Modifier.weight(1f)) { PathField("Протокол", protocol, listOf(PathChoice("", "Все протоколы", "Без фильтра")) + protocols.map { PathChoice(it, it, "") }) { protocol = it } }
                 }
-                FilterChip(onlyChecked, { onlyChecked = !onlyChecked }, label = { Text("Только прошедшие проверку") }, modifier = Modifier.heightIn(min = 48.dp))
+                BooleanOption("Только прошедшие проверку", value = onlyChecked, modifier = Modifier.fillMaxWidth()) { onlyChecked = it }
             }
             item {
                 OutlinedButton(onClick = { operation.run({ actions.addBestPublicGroup() }) }, enabled = !operation.busy && !catalog.busy,

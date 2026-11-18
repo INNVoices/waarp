@@ -101,9 +101,9 @@ internal fun TunnelDetailsSheet(profile: TunnelUi, state: MobileState, actions: 
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 KeyValue("Протокол", profile.protocol)
                 if (profile.host.isNotBlank()) KeyValue("Сервер", "${profile.host}${if (profile.port > 0) ":${profile.port}" else ""}", mono = true)
-                if (profile.addresses.isNotEmpty()) KeyValue("Адреса клиента", profile.addresses.joinToString("\n"), mono = true)
-                profile.clientPublicKey?.let { KeyValue("Публичный ключ клиента", it, mono = true) }
-                profile.technical.forEach { (label, value) -> KeyValue(label, value, mono = true) }
+                if (LocalDeveloperMode.current && profile.addresses.isNotEmpty()) KeyValue("Адреса клиента", profile.addresses.joinToString("\n"), mono = true)
+                if (LocalDeveloperMode.current) profile.clientPublicKey?.let { KeyValue("Публичный ключ клиента", it, mono = true) }
+                if (LocalDeveloperMode.current) profile.technical.forEach { (label, value) -> KeyValue(label, value, mono = true) }
             }
         }
         if (profile.revoked) InlineMessage("Этот профиль отозван и не используется для новых соединений.", error = true)

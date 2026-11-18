@@ -41,15 +41,18 @@ import java.net.URI
 @Composable
 internal fun DiagnosticsScreen(state: MobileState, actions: MobileActions, onCreateRoute: (String, String) -> Unit) {
     var section by rememberSaveable { mutableStateOf("check") }
+    val tabs = listOf("check" to "Проверка", "flows" to "Соединения") +
+        if (LocalDeveloperMode.current) listOf("logs" to "Журнал") else emptyList()
+    val active = section.takeIf { key -> tabs.any { it.first == key } } ?: "check"
     val screens = rememberSaveableStateHolder()
     Column(Modifier.fillMaxSize()) {
         FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("check" to "Проверка", "flows" to "Соединения", "logs" to "Журнал").forEach { (key, label) ->
-                FilterChip(section == key, onClick = { section = key }, label = { Text(label) }, modifier = Modifier.heightIn(min = 48.dp))
+            tabs.forEach { (key, label) ->
+                FilterChip(active == key, onClick = { section = key }, label = { Text(label) }, modifier = Modifier.heightIn(min = 48.dp))
             }
         }
-        screens.SaveableStateProvider(section) {
-        when (section) {
+        screens.SaveableStateProvider(active) {
+        when (active) {
             "flows" -> FlowsScreen(state)
             "logs" -> LogsScreen(state, actions)
             else -> ChecksScreen(state, actions, onCreateRoute)
@@ -151,7 +154,7 @@ private fun TransferCheck(state: MobileState, actions: MobileActions) {
         PathField("Личный туннель", profile, choices, enabled = !busy) { profile = it }
         Text("Проверка обращается к rfc-editor.org только по нажатию. Работу остальных сайтов она не гарантирует.",
             style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
-        TextButton(onClick = { advanced = !advanced }, enabled = !busy) { Text(if (advanced) "Скрыть проверку отправки" else "Проверить также отправку…") }
+        BooleanOption("Также проверить отправку", value = advanced, enabled = !busy) { advanced = it }
         if (advanced) {
             OutlinedTextField(upload, { upload = it }, Modifier.fillMaxWidth(), singleLine = true, enabled = !busy,
                 label = { Text("HTTPS-адрес вашего тестового сервера") })
@@ -159,8 +162,9 @@ private fun TransferCheck(state: MobileState, actions: MobileActions) {
                 style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
         }
         if (busy) OutlinedButton(onClick = actions::cancelTransfer, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Отменить проверку") }
-        else ActionButton("Проверить получение и отправку", false, profile in profiles.map { it.id },
-            onClick = { operation.run({ actions.measureTransfer(profile, upload.trim().takeIf(String::isNotBlank)) }) }, modifier = Modifier.fillMaxWidth())
+        else ActionButton(if (advanced) "Проверить получение и отправку" else "Проверить получение", false,
+            profiles.any { it.id == profile } && (!advanced || upload.isNotBlank()),
+            onClick = { operation.run({ actions.measureTransfer(profile, upload.trim().takeIf { advanced && it.isNotBlank() }) }) }, modifier = Modifier.fillMaxWidth())
         OperationFeedback(operation)
         Column(Modifier.fillMaxWidth().heightIn(min = 80.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             fun text(value: TransferDirectionUi?) = when (value?.state) {
@@ -308,7 +312,8 @@ private fun LogsScreen(state: MobileState, actions: MobileActions) {
 }
 
 @Composable
-internal fun SettingsScreen(state: MobileState, actions: MobileActions) {
+internal fun SettingsScreen(state: MobileState, actions: MobileActions, setDeveloper: (Boolean) -> Unit) {
+    val developer = LocalDeveloperMode.current
     val operation = rememberUiOperation()
     Column(Modifier.fillMaxSize()) {
     if (operation.error != null) Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) { OperationFeedback(operation) }
@@ -317,11 +322,11 @@ internal fun SettingsScreen(state: MobileState, actions: MobileActions) {
         item {
             Panel {
                 SectionHeading("Маршрутизация")
-                SettingsToggle("Локальная сеть напрямую", "Доступ к устройствам и сервисам в локальной сети", state.settings.lanDirect, !operation.busy) {
+                BooleanOption("Локальная сеть напрямую", "Доступ к устройствам и сервисам в локальной сети", state.settings.lanDirect, !operation.busy) {
                     operation.run({ actions.saveSettings(SettingsPatch(lanDirect = it)) })
                 }
                 HorizontalDivider()
-                SettingsToggle("Домены .ru, .su и .рф напрямую", "Исключение для доменов; не определяет страну сервера по IP", state.settings.ruDirect, !operation.busy) {
+                BooleanOption("Домены .ru, .su и .рф напрямую", "Исключение для доменов; не определяет страну сервера по IP", state.settings.ruDirect, !operation.busy) {
                     operation.run({ actions.saveSettings(SettingsPatch(ruDirect = it)) })
                 }
             }
@@ -360,11 +365,11 @@ internal fun SettingsScreen(state: MobileState, actions: MobileActions) {
         item {
             Panel {
                 SectionHeading("Запуск и уведомления")
-                SettingsToggle("Подключаться при запуске", "Включать сохранённые маршруты при открытии Waarp", state.settings.autoConnect, !operation.busy) {
+                BooleanOption("Подключаться при запуске", "Включать сохранённые маршруты при открытии Waarp", state.settings.autoConnect, !operation.busy) {
                     operation.run({ actions.saveSettings(SettingsPatch(autoConnect = it)) })
                 }
                 HorizontalDivider()
-                SettingsToggle("Уведомления об ошибках", "Дополнительные сообщения об ошибках и смене состояния", state.settings.notifications, !operation.busy) {
+                BooleanOption("Уведомления об ошибках", "Дополнительные сообщения об ошибках и смене состояния", state.settings.notifications, !operation.busy) {
                     operation.run({ actions.saveSettings(SettingsPatch(notifications = it)) })
                 }
                 Text("Служебное уведомление активного VPN требуется Android.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
@@ -382,6 +387,7 @@ internal fun SettingsScreen(state: MobileState, actions: MobileActions) {
         item {
             Panel {
                 SectionHeading("Обслуживание")
+                BooleanOption("Для разработчиков", "Журнал ядра и технические сведения о подключениях", developer, onChange = setDeveloper)
                 Text("Восстановление завершает оставшееся состояние службы после сбоя. Сохранённые профили и маршруты остаются на месте.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
                 OutlinedButton(onClick = { operation.run({ actions.recover() }) }, enabled = !operation.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) {
                     Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Восстановить состояние VPN")
@@ -394,22 +400,11 @@ internal fun SettingsScreen(state: MobileState, actions: MobileActions) {
             Panel {
                 SectionHeading("Waarp для Android")
                 KeyValue("Приложение", state.appVersion.ifBlank { "Версия не определена" })
-                KeyValue("Движок", state.engineVersion.ifBlank { "Версия не определена" })
-                Text("Маршруты приложений используют пакеты и UID Android. Конфигурация и ключи хранятся в закрытом хранилище приложения.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+                if (developer) KeyValue("Движок", state.engineVersion.ifBlank { "Версия не определена" })
+                if (developer) Text("Маршруты приложений используют пакеты и UID Android. Конфигурация и ключи хранятся в закрытом хранилище приложения.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
             }
         }
     }
-    }
-}
-
-@Composable
-private fun SettingsToggle(title: String, detail: String, value: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, fontWeight = FontWeight.Medium)
-            Text(detail, style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
-        }
-        Switch(value, onChange, enabled = enabled, modifier = Modifier.semantics { contentDescription = title })
     }
 }
 

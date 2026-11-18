@@ -55,10 +55,9 @@ export function Icon({ n, s = 16 }: { n: keyof typeof P | string; s?: number }) 
 
 export function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean }) {
   return (
-    <button type="button" role="switch" aria-checked={on} aria-label={label} disabled={disabled}
-      className={'tg' + (on ? ' on' : '')} onClick={e => { e.stopPropagation(); onChange(!on) }}>
-      <i />
-    </button>
+    <input type="checkbox" className="bool-field" checked={on} aria-label={label}
+      disabled={disabled} onClick={event => event.stopPropagation()}
+      onChange={event => onChange(event.currentTarget.checked)} />
   )
 }
 
@@ -125,7 +124,7 @@ export function Field({ icon, bad, className = '', ...p }: InputHTMLAttributes<H
   return (
     <label className={'search' + (bad ? ' bad' : '') + (className ? ' ' + className : '')}>
       {icon && <Icon n={icon} />}
-      <input {...p} />
+      <input aria-invalid={bad || undefined} aria-label={p.placeholder} {...p} />
     </label>
   )
 }

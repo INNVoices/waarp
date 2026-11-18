@@ -2,7 +2,7 @@
 import { useRef, useState } from 'react'
 import type { Group, GroupPolicy, ProfileView } from '../../../shared/types'
 import { groupName, newGroupId, POLICIES } from '../../../shared/groups'
-import { Btn, Icon, Plain, Seg } from '../ui/kit'
+import { Btn, Icon, Seg, Toggle } from '../ui/kit'
 import { Modal } from '../ui/modal'
 import { s } from '../lib/i18n'
 import { Mark } from '../parts'
@@ -30,10 +30,11 @@ export function GroupDialog({ tunnels, groups, edit, onSave, onClose }: {
           {tunnels.map(t => {
             const i = activeMembers.indexOf(t.id)
             return (
-              <Plain disabled={saving} key={t.id} className={'vopt' + (i >= 0 ? ' on' : '')} onClick={() => toggle(t.id)} aria-pressed={i >= 0}>
-                <span className={'check' + (i >= 0 ? ' on' : '')}>{i >= 0 && (policy === 'first' ? <b>{i + 1}</b> : <Icon n="check" s={12} />)}</span>
+              <label key={t.id} className={'vopt' + (i >= 0 ? ' on' : '')}>
+                <Toggle disabled={saving} on={i >= 0} label={t.name} onChange={() => toggle(t.id)} />
                 <span className="vo-t"><span className="vo-n"><Mark profiles={tunnels} via={t.id} /><span className="ell">{t.name}</span></span><small className="m ell">{`${t.version} · ${t.host}`}</small></span>
-              </Plain>
+                {i >= 0 && policy === 'first' && <b className="mono">{i + 1}</b>}
+              </label>
             )
           })}
         </div>

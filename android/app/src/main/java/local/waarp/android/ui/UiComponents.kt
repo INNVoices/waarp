@@ -5,6 +5,9 @@ import android.content.Context
 import android.graphics.drawable.Drawable
 import android.util.LruCache
 import androidx.compose.foundation.background
+import androidx.compose.material3.Checkbox
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -360,4 +363,15 @@ internal fun formatDuration(milliseconds: Long): String {
     val seconds = (milliseconds.coerceAtLeast(0) / 1000)
     return if (seconds >= 3600) "%d:%02d:%02d".format(seconds / 3600, seconds / 60 % 60, seconds % 60)
     else "%02d:%02d".format(seconds / 60, seconds % 60)
+}
+
+@Composable
+internal fun BooleanOption(title: String, detail: String? = null, value: Boolean, enabled: Boolean = true, modifier: Modifier = Modifier, onChange: (Boolean) -> Unit) {
+    Row(modifier.heightIn(min = if (detail == null) 48.dp else 64.dp).toggleable(value = value, enabled = enabled, role = Role.Checkbox, onValueChange = onChange), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, fontWeight = FontWeight.Medium)
+            if (detail != null) Text(detail, style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+        }
+        Checkbox(value, onCheckedChange = null, enabled = enabled)
+    }
 }

@@ -153,10 +153,10 @@ export function Library({ snap, status, conns, apps, loading, rescan, addApp, pa
         <Modal title={s('pick.addr.title')} onClose={closeAddr} busy={pending}>
           <div className="wz-body">
             <div className="addrow">
-              <Field disabled={pending} icon="pin" bad={!!err} autoFocus placeholder={s('sites.input1')} value={addr} onChange={e => { setAddr(e.target.value); setErr(null) }} onKeyDown={e => { if (e.key === 'Enter' && addr.trim()) void createAddr() }} />
+              <Field disabled={pending} icon="pin" aria-label={s('pick.addr.title')} aria-describedby={err ? 'address-error' : undefined} bad={!!err} autoFocus placeholder={s('sites.input1')} value={addr} onChange={e => { setAddr(e.target.value); setErr(null) }} onKeyDown={e => { if (e.key === 'Enter' && addr.trim()) void createAddr() }} />
               <Btn kind="primary" disabled={pending || !addr.trim()} onClick={() => void createAddr()}><Icon n="plus" />{s('pick.addr.go')}</Btn>
             </div>
-            {err && <div className="ferr">{err}</div>}
+            {err && <div id="address-error" className="ferr" role="alert">{err}</div>}
           </div>
         </Modal>
       )}

@@ -39,10 +39,10 @@ export function SettingsPage({ snap, patch, toast }: { snap: Snapshot; patch: Se
     finally { resetAction.current = false; setResetting(false) }
   }
   const opt = (k: keyof Settings, id: string, rec?: boolean) => (
-    <div className="opt" onClick={() => void save(k, !st[k])}>
+    <label className="opt">
       <div><b>{s(id)}{rec && <em className="rec">{s('set.rec')}</em>}</b><p>{s(id + '.text')}</p></div>
       <Toggle disabled={saving} on={!!st[k]} onChange={v => void save(k, v)} label={s(id)} />
-    </div>
+    </label>
   )
   return (
     <div className="page">
@@ -85,12 +85,12 @@ export function SettingsPage({ snap, patch, toast }: { snap: Snapshot; patch: Se
               <div><b>{s('set.reset')}</b><p>{s('set.reset.text')}</p></div>
               <Btn disabled={resetting} onClick={() => void reset()}><span className={resetting ? 'spin' : ''}><Icon n="refresh" /></span>{s('set.reset.go')}</Btn>
             </div>
-            <div className="opt static">
+            {dev && <div className="opt static">
               <div><b>{s('set.log')}</b><p>{s('set.log.text')}</p></div>
               <Btn disabled={logging} onClick={() => void readLog()}><Icon n="doc" />{s(log ? 'set.log.refresh' : 'set.log.show')}</Btn>
-            </div>
+            </div>}
           </div>
-          {log && <pre className="log selectable">{log.length ? log.join('\n') : s('set.log.empty')}</pre>}
+          {dev && log && <pre className="log selectable">{log.length ? log.join('\n') : s('set.log.empty')}</pre>}
           <div className="opts">
             <div className="opt static">
               <div><b>{s('set.dev')}</b><p>{s('set.dev.text')}</p></div>
@@ -101,7 +101,7 @@ export function SettingsPage({ snap, patch, toast }: { snap: Snapshot; patch: Se
               <Btn onClick={async () => { try { const r = await api.exportDiag(); if (r.ok) toast(s('set.diag.done')); else if (r.error) toast(s('set.diag.error'), 'error') } catch { toast(s('set.diag.error'), 'error') } }}><Icon n="doc" />{s('set.diag.go')}</Btn>
             </div>
           </div>
-          <DiagnosticHistory toast={toast} />
+          {dev && <DiagnosticHistory toast={toast} />}
         </section>
         <ListsPanel snap={snap} patch={patch} toast={toast} />
         <section className="panel span2">
