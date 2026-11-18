@@ -639,5 +639,15 @@
   "service.direct": "Напрямую (по умолчанию)",
   "service.unavailable": "Выбранное подключение недоступно",
   "service.hint": "Этот путь используют подписки, списки доменов и источники каталога. Через выбранное подключение их адреса определяет Cloudflare DNS по HTTPS. Если путь не отвечает, прежние данные сохранятся; самостоятельного перехода на прямое соединение нет.",
-  "service.usage": "Загрузки подписок, списков и каталога"
+  "service.usage": "Загрузки подписок, списков и каталога",
+  "route.picker.search": "Найти подключение по имени, протоколу или адресу",
+  "route.picker.search.label": "Поиск подключений",
+  "route.picker.backup.search": "Найти резервное подключение",
+  "route.picker.backup.search.label": "Поиск резервных подключений",
+  "route.picker.count": "{count} из {total}",
+  "route.picker.auto.tip": "Автоматический выбор",
+  "route.picker.more": "Показать ещё ({count})",
+  "route.picker.collapse": "Свернуть список",
+  "route.picker.notfound": "Ничего не найдено. Попробуй другой запрос.",
+  "route.picker.backup.notfound": "Резервных подключений по запросу нет."
 }

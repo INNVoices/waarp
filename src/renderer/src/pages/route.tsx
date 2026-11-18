@@ -101,8 +101,8 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
       <section className="panel">
         <h3>{s('route.server')}</h3>
         {opts.length > 8 && <div className="route-choice-tools">
-          <Input className="inp" type="search" value={serverQuery} onChange={e => { setServerQuery(e.target.value); setServerLimit(8) }} placeholder="Найти подключение по имени, протоколу или адресу" aria-label="Поиск подключений" />
-          <span className="hint">{sorted.length} из {opts.length}</span>
+          <Input className="inp" type="search" value={serverQuery} onChange={e => { setServerQuery(e.target.value); setServerLimit(8) }} placeholder={s('route.picker.search')} aria-label={s('route.picker.search.label')} />
+          <span className="hint">{s('route.picker.count', { count: sorted.length, total: opts.length })}</span>
         </div>}
         <div className={'vgrid route-choices' + (serverLimit > 8 ? ' expanded' : '')}>
           {visible.map(v => {
@@ -112,15 +112,15 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
               <Plain key={v} disabled={locked} aria-busy={applying === v} aria-pressed={on} className={'vopt' + (on ? ' on' : '') + (applying === v ? ' applying' : '')} onClick={() => void select(v)}>
                 <span className="radio" />
                 <span className="vo-t"><span className="vo-n"><Mark profiles={snap.profiles} via={v} /><span className="vo-name" title={viaName(snap.profiles, v)}>{viaName(snap.profiles, v)}</span></span>
-                  <span className="vo-meta"><small className="m ell" title={v === 'direct' ? s('via.direct.hint') : v === AUTO_ID ? 'Автоматический выбор' : subOf(p)}>{v === 'direct' ? s('via.direct.hint') : v === AUTO_ID ? <AutoHint profiles={snap.profiles} bare /> : subOf(p)}</small>
+                  <span className="vo-meta"><small className="m ell" title={v === 'direct' ? s('via.direct.hint') : v === AUTO_ID ? s('route.picker.auto.tip') : subOf(p)}>{v === 'direct' ? s('via.direct.hint') : v === AUTO_ID ? <AutoHint profiles={snap.profiles} bare /> : subOf(p)}</small>
                     <span className="vo-metric"><Ping ms={status.pings[v]} live={live} down={v === r.via ? e?.reason === 'path_down' : status.health?.[v] === 'down'} /></span></span></span>
               </Plain>
             )
           })}
         </div>
-        {sorted.length > visible.length && <Btn kind="ghost" onClick={() => setServerLimit(n => n + 16)}>Показать ещё ({sorted.length - visible.length})</Btn>}
-        {serverLimit > 8 && sorted.length > 8 && <Btn kind="ghost" onClick={() => setServerLimit(8)}>Свернуть список</Btn>}
-        {serverQuery && sorted.length === 0 && <p className="hint">Ничего не найдено. Попробуй другой запрос.</p>}
+        {sorted.length > visible.length && <Btn kind="ghost" onClick={() => setServerLimit(n => n + 16)}>{s('route.picker.more', { count: sorted.length - visible.length })}</Btn>}
+        {serverLimit > 8 && sorted.length > 8 && <Btn kind="ghost" onClick={() => setServerLimit(8)}>{s('route.picker.collapse')}</Btn>}
+        {serverQuery && sorted.length === 0 && <p className="hint">{s('route.picker.notfound')}</p>}
         {!snap.profiles.length && <p className="hint">{s('route.noservers')}</p>}
       </section>
 
@@ -134,8 +134,8 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
           <h3>{s('route.fb')}</h3>
           <p className="hint">{s('route.fb.hint')}</p>
           {fbOpts.length > 7 && <div className="route-choice-tools">
-            <Input className="inp" type="search" value={backupQuery} onChange={e => { setBackupQuery(e.target.value); setBackupLimit(8) }} placeholder="Найти резервное подключение" aria-label="Поиск резервных подключений" />
-            <span className="hint">{orderedBackup.length} из {fbOpts.length + 1}</span>
+            <Input className="inp" type="search" value={backupQuery} onChange={e => { setBackupQuery(e.target.value); setBackupLimit(8) }} placeholder={s('route.picker.backup.search')} aria-label={s('route.picker.backup.search.label')} />
+            <span className="hint">{s('route.picker.count', { count: orderedBackup.length, total: fbOpts.length + 1 })}</span>
           </div>}
           <div className={'vgrid route-choices' + (backupLimit > 8 ? ' expanded' : '')}>
             {visibleBackup.map(v => {
@@ -151,9 +151,9 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
               )
             })}
           </div>
-          {orderedBackup.length > visibleBackup.length && <Btn kind="ghost" onClick={() => setBackupLimit(n => n + 16)}>Показать ещё ({orderedBackup.length - visibleBackup.length})</Btn>}
-          {backupLimit > 8 && orderedBackup.length > 8 && <Btn kind="ghost" onClick={() => setBackupLimit(8)}>Свернуть список</Btn>}
-          {backupQuery && orderedBackup.length === 0 && <p className="hint">Резервных подключений по запросу нет.</p>}
+          {orderedBackup.length > visibleBackup.length && <Btn kind="ghost" onClick={() => setBackupLimit(n => n + 16)}>{s('route.picker.more', { count: orderedBackup.length - visibleBackup.length })}</Btn>}
+          {backupLimit > 8 && orderedBackup.length > 8 && <Btn kind="ghost" onClick={() => setBackupLimit(8)}>{s('route.picker.collapse')}</Btn>}
+          {backupQuery && orderedBackup.length === 0 && <p className="hint">{s('route.picker.backup.notfound')}</p>}
         </section>
       )}
 
