@@ -1,7 +1,6 @@
-// WRP-015 public VPN catalog: auto-updated public lists -> parsed nodes -> health-checked through a dedicated
-// local checker (no TUN) -> the best alive nodes, by country and protocol. Public nodes are untrusted: they are
-// labelled, never used as a silent fallback for personal tunnels, and only enter routing when the user picks them.
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+// Public lists feed a persistent, encrypted candidate pool. Checking candidates
+// never changes application routes; only fresh observations enter the ready list.
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { safeStorage } from 'electron'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -12,29 +11,43 @@ import { catalogLabel, roundRobin, sourceLabel } from './catalog-sample'
 import { RuntimeJournal } from './runtime-journal'
 import { parseVpnGateCsv } from './vpngate'
 import { protectPrivateFile } from './private-file'
-import { credentialKey } from './discovery'
-import { resolvedPublic, type PinnedHttpGet } from './vless'
+import { validLatency } from './health'
+import { preparePublicCandidate, publicCandidateEndpointsAllowed } from './catalog-endpoint'
+import { PublicPathCleanupError } from './public-service-path'
+import type { PublicResolver } from './vless'
+import { DEFAULT_SOURCES } from '../shared/public-sources'
+import { fetchCatalogSources, type CatalogSourceText } from './catalog-fetch'
+import { CatalogPool, CATALOG_POOL_LIMIT, CATALOG_READY_TTL, catalogFamily, catalogHost, catalogPort, type CatalogEntry } from './catalog-pool'
 
-// RC2 F: only sources with a clear license/terms; inventory in docs/SOURCES.md. No license = not a default.
-export const DEFAULT_SOURCES = [
-  'https://raw.githubusercontent.com/awesome-vpn/awesome-vpn/master/all',
-  'https://raw.githubusercontent.com/mrdevmohamed/v2ray-configs/main/All_Configs_Sub.txt',
-  'https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt',
-  'https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS.txt',
-  'https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_SS%2BAll_RUS.txt',
-  'https://www.vpngate.net/api/iphone/'
-]
-const MAX_BYTES = 32 * 1024 * 1024
-const MAX_NODES = 3000
-// Keep background verification light enough for an ordinary workstation: at most eight
-// simultaneous connections and a bounded one-minute-ish sample instead of probing thousands.
+export { DEFAULT_SOURCES } from '../shared/public-sources'
+export { fetchCatalogSources, type CatalogSourceText } from './catalog-fetch'
+
 const CHECK_BATCH = 8
 const CHECK_TOTAL = 64
-const RECHECK_PREVIOUS = 24
-const KEEP_ALIVE = 50
+const READY_PREVIEW = 50
+const CACHED_PREVIEW = 200
+const MAX_CACHE_BYTES = 96 * 1024 * 1024
 
-export interface CatalogNode { id: string; name: string; proto: string; host: string; port: number; country: string; source?: string; ping?: number; alive?: boolean; checkedAt?: number }
-export interface CatalogState { updatedAt?: number; sources: { url: string; ok: boolean; count: number; error?: string }[]; total: number; planned?: number; checked: number; alive: CatalogNode[]; busy: boolean }
+export interface CatalogNode {
+  id: string; name: string; proto: string; host: string; port: number; country: string; source?: string
+  ping?: number; alive?: boolean; checkedAt?: number; lastSuccessAt?: number; nextCheckAt?: number
+  status?: 'ready' | 'cached' | 'failed' | 'unverified'
+}
+export interface CatalogSourceReport {
+  url: string; ok: boolean; count: number; error?: string
+  sourceId?: string; selectedUrl?: string; attempts?: CatalogSourceText['attempts']
+}
+export interface CatalogState {
+  updatedAt?: number; verifiedAt?: number; sources: CatalogSourceReport[]
+  /** total/cachedCount count stored candidates; neither means reachable. */
+  total: number; cachedCount: number; readyCount: number
+  planned?: number; checked: number; alive: CatalogNode[]; cached: CatalogNode[]; busy: boolean
+  cacheError?: string
+}
+interface CatalogMetadata {
+  updatedAt?: number; verifiedAt?: number; sources: CatalogSourceReport[]
+  planned?: number; checked: number; busy: boolean; cacheError?: string
+}
 
 const NAMES: Record<string, string> = {
   'united states': 'US', usa: 'US', america: 'US', 'united kingdom': 'GB', england: 'GB', britain: 'GB', germany: 'DE', deutschland: 'DE',
@@ -57,257 +70,283 @@ export function countryOf(name: string): string {
   return m && CODES.has(m[1]) ? m[1] : '??'
 }
 
-async function fetchText(url: string, cancel?: AbortSignal, transport?: PinnedHttpGet): Promise<string> {
-  const allowed = new Set(['raw.githubusercontent.com', 'www.vpngate.net', 'vpngate.net'])
-  let current = new URL(url)
-  if (current.protocol !== 'https:' || current.username || current.password || !allowed.has(current.hostname.toLowerCase())) throw new Error('источник не разрешён')
-  const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 20000)
-  const signal = cancel ? AbortSignal.any([cancel, ac.signal]) : ac.signal
-  try {
-    let r: Response | undefined
-    for (let hop = 0; hop <= 3; hop++) {
-      r = transport ? await transport(current, await resolvedPublic(current, signal, transport.resolve), signal, MAX_BYTES) : await fetch(current, { signal, redirect: 'manual' })
-      if (r.status < 300 || r.status >= 400) break
-      const location = r.headers.get('location')
-      void r.body?.cancel().catch(() => undefined)
-      if (!location || hop === 3) throw new Error('слишком много перенаправлений')
-      current = new URL(location, current)
-      if (current.protocol !== 'https:' || current.username || current.password || !allowed.has(current.hostname.toLowerCase())) throw new Error('перенаправление на неразрешённый источник')
-    }
-    if (!r) throw new Error('источник не ответил')
-    if (!r.ok) throw new Error('HTTP ' + r.status)
-    if (!r.body) throw new Error('пустой ответ источника')
-    const reader = r.body.getReader()
-    const chunks: Uint8Array[] = []
-    let size = 0
-    try {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        size += value.byteLength
-        if (size > MAX_BYTES) { await reader.cancel(); throw new Error('слишком большой список') }
-        chunks.push(value)
-      }
-    } finally { reader.releaseLock() }
-    const buf = new Uint8Array(size)
-    let offset = 0
-    for (const chunk of chunks) { buf.set(chunk, offset); offset += chunk.byteLength }
-    return new TextDecoder().decode(buf)
-  } finally { clearTimeout(t) }
-}
-
-export interface CatalogSourceText { url: string; body?: string; error?: string }
-export const fetchCatalogSources = (sources: string[], signal: AbortSignal, transport?: PinnedHttpGet): Promise<CatalogSourceText[]> =>
-  Promise.all(sources.map(async url => {
-    try { return { url, body: await fetchText(url, signal, transport) } }
-    catch { return { url, error: 'Источник не удалось загрузить по выбранному пути' } }
-  }))
-
 export class Catalog {
-  state: CatalogState = { sources: [], total: 0, checked: 0, alive: [], busy: false }
-  private nodes = new Map<string, Profile>()
-  /** Bounded non-secret config hashes keep historical ids stable when a node temporarily leaves the sample. */
-  private identities = new Map<string, string>()
+  private pool: CatalogPool
+  private metadata: CatalogMetadata = { sources: [], checked: 0, busy: false }
   private file: string
   private abort?: AbortController
   private pending?: Promise<CatalogState>
   private checker?: Checker
   private checkerStopped = true
+  private stopping?: Promise<boolean>
+  private networkHash?: string
+  private expiryTimer?: ReturnType<typeof setTimeout>
   constructor(private dir: string, private exe: string, private onChange: (s: CatalogState) => void, private allowStart: () => boolean = () => true,
-    private readSources: (sources: string[], signal: AbortSignal) => Promise<CatalogSourceText[]> = fetchCatalogSources) {
+    private readSources: (sources: string[], signal: AbortSignal) => Promise<CatalogSourceText[]> = fetchCatalogSources,
+    private now: () => number = Date.now, private resolveCandidate?: PublicResolver) {
+    this.pool = new CatalogPool(now)
     this.file = join(dir, 'catalog.json')
     try {
-      if (existsSync(this.file)) {
-        const envelope = JSON.parse(readFileSync(this.file, 'utf8'))
-        if (envelope.version !== 1 || typeof envelope.sealed !== 'string') { rmSync(this.file, { force: true }); return } // remove legacy plaintext public cache
-        if (!safeStorage.isEncryptionAvailable()) return
-        const d = JSON.parse(safeStorage.decryptString(Buffer.from(envelope.sealed, 'base64')))
-        this.state = { ...this.state, ...d.state, busy: false }
-        for (const p of d.nodes ?? []) this.nodes.set(p.id, p)
-        for (const pair of Array.isArray(d.identities) ? d.identities.slice(-MAX_NODES) : []) {
-          if (Array.isArray(pair) && /^(vless|out|openvpn)\|[a-f0-9]{64}$/.test(pair[0]) && /^pub-[a-f0-9]{20}$/.test(pair[1])) this.identities.set(pair[0], pair[1])
-        }
-        for (const [id, p] of this.nodes) this.identities.set(credentialKey(p), id)
+      if (!existsSync(this.file)) return
+      if (statSync(this.file).size > MAX_CACHE_BYTES) return
+      const envelope = JSON.parse(readFileSync(this.file, 'utf8'))
+      if (![1, 2].includes(envelope.version) || typeof envelope.sealed !== 'string') { rmSync(this.file, { force: true }); return }
+      if (!safeStorage.isEncryptionAvailable()) { this.metadata.cacheError = 'Защищённое хранилище каталога недоступно'; return }
+      const data = JSON.parse(safeStorage.decryptString(Buffer.from(envelope.sealed, 'base64')))
+      if (envelope.version === 2) this.pool.restore(data.pool)
+      else this.pool.migrate(data.nodes, data.identities, data.state?.alive)
+      const state = data.metadata ?? data.state
+      // Never deserialize old ready/busy flags. Observation contexts belong to
+      // the process which measured them, so all restored candidates are cached.
+      if (state && typeof state === 'object') {
+        if (Number.isFinite(state.updatedAt) && state.updatedAt >= 0) this.metadata.updatedAt = state.updatedAt
+        if (Number.isFinite(state.verifiedAt) && state.verifiedAt >= 0) this.metadata.verifiedAt = state.verifiedAt
+        this.metadata.sources = (Array.isArray(state.sources) ? state.sources : []).slice(0, 12).filter((source: CatalogSourceReport) =>
+          source && typeof source.url === 'string' && typeof source.ok === 'boolean' && Number.isFinite(source.count))
       }
-    } catch { /* cache unreadable: start empty; never overwrite a personal profile store */ }
+    } catch { this.metadata.cacheError = 'Сохранённый каталог не удалось прочитать' }
   }
 
-  node(id: string): Profile | undefined { return this.nodes.get(id) }
+  /** Freshness is evaluated when read, not frozen in the last emitted event. */
+  get state(): CatalogState { return this.snapshot() }
+  snapshot(): CatalogState {
+    const now = this.now()
+    return {
+      ...this.metadata, sources: structuredClone(this.metadata.sources),
+      total: this.pool.size, cachedCount: this.pool.size,
+      readyCount: this.pool.all().filter(entry => this.pool.ready(entry, now)).length,
+      alive: this.bestReady(READY_PREVIEW), cached: this.pool.cached(CACHED_PREVIEW).map(entry => this.view(entry))
+    }
+  }
+
+  node(id: string): Profile | undefined { return this.pool.profile(id) }
+  bestReady(limit = 5): CatalogNode[] { return this.pool.bestReady(limit).map(entry => this.view(entry)) }
+  /** Historical candidates for a bounded recovery attempt, not a health claim. */
+  recoveryCandidates(limit = 8): Profile[] {
+    const candidates = this.pool.recoveryCandidates(limit)
+    this.save() // recovery rotation survives restarts independently of probe progress
+    return candidates
+  }
+
+  /** A new network invalidates current success and failure cooldowns together.
+   * A hashed fingerprint only avoids duplicate notifications; it is not saved. */
+  invalidateNetwork(fingerprint?: string): boolean {
+    const hash = fingerprint === undefined ? undefined : createHash('sha256').update(fingerprint).digest('hex')
+    if (hash !== undefined && hash === this.networkHash) return false
+    this.networkHash = hash
+    this.pool.invalidate()
+    this.abort?.abort()
+    void this.stopChecker()
+    this.publish()
+    return true
+  }
+
   recoveryError?: string
   async recover(): Promise<boolean> {
+    if (this.checker) return this.stopChecker()
     const journal = new RuntimeJournal(join(this.dir, 'catalog-check'), this.exe, 'check.json')
     const recovered = await journal.recover()
     this.recoveryError = journal.lastError
-    if (recovered) { this.checkerStopped = true; this.checker = undefined }
+    if (recovered) this.checkerStopped = true
     return recovered
   }
 
-  /** Cancel downloads and stop our measuring process before the user opens TUN or quits. */
+  /** Cancel our work and confirm cleanup before the main TUN can start. */
   async pause(): Promise<boolean> {
     this.abort?.abort()
-    const checker = this.checker
-    const stopped = checker ? await checker.stop() : this.checkerStopped
+    const stopped = await this.stopChecker()
     await this.pending?.catch(() => undefined)
-    if (checker && stopped) { this.checkerStopped = true; if (this.checker === checker) this.checker = undefined }
     return stopped && this.checkerStopped
   }
 
-  refresh(sources: string[] = DEFAULT_SOURCES): Promise<CatalogState> {
+  refresh(sources: string[] = DEFAULT_SOURCES, options: { probe?: boolean } = {}): Promise<CatalogState> {
+    const probe = options.probe !== false
+    return this.start(abort => this.runRefresh(sources, abort, probe), probe)
+  }
+
+  /** Verification can keep progressing from cache when every source is blocked. */
+  verify(limit = CHECK_TOTAL): Promise<CatalogState> {
+    return this.start(abort => this.runProbes(abort, limit), true)
+  }
+
+  private start(work: (abort: AbortController) => Promise<void>, probe: boolean): Promise<CatalogState> {
     if (this.pending) return this.pending
-    if (!this.allowStart()) return Promise.resolve(this.state)
+    if (probe && !this.allowStart()) return Promise.resolve(this.state)
     const abort = new AbortController()
     this.abort = abort
-    const previous = this.state
-    const previousNodes = new Map(this.nodes)
-    this.pending = this.runRefresh(sources, abort).catch(() => {
-      this.nodes = previousNodes
-      this.state = { ...previous, busy: false }
-      this.onChange(this.state)
-      return this.state
-    }).finally(() => { this.pending = undefined; this.abort = undefined; if (this.checkerStopped) this.checker = undefined })
+    this.metadata = { ...this.metadata, busy: true, planned: 0, checked: 0 }
+    this.publish()
+    this.pending = work(abort).catch(error => {
+      if (!abort.signal.aborted) this.localError(error instanceof PublicPathCleanupError
+        ? 'Движок загрузки не подтвердил остановку; новые проверки не запускались, кандидаты сохранены'
+        : 'Обновление прервано; сохранённые кандидаты остаются в каталоге')
+    }).finally(() => {
+      this.pending = undefined; this.abort = undefined
+      this.metadata.busy = false
+      if (this.checkerStopped) this.checker = undefined
+      this.publish()
+    }).then(() => this.state)
     return this.pending
   }
 
-  /** fetch every source, parse, dedupe, then health-check a bounded sample through the local checker */
-  private async runRefresh(sources: string[], abort: AbortController): Promise<CatalogState> {
-    const previous = this.state
-    const previousNodes = new Map(this.nodes)
-    const active = () => !abort.signal.aborted && this.allowStart()
-    const canceled = () => { this.nodes = previousNodes; this.state = { ...previous, busy: false }; this.onChange(this.state); return this.state }
-    this.state = { ...this.state, busy: true }; this.onChange(this.state)
-    const seen = new Map<string, Profile>(); const report: CatalogState['sources'] = []
-    const nodeSources = new Map<string, string>()
-    const buckets: Profile[][] = []
-    const selectedSources = sources.slice(0, 10)
-    const perSourceLimit = Math.max(1, Math.ceil(MAX_NODES / selectedSources.length))
-    // Sources are independent. Fetch them concurrently so one 20-second timeout cannot
-    // multiply into several minutes; parsing and deduplication remain deterministic in source order.
-    const existingIds = new Map([...this.identities, ...[...previousNodes].map(([id, p]) => [credentialKey(p), id] as const)])
-    const idOwners = new Map([...existingIds].map(([key, id]) => [id, key]))
-    const fetched: CatalogSourceText[] = await this.readSources(selectedSources, abort.signal).catch(() => selectedSources.map(url => ({ url, error: 'Выбранный путь загрузки недоступен; сохранён прежний каталог' })))
-    if (!active()) return canceled()
+  private async runRefresh(sources: string[], abort: AbortController, probe: boolean): Promise<void> {
+    const selected = [...new Set(sources)].slice(0, 10)
+    const fetched: CatalogSourceText[] = await this.readSources(selected, abort.signal).catch(error => {
+      // A blocked source may still allow checking cached relays. Unconfirmed
+      // cleanup of the loader's shared checker is terminal for the whole round.
+      if (error instanceof PublicPathCleanupError) throw error
+      return selected.map(url => ({ url, error: 'Источник недоступен по выбранному пути' }))
+    })
+    if (abort.signal.aborted) return
+    const report: CatalogSourceReport[] = []
+    const buckets: { profile: Profile; source: string }[][] = []
     for (const item of fetched) {
-      const { url } = item
-      if (typeof item.body !== 'string') { report.push({ url, ok: false, count: 0, error: item.error }); continue }
+      const sourceReport: CatalogSourceReport = {
+        url: item.url, ok: false, count: 0,
+        ...(item.sourceId ? { sourceId: item.sourceId } : {}),
+        ...(item.selectedUrl ? { selectedUrl: item.selectedUrl } : {}),
+        ...(item.attempts ? { attempts: item.attempts } : {})
+      }
+      if (typeof item.body !== 'string') { report.push({ ...sourceReport, error: item.error ?? 'Источник недоступен' }); continue }
       try {
-        const items = /vpngate\.net\/api\/iphone\/?$/i.test(url) ? parseVpnGateCsv(item.body, perSourceLimit) : parseAny(item.body, perSourceLimit).items
-        let n = 0
-        const protocols = new Map<string, Profile[]>()
-        for (const p of items) {
-          if (p.kind === 'awg') continue // public sources only accept the catalog's supported proxy/OpenVPN families
-          const legacy = p.kind === 'vless' ? `vless|${p.vless.server}|${p.vless.port}|${p.vless.uuid}` : p.kind === 'out' ? `${p.outbound.type}|${p.host}|${p.port}|${String(p.outbound.uuid ?? p.outbound.password ?? '')}` : `openvpn|${p.host}|${p.port}|${JSON.stringify(p.endpoint)}`
-          const k = credentialKey(p)
-          if (seen.has(k) || seen.size >= MAX_NODES) continue
-          p.source = 'public'
-          // Preserve the cached config → id binding even when a source changes ordering.
-          // A new config cannot take the historical id of another SNI/path at this endpoint.
-          const legacyId = 'pub-' + createHash('sha256').update(legacy).digest('hex').slice(0, 20)
-          p.id = existingIds.get(k) ?? (!idOwners.has(legacyId) || idOwners.get(legacyId) === k ? legacyId : 'pub-' + createHash('sha256').update(k).digest('hex').slice(0, 20))
-          idOwners.set(p.id, k)
-          nodeSources.set(p.id, sourceLabel(url))
-          seen.set(k, p); n++
-          const family = p.kind === 'out' ? String(p.outbound.type) : p.kind
+        const items = item.format === 'vpngate-csv' || /vpngate\.net\/api\/iphone\/?$/i.test(item.url)
+          ? parseVpnGateCsv(item.body, CATALOG_POOL_LIMIT) : parseAny(item.body, CATALOG_POOL_LIMIT).items
+        const protocols = new Map<string, { profile: Profile; source: string }[]>()
+        for (const profile of items) {
+          if (profile.kind === 'awg' || !publicCandidateEndpointsAllowed(profile)) continue
+          const family = catalogFamily(profile)
           const group = protocols.get(family) ?? []
-          group.push(p); protocols.set(family, group)
+          group.push({ profile, source: item.url }); protocols.set(family, group)
+          sourceReport.count++
         }
-        if (n) buckets.push(roundRobin([...protocols.values()]))
-        report.push(n ? { url, ok: true, count: n } : { url, ok: false, count: 0, error: 'В источнике нет поддерживаемых узлов' })
-      } catch (error) { report.push({ url, ok: false, count: 0, error: error instanceof Error ? error.message : String(error) }) }
+        // A mirror/source containing already-known entries is still a valid
+        // response. Global deduplication is separate from source availability.
+        sourceReport.ok = sourceReport.count > 0
+        if (!sourceReport.ok) sourceReport.error = 'В источнике нет поддерживаемых узлов'
+        if (sourceReport.ok) buckets.push(roundRobin([...protocols.values()]))
+      } catch { sourceReport.error = 'Источник не удалось разобрать как список поддерживаемых узлов' }
+      report.push(sourceReport)
     }
-    if (!report.some(x => x.ok)) {
-      this.state = { ...previous, sources: report, busy: false }
-      this.onChange(this.state)
-      return this.state
+    this.metadata.sources = report
+    if (buckets.length) {
+      this.pool.ingest(roundRobin(buckets))
+      this.metadata.updatedAt = this.now()
     }
-    const all = roundRobin(buckets)
-    // Recheck enough known-good nodes to keep the list useful, but reserve most of every
-    // automatic refresh for discovery. This continuously replenishes the public pool instead
-    // of spending the whole bounded budget on the same previously alive entries.
-    const prev = new Set(this.state.alive.map(a => a.id))
-    const hostOf = (p: Profile) => (p.kind === 'vless' ? p.vless.server : p.kind === 'awg' ? p.peer.host : p.host)
-    const portOf = (p: Profile) => (p.kind === 'vless' ? p.vless.port : p.kind === 'awg' ? p.peer.port : p.port)
-    const knownCandidates = all.filter(p => prev.has(p.id)).slice(0, RECHECK_PREVIOUS)
-    const fresh = all.filter(p => !prev.has(p.id)).slice(0, CHECK_TOTAL - knownCandidates.length)
-    const sample = [...knownCandidates, ...fresh]
-    this.state = { ...this.state, sources: report, total: all.length, planned: sample.length, checked: 0 }
-    this.onChange(this.state)
-    const alive: CatalogNode[] = []
-    const chk = new Checker(this.exe, join(this.dir, 'catalog-check'), active)
-    this.checker = chk
+    // Publish/persist ingestion before probing; a missing engine or partial
+    // probe failure must not throw away downloaded recovery candidates.
+    this.save()
+    this.publish()
+    if (probe && !abort.signal.aborted && this.allowStart()) await this.runProbes(abort, CHECK_TOTAL)
+  }
+
+  private async runProbes(abort: AbortController, limit: number): Promise<void> {
+    const context = this.pool.context
+    const active = () => !abort.signal.aborted && this.allowStart() && this.pool.context === context
+    if (!active()) return
+    if (!this.checkerStopped || this.checker) { this.localError('Предыдущий проверочный движок не подтвердил остановку'); return }
+    const sample = this.pool.plan(limit)
+    this.metadata.planned = sample.length
+    this.metadata.checked = 0
+    this.metadata.sources = this.metadata.sources.filter(source => source.url !== 'local checker')
+    this.publish()
+    if (!sample.length) { this.save(); return }
+    const checker = new Checker(this.exe, join(this.dir, 'catalog-check'), active)
+    this.checker = checker
+    this.checkerStopped = false
+    const observations: { id: string; latency: number | undefined; at: number }[] = []
     let started = 0
     try {
-      for (let i = 0; i < sample.length; i += CHECK_BATCH) {
+      for (let offset = 0; offset < sample.length && active(); offset += CHECK_BATCH) {
+        const prepared = await Promise.all(sample.slice(offset, offset + CHECK_BATCH).map(profile => preparePublicCandidate(profile, abort.signal, this.resolveCandidate)))
+        const batch = prepared.filter((profile): profile is NonNullable<typeof profile> => !!profile)
         if (!active()) break
-        const batch = sample.slice(i, i + CHECK_BATCH)
-        if (!(await chk.ensure(batch, []))) continue
+        if (!batch.length) continue
+        if (!(await checker.ensure(batch, []))) continue
         started++
-        const pings = await chk.pings()
+        const pings = await checker.pings()
         if (!active()) break
-        for (const p of batch) {
-          const ms = pings[p.id]
-          if (ms !== undefined) {
-            const country = countryOf(p.name)
-            p.name = catalogLabel(p.name, country, hostOf(p))
-            // An entry visible during progress must already be importable by its exact ID.
-            this.nodes.set(p.id, p)
-            alive.push({ id: p.id, name: p.name, proto: p.version, host: hostOf(p), port: portOf(p), country, source: nodeSources.get(p.id), ping: ms, alive: true, checkedAt: Date.now() })
-          }
+        const at = this.now()
+        for (const profile of batch) {
+          // An empty map means the checker disappeared/cancelled. Its explicit
+          // id -> undefined result means that this outbound was really tried.
+          if (Object.prototype.hasOwnProperty.call(pings, profile.id)) observations.push({ id: profile.id, latency: pings[profile.id], at })
         }
-        this.state = { ...this.state, sources: report, total: all.length, planned: sample.length, checked: Math.min(i + CHECK_BATCH, sample.length), alive: alive.slice().sort((a, b) => a.ping! - b.ping!) }
-        this.onChange(this.state)
+        this.metadata.checked = observations.length
+        this.publish()
       }
-    } catch (e) {
-      this.nodes = previousNodes
-      report.push({ url: 'local checker', ok: false, count: 0, error: e instanceof Error ? e.message : String(e) })
-      this.state = { ...previous, sources: report, busy: false }
-      this.onChange(this.state)
-      return this.state
-    } finally { this.checkerStopped = await chk.stop() }
-    if (!active()) return canceled()
-    if (!this.checkerStopped) {
-      this.nodes = previousNodes
-      report.push({ url: 'local checker', ok: false, count: 0, error: 'Проверочный движок не подтвердил остановку' })
-      this.state = { ...previous, sources: report, busy: false }
-      this.onChange(this.state)
-      return this.state
+    } catch { if (active()) this.localError('Проверочный движок не завершил все измерения') }
+    finally { await this.stopChecker(checker) }
+    if (!active()) { this.save(); return }
+    if (!this.checkerStopped) { this.localError('Проверочный движок не подтвердил остановку'); this.save(); return }
+    // Commit observations only after confirmed cleanup. A cancelled operation
+    // can retain ingested configs but cannot promote late results to ready.
+    for (const observation of observations) this.pool.observe(observation.id, observation.latency, context, observation.at)
+    if (observations.length) this.metadata.verifiedAt = this.now()
+    if (!started || !observations.length) this.localError('Проверочный движок не выполнил измерения; кандидаты сохранены')
+    else if (!observations.some(observation => validLatency(observation.latency))) this.localError('Проверенные узлы не ответили; кандидаты сохранены без статуса готовности')
+    this.save()
+  }
+
+  private stopChecker(checker = this.checker): Promise<boolean> {
+    if (!checker || (checker !== this.checker && this.checkerStopped)) return Promise.resolve(this.checkerStopped)
+    if (this.stopping) return this.stopping
+    const stopping = checker.stop().catch(() => false).then(stopped => {
+      if (this.checker === checker) {
+        this.checkerStopped = stopped
+        if (stopped) this.checker = undefined
+      }
+      return stopped
+    }).finally(() => { if (this.stopping === stopping) this.stopping = undefined })
+    this.stopping = stopping
+    return stopping
+  }
+
+  private view(entry: CatalogEntry): CatalogNode {
+    const profile = entry.profile, observation = entry.history.at(-1)
+    const country = countryOf(profile.name), host = catalogHost(profile)
+    const ready = this.pool.ready(entry)
+    return {
+      id: profile.id, name: catalogLabel(profile.name, country, host), proto: profile.version, host, port: catalogPort(profile), country,
+      ...(entry.sources[0] ? { source: sourceLabel(entry.sources[0]) } : {}),
+      status: this.pool.status(entry), alive: ready,
+      ...(ready ? { ping: observation!.latency } : {}),
+      ...(observation ? { checkedAt: observation.at } : {}),
+      ...(entry.lastSuccessAt !== undefined ? { lastSuccessAt: entry.lastSuccessAt } : {}),
+      ...(observation?.context === this.pool.context && !observation.ok ? { nextCheckAt: entry.nextProbeAt } : {})
     }
-    if (sample.length && !started) {
-      this.nodes = previousNodes
-      report.push({ url: 'local checker', ok: false, count: 0, error: 'Проверочный движок недоступен' })
-      this.state = { ...previous, sources: report, busy: false }
-      this.onChange(this.state)
-      return this.state
+  }
+
+  private localError(error: string): void {
+    this.metadata.sources = [...this.metadata.sources.filter(source => source.url !== 'local checker'), { url: 'local checker', ok: false, count: 0, error }]
+  }
+
+  private save(): void {
+    if (!safeStorage.isEncryptionAvailable()) { this.metadata.cacheError = 'Каталог хранится в памяти: защищённое хранилище недоступно'; return }
+    const temporary = this.file + '.tmp'
+    try {
+      const { cacheError: _error, ...metadata } = this.metadata
+      const sealed = safeStorage.encryptString(JSON.stringify({ metadata: { ...metadata, busy: false }, pool: this.pool.data() })).toString('base64')
+      mkdirSync(this.dir, { recursive: true })
+      writeFileSync(temporary, JSON.stringify({ version: 2, sealed }), { mode: 0o600 })
+      protectPrivateFile(temporary)
+      renameSync(temporary, this.file)
+      delete this.metadata.cacheError
+    } catch {
+      this.metadata.cacheError = 'Обновлённый каталог не удалось сохранить; прежний файл остаётся доступен'
+      try { rmSync(temporary, { force: true }) } catch { /* no plaintext fallback */ }
     }
-    if (sample.length && !alive.length) {
-      this.nodes = previousNodes
-      // A temporary network/probe outage must not erase the last usable public list. Its old checkedAt
-      // remains visible, so the UI can distinguish cached data from a fresh successful verification.
-      report.push({ url: 'local checker', ok: false, count: 0, error: 'Ни один узел не ответил; оставлен прошлый рабочий список' })
-      this.state = { ...previous, sources: report, busy: false }
-      this.onChange(this.state)
-      return this.state
-    }
-    alive.sort((a, b) => a.ping! - b.ping!)
-    const keep = alive.slice(0, KEEP_ALIVE)
-    this.nodes = new Map(keep.map(n => [n.id, all.find(p => p.id === n.id)!]))
-    for (const [id, p] of this.nodes) {
-      const key = credentialKey(p)
-      this.identities.delete(key)
-      this.identities.set(key, id)
-    }
-    while (this.identities.size > MAX_NODES) this.identities.delete(this.identities.keys().next().value!)
-    this.state = { updatedAt: Date.now(), sources: report, total: all.length, planned: sample.length, checked: sample.length, alive: keep, busy: false }
-    if (safeStorage.isEncryptionAvailable()) {
-      const tmp = this.file + '.tmp'
-      try {
-        const sealed = safeStorage.encryptString(JSON.stringify({ state: this.state, nodes: [...this.nodes.values()], identities: [...this.identities] })).toString('base64')
-        mkdirSync(this.dir, { recursive: true })
-        writeFileSync(tmp, JSON.stringify({ version: 1, sealed }))
-        protectPrivateFile(tmp)
-        renameSync(tmp, this.file)
-      } catch { try { rmSync(tmp, { force: true }) } catch { /* cache is optional */ } }
+  }
+
+  private publish(): void {
+    if (this.expiryTimer) { clearTimeout(this.expiryTimer); this.expiryTimer = undefined }
+    const now = this.now()
+    const expiration = this.pool.all().filter(entry => this.pool.ready(entry, now)).reduce((earliest, entry) =>
+      Math.min(earliest, entry.history.at(-1)!.at + CATALOG_READY_TTL), Infinity)
+    // Idle UI also loses a stale ready badge, even without another user action.
+    if (Number.isFinite(expiration)) {
+      this.expiryTimer = setTimeout(() => this.publish(), Math.max(1, expiration - now + 1))
+      this.expiryTimer.unref()
     }
     this.onChange(this.state)
-    return this.state
   }
 }

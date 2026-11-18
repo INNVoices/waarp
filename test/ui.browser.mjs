@@ -41,6 +41,11 @@ function fixture(options) {
   const snapshot = () => structuredClone({ admin: !options.adminPending, profiles: state.profiles, settings: state.settings, status: state.status, notices: [] })
   const push = () => emit('snapshot', snapshot())
   const catalog = { busy: false, total: 1, planned: 1, checked: 1, updatedAt: Date.now(), sources: [], alive: [{ id: 'pub-fixture', name: 'DE Example', host: '198.51.100.1', port: 443, country: 'DE', proto: 'Trojan', ping: 42 }] }
+  if (options.staleCatalog) {
+    catalog.readyCount = 0; catalog.cachedCount = 4000; catalog.total = 4000
+    catalog.cached = [{ ...catalog.alive[0], status: 'cached', checkedAt: Date.now() - 3600_000, lastSuccessAt: Date.now() - 3600_000 }]
+    catalog.alive = []
+  }
   const listenerCounts = () => Object.fromEntries([...listeners].filter(([, group]) => group.size).map(([channel, group]) => [channel, group.size]))
   window.__waarpTest = { state, push, emit, snapshot, listenerCounts }
   window.api = {
@@ -88,7 +93,9 @@ function fixture(options) {
     },
     clipPeek: async () => ({ kind: 'none' }),
     importProfile: () => { count('import'); return new Promise((resolve, reject) => { state.resolveImport = resolve; state.rejectImport = reject }) },
-    catalogGet: async () => catalog, catalogRefresh: async () => catalog,
+    catalogGet: async () => catalog,
+    catalogRefresh: async () => { count('catalogRefresh'); return catalog },
+    catalogVerify: async () => { count('catalogVerify'); return catalog },
     catalogBest: async () => ({ ok: true, id: 'g-public' }), catalogAdd: async id => { count('catalogAdd'); return { ok: true, id } },
     removeProfile: async id => { count('remove'); state.profiles = state.profiles.filter(profile => profile.id !== id); push(); return { ok: true } },
     renameProfile: async () => ({ ok: true }), replaceProfile: async () => ({ ok: true }), refreshSubscription: async () => ({ ok: true }),
@@ -532,6 +539,44 @@ try {
     await capture(page, 'public-min-width.png')
   })
   await page.context().close()
+  await check('cached public candidates never display stale success and remain selectable', async () => {
+    const page = await pageFor({ staleCatalog: true })
+    await ready(page); await clickNav(page, 'servers')
+    await page.setViewportSize({ width: 900, height: 600 })
+    const panel = page.locator('#public-catalog')
+    assert.equal(await panel.getByRole('button', { name: strings['pub.auto'], exact: false }).isEnabled(), false)
+    await panel.getByText(strings['pub.manual'], { exact: true }).click()
+    await panel.getByText(strings['pub.region.eu'], { exact: true }).click()
+    await panel.getByText(strings['pub.node.cached'], { exact: true }).waitFor()
+    assert.equal(await panel.locator('.pub-row:not(.pick-th) .pub-ms').count(), 0, 'historical latency is not presented as a current result')
+    await panel.locator('.pub-row:not(.pick-th) .pub-add').click()
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.catalogAdd), 1)
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.toggle ?? 0), 0)
+    const overflow = await panel.evaluate(p => p.scrollWidth - p.clientWidth)
+    assert.ok(overflow <= 1, 'cached status and controls fit at minimum width')
+    await capture(page, 'public-cached-min-width.png')
+    await page.context().close()
+  })
+  await check('public sources refresh while ON; candidate probing remains an explicit OFF action', async () => {
+    const page = await pageFor({ staleCatalog: true })
+    await ready(page); await clickNav(page, 'servers')
+    await page.evaluate(() => { const f = window.__waarpTest; f.state.status = { ...f.state.status, phase: 'on', open: true }; f.push() })
+    const panel = page.locator('#public-catalog')
+    const refresh = panel.getByRole('button', { name: strings['pub.refresh'], exact: true })
+    const verify = panel.getByRole('button', { name: strings['pub.verify'], exact: true })
+    await settle(page)
+    assert.equal(await refresh.isEnabled(), true)
+    assert.equal(await verify.isEnabled(), false)
+    await refresh.click()
+    await page.waitForFunction(() => window.__waarpTest.state.calls.catalogRefresh === 1)
+    assert.deepEqual(await page.evaluate(() => [window.__waarpTest.state.calls.toggle ?? 0, window.__waarpTest.state.calls.disconnect ?? 0]), [0, 0])
+    await page.evaluate(() => { const f = window.__waarpTest; f.state.status = { ...f.state.status, phase: 'off', open: false }; f.push() })
+    await verify.click()
+    await page.waitForFunction(() => window.__waarpTest.state.calls.catalogVerify === 1)
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.catalogRefresh), 1, 'rechecking cache does not require a source download')
+    await capture(page, 'public-pool-controls.png')
+    await page.context().close()
+  })
   await check('whole-computer mode cannot silently select an untrusted public path', async () => {
     const page = await pageFor({ publicOnly: true })
     await ready(page)

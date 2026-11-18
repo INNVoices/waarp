@@ -15,6 +15,8 @@ import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import local.waarp.android.ui.CatalogSourceUi
 import local.waarp.android.ui.DiagnosticLayerUi
@@ -76,7 +78,14 @@ class NetworkTools(context: Context) {
     // The app UID stays inside TUN for native TCP reverse NAT, so bind these
     // HTTPS sockets explicitly to the physical network instead of excluding it.
     suspend fun fetch(url: String, maxBytes: Int = MAX_IMPORT_BYTES, physical: Boolean = true,
-        boundNetwork: Network? = null): String = withContext(Dispatchers.IO) {
+        boundNetwork: Network? = null): String = fetchBound(url, maxBytes, physical, boundNetwork, null)
+
+    /** Catalog-specific allowlist and public-address checks never broaden private subscription routing. */
+    suspend fun fetchPublic(source: PublicCatalogSource, url: String, maxBytes: Int = PublicCatalog.MAX_SOURCE_BYTES,
+        physical: Boolean = true, boundNetwork: Network? = null): String = fetchBound(url, maxBytes, physical, boundNetwork, source)
+
+    private suspend fun fetchBound(url: String, maxBytes: Int, physical: Boolean,
+        boundNetwork: Network?, publicSource: PublicCatalogSource?): String = withContext(Dispatchers.IO) {
         NetworkOperation.within(30_000) {
             require(maxBytes > 0)
             val network = boundNetwork ?: if (physical) physicalNetwork() ?: error("Нет физического подключения к сети") else null
@@ -84,7 +93,8 @@ class NetworkTools(context: Context) {
             repeat(5) { redirect ->
                 coroutineContext.ensureActive()
                 require(current.scheme.equals("https", true) && current.host != null && current.rawUserInfo == null) { "Нужна HTTPS-ссылка без логина в адресе" }
-                val client = clientFor(network, current.host)
+                publicSource?.let { PublicSourcePolicy.requireEndpoint(it, current) }
+                val client = clientFor(network, current.host, publicSource != null)
                 val request = Request.Builder().url(current.toString())
                     .header("User-Agent", "Waarp-Android/0.5")
                     .header("Accept", if (current.host == "cloudflare-dns.com") "application/dns-json" else "text/plain, application/json, */*")
@@ -135,12 +145,13 @@ class NetworkTools(context: Context) {
         data class Body(val text: String) : FetchReply
     }
 
-    private suspend fun clientFor(network: Network?, host: String): OkHttpClient {
+    private suspend fun clientFor(network: Network?, host: String, publicOnly: Boolean = false): OkHttpClient {
         // Resolve before enqueue via Android's asynchronous, cancellable resolver.
         // Every redirect gets fresh answers on this same physical network. Disable
         // implicit system proxies: control-plane/diagnostic sockets are explicitly
         // direct and must never recurse into a saved, currently broken VPN route.
         val addresses = resolve(network, host)
+        if (publicOnly) PublicSourcePolicy.requirePublicAddresses(addresses)
         return http.newBuilder().proxy(Proxy.NO_PROXY).dns { requested ->
             if (!requested.equals(host, true)) throw UnknownHostException("Unexpected HTTP DNS lookup")
             addresses
@@ -172,39 +183,32 @@ class NetworkTools(context: Context) {
         }
     }
 
-    suspend fun catalog(): CatalogResult = catalog { url, limit -> fetch(url, limit) }
+    suspend fun catalog(): CatalogResult = catalog { source, url, limit -> fetchPublic(source, url, limit) }
 
-    suspend fun catalog(fetcher: suspend (String, Int) -> String): CatalogResult = coroutineScope {
-        val results = SOURCES.map { (name, url) -> async(Dispatchers.IO) {
-            try {
-                val raw = fetcher(url, 8 * MAX_IMPORT_BYTES)
-                coroutineContext.ensureActive()
-                val parsed = if (url.contains("vpngate.net")) {
-                    // CSV rows embed certificates; process one bounded row at a time.
-                    raw.lineSequence().filter { it.isNotBlank() && !it.startsWith('#') && !it.startsWith('*') }.take(200).mapNotNull { row ->
-                        runCatching {
-                            val cols = row.split(','); require(cols.size >= 15)
-                            OpenVpnImporter.parse(ProfileImporter.base64(cols[14]).toString(Charsets.UTF_8), cols[0]).copy(country = cols[6])
-                        }.getOrNull()
-                    }.toList()
-                } else {
-                    var body = raw.trim()
-                    if (!body.contains("://")) body = runCatching { ProfileImporter.base64(body).toString(Charsets.UTF_8) }.getOrDefault(body)
-                    Regex("(?:vless|vmess|trojan|ss|hysteria2|hy2|tuic)://[^\\s\"'<>\\\\]+", RegexOption.IGNORE_CASE)
-                        .findAll(body.replace("\\/", "/")).take(700).mapNotNull { match ->
-                            runCatching { ProfileImporter.link(match.value) }.getOrNull()
-                        }.toList()
-                }
-                require(parsed.isNotEmpty()) { "Источник не содержит поддерживаемых узлов" }
-                val profiles = parsed.distinctBy(ProfileImporter::identity).map { profile ->
-                    val digest = ProfileImporter.identity(profile)
-                    profile.copy(id = "pub-${digest.take(24)}", source = "public")
-                }
-                profiles to CatalogSourceUi(name, profiles.size, true)
-            } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { emptyList<TunnelProfile>() to CatalogSourceUi(name, 0, false, "Источник недоступен или формат не поддерживается") }
+    /** Resolve only the small selected public sample and pin all its temporary dial endpoints before native probing. */
+    suspend fun preparePublicProbe(profile: TunnelProfile): TunnelProfile = withContext(Dispatchers.IO) {
+        NetworkOperation.within(8_000) {
+            require(profile.source == "public")
+            val physical = physicalNetwork() ?: error("Нет физического подключения к сети")
+            val hosts = PublicSourcePolicy.endpointHosts(profile)
+            val answers = hosts.associateWith { host -> resolve(physical, host) }
+            check(physicalNetwork()?.networkHandle == physical.networkHandle) { "Сеть изменилась до проверки публичного профиля" }
+            PublicSourcePolicy.pinForProbe(profile, answers)
+        }
+    }
+
+    suspend fun catalog(fetcher: suspend (PublicCatalogSource, String, Int) -> String): CatalogResult = coroutineScope {
+        val workers = Semaphore(3)
+        val results = PublicCatalog.SOURCES.map { source -> async(Dispatchers.IO) {
+            workers.withPermit {
+                try {
+                    val profiles = PublicCatalog.loadSource(source, fetcher)
+                    profiles to CatalogSourceUi(source.name, profiles.size, true)
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { emptyList<TunnelProfile>() to CatalogSourceUi(source.name, 0, false, "Источник недоступен или формат не поддерживается") }
+            }
         } }.map { it.await() }
-        CatalogResult(results.flatMap { it.first }.distinctBy(ProfileImporter::identity).take(MAX_PROFILES), results.map { it.second })
+        CatalogResult(PublicCatalog.fairPool(results.map { it.first }), results.map { it.second })
     }
 
     fun target(raw: String): URI {
@@ -281,14 +285,7 @@ class NetworkTools(context: Context) {
     }
 
     companion object {
-        val SOURCES = listOf(
-            "awesome-vpn" to "https://raw.githubusercontent.com/awesome-vpn/awesome-vpn/master/all",
-            "mrdevmohamed" to "https://raw.githubusercontent.com/mrdevmohamed/v2ray-configs/main/All_Configs_Sub.txt",
-            "Epodonios" to "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt",
-            "igareck · VLESS" to "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS.txt",
-            "igareck · SS" to "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_SS%2BAll_RUS.txt",
-            "VPN Gate" to "https://www.vpngate.net/api/iphone/",
-        )
+        val SOURCES: List<Pair<String, String>> = PublicCatalog.SOURCES.map { it.name to it.url }
         fun readBounded(input: InputStream, limit: Int = MAX_IMPORT_BYTES, checkActive: () -> Unit = {}): ByteArray {
             val output = ByteArrayOutputStream(); val buffer = ByteArray(8192)
             while (true) { checkActive(); val n = input.read(buffer); if (n < 0) break; require(output.size() + n <= limit) { "Файл слишком большой" }; output.write(buffer, 0, n) }
