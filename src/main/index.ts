@@ -1241,6 +1241,10 @@ function ipc() {
     return { ok: await clearDiagnosticEvidence(sessionEvidence, join(app.getPath('userData'), 'payload-last.json')) }
   })
   secureHandle('net:reset', () => {
+    // Recovery is a separate command, not a second hidden global OFF control.
+    // Require an explicit master disconnect before recycling a live session.
+    if (master.open || engine.status.phase === 'on' || engine.status.phase === 'starting')
+      return Promise.resolve({ ok: false, error: 'Сначала выключи VPN главным переключателем, затем восстанови сеть.' })
     connectionAction++
     setMaster(false)
     const stop = engine.stop() // invalidate a pending start immediately, outside the queue

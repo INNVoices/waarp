@@ -526,6 +526,9 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
     private fun TransferObservation.toUi() = TransferDirectionUi(state, bytes, elapsedMs, reason)
     override suspend fun readLogs() = action { changed(); "Журнал обновлён" }
     override suspend fun recover() = action {
+        check(!repository.requestedOpen.value && controller.status.value.phase !in setOf(RuntimePhase.ON, RuntimePhase.STARTING)) {
+            "Сначала выключите VPN главным переключателем. Восстановление не должно неожиданно прерывать соединение."
+        }
         disconnect(); withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.OFF || it.phase == RuntimePhase.ERROR } }
         repository.reload(); repository.ready(); "Служба остановлена, защищённое хранилище прочитано. Можно подключаться снова."
     }
