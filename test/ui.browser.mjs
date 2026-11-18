@@ -115,7 +115,20 @@ function fixture(options) {
       push(); return { ok: true, id }
     },
     profileConfig: async id => { count('profileConfig'); return { type: 'trojan', tag: 'p-' + id, server: '192.0.2.1', server_port: 443, password: '•••' } },
+    payloadLast: async () => { count('payloadLast'); return state.payloadReport },
+    payloadRun: async (profileId, uploadEndpoint) => {
+      count('payloadRun'); state.lastPayloadRequest = { profileId, uploadEndpoint }
+      const report = { profileId, at: Date.now(), target: 'rfc6455',
+        download: { state: 'pass', bytes: 162067, ms: 200 },
+        upload: { state: 'not_measured', bytes: 0, ms: 0, reason: 'no_endpoint' } }
+      const finish = () => { state.payloadReport = report; return { report } }
+      if (options.deferPayload) return new Promise(resolve => { state.resolvePayload = () => resolve(finish()) })
+      return finish()
+    },
+    payloadCancel: async () => { count('payloadCancel'); return true },
     exportDiag: async () => { count('exportDiag'); return state.exportCanceled ? { ok: false } : { ok: true } },
+    diagnosticHistory: async () => { count('diagnosticHistory'); return state.historyCleared ? {} : { lastSession: { phase: 'off', events: [{ category: 'network' }] } } },
+    clearDiagnosticHistory: async () => { count('clearDiagnosticHistory'); state.historyCleared = true; state.payloadReport = undefined; return { ok: true } },
     log: async () => [],
     resetNet: async () => {
       count('resetNet')
@@ -560,6 +573,36 @@ try {
     assert.equal(await points(), 1, 'OFF rounds work without treating a duplicate as a second sample')
     await page.context().close()
   })
+  await check('payload diagnostics stay idle until requested and distinguish unmeasured upload', async () => {
+    const page = await pageFor()
+    await ready(page); await clickNav(page, 'an')
+    const panel = page.locator('.payload-check')
+    await panel.getByText(strings['payload.no_result'], { exact: true }).waitFor()
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.payloadLast), 1)
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.payloadRun ?? 0), 0, 'opening diagnostics cannot initiate a transfer')
+    await panel.getByRole('combobox', { name: strings['payload.path'], exact: true }).selectOption('b')
+    await panel.getByRole('button', { name: strings['payload.run'], exact: true }).click()
+    await panel.getByText(strings['payload.reason.no_endpoint'], { exact: true }).waitFor()
+    assert.deepEqual(await page.evaluate(() => window.__waarpTest.state.lastPayloadRequest), { profileId: 'b', uploadEndpoint: undefined })
+    assert.equal(await panel.locator('.kv > span').nth(1).textContent(), strings['payload.pass'].replace('{bytes}', '158 КБ').replace('{seconds}', '0.2'))
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.payloadRun), 1)
+    await page.context().close()
+  })
+  await check('cancelled payload checks ignore a late response and restore the action', async () => {
+    const page = await pageFor({ deferPayload: true })
+    await ready(page); await clickNav(page, 'an')
+    const panel = page.locator('.payload-check')
+    await panel.getByRole('button', { name: strings['payload.run'], exact: true }).click()
+    await page.waitForFunction(() => typeof window.__waarpTest.state.resolvePayload === 'function')
+    await panel.getByRole('button', { name: strings['payload.cancel'], exact: true }).click()
+    await panel.getByText(strings['payload.error.cancelled'], { exact: true }).waitFor()
+    await page.evaluate(() => window.__waarpTest.state.resolvePayload())
+    await settle(page)
+    assert.equal(await panel.locator('.kv').count(), 0, 'the obsolete transfer cannot become a successful report')
+    assert.equal(await panel.getByRole('button', { name: strings['payload.run'], exact: true }).isEnabled(), true)
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.payloadCancel), 1)
+    await page.context().close()
+  })
   await check('diagnosis applies the proven profile through its token and refuses a stale result', async () => {
     const page = await pageFor()
     await ready(page); await clickNav(page, 'an')
@@ -606,7 +649,7 @@ try {
     await capture(page, 'technical-details-min-width.png')
     await clickNav(page, 'settings')
     const dev = page.getByRole('switch', { name: strings['set.dev'], exact: true })
-    await dev.focus(); await page.keyboard.press('Space')
+    assert.equal(await dev.getAttribute('aria-checked'), 'false')
     const exportButton = page.getByRole('button', { name: strings['set.diag.go'], exact: true })
     await page.evaluate(() => { window.__waarpTest.state.exportCanceled = true })
     await exportButton.click()
@@ -617,6 +660,14 @@ try {
     await exportButton.focus(); await page.keyboard.press('Enter')
     await page.getByText(strings['set.diag.done'], { exact: true }).waitFor()
     assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.exportDiag), 2)
+    await page.getByRole('button', { name: strings['set.history.show'], exact: true }).click()
+    await page.locator('pre.log').filter({ hasText: 'lastSession' }).waitFor()
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.diagnosticHistory), 1)
+    await page.getByRole('button', { name: strings['set.history.clear'], exact: true }).click()
+    await page.getByText(strings['set.history.cleared'], { exact: true }).waitFor()
+    assert.equal(await page.locator('pre.log').count(), 0)
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.clearDiagnosticHistory), 1)
+    await dev.focus(); await page.keyboard.press('Space')
     await clickNav(page, 'servers')
     await page.locator('.srv-adv').first().locator('summary').click()
     await page.getByRole('button', { name: strings['tech.config'], exact: true }).first().click()
@@ -640,6 +691,7 @@ try {
   assert.deepEqual(errors, [], 'no unhandled promises or React rendering errors')
   console.log(`\n${passed} browser regressions passed; no engine or system routing was started.`)
 } catch (error) {
+  if (errors.length) console.error('Renderer errors observed before the failed assertion:', errors)
   if (screenshotDir) {
     let n = 0
     for (const context of browser.contexts()) for (const page of context.pages()) {
