@@ -11,7 +11,7 @@ on:
         description: 'Preview tag (must target this exact commit)'
         required: true
         type: string
-        default: 'preview-2026-11-18-r2'
+        default: 'preview-2026-11-18-r3'
 permissions:
   contents: write
 concurrency:
@@ -261,6 +261,16 @@ jobs:
           for name in ['01-home-empty.png','02-settings.png','03-saved-route.png','04-groups.png']:
               for path in root.rglob(name):
                   print('WAARP_ANDROID_PREVIEW '+name+' '+base64.b64encode(path.read_bytes()).decode('ascii'))
+          # These failure captures contain only the gallery's synthetic UI fixtures.
+          # Keep the real obstruction visible even when Actions artifact storage is full.
+          for path in sorted(root.rglob('failure-*.png'))[:12]:
+              if path.stat().st_size <= 1_500_000:
+                  print('WAARP_ANDROID_FAILURE_PREVIEW '+path.name+' '+base64.b64encode(path.read_bytes()).decode('ascii'))
+          diagnostics = sorted(path for path in root.rglob('failure-*') if path.suffix in {'.txt', '.json'})
+          for path in diagnostics[:20]:
+              print('WAARP_ANDROID_FAILURE_TEXT '+path.name)
+              print(path.read_text(errors='replace')[:100_000])
+              print('WAARP_ANDROID_FAILURE_TEXT_END')
           PY
       - name: Print build evidence before artifact upload
         if: always()

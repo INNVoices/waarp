@@ -161,7 +161,7 @@ class MobileUiInstrumentedTest {
         assertEquals(RuntimePhase.OFF, repository.controller.status.value.phase)
     }
 
-    @Test fun groupMemberOrderAndExplicitDeletionReassignmentPersistThroughTheRealUi() {
+    @Test fun groupMemberOrderAndExplicitDeletionReassignmentPersistThroughTheRealUi() = withFailureCapture("failure-group-reassignment") {
         val alpha = ProfileImporter.link("trojan://synthetic-alpha@192.0.2.11:443#UI%20Alpha").copy(id = "ui-alpha")
         val beta = ProfileImporter.link("trojan://synthetic-beta@192.0.2.12:443#UI%20Beta").copy(id = "ui-beta")
         runBlocking {
@@ -186,6 +186,7 @@ class MobileUiInstrumentedTest {
         compose.onNode(hasText("Добавленные") and hasClickAction()).performClick()
         compose.onNode(hasText("UI Alpha") and hasClickAction()).performClick()
         modalButton("Удалить туннель")
+        compose.onNode(hasText("Удалить туннель?") and hasAnyAncestor(hasTestTag("waarp-form-sheet"))).assertExists()
         compose.onNode(hasText("Куда переназначить маршруты") and hasClickAction()).performScrollTo().performClick()
         compose.onNode(hasText("UI Beta") and hasClickAction() and hasAnyAncestor(isDialog())).performClick()
         modalButton("Переназначить и удалить")

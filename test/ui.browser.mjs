@@ -874,6 +874,16 @@ try {
     assert.deepEqual(await page.evaluate(() => { const c = window.__waarpTest.state.calls; return [c.settings ?? 0, c.selectRoute ?? 0, c.toggle ?? 0, c.disconnect ?? 0] }), [0, 0, 0, 0])
     await capture(page, 'route-picker-long-labels.png')
     if (screenshotDir) {
+      // The stress assertions and capture above retain the original long labels.
+      // Only the documentation fixture gets readable synthetic names.
+      await page.evaluate(() => {
+        const f = window.__waarpTest
+        const cities = ['Frankfurt', 'Amsterdam', 'Helsinki', 'Warsaw', 'London', 'Paris', 'Stockholm', 'Singapore', 'Tokyo', 'Toronto']
+        f.state.profiles = f.state.profiles.map((profile, i) => ({ ...profile,
+          name: `Example · ${cities[i % cities.length]} ${String(Math.floor(i / cities.length) + 1).padStart(2, '0')}` }))
+        f.push()
+      })
+      await list.getByText('Example · Toronto 16', { exact: true }).waitFor()
       await page.locator('.route-details > summary').click()
       await capturePickerPage(page, 'saved-server-picker-pages.png', 900)
     }

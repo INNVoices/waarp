@@ -27,7 +27,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -376,17 +378,30 @@ internal fun FormSheet(title: String, busy: Boolean, onDismiss: () -> Unit, cont
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true, confirmValueChange = { next -> !busyNow || next != SheetValue.Hidden })
     ModalBottomSheet(onDismissRequest = { if (!busy) onDismiss() }, sheetState = sheetState,
         sheetMaxWidth = 680.dp) {
-        Box(Modifier.fillMaxWidth().imePadding()) {
-            Column(Modifier.testTag("waarp-form-sheet").fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                content()
-            }
-            if (snackbar != null) Box(Modifier.matchParentSize()) {
-                // The overlay does not participate in measuring the form and is
-                // above the modal's window, so a success neither shifts controls
-                // nor disappears behind an open bottom sheet.
-                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(12.dp))
+        BoxWithConstraints(Modifier.fillMaxWidth().imePadding()) {
+            // Reserve this area even without a message. Its height depends only on
+            // the window/font scale, so appearing feedback cannot move controls.
+            // A separate scrolling viewport keeps long messages inside the footer,
+            // never over the form's last action or behind the modal window.
+            val notificationHeight = minOf(96.dp * LocalDensity.current.fontScale.coerceAtLeast(1f), 160.dp, maxHeight / 4)
+            Column(Modifier.fillMaxWidth()) {
+                Column(Modifier.weight(1f, fill = false).testTag("waarp-form-sheet").fillMaxWidth()
+                    .verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                    content()
+                }
+                if (snackbar != null) {
+                    val notificationScroll = rememberScrollState()
+                    LaunchedEffect(snackbar.currentSnackbarData) { notificationScroll.scrollTo(0) }
+                    Box(Modifier.testTag("waarp-form-notifications").fillMaxWidth().height(notificationHeight).clipToBounds(),
+                        contentAlignment = Alignment.BottomCenter) {
+                        Box(Modifier.testTag("waarp-form-notification-viewport").fillMaxWidth().heightIn(max = notificationHeight)
+                            .verticalScroll(notificationScroll).padding(12.dp)) {
+                            SnackbarHost(snackbar, Modifier.fillMaxWidth())
+                        }
+                    }
+                }
             }
         }
     }
