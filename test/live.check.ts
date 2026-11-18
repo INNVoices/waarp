@@ -71,7 +71,7 @@ const settings = (on: boolean): Settings => ({ ...DEFAULTS, routes: [route(on)] 
   })
 
   const enabled = await apply(settings(true))
-  check('master-open idle cannot start TUN just by changing a route', enabled.saved && !enabled.applied && starts === 0 && phase === 'off')
+  check('master-open idle refuses an unapproved activation and preserves TUN state', !enabled.saved && !enabled.applied && enabled.code === 'restart' && starts === 0 && phase === 'off')
 
   // The separate manual master ON starts the native core, not the route mutation.
   phase = 'on'; starts++
