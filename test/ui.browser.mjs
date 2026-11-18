@@ -783,10 +783,14 @@ try {
     await page.waitForFunction(() => window.__waarpTest.state.settings.routes[0].via === 'b')
     assert.deepEqual(await page.evaluate(() => window.__waarpTest.state.lastDiagnosisApply), { token: 'diagnosis-1', via: 'b' })
     assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.settings ?? 0), 0, 'UI cannot bypass the main diagnosis guard with a generic settings patch')
+    await page.getByRole('button', { name: applyName, exact: true }).waitFor({ state: 'hidden' })
+    // The first apply already selected B. Restore a different current path before
+    // checking again; a redundant recommendation for the current path has no Apply action.
+    await page.evaluate(() => { const f = window.__waarpTest; f.state.settings.routes[0].via = 'a'; f.push() })
     await page.getByRole('button', { name: strings['an.probe.go'], exact: true }).click()
     await page.waitForFunction(() => window.__waarpTest.state.calls.diagnose === 2)
     await page.getByRole('button', { name: applyName, exact: true }).waitFor()
-    await page.evaluate(() => { const f = window.__waarpTest; f.state.settings.routes[0].via = 'a'; f.state.rejectDiagnosisApply = true; f.push() })
+    await page.evaluate(() => { window.__waarpTest.state.rejectDiagnosisApply = true })
     await page.getByRole('button', { name: applyName, exact: true }).click()
     await page.getByText(strings['quality.notice.stale'], { exact: true }).waitFor()
     assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.diagnose), 2, 'stale evidence starts no hidden check')

@@ -22,6 +22,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm test
+        id: offline_checks
       - run: npm run check
       - name: Check configuration compiler performance
         run: npm run test:performance
@@ -33,8 +34,11 @@ jobs:
         env:
           WAARP_UI_SCREENSHOTS: out/ui
       - name: Fetch and verify pinned Windows engine
+        id: engine_download
+        if: ${{ !cancelled() && steps.offline_checks.outcome == 'success' }}
         run: npm run engine:fetch
       - name: Verify actual TCP and UDP selector continuity on the pinned core
+        if: ${{ !cancelled() && steps.engine_download.outcome == 'success' }}
         run: node out/test/continuity-native.check.js
         env:
           WAARP_CONTINUITY_NATIVE_TEST: '1'
