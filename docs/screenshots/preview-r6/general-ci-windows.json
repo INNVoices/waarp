@@ -1,0 +1,819 @@
+{
+  "sourceCommit": "0e0bb6c7cad421dc0fff377d8c7f826d115e0292",
+  "runId": 44348808981,
+  "windowsJobId": 134958446897,
+  "windowsConclusion": "failure",
+  "windowsFailureCauses": [
+    "50-cycle native TUN lifecycle failed with owned_child_exit_timeout after 19 completed cycles.",
+    "Two evidence artifact uploads failed because GitHub Actions storage quota was hit."
+  ],
+  "jobs": [
+    {
+      "id": 134958446049,
+      "name": "AWG protocol and crash (linux)",
+      "status": "completed",
+      "conclusion": "failure",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2
+        },
+        {
+          "name": "Run actions/setup-go@v5",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3
+        },
+        {
+          "name": "Check bounded AWG harness lifecycle regressions",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4
+        },
+        {
+          "name": "Check sanitized AWG crash-progress evidence",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5
+        },
+        {
+          "name": "Build pinned userspace AWG library harness",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6
+        },
+        {
+          "name": "Check encrypted loopback lifecycle and crash recovery",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7
+        },
+        {
+          "name": "Retain AWG evidence",
+          "status": "completed",
+          "conclusion": "failure",
+          "number": 8
+        },
+        {
+          "name": "Post Run actions/setup-go@v5",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 15
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17
+        }
+      ]
+    },
+    {
+      "id": 134958446539,
+      "name": "Dependency security audit",
+      "status": "completed",
+      "conclusion": "failure",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3
+        },
+        {
+          "name": "Run npm ci --no-audit --no-fund",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4
+        },
+        {
+          "name": "Audit shipped JavaScript dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5
+        },
+        {
+          "name": "Audit complete pinned build toolchain",
+          "status": "completed",
+          "conclusion": "failure",
+          "number": 6
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 11
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13
+        }
+      ]
+    },
+    {
+      "id": 134958446897,
+      "name": "checks (windows)",
+      "status": "completed",
+      "conclusion": "failure",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2
+        },
+        {
+          "name": "Check local APK builder with Windows PowerShell",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4
+        },
+        {
+          "name": "Run npm ci --no-audit --no-fund",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5
+        },
+        {
+          "name": "Run npm run typecheck",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6
+        },
+        {
+          "name": "Run npm test",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7
+        },
+        {
+          "name": "Run npm run check",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8
+        },
+        {
+          "name": "Check configuration compiler performance",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9
+        },
+        {
+          "name": "Run npm run build",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10
+        },
+        {
+          "name": "Install browser for UI regressions",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11
+        },
+        {
+          "name": "Verify production UI and recovery controls",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12
+        },
+        {
+          "name": "Fetch and verify pinned Windows engine",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13
+        },
+        {
+          "name": "Verify actual TCP and UDP selector continuity on the pinned core",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 14
+        },
+        {
+          "name": "Validate live card slot configs with the pinned engine",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15
+        },
+        {
+          "name": "Validate Hysteria2 import with the pinned engine",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16
+        },
+        {
+          "name": "Validate AmneziaWG 3 import with the pinned engine",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17
+        },
+        {
+          "name": "Validate MASQUE modes with the pinned engine",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18
+        },
+        {
+          "name": "Verify route changes preserve the native process and unrelated TCP stream",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19
+        },
+        {
+          "name": "Verify 50 native TUN lifecycle cycles",
+          "status": "completed",
+          "conclusion": "failure",
+          "number": 20
+        },
+        {
+          "name": "Build portable Windows package",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 21
+        },
+        {
+          "name": "Verify packaged runtime and engine checksums",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 22
+        },
+        {
+          "name": "Retain feature previews and native evidence in the job log",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 23
+        },
+        {
+          "name": "Retain UI evidence",
+          "status": "completed",
+          "conclusion": "failure",
+          "number": 24
+        },
+        {
+          "name": "Retain native and performance evidence",
+          "status": "completed",
+          "conclusion": "failure",
+          "number": 25
+        },
+        {
+          "name": "Retain portable build",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 26
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 51
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 52
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 53
+        }
+      ]
+    }
+  ],
+  "ui": {
+    "browserRegressions": 31,
+    "atlasPassed": 5,
+    "qualityPassed": 9,
+    "atlasEvidence": [
+      "PASS  Atlas production file origin, local worker, CSP and actual WebGL source/render",
+      "PASS  Atlas real canvas selection, current/preview separation, unknown geography, 900 px and worker disposal",
+      "PASS  Atlas public full-pool counts, paging, query and region persistence",
+      "PASS  Atlas unavailable WebGL preserves the selectable list and filters",
+      "PASS  Atlas 1920px height, legacy DE/MY source names, unknown truth and live region summary"
+    ],
+    "qualityEvidence": [
+      "PASS quality UI: unknown app has no guessed endpoint; cancel rejects late result; Back returns to card",
+      "PASS quality UI: candidate applies only to the inspected app; native ACK determines success",
+      "PASS quality UI: responding current path is retained even when another HTTP timing is lower",
+      "PASS quality UI: route changes invalidate visible evidence; purpose saves as metadata",
+      "PASS quality UI: long names and proof layout at 900 px",
+      "PASS quality UI: long names and proof layout at 1240 px",
+      "PASS quality UI: long names and proof layout at 1600 px",
+      "PASS quality UI: main diagnostics investigates automatically and explains the next step at 900 px",
+      "PASS quality UI: main diagnostics investigates automatically and explains the next step at 1240 px"
+    ],
+    "stability": {
+      "passed": true,
+      "measuredCycles": 100,
+      "budgetMs": 90000,
+      "exactElapsedMs": null,
+      "exactElapsedUnavailableReason": "stability-metrics.json is not printed into this job log and its artifact upload failed"
+    }
+  },
+  "native": {
+    "selector": {
+      "platform": "win32",
+      "arch": "x64",
+      "core": "1.14.2-lx.11",
+      "sourceRevision": "3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d",
+      "at": "2026-11-18T16:38:53.865Z",
+      "contract": {
+        "scope": "Loopback SOCKS/TCP/UDP selector semantics; no TUN, WAN failover or Android AAR claim",
+        "selector": "https://github.com/Leadaxe/sing-box-lx/blob/3d3d3db3a2ccef3b1a8eb71b831ed2461c54b94d/protocol/group/selector.go",
+        "socksAssociation": "https://github.com/SagerNet/sing/blob/0ad23b637bd4/protocol/socks/packet.go",
+        "strict": "Closes both old TCP and SOCKS UDP association; a new association must use B",
+        "soft": "Preserves old TCP/UDP through A; new TCP/UDP must use B"
+      },
+      "status": "passed",
+      "results": [
+        {
+          "interruptExisting": false,
+          "retainedTcp": true,
+          "retainedUdp": true,
+          "oldUdpAssociationClosed": false,
+          "newHttpExit": "B",
+          "newUdpExit": "B",
+          "selectorAckMs": 7.48,
+          "udpRequests": {
+            "a": 7,
+            "b": 1
+          },
+          "stages": [
+            {
+              "stage": "prepare-fixtures",
+              "ms": 0
+            },
+            {
+              "stage": "core-ready",
+              "ms": 20
+            },
+            {
+              "stage": "initial-http/socks/connect",
+              "ms": 106
+            },
+            {
+              "stage": "initial-http/socks/auth",
+              "ms": 107
+            },
+            {
+              "stage": "initial-http/socks/request-reply",
+              "ms": 108
+            },
+            {
+              "stage": "initial-http/socks/bound-address",
+              "ms": 110
+            },
+            {
+              "stage": "initial-http/request-body",
+              "ms": 110
+            },
+            {
+              "stage": "tcp-open/connect",
+              "ms": 112
+            },
+            {
+              "stage": "tcp-open/auth",
+              "ms": 113
+            },
+            {
+              "stage": "tcp-open/request-reply",
+              "ms": 113
+            },
+            {
+              "stage": "tcp-open/bound-address",
+              "ms": 115
+            },
+            {
+              "stage": "udp-open/bind",
+              "ms": 116
+            },
+            {
+              "stage": "udp-open/socks/connect",
+              "ms": 117
+            },
+            {
+              "stage": "udp-open/socks/auth",
+              "ms": 117
+            },
+            {
+              "stage": "udp-open/socks/request-reply",
+              "ms": 118
+            },
+            {
+              "stage": "udp-open/socks/bound-address",
+              "ms": 118
+            },
+            {
+              "stage": "tcp-echo-before",
+              "ms": 118
+            },
+            {
+              "stage": "udp-open/exchange-before",
+              "ms": 119
+            },
+            {
+              "stage": "selector-put",
+              "ms": 122
+            },
+            {
+              "stage": "selector-get-ack",
+              "ms": 126
+            },
+            {
+              "stage": "selector-acknowledged-b",
+              "ms": 129
+            },
+            {
+              "stage": "tcp-echo-after-0",
+              "ms": 129
+            },
+            {
+              "stage": "udp-open/exchange-after-0",
+              "ms": 130
+            },
+            {
+              "stage": "tcp-echo-after-1",
+              "ms": 130
+            },
+            {
+              "stage": "udp-open/exchange-after-1",
+              "ms": 132
+            },
+            {
+              "stage": "tcp-echo-after-2",
+              "ms": 132
+            },
+            {
+              "stage": "udp-open/exchange-after-2",
+              "ms": 133
+            },
+            {
+              "stage": "tcp-echo-after-3",
+              "ms": 133
+            },
+            {
+              "stage": "udp-open/exchange-after-3",
+              "ms": 133
+            },
+            {
+              "stage": "tcp-echo-after-4",
+              "ms": 134
+            },
+            {
+              "stage": "udp-open/exchange-after-4",
+              "ms": 134
+            },
+            {
+              "stage": "tcp-echo-after-5",
+              "ms": 134
+            },
+            {
+              "stage": "udp-open/exchange-after-5",
+              "ms": 135
+            },
+            {
+              "stage": "new-udp-association/bind",
+              "ms": 135
+            },
+            {
+              "stage": "new-udp-association/socks/connect",
+              "ms": 135
+            },
+            {
+              "stage": "new-udp-association/socks/auth",
+              "ms": 135
+            },
+            {
+              "stage": "new-udp-association/socks/request-reply",
+              "ms": 136
+            },
+            {
+              "stage": "new-udp-association/socks/bound-address",
+              "ms": 136
+            },
+            {
+              "stage": "new-udp-association/exchange-new-flow",
+              "ms": 136
+            },
+            {
+              "stage": "new-http/socks/connect",
+              "ms": 138
+            },
+            {
+              "stage": "new-http/socks/auth",
+              "ms": 138
+            },
+            {
+              "stage": "new-http/socks/request-reply",
+              "ms": 138
+            },
+            {
+              "stage": "new-http/socks/bound-address",
+              "ms": 139
+            },
+            {
+              "stage": "new-http/request-body",
+              "ms": 139
+            },
+            {
+              "stage": "passed",
+              "ms": 140
+            }
+          ]
+        },
+        {
+          "interruptExisting": true,
+          "retainedTcp": false,
+          "retainedUdp": false,
+          "oldUdpAssociationClosed": true,
+          "newHttpExit": "B",
+          "newUdpExit": "B",
+          "selectorAckMs": 7.76,
+          "udpRequests": {
+            "a": 1,
+            "b": 1
+          },
+          "stages": [
+            {
+              "stage": "prepare-fixtures",
+              "ms": 0
+            },
+            {
+              "stage": "core-ready",
+              "ms": 6
+            },
+            {
+              "stage": "initial-http/socks/connect",
+              "ms": 114
+            },
+            {
+              "stage": "initial-http/socks/auth",
+              "ms": 115
+            },
+            {
+              "stage": "initial-http/socks/request-reply",
+              "ms": 116
+            },
+            {
+              "stage": "initial-http/socks/bound-address",
+              "ms": 118
+            },
+            {
+              "stage": "initial-http/request-body",
+              "ms": 118
+            },
+            {
+              "stage": "tcp-open/connect",
+              "ms": 120
+            },
+            {
+              "stage": "tcp-open/auth",
+              "ms": 120
+            },
+            {
+              "stage": "tcp-open/request-reply",
+              "ms": 121
+            },
+            {
+              "stage": "tcp-open/bound-address",
+              "ms": 123
+            },
+            {
+              "stage": "udp-open/bind",
+              "ms": 123
+            },
+            {
+              "stage": "udp-open/socks/connect",
+              "ms": 123
+            },
+            {
+              "stage": "udp-open/socks/auth",
+              "ms": 123
+            },
+            {
+              "stage": "udp-open/socks/request-reply",
+              "ms": 124
+            },
+            {
+              "stage": "udp-open/socks/bound-address",
+              "ms": 125
+            },
+            {
+              "stage": "tcp-echo-before",
+              "ms": 125
+            },
+            {
+              "stage": "udp-open/exchange-before",
+              "ms": 126
+            },
+            {
+              "stage": "selector-put",
+              "ms": 129
+            },
+            {
+              "stage": "selector-get-ack",
+              "ms": 132
+            },
+            {
+              "stage": "selector-acknowledged-b",
+              "ms": 136
+            },
+            {
+              "stage": "strict-close-old-tcp",
+              "ms": 136
+            },
+            {
+              "stage": "strict-close-old-udp-association",
+              "ms": 137
+            },
+            {
+              "stage": "new-udp-association/bind",
+              "ms": 137
+            },
+            {
+              "stage": "new-udp-association/socks/connect",
+              "ms": 137
+            },
+            {
+              "stage": "new-udp-association/socks/auth",
+              "ms": 138
+            },
+            {
+              "stage": "new-udp-association/socks/request-reply",
+              "ms": 138
+            },
+            {
+              "stage": "new-udp-association/socks/bound-address",
+              "ms": 139
+            },
+            {
+              "stage": "new-udp-association/exchange-new-flow",
+              "ms": 139
+            },
+            {
+              "stage": "new-http/socks/connect",
+              "ms": 141
+            },
+            {
+              "stage": "new-http/socks/auth",
+              "ms": 142
+            },
+            {
+              "stage": "new-http/socks/request-reply",
+              "ms": 142
+            },
+            {
+              "stage": "new-http/socks/bound-address",
+              "ms": 144
+            },
+            {
+              "stage": "new-http/request-body",
+              "ms": 144
+            },
+            {
+              "stage": "passed",
+              "ms": 145
+            }
+          ]
+        }
+      ]
+    },
+    "routeSwitchEvidence": [
+      "ROUTE_NATIVE HTTPS endpoints resolved before TUN {\"pins\":{\"www.gstatic.com\":\"142.251.153.120\",\"cp.cloudflare.com\":\"104.16.132.229\"},\"unavailable\":[]}",
+      "ROUTE_NATIVE authenticated diagnostic CONNECT: selected B; card A preserved PASS",
+      "ROUTE_NATIVE switch b same PID; neighbor alive; selected tunnel verified where applicable",
+      "ROUTE_NATIVE switch a same PID; neighbor alive; selected tunnel verified where applicable",
+      "ROUTE_NATIVE switch direct same PID; neighbor alive; selected tunnel verified where applicable",
+      "ROUTE_NATIVE switch b same PID; neighbor alive; selected tunnel verified where applicable",
+      "ROUTE_NATIVE readiness evidence {\"ids\":[\"late-public\"],\"result\":{\"late-public\":113},\"responses\":[{\"status\":200,\"body\":\"{\\\"delay\\\":113}\\n\"}],\"received\":{\"udp\":0,\"dns\":0,\"head\":0,\"httpsHead\":0,\"publicHttps\":1,\"publicHttpsBytes\":4088},\"requests\":[{\"host\":\"www.gstatic.com\",\"port\":443,\"command\":1}],\"relayErrors\":[],\"workerLogs\":\"\"}",
+      "ROUTE_NATIVE late C selected TCP and authenticated diagnostic payload PASS",
+      "ROUTE_NATIVE late C main-TUN UDP round trip and selected-only receiver PASS",
+      "ROUTE_NATIVE starting generated no-TUN UoT DNS request",
+      "ROUTE_NATIVE generated no-TUN UoT DNS answer and worker cleanup PASS",
+      "ROUTE_NATIVE newly imported public server: same main PID/TUN; selected TCP and UDP payload C; neighbor alive PASS",
+      "ROUTE_NATIVE delete active selected route: same PID and neighbor alive PASS",
+      "ROUTE_NATIVE inactive addition/deletion: same PID and neighbor alive PASS",
+      "ROUTE_NATIVE last-route removal and re-addition: same PID and new selected path verified PASS"
+    ],
+    "tunLifecycle": {
+      "passed": false,
+      "completedCycles": 19,
+      "requestedCycles": 50,
+      "error": "owned_child_exit_timeout",
+      "elapsedMs": 143224,
+      "budgetMs": 600000,
+      "line": "Native Windows lifecycle: FAIL; 19/50 cycles; owned_child_exit_timeout; elapsed 143224 ms / budget 600000 ms",
+      "detailedJsonAvailable": false,
+      "cleanupFinalState": "Not established from retained log; full lifecycle report was in blocked artifact upload."
+    }
+  },
+  "package": {
+    "built": false,
+    "verified": false,
+    "stepConclusion": "skipped after native lifecycle failure",
+    "scope": "This general CI job only; does not describe the separate preview job."
+  },
+  "audit": {
+    "jobId": 134958446539,
+    "runtimeAudit": {
+      "passed": true,
+      "vulnerabilities": 0
+    },
+    "fullToolchain": {
+      "passed": false,
+      "highVulnerabilities": 10,
+      "package": "picomatch",
+      "advisory": "GHSA-fc5q-39xc-vjpf",
+      "auditSuggestedFix": "npm audit fix --force; would install vite@6.2.7, marked a breaking change by audit"
+    }
+  },
+  "awg": {
+    "jobId": 134958446049,
+    "functionalStepsPassed": true,
+    "conclusion": "failure due to artifact storage quota",
+    "evidence": [
+      "2026-11-18T16:35:41.4694792Z {\"mode\":\"local_awg_self_test\",\"wireguard_revision\":\"64065e6826ad82aa28429dd829c1c65f29b7f6c9\",\"loopback_udp_verified\":true,\"initial_authenticated_handshake\":true,\"initial_encrypted_dns_echo\":true,\"down_up_restores_dns\":true,\"peer_removed_from_device\":true,\"removed_peer_blocks_dns\":true,\"peer_readd_restores_dns\":true,\"close_recreate_same_ports_restores_dns\":true,\"awg_handshake_header_padding_observed\":true,\"awg_transport_header_padding_observed\":true,\"plaintext_dns_absent_from_outer_udp\":true,\"outer_datagrams_sent\":66,\"outer_datagrams_received\":66,\"device_error_events\":0,\"synthetic_reply_mailbox_drops\":1,\"stopped\":true,\"passed\":true,\"duration_ms\":6611}",
+      "2026-11-18T16:35:54.7440786Z {\"scenario\": \"local_awg_sigkill_restart\", \"holding_reached\": true, \"both_ports_busy_while_child_alive\": true, \"child_exit_is_sigkill\": true, \"both_ports_released_after_kill\": true, \"fresh_self_test_passed\": true, \"fresh_self_test_stopped\": true, \"cleanup_ok\": true, \"passed\": true, \"child_stage\": \"holding_after_success\", \"child_stage_ms\": 6607, \"duration_ms\": 13223}",
+      "2026-11-18T16:35:55.0608044Z ##[error]Failed to CreateArtifact: Artifact storage quota has been hit. Unable to upload any new artifacts. Usage is recalculated every 6-12 hours."
+    ]
+  },
+  "retainedImages": [
+    {
+      "name": "atlas-picker-active-preview-1240.png",
+      "bytes": 155989
+    },
+    {
+      "name": "atlas-picker-900.png",
+      "bytes": 162210
+    },
+    {
+      "name": "atlas-public-full-pool-unknown.png",
+      "bytes": 165527
+    },
+    {
+      "name": "atlas-fallback-list.png",
+      "bytes": 73608
+    },
+    {
+      "name": "atlas-file-origin.png",
+      "bytes": 161739
+    },
+    {
+      "name": "quality-context-1240.png",
+      "bytes": 149497
+    },
+    {
+      "name": "quality-context-900.png",
+      "bytes": 117235
+    }
+  ],
+  "diagnosticsMainImagesAvailableInLog": false,
+  "scope": "General CI for current source. Actual packaged public-node acceptance and preview build are separate evidence tracked by root."
+}

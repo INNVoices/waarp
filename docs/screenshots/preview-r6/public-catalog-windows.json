@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "0e0bb6c7cad421dc0fff377d8c7f826d115e0292",
+  "version": "0.4.1-rc.5",
+  "network": "GitHub-hosted Windows runner",
+  "realPackagedApplication": true,
+  "fixtureResponses": false,
+  "passed": true,
+  "errors": [],
+  "icon": {
+    "loaded": true,
+    "width": 256,
+    "height": 256,
+    "nativeWindow": true
+  },
+  "catalogEntry": "visible first-run public-nodes tile",
+  "firstReadyMs": 102737,
+  "beforeImport": {
+    "candidates": 4930,
+    "ready": 1,
+    "checked": 6,
+    "failed": 5,
+    "skipped": 2,
+    "unchecked": 4922,
+    "sources": [
+      {
+        "sourceId": "awesome-vpn",
+        "ok": true,
+        "count": 9
+      },
+      {
+        "sourceId": "mrdevmohamed",
+        "ok": true,
+        "count": 2096
+      },
+      {
+        "sourceId": "barry",
+        "ok": true,
+        "count": 8323
+      },
+      {
+        "sourceId": "mahdibland-public",
+        "ok": true,
+        "count": 187
+      },
+      {
+        "sourceId": "igareck-vless",
+        "ok": true,
+        "count": 40
+      },
+      {
+        "sourceId": "igareck-mixed",
+        "ok": true,
+        "count": 8
+      },
+      {
+        "sourceId": "vpngate",
+        "ok": true,
+        "count": 98
+      }
+    ]
+  },
+  "profilesBeforeImport": 0,
+  "layout": {
+    "public1920": {
+      "viewport": 1920,
+      "height": 1080,
+      "overflow": 0,
+      "mapWidth": 1502,
+      "mapHeight": 605
+    },
+    "public1240": {
+      "viewport": 1240,
+      "height": 900,
+      "overflow": 0,
+      "mapWidth": 1076,
+      "mapHeight": 504
+    },
+    "saved1920": {
+      "viewport": 1920,
+      "height": 1080,
+      "overflow": 0,
+      "mapWidth": 1536,
+      "mapHeight": 605
+    }
+  },
+  "response": {
+    "candidateId": "pub-51dcacf2b1ca69a8bd71",
+    "protocol": "VLESS · REALITY",
+    "country": "CA",
+    "httpResponseMs": 171
+  },
+  "savedThroughVisibleButton": true,
+  "whileOn": {
+    "candidates": 4930,
+    "ready": 4,
+    "checked": 14,
+    "failed": 10,
+    "skipped": 2,
+    "unchecked": 4914,
+    "sources": [
+      {
+        "sourceId": "awesome-vpn",
+        "ok": true,
+        "count": 9
+      },
+      {
+        "sourceId": "mrdevmohamed",
+        "ok": true,
+        "count": 2096
+      },
+      {
+        "sourceId": "barry",
+        "ok": true,
+        "count": 8323
+      },
+      {
+        "sourceId": "mahdibland-public",
+        "ok": true,
+        "count": 187
+      },
+      {
+        "sourceId": "igareck-vless",
+        "ok": true,
+        "count": 40
+      },
+      {
+        "sourceId": "igareck-mixed",
+        "ok": true,
+        "count": 8
+      },
+      {
+        "sourceId": "vpngate",
+        "ok": true,
+        "count": 98
+      }
+    ]
+  },
+  "checksAfterOn": 8,
+  "nativeSessionPreserved": true,
+  "selectedRoutePreserved": true,
+  "publicLeaseReleased": true,
+  "diagnostics": {
+    "automaticTargetInvestigation": true,
+    "stages": 4,
+    "existingRouteResolved": true,
+    "verdict": "Текущий путь отвечает на проверку\n\nЧерез 🇨🇦 Canada • 387.4ms • mrdevmohamed получено ответов: 2 из 2. Это проверка выбранного подключения; системный запрос ниже проверяется отдельно.",
+    "nextStep": "Что делать дальше\n\nТекущий путь получил ответ; менять его по этому результату не требуется. Если приложение всё ещё не работает, проверь адрес, на котором оно останавливается, или открой проверку передачи данных ниже."
+  }
+}

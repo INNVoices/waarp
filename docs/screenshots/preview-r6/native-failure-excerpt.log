@@ -1,0 +1,23 @@
+2026-11-18T16:39:10.2824824Z > node scripts/test-live.mjs --disposable-windows
+2026-11-18T16:39:10.2842406Z 
+2026-11-18T16:39:22.9320902Z Windows lifecycle 1/50: PASS (no-console-force; start 2937 ms; stop 2841 ms)
+2026-11-18T16:39:28.0708768Z Windows lifecycle 2/50: PASS (crash; start 2887 ms; stop 2185 ms)
+2026-11-18T16:39:33.5756012Z Windows lifecycle 3/50: PASS (no-console-force; start 2670 ms; stop 2767 ms)
+2026-11-18T16:39:38.8884620Z Windows lifecycle 4/50: PASS (crash; start 2798 ms; stop 2451 ms)
+2026-11-18T16:39:45.3088601Z Windows lifecycle 5/50: PASS (no-console-force; start 3032 ms; stop 3308 ms)
+2026-11-18T16:39:50.9790982Z Windows lifecycle 6/50: PASS (crash; start 2934 ms; stop 2665 ms)
+2026-11-18T16:39:57.5078075Z Windows lifecycle 7/50: PASS (no-console-force; start 2931 ms; stop 3531 ms)
+2026-11-18T16:40:02.6338171Z Windows lifecycle 8/50: PASS (crash; start 2931 ms; stop 2122 ms)
+2026-11-18T16:40:08.2099258Z Windows lifecycle 9/50: PASS (no-console-force; start 2695 ms; stop 2818 ms)
+2026-11-18T16:40:12.9364076Z Windows lifecycle 10/50: PASS (crash; start 2620 ms; stop 2039 ms)
+2026-11-18T16:40:18.5827418Z Windows lifecycle 11/50: PASS (no-console-force; start 2741 ms; stop 2838 ms)
+2026-11-18T16:40:23.8769925Z Windows lifecycle 12/50: PASS (crash; start 2696 ms; stop 2530 ms)
+2026-11-18T16:40:29.4912525Z Windows lifecycle 13/50: PASS (no-console-force; start 2760 ms; stop 2790 ms)
+2026-11-18T16:40:34.2730150Z Windows lifecycle 14/50: PASS (crash; start 2679 ms; stop 2034 ms)
+2026-11-18T16:40:41.5582066Z Windows lifecycle 15/50: PASS (no-console-force; start 2690 ms; stop 4524 ms)
+2026-11-18T16:40:48.0541938Z Windows lifecycle 16/50: PASS (crash; start 3303 ms; stop 3124 ms)
+2026-11-18T16:41:01.8148976Z Windows lifecycle 17/50: PASS (no-console-force; start 6750 ms; stop 6933 ms)
+2026-11-18T16:41:10.2536843Z Windows lifecycle 18/50: PASS (crash; start 4807 ms; stop 3529 ms)
+2026-11-18T16:41:20.8397412Z Windows lifecycle 19/50: PASS (no-console-force; start 5290 ms; stop 5188 ms)
+2026-11-18T16:41:33.7928094Z Native Windows lifecycle: FAIL; 19/50 cycles; owned_child_exit_timeout; elapsed 143224 ms / budget 600000 ms
+2026-11-18T16:41:33.8523026Z ##[error]Process completed with exit code 1.

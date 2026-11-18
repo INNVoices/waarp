@@ -29,12 +29,14 @@
 </p>
 
 > [!IMPORTANT]
-> **Windows EXE and Android APK previews are available.** The [18 November preview](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r5) includes Windows `0.4.1-rc.4` and Android `0.5.0-rc.5` from the same verified source commit. The EXE is unsigned; the APKs are debug-signed. This is a prerelease, not an approved stable build. [Versions, checksums and release criteria](docs/RELEASES.md).
+> **Windows r6 is published as a prerelease.** The desktop update is `0.4.1-rc.5`; Android remains the published `0.5.0-rc.5` from [r5](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r5). The platforms have separate source commits for these downloads. The EXE is unsigned and the APKs are debug-signed. [Release state, checksums and criteria](docs/RELEASES.md).
+
+The [Windows release checks](https://github.com/INNVoices/waarp/actions/runs/44348809024) passed: real public checks before import and while VPN is on, preserved route/session, map geometry, diagnostics, runtime icon and 50 native TUN lifecycle cycles. On the GitHub runner, 4 of the 14 checked public candidates had fresh responses; the first ready result appeared 102.737 s into the fresh-install catalog scenario. A separate general-CI lifecycle check failed on the same source; see the [measured results and unresolved limits](docs/RELEASES.md#current-evidence-and-unresolved-limits).
 
 <p align="center">
-  <a href="docs/screenshots/preview-r5/windows-atlas-picker-1240.png"><img src="docs/screenshots/preview-r5/windows-atlas-picker-1240.png" alt="Waarp desktop — local map inside the existing app server picker" width="860"></a>
+  <a href="docs/screenshots/preview-r6/desktop-public-real-1920.png"><img src="docs/screenshots/preview-r6/desktop-public-real-1920.png" alt="Waarp desktop — public connections checked automatically on a taller region map" width="860"></a>
 </p>
-<p align="center"><sub>Windows 0.4.1-rc.4 production renderer in Chromium with synthetic test profiles. Shown availability and latency are fixture data.</sub></p>
+<p align="center"><sub>Windows r6, captured from the published packaged application on a GitHub-hosted Windows runner. Public-server availability is specific to that network and capture time.</sub></p>
 
 ## Why Waarp
 
@@ -42,7 +44,7 @@
 | :--- | :--- | :--- |
 | Assign a direct or protected path to apps, services, domains and custom targets. | Auto holds a working personal route; explicit failover avoids reflexive ping-based switching. | Check a target through your connections and explain observed DNS, TCP, TLS and HTTP failures. |
 | **Bring your own connections** | **Public pool, by choice** | **Desktop + mobile** |
-| WireGuard / AmneziaWG, VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, OpenVPN and supported imports. | On Windows, browse current availability, search the full pool and check a chosen server while the VPN stays on. Public relays never join Auto silently. | Electron-based Windows client and native Kotlin / Compose Android client in one repository. |
+| WireGuard / AmneziaWG, VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, OpenVPN and supported imports. | On Windows, opening the public catalog starts automatic checks, including while the VPN is on. Visible candidates get priority without being added to saved connections. Public relays never join Auto silently. | Electron-based Windows client and native Kotlin / Compose Android client in one repository. |
 
 No multi-path aggregation, no guaranteed latency improvement, and no anonymity promise. [How routing works](#how-it-works) · [Public node trust and sources](docs/SOURCES.md).
 
@@ -50,10 +52,10 @@ No multi-path aggregation, no guaranteed latency improvement, and no anonymity p
 
 | <img src="https://img.shields.io/badge/Windows-x64-2374CF?style=flat-square&logo=windows11&logoColor=white" alt="Windows"> | <img src="https://img.shields.io/badge/Android-APK-267F61?style=flat-square&logo=android&logoColor=white" alt="Android"> |
 | :--- | :--- |
-| **[Download 0.4.1-rc.4 portable EXE](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/Waarp-0.4.1-rc.4-portable.exe)** | **[Download 0.5.0-rc.5 APK · ARM64](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-arm64-v8a-debug.apk)** |
-| Windows 10/11 x64. Portable, unsigned preview with the new server picker and live card changes. [SHA-256](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/SHA256SUMS-windows.txt). | Android 10+. Installable **debug-signed** preview; ARM64 suits most current phones. Separate from the production app and cannot update it. [SHA-256](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/SHA256SUMS-android-debug.txt). |
+| **[Download 0.4.1-rc.5 EXE](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r6/Waarp-0.4.1-rc.5-portable.exe)** | **[Download 0.5.0-rc.5 APK · ARM64](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-arm64-v8a-debug.apk)** |
+| Windows 10/11 x64. Portable, unsigned desktop update: automatic public checks, clearer diagnosis, a taller map and the packaged taskbar icon. [SHA-256](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r6/SHA256SUMS-windows.txt). | Android 10+. Installable **debug-signed** preview; ARM64 suits most current phones. Separate from the production app and cannot update it. [SHA-256](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/SHA256SUMS-android-debug.txt). |
 
-Other Android builds: **[ARM32](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-armeabi-v7a-debug.apk)** · **[x86_64](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-x86_64-debug.apk)**. [Release notes and all assets](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r5) · [Passing preview checks](https://github.com/INNVoices/waarp/actions/runs/44316534164).
+Other Android builds: **[ARM32](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-armeabi-v7a-debug.apk)** · **[x86_64](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-x86_64-debug.apk)**. [Android r5 release and checks](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r5). Windows r6: [release](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r6) · [release checks](https://github.com/INNVoices/waarp/actions/runs/44348809024) · [package report](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r6/package-integrity-windows.json) · [real public-network acceptance](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r6/public-catalog-windows.json).
 
 **[All releases](https://github.com/INNVoices/waarp/releases)** · **[Preview publishing workflow](.github/workflows/release-preview.yml)** · **[Release and integrity guide](docs/RELEASES.md)**
 
@@ -61,7 +63,7 @@ The repo is currently private; GitHub download and Actions links may require rep
 
 ## Choosing a server on Windows
 
-Choose an application, then choose its server in one screen: **Automatic · Manual · Direct**. Saved connections and public servers use compact rows, search and numbered pages. The public catalogue adds region and availability filters and shows current availability separately from stored candidates; selecting a candidate checks its connection before use.
+Choose an application, then choose its server in one screen: **Automatic · Manual · Direct**. Saved connections and public servers use compact rows, search and numbered pages. The public catalog adds region and availability filters. It checks visible candidates first and continues through the pool in bounded rounds while the public screen is open. Verification does not add a profile: once a fresh response is available, the row offers Add or Use. Progress separates unchecked, responding, failed and skipped candidates.
 
 Public checks can run while Waarp is on. Changing a card's server updates the route without asking to restart the VPN; a failed live change keeps the previous selection. The initial app chooser stays familiar, with route diagrams and advanced settings tucked under one details section.
 
@@ -69,9 +71,11 @@ Public checks can run while Waarp is on. Changing a card's server updates the ro
 
 ## Map and contextual connection checks
 
-The r5 preview embeds a local map in the existing Windows and Android connection pickers. Search and filters stay in place; choosing a region filters the selectable rows. A check opened from a card compares responses from its target through eligible connections, explains the result and applies a chosen path to that card. On Android, the result stays in the draft until the single Save route action.
+Windows `0.4.1-rc.5` gives the map more vertical space, shows region totals and measured status, and keeps recognized country metadata when a public connection is saved. Unknown regions remain available in the list. The map uses bundled geography; its region markers and route lines describe logical connections, not precise server locations or traceroute hops.
 
-Windows also holds active paths during optional changes and gives explicit user actions priority. These tools are included in the downloads above. Map selection updates with the visible data, and Android keeps the manually chosen region across List/Map and route forms. [Usage](docs/CONNECTION-TOOLS.md) · [Actual checks and limits](docs/planning/WAARP-NEXT-2026-11-18/09-ACCEPTANCE.md) · [Actual screenshots](docs/screenshots/preview-r5/README.md) · [Contribute a profile](docs/CONNECTION-PROFILES.md).
+The main Diagnostics screen starts a bounded investigation automatically, explains the observed stage and offers a next step. It resolves an existing domain route or the default path and keeps a current path that answered. A successful native connection check is shown separately from a failing Windows system request. Transfer checks and response history remain available in an expandable section.
+
+Android remains on r5, including its existing local map, manual-region preference and contextual connection check. Its result stays in the route draft until Save route. [Usage](docs/CONNECTION-TOOLS.md) · [Release evidence and limits](docs/RELEASES.md) · [Historical r5 gallery and provenance](docs/screenshots/preview-r5/README.md) · [Contribute a profile](docs/CONNECTION-PROFILES.md).
 
 ## How it works
 
@@ -97,7 +101,7 @@ Failover closes the affected sessions so traffic can use the replacement path. G
 
 ### Diagnostics
 
-Waarp checks a target through eligible connections and reports the observed failure stage: DNS, TCP, TLS or HTTP. Detailed system checks follow operating-system routes and can traverse the active VPN. Checks of specific connections address their native outbound. One failed request does not establish a cause such as provider blocking. With the tunnel closed, a separate local checker probes a bounded set of your connections without creating a TUN or touching system routes.
+On Windows, opening Diagnostics or editing its target starts a bounded check automatically. Waarp reports the observed failure stage — DNS, TCP, TLS or HTTP — with a concrete next step and comparison of eligible paths. The comparison uses an existing matching domain route when present; an application name is never guessed to be a domain. Detailed system checks follow operating-system routes and can traverse the active VPN. Checks of specific connections address their native outbound. One failed request does not establish a cause such as provider blocking. With the tunnel closed, a separate local checker probes a bounded set of your connections without creating a TUN or touching system routes.
 
 Displayed latency measures an HTTP check, not game-server ping. Waarp selects a path for each route; it does not send a session through several paths at once (multipath).
 
@@ -113,23 +117,22 @@ Engine: [sing-box-lx](https://github.com/Leadaxe/sing-box-lx) (bundled, with its
 
 Import from file, clipboard, QR code, subscription link, local discovery or manual entry. Subscription refresh is manual. JSON / YAML import extracts supported share links; it does not convert arbitrary native client configurations.
 
-On Windows `0.4.1-rc.4`, public discovery starts when you open the public-server section or explicitly refresh/check it; no catalog probes run just because the app starts or on a periodic schedule. Opening a catalogue with no fresh results starts one bounded search. An unverified or stale candidate receives an individual check before use, including while the main VPN is running. Android `0.5.0-rc.5` has a separate catalogue flow: new public-node probes still require VPN OFF. On both platforms, public nodes remain a separate source and never join Auto silently. Those nodes are run by third parties, not Waarp; their operators may log traffic that is not end-to-end encrypted. Sources: [docs/SOURCES.md](docs/SOURCES.md).
+On Windows `0.4.1-rc.5`, public checks run automatically while a public-catalog screen is open. Visible rows have priority, and further candidates are checked in bounded rounds with pauses and retry cooldowns. Leaving the public screen releases its automatic checking request. A count of zero ready servers describes the measurements so far; it does not mean every stored candidate failed. Checks do not save profiles or change an application's selected route. Android `0.5.0-rc.5` retains its separate catalog flow: new public-node probes still require VPN OFF. On both platforms, public nodes remain separate from Auto. They are operated by third parties, not Waarp, and can expose traffic that is not end-to-end encrypted. Sources: [docs/SOURCES.md](docs/SOURCES.md).
 
 ## Screenshots
 
-[Current r5 gallery: Windows map and diagnostics, Android map at normal and 150% text](docs/screenshots/preview-r5/README.md). Every image has its source commit and capture provenance.
+Windows r6 screenshots below come from the packaged EXE built from `0e0bb6c7cad421dc0fff377d8c7f826d115e0292`, using real public feeds and native checks on a GitHub-hosted Windows runner. [Acceptance report](docs/screenshots/preview-r6/public-catalog-windows.json). The [r5 gallery](docs/screenshots/preview-r5/README.md) preserves the historical Windows fixture captures and current Android map captures at normal and 150% text.
 
-### Windows · server selection
+### Windows · automatic public checks and diagnosis
 
-<!-- Publish the current gallery only with the reviewed PNGs listed in docs/screenshots/README.md. -->
 <table>
 <tr>
-<td align="center" valign="top" width="50%"><a href="docs/screenshots/public-server-pages.png"><img src="docs/screenshots/public-server-pages.png" width="420" alt="Public server picker showing twelve rows, search, filters and numbered pages"></a><br><sub><strong>Public servers</strong> · 12 per page, search across the full pool</sub></td>
-<td align="center" valign="top" width="50%"><a href="docs/screenshots/saved-server-pages.png"><img src="docs/screenshots/saved-server-pages.png" width="420" alt="Saved server picker showing ten rows and numbered pages at a narrower window width"></a><br><sub><strong>Saved connections</strong> · 10 per page, selected server highlighted</sub></td>
+<td align="center" valign="top" width="50%"><a href="docs/screenshots/preview-r6/desktop-public-real-1920.png"><img src="docs/screenshots/preview-r6/desktop-public-real-1920.png" width="420" alt="Public connections and measured regional availability on the taller Windows map"></a><br><sub><strong>Public connections</strong> · checks run before Add</sub></td>
+<td align="center" valign="top" width="50%"><a href="docs/screenshots/preview-r6/desktop-diagnostics-real-1240.png"><img src="docs/screenshots/preview-r6/desktop-diagnostics-real-1240.png" width="420" alt="Automatic Windows diagnosis with selected route, observed stages and next step"></a><br><sub><strong>Diagnostics</strong> · current path, evidence and next step</sub></td>
 </tr>
 </table>
 
-These captures use the built production UI with synthetic profiles and status supplied by the renderer tests. They show layout and interaction states; they do not establish remote-server availability. Open an image for its full-size view.
+These r6 images come from the packaged Windows application, with the matching [public-network acceptance report](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r6/public-catalog-windows.json). Measurements from a GitHub-hosted runner do not establish availability on another user's network. Older [public-picker](docs/screenshots/public-server-pages.png) and [saved-picker](docs/screenshots/saved-server-pages.png) images remain fixture-based layout records.
 
 ### Android · native app
 
