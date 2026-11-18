@@ -29,12 +29,12 @@
 </p>
 
 > [!IMPORTANT]
-> **Current source is a release candidate, not an approved stable build.** The existing Windows download is an older beta; Android has no publicly published production-signed APK yet. [Versions, checksums and release criteria](docs/RELEASES.md).
+> **Windows EXE and Android APK previews are available.** The [18 November preview](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r3) includes Windows `0.4.1-rc.3` and Android `0.5.0-rc.4` from the same verified source commit. The EXE is unsigned; the APKs are debug-signed. This is a prerelease, not an approved stable build. [Versions, checksums and release criteria](docs/RELEASES.md).
 
 <p align="center">
-  <img src="docs/screenshots/hero-home.png" alt="Waarp desktop — home and routing overview" width="860">
+  <a href="docs/screenshots/server-picker.png"><img src="docs/screenshots/server-picker.png" alt="Waarp desktop — choose an app's server with Automatic, Manual and Direct modes" width="860"></a>
 </p>
-<p align="center"><sub>Windows desktop capture from the repository. UI details may differ from the latest RC source.</sub></p>
+<p align="center"><sub>Windows 0.4.1-rc.3 production renderer in Chromium with synthetic test profiles. Shown availability and latency are fixture data.</sub></p>
 
 ## Why Waarp
 
@@ -42,7 +42,7 @@
 | :--- | :--- | :--- |
 | Assign a direct or protected path to apps, services, domains and custom targets. | Auto holds a working personal route; explicit failover avoids reflexive ping-based switching. | Compare Direct and protected connections with DNS, TCP, TLS and HTTP observations. |
 | **Bring your own connections** | **Public pool, by choice** | **Desktop + mobile** |
-| WireGuard / AmneziaWG, VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, OpenVPN and supported imports. | Browse verified availability, search the full pool and check a chosen server while the VPN stays on. Public relays never join Auto silently. | Electron-based Windows client and native Kotlin / Compose Android client in one repository. |
+| WireGuard / AmneziaWG, VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, OpenVPN and supported imports. | On Windows, browse current availability, search the full pool and check a chosen server while the VPN stays on. Public relays never join Auto silently. | Electron-based Windows client and native Kotlin / Compose Android client in one repository. |
 
 No multi-path aggregation, no guaranteed latency improvement, and no anonymity promise. [How routing works](#how-it-works) · [Public node trust and sources](docs/SOURCES.md).
 
@@ -50,8 +50,10 @@ No multi-path aggregation, no guaranteed latency improvement, and no anonymity p
 
 | <img src="https://img.shields.io/badge/Windows-x64-2374CF?style=flat-square&logo=windows11&logoColor=white" alt="Windows"> | <img src="https://img.shields.io/badge/Android-APK-267F61?style=flat-square&logo=android&logoColor=white" alt="Android"> |
 | :--- | :--- |
-| **[Download v0.4.0 portable EXE](https://github.com/INNVoices/waarp/releases/download/v0.4.0/Waarp-0.4.0-portable.exe)** · [Release notes](https://github.com/INNVoices/waarp/releases/tag/v0.4.0) | **Android 0.5.0-rc.4** is in source. [Build/install instructions](docs/ANDROID.md#build-and-install) · [Android CI](https://github.com/INNVoices/waarp/actions/workflows/android.yml) |
-| Published beta, Windows 10/11 x64. The **0.4.1-rc.3** desktop source and preview notes are ready; its release remains a draft until the build and publication gates pass. | Debug APKs can be installed for testing after a successful build. **Unsigned release APKs are not installable**; production signing and acceptance remain separate. |
+| **[Download 0.4.1-rc.3 portable EXE](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r3/Waarp-0.4.1-rc.3-portable.exe)** | **[Download 0.5.0-rc.4 APK · ARM64](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r3/waarp-android-0.5.0-rc.4-arm64-v8a-debug.apk)** |
+| Windows 10/11 x64. Portable, unsigned preview with the new server picker and live card changes. [SHA-256](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r3/SHA256SUMS-windows.txt). | Android 10+. Installable **debug-signed** preview; ARM64 suits most current phones. Separate from the production app and cannot update it. [SHA-256](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r3/SHA256SUMS-android-debug.txt). |
+
+Other Android builds: **[ARM32](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r3/waarp-android-0.5.0-rc.4-armeabi-v7a-debug.apk)** · **[x86_64](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r3/waarp-android-0.5.0-rc.4-x86_64-debug.apk)**. [Release notes and all assets](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r3) · [Passing preview checks](https://github.com/INNVoices/waarp/actions/runs/44276974976).
 
 **[All releases](https://github.com/INNVoices/waarp/releases)** · **[Preview publishing workflow](.github/workflows/release-preview.yml)** · **[Release and integrity guide](docs/RELEASES.md)**
 
@@ -59,7 +61,7 @@ The repo is currently private; GitHub download and Actions links may require rep
 
 ## New in Windows 0.4.1-rc.3
 
-Choose an application, then choose its server in one screen: **Automatic · Manual · Direct**. Saved connections and public servers use compact rows, search, region filters and numbered pages. The public catalogue shows current availability separately from stored candidates; selecting a candidate checks its connection before use.
+Choose an application, then choose its server in one screen: **Automatic · Manual · Direct**. Saved connections and public servers use compact rows, search and numbered pages. The public catalogue adds region and availability filters and shows current availability separately from stored candidates; selecting a candidate checks its connection before use.
 
 Public checks can run while Waarp is on. Changing a card's server updates the route without asking to restart the VPN; a failed live change keeps the previous selection. The initial app chooser stays familiar, with route diagrams and advanced settings tucked under one details section.
 
@@ -105,16 +107,39 @@ Engine: [sing-box-lx](https://github.com/Leadaxe/sing-box-lx) (bundled, with its
 
 Import from file, clipboard, QR code, subscription link, local discovery or manual entry. Subscription refresh is manual. JSON / YAML import extracts supported share links; it does not convert arbitrary native client configurations.
 
-Public discovery starts when you open the public-server section or explicitly refresh/check it; no catalog probes run just because the app starts or on a periodic schedule. Opening a catalogue with no fresh results starts one bounded search. A chosen candidate receives an individual check before use, including while the main VPN is running. Public nodes remain a separate source and never join Auto silently. Those nodes are run by third parties, not Waarp; their operators may log traffic that is not end-to-end encrypted. Sources: [docs/SOURCES.md](docs/SOURCES.md).
+On Windows `0.4.1-rc.3`, public discovery starts when you open the public-server section or explicitly refresh/check it; no catalog probes run just because the app starts or on a periodic schedule. Opening a catalogue with no fresh results starts one bounded search. An unverified or stale candidate receives an individual check before use, including while the main VPN is running. Android `0.5.0-rc.4` has a separate catalogue flow: new public-node probes still require VPN OFF. On both platforms, public nodes remain a separate source and never join Auto silently. Those nodes are run by third parties, not Waarp; their operators may log traffic that is not end-to-end encrypted. Sources: [docs/SOURCES.md](docs/SOURCES.md).
 
 ## Screenshots
 
+### Windows · server selection
+
+<!-- Publish the current gallery only with the reviewed PNGs listed in docs/screenshots/README.md. -->
 <table>
-<tr><td align="center" width="50%"><img src="docs/screenshots/routing.png" width="420" alt="Route settings"><br><sub><strong>Routing</strong> — assign an app to a path</sub></td><td align="center" width="50%"><img src="docs/screenshots/add-connection.png" width="420" alt="Add a connection"><br><sub><strong>Connections</strong> — import or add your own</sub></td></tr>
-<tr><td align="center"><img src="docs/screenshots/diagnostics.png" width="420" alt="Connection diagnostics"><br><sub><strong>Diagnostics</strong> — compare connectivity observations</sub></td><td align="center"><img src="docs/screenshots/hero-home.png" width="420" alt="Windows desktop home"><br><sub><strong>Overview</strong> — see where traffic goes</sub></td></tr>
+<tr>
+<td align="center" valign="top" width="50%"><a href="docs/screenshots/public-server-pages.png"><img src="docs/screenshots/public-server-pages.png" width="420" alt="Public server picker showing twelve rows, search, filters and numbered pages"></a><br><sub><strong>Public servers</strong> · 12 per page, search across the full pool</sub></td>
+<td align="center" valign="top" width="50%"><a href="docs/screenshots/saved-server-pages.png"><img src="docs/screenshots/saved-server-pages.png" width="420" alt="Saved server picker showing ten rows and numbered pages at a narrower window width"></a><br><sub><strong>Saved connections</strong> · 10 per page, selected server highlighted</sub></td>
+</tr>
 </table>
 
-These are the existing Windows captures. No verified, sanitized Android device screenshots are committed yet; we intentionally do not substitute mockups for real captures. See [screenshot guidelines](docs/screenshots/README.md).
+These captures use the built production UI with synthetic profiles and status supplied by the renderer tests. They show layout and interaction states; they do not establish remote-server availability. Open an image for its full-size view.
+
+### Android · native app
+
+<p align="center">
+  <a href="docs/screenshots/android-home.png"><img src="docs/screenshots/android-home.png" width="220" alt="Waarp Android home screen with VPN off"></a>
+  <a href="docs/screenshots/android-settings.png"><img src="docs/screenshots/android-settings.png" width="220" alt="Waarp Android routing settings"></a>
+  <a href="docs/screenshots/android-groups.png"><img src="docs/screenshots/android-groups.png" width="220" alt="Waarp Android connection groups after saving"></a>
+</p>
+<p align="center"><sub>Home · Settings · Groups</sub></p>
+
+Android 0.5.0-rc.4 captured from the native app on an API 35 Pixel 6 emulator with synthetic test profiles. [Capture methods and sources](docs/screenshots/README.md).
+
+<details>
+<summary>Earlier Windows captures</summary>
+
+The original [overview](docs/screenshots/hero-home.png), [route settings](docs/screenshots/routing.png), [connection import](docs/screenshots/add-connection.png) and [diagnostics](docs/screenshots/diagnostics.png) remain available as historical UI references. They predate the current server picker.
+
+</details>
 
 ## Conservative Windows failure handling
 
@@ -144,6 +169,8 @@ Security issues: please follow [SECURITY.md](SECURITY.md) instead of opening a p
 
 ## Build from source
 
+For Android, see the [SDK, build, installation and signing guide](docs/ANDROID.md#build-and-install). The commands below build the Windows desktop app.
+
 Windows 10/11, Node.js. Administrator rights are needed only when the tunnel starts.
 
 ```bash
@@ -169,7 +196,7 @@ npm run test:performance
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Bug reports, routing edge cases and Windows-specific failures are useful even when you do not have a fix. Please remove keys, subscription URLs, tokens, private server addresses and other secrets before posting logs or screenshots.
+Bug reports, routing edge cases and Windows or Android failures are useful even when you do not have a fix. Include the platform and OS version. Please remove keys, subscription URLs, tokens, private server addresses and other secrets before posting logs or screenshots.
 
 ## Credits
 

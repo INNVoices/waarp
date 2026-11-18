@@ -13,13 +13,29 @@ body:
     validations:
       required: true
   - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows
+        - Android
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version / Android API
+      placeholder: Windows version and build, or Android version and API level if known
+    validations:
+      required: true
+  - type: dropdown
     id: route-type
     attributes:
       label: Route type
       options:
         - App
         - Site
-        - Whole computer
+        - Whole device / computer
         - Auto
         - Group
         - Other / not sure

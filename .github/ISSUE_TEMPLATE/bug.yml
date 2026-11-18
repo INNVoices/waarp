@@ -13,11 +13,20 @@ body:
       placeholder: e.g. 1.2.3
     validations:
       required: true
-  - type: input
-    id: windows
+  - type: dropdown
+    id: platform
     attributes:
-      label: Windows version
-      placeholder: e.g. Windows 11 23H2
+      label: Platform
+      options:
+        - Windows
+        - Android
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version / Android API
+      placeholder: Windows version and build, or Android version and API level if known
     validations:
       required: true
   - type: textarea

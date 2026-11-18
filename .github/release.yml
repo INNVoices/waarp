@@ -21,6 +21,8 @@ changelog:
       labels:
         - windows
         - networking
+        - routing
+        - network
     - title: Documentation / Документация
       labels:
         - documentation
