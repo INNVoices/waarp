@@ -165,7 +165,17 @@ async function main() {
     await assert.rejects(engine.withHttpProxy('node9', new AbortController().signal, async proxy => {
       native.abortRequests(); assert(proxy.signal.aborted); return 1
     }), /cancelled/)
-    console.log('route-lifecycle: actual Apply + Engine guarded switches, saved-intent retry, inactive capacity, group memory, last-card, failed transaction, diagnostic isolation PASS')
+    // An approved start may wait in the native queue. Consume its permission
+    // only when that queue reaches the destructive transition boundary.
+    let release!: () => void, nativeStarts = 0, begins = 0, approved = true
+    native.transition = new Promise<void>(resolve => { release = resolve })
+    native.startNow = async () => { nativeStarts++ }
+    const queued = engine.start(profiles, initial, () => approved, () => { begins++ })
+    approved = false; release(); await queued
+    assert.deepEqual([nativeStarts, begins], [0, 0], 'stale queued approval cannot enter native start')
+    await engine.start(profiles, initial, () => true, () => { begins++ })
+    assert.deepEqual([nativeStarts, begins], [1, 1], 'valid approval is consumed once at native start')
+    console.log('route-lifecycle: actual Apply + Engine guarded switches, saved-intent retry, inactive capacity, group memory, last-card, failed transaction, diagnostic isolation, queued consent PASS')
   } finally { rmSync(dir, { recursive: true, force: true }) }
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })

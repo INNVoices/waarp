@@ -1,6 +1,6 @@
 // Public runtime smoke checks for the daily-use routing contract.
 // Pure/offline: no real tunnel, adapter, process or network activity.
-import { createApply, onRoutingPatch } from '../src/main/apply'
+import { createApply } from '../src/main/apply'
 import { prepareStart } from '../src/main/connect'
 import { DEFAULTS } from '../src/main/store-core'
 import type { Notice, Route, Settings } from '../src/shared/types'
@@ -24,9 +24,6 @@ const route = (on: boolean): Route => ({
 const settings = (on: boolean): Settings => ({ ...DEFAULTS, routes: [route(on)] })
 
 ;(async () => {
-  check('closed routing patch stays closed', onRoutingPatch('off', false) === 'none')
-  check('running routing patch reapplies without changing master intent', onRoutingPatch('on', false) === 'start')
-  check('hard block stops a running core', onRoutingPatch('on', true) === 'stop')
 
   const order: string[] = []
   let release!: () => void

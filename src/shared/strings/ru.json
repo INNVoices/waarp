@@ -649,5 +649,8 @@
   "route.picker.more": "Показать ещё ({count})",
   "route.picker.collapse": "Свернуть список",
   "route.picker.notfound": "Ничего не найдено. Попробуй другой запрос.",
-  "route.picker.backup.notfound": "Резервных подключений по запросу нет."
+  "route.picker.backup.notfound": "Резервных подключений по запросу нет.",
+  "srv.members.more.one": "Ещё {n} подключение",
+  "srv.members.more.few": "Ещё {n} подключения",
+  "srv.members.more.many": "Ещё {n} подключений"
 }

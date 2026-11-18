@@ -109,6 +109,8 @@ export class Engine extends EventEmitter {
   private pendingLive?: { guard: string; files: Record<string, string>; selectors: { tag: string; to: string }[] }
   get liveApplyFailure(): string | undefined { return this.liveProblem }
   get acknowledgedSettings(): Settings | undefined { return this.run?.settings }
+  /** Opaque native-session identity for restart consent; OFF cancellation also invalidates idle consent. */
+  get sessionToken(): object | number { return this.child ?? this.stopVersion }
   get routingGuarded(): boolean { return !!this.pendingLive }
   private pingSeq = 0
   /** R1.4: read-only Windows check before a TUN start (set by main); absent in offline tests */
@@ -198,10 +200,11 @@ export class Engine extends EventEmitter {
     })
   }
 
-  start(profiles: Profile[], s: Settings): Promise<void> {
+  start(profiles: Profile[], s: Settings, current: () => boolean = () => true, began: () => void = () => {}): Promise<void> {
     const version = this.stopVersion
     return this.serialize(async () => {
-      if (version !== this.stopVersion) return
+      if (version !== this.stopVersion || !current()) return
+      began()
       const controller = new AbortController()
       this.starting = controller
       try { await this.startNow(profiles, s, controller.signal) }
@@ -434,7 +437,7 @@ export class Engine extends EventEmitter {
     // The comparison uses the last acknowledged runtime, not an intent on disk.
     const slots = sameEffectiveRouting(run.settings, s) && run.loaded.slots
       ? run.loaded.slots : planSlots(s, run.loaded.slots)
-    if (!slots) { this.push('[apply] no free card slot; restarting the core once'); return false }
+    if (!slots) { this.push('[apply] no free card slot; explicit restart approval required'); return false }
     let next: ReturnType<typeof buildRuntime>
     try { next = buildRuntime(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive: run.autoLive, selectors: true, keep: run.loaded, slots, ruleDir: join(this.dir, 'rules'), hostV6: run.hostV6, diagnostic: this.diagnostic }) }
     catch { return false }

@@ -144,6 +144,34 @@ class VpnLifecycleInstrumentedTest {
         }
     }
 
+    @Test fun nativeLifecycleCommandsCannotReplaceMasterOwnership() = runBlocking {
+        controller.start(tunConfiguration())
+        withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.ON || it.phase == RuntimePhase.ERROR } }
+        assertEquals(controller.status.value.message, RuntimePhase.ON, controller.status.value.phase)
+        val generation = controller.sessionGeneration()
+        val backend = RuntimeState.backend.get()
+        val startedAt = controller.status.value.startedAt
+        val client = Libbox.newStandaloneCommandClient()
+        try {
+            // These are the actual pinned AAR's managed-service RPCs, including
+            // Go -> JNI -> Kotlin -> Go error propagation, not mocked callbacks.
+            val reload = runCatching { client.serviceReload() }.exceptionOrNull()
+            assertNotNull("The native command socket must reject unapproved reload", reload)
+            assertTrue(reload!!.message.orEmpty().contains("подтверждения"))
+            val stop = runCatching { client.serviceClose() }.exceptionOrNull()
+            assertNotNull("The native command socket must reject implicit OFF", stop)
+            assertTrue(stop!!.message.orEmpty().contains("главным переключателем"))
+            assertEquals(RuntimePhase.ON, controller.status.value.phase)
+            assertEquals(generation, controller.sessionGeneration())
+            assertTrue(RuntimeState.backend.get() === backend)
+            assertEquals(startedAt, controller.status.value.startedAt)
+        } finally { client.disconnect() }
+        // The actual owner remains able to turn the VPN off and release TUN.
+        controller.stop()
+        withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.OFF } }
+        assertEquals(null, RuntimeState.backend.get())
+    }
+
     @Test fun watchedRouteMutationsKeepOneRealTunAndAcknowledgeInsideTheNativeCore(): Unit = runBlocking {
         // The SOCKS definitions are deliberately unreachable reserved addresses. The
         // test proves live policy/selector/TUN continuity, not external proxy reachability.
@@ -436,16 +464,6 @@ class VpnLifecycleInstrumentedTest {
         withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.ERROR } }
         assertEquals(null, RuntimeState.backend.get())
         assertTrue(controller.status.value.message.orEmpty().contains("TUN"))
-    }
-
-    @Test fun nativeStopCommandConvergesToUiOff() = runBlocking {
-        controller.start(tunConfiguration())
-        withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.ON } }
-        val control = Libbox.newStandaloneCommandClient()
-        try { runCatching { control.serviceClose() } }
-        finally { runCatching { control.disconnect() } }
-        withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.OFF } }
-        assertEquals(null, RuntimeState.backend.get())
     }
 
     @Test fun actualAndroidConsentDialogGrantsPermissionBeforeTunStart() = runBlocking {

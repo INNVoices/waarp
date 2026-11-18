@@ -1,5 +1,6 @@
 import { prepareStart } from './connect'
 import { ConnectionControl } from './connection-control'
+import { confirmRuntimeChange } from './restart-consent'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, net, Notification, powerMonitor, screen, Tray } from 'electron'
 import { execFile } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
@@ -150,7 +151,14 @@ const master = new ConnectionControl({
   error: () => engine.status.error,
   demandsTunnel: () => demandsTunnel(store.settings),
   prepare: prepareConnection,
-  start: async () => engine.start(await runtimeProfiles(), store.settings),
+  start: async (current, began) => {
+    const profiles = await runtimeProfiles()
+    // Network-dependent tuning reads may finish after the owner's OFF. Check
+    // again before enqueueing a native start (whose cancellation token is new).
+    if (current() && !quitting) {
+      await engine.start(profiles, store.settings, current, began)
+    }
+  },
   stop: () => engine.stop(),
   serial: work => intentWrites.run(work),
   changed: () => { void cancelDiagnosis(); void cancelPayloadCheck(); cancelServiceDownload(); send('status', statusView(engine.status)); updateTray() }
@@ -161,23 +169,34 @@ const setMaster = (open: boolean) => master.set(open)
  * automation and external companions cannot approve a restart. */
 async function confirmTunRestart(reason: string): Promise<boolean> {
   if (!win || win.isDestroyed() || !win.isVisible() || !master.open) return false
-  const phase = engine.status.phase
-  if (phase !== 'on' && phase !== 'off') return false
-  const restarting = phase === 'on'
-  const revision = master.revision
-  const result = await dialog.showMessageBox(win, {
-    type: 'warning',
-    title: restarting ? 'Waarp — перезапуск VPN' : 'Waarp — включение VPN',
-    message: restarting ? 'Для этого изменения нужно перезапустить VPN.' : 'Чтобы применить этот маршрут, нужно включить VPN.',
-    detail: reason + (restarting
-      ? '\n\nРаботающие соединения временно прервутся. При отмене действующий TUN останется без изменений.'
-      : '\n\nСейчас TUN не запущен. Отмена сохранит прежние настройки и состояние.'),
-    buttons: ['Отмена', restarting ? 'Перезапустить VPN' : 'Включить VPN'],
-    defaultId: 0,
-    cancelId: 0,
-    noLink: true
-  })
-  return result.response === 1 && master.current(revision) && engine.status.phase === phase
+  const ownerWindow = win
+  return confirmRuntimeChange(
+    () => ({ open: master.open && !quitting, revision: master.revision, phase: engine.status.phase, session: engine.sessionToken }),
+    async ({ phase }) => {
+      const restarting = phase === 'on'
+      const result = await dialog.showMessageBox(ownerWindow, {
+        type: 'warning',
+        title: restarting ? 'Waarp — перезапуск VPN' : 'Waarp — включение VPN',
+        message: restarting ? 'Для этого изменения нужно перезапустить VPN.' : 'Чтобы применить этот маршрут, нужно включить VPN.',
+        detail: reason + (restarting
+          ? '\n\nРаботающие соединения временно прервутся. При отмене действующий TUN останется без изменений.'
+          : '\n\nСейчас TUN не запущен. Отмена сохранит прежние настройки и состояние.'),
+        buttons: ['Отмена', restarting ? 'Перезапустить VPN' : 'Включить VPN'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true
+      })
+      return result.response === 1
+    }
+  )
+}
+/** After an approved profile/tuning edit, bind all remaining preflight reads to
+ * this exact session. A deliberate profile stop consumes the original approval. */
+function reconnectEditedSession(revision: number, restart = false) {
+  const session = engine.sessionToken, phase = engine.status.phase
+  if (phase !== 'on' && phase !== 'off') return Promise.resolve({ ok: false, error: 'Состояние VPN изменилось; повтори действие' })
+  return master.reconnect(revision, { restart, retainCore: true, preserveIntent: true,
+    beforeStart: () => engine.sessionToken === session && engine.status.phase === phase })
 }
 const statusView = (s: Status) => ({ ...withRoutes(s), open: master.open, startup: runtimeRecovery.state })
 async function pauseMeasurements(): Promise<boolean> {
@@ -210,13 +229,18 @@ async function recoverRuntimes(): Promise<boolean> {
   return engine.killOrphans(stopped && engineStopped && checkerRecovered && catalogRecovered, relatedError)
 }
 
-async function prepareConnection() {
+async function prepareConnection(current: () => boolean = () => true) {
   admin = await (adminReady = checkAdmin())
-  if (quitting) return { ok: false as const, error: 'Waarp закрывается' }
+  if (!current() || quitting) return { ok: false as const, error: 'Подключение отменено' }
   const stopped = await pauseMeasurements()
+  if (!current() || quitting) return { ok: false as const, error: 'Подключение отменено' }
+  // A failed checker stop/recovery gate cannot dismantle a healthy TUN during
+  // an edit's preflight. The user can explicitly disconnect and recover it.
+  if (engine.status.phase === 'on' && (!stopped || !runtimeRecovery.ready))
+    return { ok: false as const, error: 'Текущий VPN сохранён. Для восстановления проверки сначала выключи его главным переключателем.' }
   // A later failed lease or stuck checker must not poison all future ON attempts for this app session.
   if (!(await runtimeRecovery.ensure(!stopped))) return { ok: false as const, error: engine.status.error ?? 'Не удалось восстановить прошлый процесс. Повтори восстановление.' }
-  if (quitting) return { ok: false as const, error: 'Waarp закрывается' }
+  if (!current() || quitting) return { ok: false as const, error: 'Подключение отменено' }
   return prepareStart({ stopChecker: async () => true, notices: () => refreshNotices(true) })
 }
 
@@ -272,7 +296,7 @@ function updateTray() {
   ]))
 }
 
-async function refreshNotices(beforeStart = false) {
+async function refreshNotices(beforeStart = false, settings = store.settings) {
   // An unreadable OS snapshot is unknown, never an empty list of conflicts. The
   // periodic watch warns without destroying a healthy session; a new start must
   // obtain a complete snapshot before it may create another system tunnel.
@@ -281,7 +305,7 @@ async function refreshNotices(beforeStart = false) {
   // A full-route VPN may be the underlay for app-only Waarp routes. It is unsafe only when
   // Waarp also owns the default route. Address collisions are still blocked for profiles
   // actually selected by an enabled route; unused profiles never participate here.
-  const plan = compilePlan(store.settings, store.profiles)
+  const plan = compilePlan(settings, store.profiles)
   const required = new Set(plan.requiredProfiles)
   // A conflicting backup must not block an unrelated healthy primary. Guard only the
   // credentials that the compiled plan needs now; standby health is reported beside the route.
@@ -311,10 +335,15 @@ async function watch() {
   if (watchBusy) return
   watchBusy = true
   const revision = master.revision
+  const acknowledged = engine.acknowledgedSettings
+  const session = engine.sessionToken
   try {
-    const n = await refreshNotices()
+    // A pending edit is already persisted while its dialog or native ACK is
+    // outstanding. Safety must inspect the acknowledged route, not that intent.
+    const n = await refreshNotices(false, acknowledged ?? store.settings)
     const block = n.find(x => x.level === 'block')
-    if (!master.current(revision) || engine.status.phase !== 'on') return
+    if (!master.current(revision) || engine.status.phase !== 'on' ||
+        engine.sessionToken !== session || engine.acknowledgedSettings !== acknowledged) return
     if (!block) {
       // Network changes may invalidate an optional tuning overlay, but must not
       // silently recycle TUN. The current acknowledged path remains active.
@@ -538,12 +567,23 @@ function ipc() {
     if (('routes' in patch || 'groups' in patch) && !companionPatchSafe({ routes: patch.routes ?? store.settings.routes, groups: patch.groups ?? store.settings.groups }, store.settings, store.profiles)) { send('toast', COMPANION_SAFE); return { ...snapshot(), saved: false } }
     const routing = ['rest', 'routes', 'ruDirect', 'dnsAll', 'lanDirect', 'groups'].some(k => k in patch)
     const previous = store.settings
-    store.settings = { ...store.settings, ...patch }
+    const next = { ...previous, ...patch }
     if ('autostart' in patch && !(await setAutostart(!!patch.autostart))) {
-      store.settings = previous
       send('toast', 'Не удалось изменить автозапуск Windows')
       return { ...snapshot(), saved: false }
     }
+    if (routing) {
+      // Card toggles, group edits and route selection share the same transaction,
+      // including restart consent, rollback, owner cancellation and runtime ACK.
+      const result = await applyRouting(next)
+      if (!result.saved && 'autostart' in patch) void setAutostart(previous.autostart)
+      if (result.saved && previous.serviceVia !== store.settings.serviceVia) cancelServiceDownload()
+      const message = applyText(result)
+      if (message) send('toast', message)
+      updateTray()
+      return { ...snapshot(), saved: result.saved }
+    }
+    store.settings = next
     try { store.save() }
     catch {
       store.settings = previous
@@ -551,53 +591,6 @@ function ipc() {
       send('toast', 'Не удалось сохранить настройки'); return { ...snapshot(), saved: false }
     }
     if ('serviceVia' in patch && previous.serviceVia !== store.settings.serviceVia) cancelServiceDownload()
-    if (routing) {
-      const revision = master.revision
-      const rollback = () => {
-        store.settings = previous
-        try { store.save() } catch { store.settings = { ...previous, ...patch } }
-      }
-      if (!master.open || engine.status.phase !== 'on') {
-        if (master.open && engine.status.phase === 'off' && demandsTunnel(store.settings)) {
-          if (!await confirmTunRestart('Выбранный маршрут требует запустить нативный туннель.')) {
-            if (master.current(revision)) rollback()
-            updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: false }
-          }
-          if (master.current(revision)) {
-            // Reuse the canonical start preflight, checker teardown and recovery
-            // guard. A direct engine.start here would bypass the master owner.
-            const result = await master.reconnect(revision, { preserveIntent: true })
-            if (!result.ok) {
-              if (master.current(revision)) rollback()
-              send('toast', result.error ?? 'Не удалось включить VPN для нового маршрута')
-              updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: false }
-            }
-          }
-        }
-        updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true }
-      }
-      if (await engine.applyLive(await runtimeProfiles(false), store.settings)) {
-        updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true }
-      }
-      if (engine.liveApplyFailure) {
-        send('toast', engine.liveApplyFailure)
-        updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true }
-      }
-      if (!await confirmTunRestart('Изменённые маршруты или группы требуют нового нативного определения.')) {
-        if (master.current(revision)) rollback()
-        send('toast', 'Изменение отменено: перезапуск VPN не подтверждён')
-        updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: false }
-      }
-      const currentNotices = await refreshNotices()
-      if (!master.current(revision)) return { ...snapshot(), saved: false }
-      if (currentNotices.some(n => n.level === 'block')) {
-        rollback()
-        send('toast', 'Новый маршрут заблокирован проверкой безопасности; старый TUN сохранён')
-        updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: false }
-      }
-      const result = await master.reconnect(revision, { restart: true, retainCore: true, preserveIntent: true })
-      if (!result.ok && master.revision === revision) send('toast', result.error ?? 'Не удалось применить конфигурацию')
-    }
     updateTray()
     send('snapshot', snapshot())
     return { ...snapshot(), saved: true }
@@ -785,34 +778,39 @@ function ipc() {
     const dup = store.profiles.find(p => p.id !== id && identity(p) === identity(fresh))
     if (dup) return { ok: false, error: `Этот конфиг уже есть: «${dup.name}»` }
     // The stable ID keeps cards and groups attached. The old engine must stop before the key changes.
-    if (engine.status.phase === 'starting' || engine.status.phase === 'stopping') return { ok: false, error: 'Дождись завершения подключения или остановки' }
-    if (engine.status.phase === 'on' && !await confirmTunRestart('Новые ключи или транспорт нельзя заменить без пересоздания текущего VPN.')) return { ok: false, error: 'Замена отменена; действующий VPN сохранён' }
-    if (!(await pauseMeasurements())) return { ok: false, error: 'Проверочный движок не остановился; конфиг не изменён' }
+    if (engine.status.phase !== 'on' && engine.status.phase !== 'off') return { ok: false, error: 'Дождись подключения или восстанови VPN главным переключателем; конфиг не изменён' }
     const revision = master.revision
     const wasOn = engine.status.phase === 'on'
-    // An error phase may still own a stuck child. Do not rotate credentials until it is gone.
-    if (engine.status.phase !== 'off' && !(await engine.stop())) return { ok: false, error: 'Туннель не удалось остановить; конфиг не изменён' }
+    const session = engine.sessionToken
+    const needsRestart = wasOn && engine.isProfileLoaded(id)
+    if (needsRestart && !await confirmTunRestart('Новые ключи или транспорт нельзя заменить без пересоздания текущего VPN.')) return { ok: false, error: 'Замена отменена; действующий VPN сохранён' }
+    if (!(await pauseMeasurements())) return { ok: false, error: 'Проверочный движок не остановился; конфиг не изменён' }
+    if (master.revision !== revision || engine.sessionToken !== session || engine.status.phase !== (wasOn ? 'on' : 'off'))
+      return { ok: false, error: 'Состояние VPN изменилось; повтори замену конфига' }
+    // An unloaded library entry cannot affect the current native definition.
+    if (needsRestart && !(await engine.stop())) return { ok: false, error: 'Туннель не удалось остановить; конфиг не изменён' }
+    if (master.revision !== revision) return { ok: false, error: 'Состояние VPN изменилось; повтори замену конфига' }
     store.profiles[index] = { ...fresh, id: old.id, name: old.name, addedAt: old.addedAt, source: old.source, revoked: old.revoked } as Profile
     try { store.save() }
     catch {
       store.profiles[index] = old
       send('snapshot', snapshot())
-      if (wasOn && master.current(revision)) await master.reconnect(revision)
-      return { ok: false, error: 'Не удалось сохранить конфиг; прежний туннель восстановлен' }
+      if (needsRestart && master.current(revision)) await reconnectEditedSession(revision)
+      return { ok: false, error: 'Не удалось сохранить конфиг. Прежний конфиг оставлен; проверь текущее состояние VPN.' }
     }
     await refreshNotices()
     updateTray()
-    if (wasOn && master.current(revision)) {
-      const result = await master.reconnect(revision, { preserveIntent: true })
+    if (needsRestart && master.current(revision)) {
+      const result = await reconnectEditedSession(revision)
       if (!master.current(revision)) return { ok: true }
       if (!result.ok) {
-        await engine.stop()
+        if (!(await engine.stop())) return { ok: false, error: 'Новый конфиг не запустился, а остановка не подтверждена. Выключи VPN главным переключателем и восстанови конфиг.' }
         store.profiles[index] = old
         send('snapshot', snapshot())
         try { store.save() }
-        catch { setMaster(false); return { ok: false, error: 'Новый конфиг не запустился, а прежний не удалось записать обратно. Туннель остановлен; восстанови конфиг из источника.' } }
+        catch { return { ok: false, error: 'Новый конфиг не запустился, а прежний не удалось записать обратно. Восстанови конфиг из источника и повтори включение VPN.' } }
         if (!master.current(revision)) return { ok: false, error: 'Новый конфиг не запустился. Прежний конфиг восстановлен на диске; Waarp оставлен закрытым по команде пользователя.' }
-        const restored = await master.reconnect(revision)
+        const restored = await reconnectEditedSession(revision)
         if (restored.ok) return { ok: false, error: 'Новый конфиг не запустился. Waarp восстановил прежний рабочий конфиг.' }
         return { ok: false, error: 'Новый конфиг не запустился. Прежний конфиг восстановлен на диске, но его запуск тоже не удался.' }
       }
@@ -838,7 +836,7 @@ function ipc() {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     if (typeof id !== 'string' || !store.profiles.some(x => x.id === id)) return { ok: false, error: 'Туннель не найден' }
     if (store.profiles.some(x => x.id === id && x.source === 'managed')) return { ok: false, error: 'Туннелем управляет команда; удалить его здесь нельзя' }
-    if (engine.status.phase === 'starting' || engine.status.phase === 'stopping') return { ok: false, error: 'Дождись завершения подключения или остановки' }
+    if (engine.status.phase !== 'on' && engine.status.phase !== 'off') return { ok: false, error: 'Дождись подключения или восстанови VPN главным переключателем; профиль не удалён' }
     // Only another existing tunnel/group is a replacement; absent or forged choices leave affected cards blocked.
     const remaining = store.profiles.filter(x => x.id !== id)
     const remainingSettings = dropServer(store.settings, id)
@@ -852,25 +850,29 @@ function ipc() {
     const unsafeReplacement = ok && nextSettings.routes.some((r, i) => r.owner === 'companion' && r.via !== store.settings.routes[i]?.via && !safeVia(r.via, nextSettings, remaining))
     if (unsafeReplacement) return { ok: false, error: COMPANION_SAFE }
     const previousProfiles = store.profiles, previousSettings = store.settings
-    if (!(await pauseMeasurements())) return { ok: false, error: 'Проверочный движок не остановился; туннель не удалён' }
     const revision = master.revision
     const wasOn = engine.status.phase === 'on'
+    const session = engine.sessionToken
+    if (!(await pauseMeasurements())) return { ok: false, error: 'Проверочный движок не остановился; туннель не удалён' }
+    if (master.revision !== revision || engine.sessionToken !== session || engine.status.phase !== (wasOn ? 'on' : 'off'))
+      return { ok: false, error: 'Состояние VPN изменилось; повтори удаление профиля' }
     const inertRemoval = wasOn && !engine.isProfileLoaded(id) && sameEffectiveRouting(previousSettings, nextSettings)
     if (wasOn && !inertRemoval && !await confirmTunRestart('Удаление загруженного сервера требует пересоздания VPN.')) return { ok: false, error: 'Удаление отменено; действующий VPN сохранён' }
-    if (!inertRemoval && engine.status.phase !== 'off' && !(await engine.stop())) return { ok: false, error: 'Туннель не удалось остановить; профиль не удалён' }
+    if (wasOn && !inertRemoval && !(await engine.stop())) return { ok: false, error: 'Туннель не удалось остановить; профиль не удалён' }
+    if (master.revision !== revision) return { ok: false, error: 'Состояние VPN изменилось; повтори удаление профиля' }
     store.profiles = remaining
     store.settings = nextSettings
     try { store.save() }
     catch {
       store.profiles = previousProfiles; store.settings = previousSettings
-      if (wasOn && !inertRemoval && master.current(revision)) await master.reconnect(revision)
-      return { ok: false, error: 'Не удалось сохранить удаление; туннель оставлен без изменений' }
+      if (wasOn && !inertRemoval && master.current(revision)) await reconnectEditedSession(revision)
+      return { ok: false, error: 'Не удалось сохранить удаление. Профиль оставлен; проверь текущее состояние VPN.' }
     }
     await refreshNotices()
     updateTray()
     send('snapshot', snapshot())
-    if (wasOn && !inertRemoval && master.current(revision) && demandsTunnel(store.settings)) {
-      const result = await master.reconnect(revision)
+    if (wasOn && !inertRemoval && master.current(revision)) {
+      const result = await reconnectEditedSession(revision)
       if (!result.ok) return { ok: true, warning: 'Профиль удалён, но оставшиеся маршруты не запустились: ' + (result.error ?? 'проверь подключение') }
     }
     return { ok: true }
@@ -1197,29 +1199,36 @@ function ipc() {
     return tuneTask?.id === id ? tuneTask.cancel() : true
   })
   secureIntentHandle('tune:apply', async (_e, id: unknown, label: unknown) => {
+    const revision = master.revision
     const p = typeof id === 'string' ? store.profiles.find(x => x.id === id && !x.revoked) : undefined
     if (!p || typeof label !== 'string') return { ok: false, error: 'gone' }
     const net = await currentNet()
     if (!net) return { ok: false, error: 'net' }
     const v = tuneResult?.revision === master.revision ? provenTune(tuneResult, p, net, label, Date.now()) : undefined
-    if (!v || !store.profiles.includes(p)) return { ok: false, error: 'stale' }
-    if (engine.status.phase === 'on' && !await confirmTunRestart('Применение новых параметров протокола меняет работающее нативное определение.')) return { ok: false, error: 'Перезапуск VPN отменён; прежние параметры сохранены' }
+    if (!v || !store.profiles.includes(p) || master.revision !== revision) return { ok: false, error: 'stale' }
+    if (engine.status.phase !== 'on' && engine.status.phase !== 'off') return { ok: false, error: 'Сначала дождись подключения или восстанови VPN главным переключателем' }
+    const needsRestart = engine.status.phase === 'on' && engine.isProfileLoaded(p.id)
+    if (needsRestart && !await confirmTunRestart('Применение новых параметров протокола меняет работающее нативное определение.')) return { ok: false, error: 'Перезапуск VPN отменён; прежние параметры сохранены' }
     if (!saveTunes({ ...tunes, [p.id]: { net, sig: profileSig(p), label: v.label, patch: v.patch, at: Date.now() } })) return { ok: false, error: 'save' }
     tuneResult = undefined
     let applied = true
-    if (engine.status.phase === 'on') applied = (await master.reconnect(master.revision, { restart: true })).ok
+    if (needsRestart) applied = (await reconnectEditedSession(revision, true)).ok
     send('snapshot', snapshot())
     return { ok: true, ...(!applied ? { warning: 'apply' } : {}) }
   })
   secureIntentHandle('tune:reset', async (_e, id: unknown) => {
+    const revision = master.revision
     if (typeof id !== 'string' || !tunes[id]) return { ok: false, error: 'gone' }
     const p = store.profiles.find(x => x.id === id)
     const wasActive = runtimeTuneIds.has(id) || (!!p && !!activeTune(p, tunes[id], await currentNet(), Date.now()))
-    if (wasActive && engine.status.phase === 'on' && !await confirmTunRestart('Сброс настроек активного протокола требует пересоздать VPN.')) return { ok: false, error: 'Сброс отменён; работающий VPN сохранён' }
+    if (master.revision !== revision) return { ok: false, error: 'stale' }
+    if (engine.status.phase !== 'on' && engine.status.phase !== 'off') return { ok: false, error: 'Сначала дождись подключения или восстанови VPN главным переключателем' }
+    const needsRestart = wasActive && engine.status.phase === 'on' && engine.isProfileLoaded(id)
+    if (needsRestart && !await confirmTunRestart('Сброс настроек активного протокола требует пересоздать VPN.')) return { ok: false, error: 'Сброс отменён; работающий VPN сохранён' }
     const { [id]: _gone, ...rest } = tunes
     if (!saveTunes(rest)) return { ok: false, error: 'save' }
     let applied = true
-    if (wasActive && engine.status.phase === 'on') applied = (await master.reconnect(master.revision, { restart: true })).ok
+    if (needsRestart) applied = (await reconnectEditedSession(revision, true)).ok
     send('snapshot', snapshot())
     return { ok: true, ...(!applied ? { warning: 'apply' } : {}) }
   })
@@ -1586,7 +1595,7 @@ const DIAGNOSE_MS = 20_000
 let probeCursor = 0
 const viewName = (v: string): string | undefined => store.views().find(p => p.id === v)?.name ?? (v === AUTO_ID ? 'Авто' : undefined)
 
-/** save routing settings like route:select does: a running engine restarts with the plan, a closed one stays closed */
+/** All routing edits share live application and explicit structural-change consent. */
 const applyRouting = createApply({
   get: () => store.settings,
   set: s => { store.settings = s },
@@ -1594,13 +1603,23 @@ const applyRouting = createApply({
   phase: () => engine.status.phase,
   open: () => master.open,
   revision: () => master.revision,
-  blocked: async () => (await refreshNotices(), notices.some(n => n.level === 'block')),
+  session: () => engine.sessionToken,
+  blocked: async () => (await refreshNotices()).some(n => n.level === 'block'),
   demandsTunnel,
-  start: async s => {
+  validateLive: async s => {
+    const acknowledged = engine.acknowledgedSettings
+    // Ordinary card picks keep the same scope and stay on the fast live path.
+    // Taking over the whole computer must pass conflict policy before any write.
+    if (!acknowledged || compilePlan(acknowledged, store.profiles).scope !== 'cards' ||
+        compilePlan(s, store.profiles).scope === 'cards') return true
+    return !(await refreshNotices(true, s)).some(n => n.level === 'block')
+  },
+  start: async (_settings, current) => {
     const revision = master.revision
-    const stopped = await pauseMeasurements()
-    if (!master.current(revision) || quitting || !(await runtimeRecovery.ensure(!stopped))) return
-    if (master.current(revision) && !quitting) await engine.start(await runtimeProfiles(), s)
+    // The caller has already obtained consent. Keep the master intent even if
+    // preflight/native start fails, and retain an open Direct-only TUN.
+    const result = await master.reconnect(revision, { restart: true, retainCore: true, preserveIntent: true, beforeStart: current })
+    if (!result.ok) throw new Error(result.error ?? 'Не удалось применить маршрут')
   },
   live: async s => engine.applyLive(await runtimeProfiles(false), s),
   liveFailure: () => engine.liveApplyFailure,
@@ -1610,9 +1629,10 @@ const applyRouting = createApply({
 })
 /** user-facing text for a routing write that was saved but not applied (or not saved) */
 function applyText(r: ApplyResult): string | undefined {
-  if (!r.saved) return 'Не удалось сохранить маршрут'
+  if (r.code === 'rollback') return 'Изменение отменено в текущей сессии, но прежние настройки не удалось восстановить на диске. VPN не переключён; повтори сохранение перед следующим запуском приложения.'
   if (r.code === 'block') return (notices.find(n => n.level === 'block')?.title ?? 'Запуск заблокирован') + '. Изменение отменено; действующий TUN сохранён'
   if (r.code === 'restart') return 'Изменение отменено: перезапуск VPN не подтверждён, прежний маршрут сохранён'
+  if (!r.saved) return 'Не удалось сохранить маршрут'
   if (r.code === 'start') return 'Маршрут сохранён, но текущее состояние туннеля не применило изменение'
   return undefined
 }
@@ -1630,5 +1650,5 @@ function saveNetMem(): void {
 }
 
 function withRoutes<T extends Status>(s: T): T {
-  return { ...s, routes: confirmedRoutes(store.settings, store.profiles, s, engine.liveApplyFailure ? engine.acknowledgedSettings : undefined, engine.routingGuarded) }
+  return { ...s, routes: confirmedRoutes(store.settings, store.profiles, s, engine.acknowledgedSettings, engine.routingGuarded) }
 }

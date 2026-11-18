@@ -190,8 +190,6 @@ class WaarpVpnService : VpnService() {
             if (destroyed.get() || !RuntimeState.isCurrent(request.generation)) return
             val next = LibboxBackend(
                 this, request.generation,
-                onStop = { VpnController(this).stopIfCurrent(request.generation) },
-                onReload = { reloadFromRepository(request.generation) },
                 onFailure = { error -> failGeneration(request.generation, error) },
                 // Native publication holds only the short generation monitor.
                 // Post Binder notification calls and recheck after dispatch.
@@ -212,16 +210,6 @@ class WaarpVpnService : VpnService() {
             runCatching { closeBackend() }.exceptionOrNull()?.let { if (it !== error) error.addSuppressed(it) }
             VpnController(this).failAtGeneration(request.generation, error)
         }
-    }
-
-    private fun reloadFromRepository(generation: Long) {
-        if (destroyed.get()) return
-        val request = RuntimeState.reloadIfCurrent(generation) ?: return
-        if (!RuntimeState.whenCurrent(request.generation) {
-                acceptedGeneration = request.generation
-                RuntimeState.status.update { it.copy(phase = RuntimePhase.STARTING, message = null) }
-            }) return
-        NativeLane.executor.execute { start(request) }
     }
 
     /** Called after the global generation is invalidated, including during native start. */

@@ -144,11 +144,6 @@ class VpnController(context: Context) {
 
     internal fun hasStartRequest(): Boolean = RuntimeState.wanted()
 
-    /** A late native stop callback must never stop a replacement generation. */
-    internal fun stopIfCurrent(generation: Long) {
-        stopTransition(generation, requireWanted = true)
-    }
-
     /** Failures must cancel persisted recovery too, but never a replacement ON. */
     internal fun failAtGeneration(generation: Long, error: Throwable) {
         stopTransition(generation, error = error)
@@ -430,9 +425,6 @@ internal object RuntimeState {
 
     @Synchronized fun stopIfIdle(expected: Long): Long? =
         if (isIdleGeneration(expected)) requestStop() else null
-
-    @Synchronized fun reloadIfCurrent(generation: Long): StartRequest? =
-        if (isCurrent(generation)) requestStart() else null
 
     @Synchronized fun updateIfCurrent(generation: Long, transform: (RuntimeStatus) -> RuntimeStatus) {
         if (isCurrent(generation)) status.update(transform)

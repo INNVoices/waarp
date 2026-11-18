@@ -28,9 +28,9 @@ export function Analyzer({ snap, status, hist }: { snap: Snapshot; status: Statu
               const loss = hist[id].length ? Math.round((hist[id].filter(x => x === undefined).length / hist[id].length) * 100) : 0
               return (
                 <div key={id} className="lg">
-                  <Mark profiles={snap.profiles} via={id} /><b>{id === 'direct' ? s('an.isp') : viaName(snap.profiles, id)}</b>
-                  <span className="mono">{avg !== undefined ? s('meter.ms', { n: avg }) : '—'}</span>
-                  <span className={'mono' + (loss ? ' warn' : ' m')}>{s('an.loss', { n: loss })}</span>
+                  <Mark profiles={snap.profiles} via={id} /><b title={id === 'direct' ? s('an.isp') : viaName(snap.profiles, id)}>{id === 'direct' ? s('an.isp') : viaName(snap.profiles, id)}</b>
+                  <span className="lg-ms mono">{avg !== undefined ? s('meter.ms', { n: avg }) : '—'}</span>
+                  <span className={'lg-loss' + (loss ? ' warn' : ' m')}>{s('an.loss', { n: loss })}</span>
                 </div>
               )
             })}

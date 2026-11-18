@@ -39,8 +39,6 @@ import java.util.concurrent.atomic.AtomicReference
 internal class LibboxBackend(
     private val vpn: VpnService,
     val generation: Long,
-    private val onStop: () -> Unit,
-    private val onReload: () -> Unit,
     private val onFailure: (Throwable) -> Unit,
     private val onNotification: (Notification) -> Unit,
     private val onCancelNotification: (String, Int) -> Unit,
@@ -419,8 +417,11 @@ internal class LibboxBackend(
     }
 
     private inner class ServerHandler : CommandServerHandler {
-        override fun serviceStop() = onStop()
-        override fun serviceReload() = onReload()
+        // The command socket is a telemetry/selector interface, not a second
+        // lifecycle owner. User OFF, approved edits, native failure and Android
+        // revocation all use VpnController and the service's guarded cleanup.
+        override fun serviceStop(): Unit = throw UnsupportedOperationException("Выключите VPN главным переключателем")
+        override fun serviceReload(): Unit = throw UnsupportedOperationException("Перезапуск VPN требует подтверждения в Waarp")
         override fun getSystemProxyStatus(): SystemProxyStatus = SystemProxyStatus().apply {
             available = platform.httpProxyEnabled
             enabled = platform.httpProxyEnabled

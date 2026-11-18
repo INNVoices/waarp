@@ -4,9 +4,24 @@ import { routeHits } from '../../../shared/appmatch'
 
 export const HUES = ['#d97757', '#6f9bd1', '#7cb59a', '#b39ad6', '#c9a86a', '#8fb6c4', '#c38fa8']
 
+// Snapshots replace their profile array. Share one index across cards, menus and
+// group members instead of scanning the whole library for every visible label.
+// Old snapshots and their indexes are released together.
+const profileIndexes = new WeakMap<ProfileView[], Map<Via, { profile: ProfileView; index: number }>>()
+function indexedProfiles(profiles: ProfileView[]) {
+  const cached = profileIndexes.get(profiles)
+  if (cached) return cached
+  const entries = new Map<Via, { profile: ProfileView; index: number }>()
+  profiles.forEach((profile, index) => { if (!entries.has(profile.id)) entries.set(profile.id, { profile, index }) })
+  profileIndexes.set(profiles, entries)
+  return entries
+}
+
+export const profileOf = (profiles: ProfileView[], via: Via): ProfileView | undefined => indexedProfiles(profiles).get(via)?.profile
+
 export const hueOf = (profiles: ProfileView[], via: Via) => {
-  const i = profiles.findIndex(p => p.id === via)
-  return i < 0 ? undefined : HUES[i % HUES.length]
+  const entry = indexedProfiles(profiles).get(via)
+  return entry ? HUES[entry.index % HUES.length] : undefined
 }
 
 export const firstServer = (profiles: ProfileView[]): Via => profiles[0]?.id ?? 'direct'

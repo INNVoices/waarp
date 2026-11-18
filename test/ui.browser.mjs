@@ -688,6 +688,7 @@ try {
         host: '192.0.2.' + (i % 200 + 1),
       }))
       f.state.settings.routes[0].via = 'bulk-159'
+      f.state.settings.routes[0].fallback = 'bulk-158'
       f.state.status = { ...f.state.status, phase: 'on', open: true,
         pings: Object.fromEntries(f.state.profiles.map((p, i) => [p.id, 50 + i])) }
       f.push()
@@ -699,6 +700,7 @@ try {
     assert.equal(await lists.first().locator('.vopt').count(), 8, 'default primary choices are bounded')
     assert.equal(await lists.nth(1).locator('.vopt').count(), 8, 'default backup choices are bounded')
     assert.ok((await lists.first().locator('.vopt.on .vo-name').textContent()).includes('159'), 'selected path always remains visible')
+    assert.ok((await lists.nth(1).locator('.vopt.on .vo-name').textContent()).includes('158'), 'selected backup outside the first page remains visible')
     const search = page.getByRole('searchbox', { name: 'Поиск подключений' })
     await search.fill('-117-AcrossEvery')
     assert.equal(await lists.first().locator('.vopt').count(), 1)
@@ -711,6 +713,7 @@ try {
     await backupSearch.fill('-120-AcrossEvery')
     assert.equal(await lists.nth(1).locator('.vopt').count(), 1)
     await backupSearch.fill('')
+    assert.ok((await lists.nth(1).locator('.vopt.on .vo-name').textContent()).includes('158'), 'clearing search restores the selected backup')
     for (const width of [1240, 900, 720, 620]) {
       await page.setViewportSize({ width, height: 780 })
       await settle(page)
@@ -731,7 +734,80 @@ try {
     }
     assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.selectRoute ?? 0), 0,
       'search and expansion never change routing or toggle TUN')
+    await page.getByRole('button', { name: strings['route.picker.collapse'], exact: true }).first().click()
+    assert.equal(await lists.first().locator('.vopt').count(), 8)
+    assert.ok((await lists.first().locator('.vopt.on .vo-name').textContent()).includes('159'), 'collapse keeps the current path visible')
+    assert.deepEqual(await page.evaluate(() => {
+      const c = window.__waarpTest.state.calls
+      return [c.settings ?? 0, c.selectRoute ?? 0, c.toggle ?? 0, c.disconnect ?? 0]
+    }), [0, 0, 0, 0], 'browsing primary and backup choices sends no mutation or master command')
     await capture(page, 'route-picker-long-labels.png')
+    await page.context().close()
+  })
+  await check('long labels remain readable in card menus, bounded group previews and diagnostics', async () => {
+    const page = await pageFor()
+    await ready(page)
+    await page.evaluate(() => {
+      const f = window.__waarpTest, seed = f.state.profiles[0]
+      const profiles = Array.from({ length: 160 }, (_, i) => ({ ...seed, id: 'label-' + i,
+        name: `Сервер ${i} · 서울 / Amsterdam · VeryLongNameWithoutAnySeparatorsForLayoutVerification`,
+        host: '192.0.2.' + (i + 1), source: i % 2 ? 'public' : 'personal' }))
+      const group = { id: 'g-layout', name: 'LongImportedGroupNameWithoutSeparatorsForLayoutVerification', policy: 'first', members: profiles.map(p => p.id) }
+      f.state.settings.groups = [group]
+      f.state.profiles = [...profiles, { ...seed, ...group, kind: 'group' }]
+      f.state.settings.routes[0].via = 'label-159'
+      f.state.status = { ...f.state.status, phase: 'on', open: true, pings: { direct: 135, 'label-0': undefined, 'label-159': 369 }, pingRound: 1 }
+      f.push(); f.emit('status', f.state.status)
+    })
+    await page.locator('.rcard .via-btn').first().click()
+    await page.getByRole('menu').waitFor()
+    const menuMeasure = await page.getByRole('menu').evaluate(menu => ({ overflow: menu.scrollWidth - menu.clientWidth,
+      labels: [...menu.querySelectorAll('.mi-name')].map(label => {
+        const rect = label.getBoundingClientRect(), row = label.closest('.mi').getBoundingClientRect()
+        return { width: rect.width, right: rect.right - row.right, title: label.getAttribute('title') }
+      }) }))
+    assert.ok(menuMeasure.overflow <= 1, 'long dropdown names never create horizontal scrolling')
+    assert.ok(menuMeasure.labels.every(label => label.width >= 40 && label.right <= 0 && label.title), 'every menu label has visible space and its complete name')
+    await capture(page, 'card-menu-long-labels.png')
+    await page.keyboard.press('Escape')
+    await clickNav(page, 'servers')
+    const members = page.locator('.srv-members')
+    assert.equal(await members.locator('.chip').count(), 4, 'group preview renders a bounded initial set')
+    await page.locator('.srv-members-toggle').click()
+    assert.equal(await members.locator('.chip').count(), 160, 'all group members remain reachable')
+    assert.ok(await members.evaluate(list => list.clientHeight <= 145 && list.scrollHeight > list.clientHeight), 'expanded members scroll inside their card')
+    for (const width of [1240, 900, 620]) {
+      await page.setViewportSize({ width, height: 780 }); await settle(page)
+      const layout = await page.evaluate(() => {
+        const main = document.querySelector('.main')
+        return { overflow: main.scrollWidth - main.clientWidth,
+          chipsFit: [...document.querySelectorAll('.srv-members .chip')].every(chip => chip.scrollWidth <= chip.clientWidth + 1 && chip.getAttribute('title')) }
+      })
+      assert.ok(layout.overflow <= 1 && layout.chipsFit, 'server and group cards contain long labels at ' + width)
+    }
+    await page.locator('.srv-members-toggle').click()
+    assert.equal(await members.locator('.chip').count(), 4, 'collapsing removes expanded member DOM')
+    await page.setViewportSize({ width: 1240, height: 780 })
+    await page.locator('.srv-members-wrap').scrollIntoViewIfNeeded()
+    await capture(page, 'groups-bounded-long-labels.png')
+    await clickNav(page, 'an')
+    for (const width of [1240, 900, 620]) {
+      await page.setViewportSize({ width, height: 780 }); await settle(page)
+      const rows = await page.locator('.lg').evaluateAll(els => els.map(el => {
+        const name = el.querySelector('b').getBoundingClientRect(), ms = el.querySelector('.lg-ms').getBoundingClientRect(), loss = el.querySelector('.lg-loss').getBoundingClientRect()
+        return { overflow: el.scrollWidth - el.clientWidth, nameWidth: name.width, nameRight: name.right, metricLeft: ms.left, nameBottom: name.bottom, lossTop: loss.top }
+      }))
+      assert.equal(rows.length, 3)
+      assert.ok(rows.every(row => row.overflow <= 1 && row.nameWidth >= 100 && row.nameRight <= row.metricLeft && row.lossTop >= row.nameBottom),
+        'diagnostics preserve a readable name and put loss on its own line at ' + width)
+    }
+    await page.setViewportSize({ width: 1240, height: 780 })
+    await page.locator('.legend').scrollIntoViewIfNeeded()
+    await capture(page, 'diagnostics-long-labels.png')
+    assert.deepEqual(await page.evaluate(() => {
+      const c = window.__waarpTest.state.calls
+      return [c.settings ?? 0, c.selectRoute ?? 0, c.toggle ?? 0, c.disconnect ?? 0]
+    }), [0, 0, 0, 0], 'menus, group expansion and diagnostics do not mutate routing or the master state')
     await page.context().close()
   })
   // This specifically uses the production bundle. Do not run this check against the browser-only dev demo.
