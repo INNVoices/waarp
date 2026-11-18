@@ -6,12 +6,18 @@ on:
     branches: [main]
     paths:
       - 'android/**'
+      - 'src/shared/atlas-countries.json'
+      - 'src/shared/atlas-world.json'
+      - 'licenses/NATURAL-EARTH.txt'
       - 'scripts/android-*'
       - 'test/userspace-awg/**'
       - '.github/workflows/android.yml'
   pull_request:
     paths:
       - 'android/**'
+      - 'src/shared/atlas-countries.json'
+      - 'src/shared/atlas-world.json'
+      - 'licenses/NATURAL-EARTH.txt'
       - 'scripts/android-*'
       - 'test/userspace-awg/**'
       - '.github/workflows/android.yml'

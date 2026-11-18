@@ -77,8 +77,10 @@ internal fun AtlasMap(nodes: List<AtlasNode>, country: String, onCountry: (Strin
             style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
         if (available != null && !failure) {
             val markers = remember(grouped, available) {
-                featureCollection(grouped.mapNotNull { (code, members) -> available.anchors[code]?.let { anchor ->
-                    pointFeature(anchor, JSONObject().put("country", code).put("count", members.size))
+                featureCollection(grouped.mapNotNull { (code, members) ->
+                    available.anchors[code]?.let { anchor ->
+                        pointFeature(anchor, JSONObject().put("country", code).put("count", members.size))
+                    }
                 })
             }
             val selectedFeatures = remember(country, selectedCountry, userCountry, available) {
