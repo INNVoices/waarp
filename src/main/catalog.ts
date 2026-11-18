@@ -5,6 +5,7 @@ import { safeStorage } from 'electron'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import type { Profile } from '../shared/types'
+import { atlasCountry, projectAtlas, type AtlasProjection } from '../shared/atlas'
 import { parseAny } from './links'
 import { Checker } from './checker'
 import { catalogLabel, roundRobin, sourceLabel } from './catalog-sample'
@@ -48,6 +49,8 @@ export type CatalogRegion = 'eu' | 'asia' | 'americas' | 'other'
 export interface CatalogPage {
   items: CatalogNode[]; total: number; page: number; pageSize: number; pages: number
   regions: { id: CatalogRegion; name: string; total: number; ready: number }[]
+  /** Country groups across the same search/region/availability result, before its country filter. */
+  atlas: AtlasProjection
 }
 const REGIONS: { id: CatalogRegion; name: string; countries: ReadonlySet<string> }[] = [
   { id: 'eu', name: 'Европа', countries: new Set('AL AT BE BG CH CY CZ DE DK EE ES FI FR GB GR HR HU IE IS IT LT LU LV MD ME MK MT NL NO PL PT RO RS SE SI SK UA'.split(' ')) },
@@ -142,6 +145,7 @@ export class Catalog {
     const request = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
     const query = typeof request.query === 'string' ? request.query.trim().slice(0, 200).toLocaleLowerCase('ru') : ''
     const region = REGIONS.some(item => item.id === request.region) ? request.region as CatalogRegion : undefined
+    const country = typeof request.country === 'string' && request.country ? atlasCountry(request.country) : undefined
     const bounded = (value: unknown, fallback: number, maximum: number) => typeof value === 'number' && Number.isFinite(value)
       ? Math.max(1, Math.min(maximum, Math.floor(value))) : fallback
     const pageSize = bounded(request.pageSize, 12, 100)
@@ -152,11 +156,13 @@ export class Catalog {
     const regions = REGIONS.map(item => ({ id: item.id, name: item.name,
       total: candidates.filter(node => regionOf(node.country) === item.id).length,
       ready: candidates.filter(node => regionOf(node.country) === item.id && node.status === 'ready').length }))
-    const nodes = candidates.filter(node => (!region || regionOf(node.country) === region) && (request.readyOnly !== true || node.status === 'ready'))
+    const mapped = candidates.filter(node => (!region || regionOf(node.country) === region) && (request.readyOnly !== true || node.status === 'ready'))
+    const atlas = projectAtlas(mapped)
+    const nodes = mapped.filter(node => !country || atlasCountry(node.country) === country)
       .sort((a, b) => rank(a) - rank(b) || (a.ping ?? Infinity) - (b.ping ?? Infinity) ||
         (b.lastSuccessAt ?? 0) - (a.lastSuccessAt ?? 0) || a.id.localeCompare(b.id))
     const pages = Math.max(1, Math.ceil(nodes.length / pageSize)), page = bounded(request.page, 1, pages)
-    return { items: nodes.slice((page - 1) * pageSize, page * pageSize), total: nodes.length, page, pageSize, pages, regions }
+    return { items: nodes.slice((page - 1) * pageSize, page * pageSize), total: nodes.length, page, pageSize, pages, regions, atlas }
   }
   /** Historical candidates for a bounded recovery attempt, not a health claim. */
   recoveryCandidates(limit = 8): Profile[] {

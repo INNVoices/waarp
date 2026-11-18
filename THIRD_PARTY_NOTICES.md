@@ -34,6 +34,16 @@ Provenance, hashes and corresponding source: [`engine/SOURCE.md`](engine/SOURCE.
 | Instrument Sans (via @fontsource-variable) | 5.x | SIL Open Font License 1.1 |
 | Inter (via @fontsource) | 5.x | SIL Open Font License 1.1 |
 | JetBrains Mono (via @fontsource-variable) | 5.x | SIL Open Font License 1.1 |
+| MapLibre GL JS | 6.19.0 | BSD-3-Clause; bundled dependency notices in `licenses/MAPLIBRE-NOTICES.txt` |
+
+The complete MapLibre notice file, including its runtime dependency licenses, ships at
+`resources/licenses/maplibre-gl/THIRD-PARTY-NOTICES.txt`. The map loads only when requested.
+
+## Local map data
+
+The Atlas world outline and country label anchors are derived from Natural Earth public-domain data.
+Source versions, transformations and checksums are recorded in [`docs/ATLAS-DATA.md`](docs/ATLAS-DATA.md).
+Country anchors identify source-labeled regions, not a server IP's physical location.
 
 Build-only tools (electron-builder, electron-vite, Vite, esbuild, TypeScript) are not redistributed.
 

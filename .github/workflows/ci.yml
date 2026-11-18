@@ -56,6 +56,15 @@ jobs:
         run: npx electron-builder --win portable --publish never
       - name: Verify packaged runtime and engine checksums
         run: npm run package:verify
+      - name: Retain feature previews and native evidence in the job log
+        if: always()
+        shell: pwsh
+        run: |
+          foreach ($waarpPreview in @('atlas-picker-active-preview-1240.png', 'atlas-picker-900.png', 'atlas-public-full-pool-unknown.png', 'atlas-fallback-list.png', 'atlas-file-origin.png', 'quality-context-1240.png', 'quality-context-900.png', 'failure-1.png')) {
+            $waarpPreviewPath = Join-Path 'out/ui' $waarpPreview
+            if ((Test-Path $waarpPreviewPath) -and (Get-Item $waarpPreviewPath).Length -le 1500000) { Write-Output ('WAARP_UI_PREVIEW ' + $waarpPreview + ' ' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($waarpPreviewPath))) }
+          }
+          if (Test-Path 'out/validation/continuity-native.json') { Get-Content 'out/validation/continuity-native.json' }
       - name: Retain UI evidence
         if: always()
         uses: actions/upload-artifact@v4

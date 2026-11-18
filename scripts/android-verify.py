@@ -44,6 +44,17 @@ def command(args: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120, check=False)
 
 
+def verify_permissions(badging: str) -> list[str]:
+    # Inspect the merged APK, including version-qualified declarations from AARs.
+    permissions = set(re.findall(r"^uses-permission(?:-sdk-\d+)?: name='([^']+)'", badging, re.M))
+    for permission in ("INTERNET", "ACCESS_NETWORK_STATE", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_SYSTEM_EXEMPTED"):
+        require(f"android.permission.{permission}" in permissions, f"APK lacks required permission: {permission}")
+    for permission in ("ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "ACCESS_BACKGROUND_LOCATION", "ACCESS_WIFI_STATE"):
+        require(f"android.permission.{permission}" not in permissions,
+                f"APK unexpectedly requests {permission}; Atlas uses a manually chosen region.")
+    return sorted(permissions)
+
+
 def elf_check(data: bytes, name: str) -> dict:
     require(data[:4] == b"\x7fELF", f"Not an ELF library: {name}")
     bits = {1: 32, 2: 64}.get(data[4])
@@ -156,8 +167,7 @@ def verify(path: Path, expected: str) -> dict:
     require("sdkVersion:'29'" in badging.stdout and "targetSdkVersion:'36'" in badging.stdout, "APK SDK contract differs from min29/target36.")
     require(("application-debuggable" in badging.stdout) == (expected == "debug"), "APK debuggable flag does not match its variant.")
     require("application-testOnly" not in badging.stdout, "The distributable application must not be marked testOnly.")
-    for permission in ("INTERNET", "ACCESS_NETWORK_STATE", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_SYSTEM_EXEMPTED"):
-        require(f"android.permission.{permission}'" in badging.stdout, f"APK lacks required permission: {permission}")
+    permissions = verify_permissions(badging.stdout)
 
     alignment = command([tool("zipalign"), "-c", "-P", "16", "-v", "4", str(path)])
     require(alignment.returncode == 0, f"zipalign 16 KB verification failed: {alignment.stdout[-3000:]}")
@@ -195,6 +205,7 @@ def verify(path: Path, expected: str) -> dict:
         "artifact": path.name, "sha256": sha.hexdigest(), "bytes": path.stat().st_size,
         "variant": expected, "applicationId": package_id, "versionCode": int(version_code), "versionName": version_name,
         "minSdk": 29, "targetSdk": 36, "abi": abi, "signed": signed, "signerCertificateSha256": certificate,
+        "permissions": permissions,
         "signatureSchemes": signature_schemes,
         "engineVersion": pin["version"], "engineSourceCommit": pin["sourceCommit"],
         "engineAarSha256": pin["sha256"], "engineSourceBuild": source_build,

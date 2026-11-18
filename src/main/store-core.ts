@@ -3,6 +3,7 @@ import { PRESETS } from '../shared/presets'
 import { dedupeApps } from '../shared/appmatch'
 import { validateCustom, validIpPrefix } from '../shared/route-validation'
 import { masqueNode } from './masque'
+import { isConnectionUse } from '../shared/connection-quality'
 
 export interface Bounds { x: number; y: number; width: number; height: number; max?: boolean }
 export interface Disk { settings: Settings; profiles: string[]; bounds?: Bounds }
@@ -33,7 +34,8 @@ export function migrate(raw: any, firstProfile?: string): Settings {
     }
     // The persisted file is data, not a trusted IPC peer. Apply the same semantic limits as live patches.
     const unique = <T extends { id: string }>(items: T[]): T[] => { const seen = new Set<string>(); return items.filter(x => !seen.has(x.id) && !!seen.add(x.id)) }
-    const routes = dedupeApps(unique<Route>(raw.routes.slice(0, 500).filter(route) as Route[]).map(r => r.kind === 'app' && r.matchDir && r.wholeDir === undefined ? { ...r, wholeDir: true } : r).map(r => (r.dpi !== undefined && r.dpi !== true ? (({ dpi: _d, ...x }) => x)(r) : r)))
+    const routes = dedupeApps(unique<Route>(raw.routes.slice(0, 500).filter(route) as Route[]).map(r => r.kind === 'app' && r.matchDir && r.wholeDir === undefined ? { ...r, wholeDir: true } : r).map(r => (r.dpi !== undefined && r.dpi !== true ? (({ dpi: _d, ...x }) => x)(r) : r))
+      .map(r => r.connectionUse === undefined || isConnectionUse(r.connectionUse) ? r : (({ connectionUse: _use, ...rest }) => rest)(r)))
     const groups = Array.isArray(raw.groups) ? unique<Group>(raw.groups.slice(0, 50).filter((g: any) => g && typeof g.id === 'string' && g.id.startsWith('g-') && via(g.id) && typeof g.name === 'string' && g.name.length <= 60 && ['fastest', 'first'].includes(g.policy) && Array.isArray(g.members) && g.members.length > 0 && g.members.length <= 32 && g.members.every((m: unknown) => via(m) && m !== 'direct' && !m.startsWith('g-'))).map((g: any): Group => ({ id: g.id, name: g.name, policy: g.policy, members: [...new Set(g.members)] as string[] }))) : []
     return {
       ...DEFAULTS,

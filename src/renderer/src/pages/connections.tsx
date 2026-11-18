@@ -184,7 +184,7 @@ function ConnTable({ snap, status, conns, apps }: { snap: Snapshot; status: Stat
   if (!live) return <div className="panel emptyst"><Icon n="pulse" s={24} /><span>{s('conns.idle')}</span></div>
   const groups = new Map<string, Group>()
   for (const c of conns) {
-    if (f === 'vpn' && c.via === 'direct') continue
+    if (f === 'vpn' && (!c.via || c.via === 'direct')) continue
     if (f === 'direct' && c.via !== 'direct') continue
     const key = (c.exe || c.app) + '|' + c.via
     const g = groups.get(key) ?? { key, name: c.app || s('conns.system'), exe: c.exe, via: c.via, conns: [], down: 0, up: 0, routed: connRoute(c, snap.settings.routes) }

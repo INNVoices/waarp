@@ -32,6 +32,7 @@
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@fontsource/inter": "^5.3.0",
     "jsqr": "^1.4.0",
+    "maplibre-gl": "6.19.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "simple-icons": "^16.33.0"
@@ -118,6 +119,14 @@
       {
         "from": "node_modules/@fontsource-variable/jetbrains-mono/LICENSE",
         "to": "licenses/@fontsource-variable/jetbrains-mono/LICENSE"
+      },
+      {
+        "from": "licenses/MAPLIBRE-NOTICES.txt",
+        "to": "licenses/maplibre-gl/THIRD-PARTY-NOTICES.txt"
+      },
+      {
+        "from": "licenses/NATURAL-EARTH.txt",
+        "to": "licenses/natural-earth/NOTICE.txt"
       }
     ],
     "win": {

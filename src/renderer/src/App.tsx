@@ -7,7 +7,7 @@ import { logoClick } from './eggs'
 import { Connections } from './pages/connections'
 import { RoutePage } from './pages/route'
 import { Library } from './pages/library'
-import { addEntry, back, goTo, initialNav, mergeScannedApps, openRoute, showCatalog, showList, type Nav, type Page } from './lib/flow'
+import { addEntry, back, backFromDiagnosis, goTo, initialNav, mergeScannedApps, openDiagnosis, openRoute, showCatalog, showList, type Nav, type Page } from './lib/flow'
 import { Servers } from './pages/servers'
 import { AddTunnel, importNote } from './pages/addtunnel'
 import { Analyzer } from './pages/analyzer'
@@ -244,10 +244,10 @@ export function App() {
         <Notices list={snap.notices} admin={snap.admin} />
         {page === 'home' && !hasRouting && <Welcome onAdd={() => setAdding(true)} />}
         {page === 'home' && hasRouting && <Connections snap={snap} status={controlStatus} conns={conns} apps={apps ?? []} patch={patch} toast={setToast} toggle={toggle} recover={recover} busy={busy} open={open} add={() => setNav(addEntry)} />}
-          {page === 'route' && routeId && <RoutePage key={routeId} snap={snap} status={status} conns={conns} apps={apps ?? []} id={routeId} patch={patch} toast={setToast} back={() => setNav(back)} />}
+          {page === 'route' && routeId && <RoutePage key={routeId} snap={snap} status={status} conns={conns} apps={apps ?? []} id={routeId} patch={patch} toast={setToast} back={() => setNav(back)} diagnose={() => setNav(n => openDiagnosis(n, routeId))} />}
           {page === 'lib' && <Library snap={snap} status={status} conns={conns} apps={apps} loading={scanning} rescan={rescan} addApp={addApp} patch={patch} toast={setToast} open={open} mode={nav.libMode} setMode={m => setNav(m === 'catalog' ? showCatalog : showList)} />}
           {page === 'servers' && <Servers snap={snap} status={status} patch={patch} toast={setToast} />}
-          {page === 'an' && <Analyzer snap={snap} status={status} hist={hist.current} />}
+          {page === 'an' && <Analyzer key={nav.diagnosisRouteId ?? 'global'} snap={snap} status={status} hist={hist.current} routeId={nav.diagnosisRouteId} back={() => setNav(backFromDiagnosis)} />}
           {page === 'settings' && <SettingsPage snap={snap} patch={patch} toast={setToast} />}
       </main>
       {adding && <AddTunnel initialClip={initialClip} onDiscoveryDone={() => localStorage.setItem('waarp-first-scan', 'done')} onClose={() => { setAdding(false); setInitialClip(false) }} onAdded={r => { setToast(importNote(r)); if (!r.clientPublicKey) { setAdding(false); setInitialClip(false); setNav(n => snap.settings.routes.length ? goTo(n, 'lib') : addEntry(n)) } }}

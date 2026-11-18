@@ -3,7 +3,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import type { Group, ProfileView, Snapshot, Status } from '../../../shared/types'
 import { dropGroup, usersOf } from '../../../shared/path-usage'
 import { Modal } from '../ui/modal'
-import { Area, Btn, Icon, Input, Tooltip } from '../ui/kit'
+import { Area, Btn, Icon, Input, Seg, Tooltip } from '../ui/kit'
 import { s, sp } from '../lib/i18n'
 import { api } from '../bridge'
 import type { SettingsPatch } from '../lib/actions'
@@ -13,6 +13,9 @@ import { GroupDialog } from './groupdlg'
 import { useDev } from '../lib/dev'
 import { profileOf } from '../lib/routes'
 import { PublicCatalog } from './publiccat'
+import { atlasCountry, profileAtlas } from '../../../shared/atlas'
+import { Atlas, atlasCountryName } from '../ui/atlas'
+import { AtlasViewSwitch, useAtlasView } from '../ui/atlas-view'
 
 
 export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status: Status; patch: SettingsPatch; toast: (x: string) => void }) {
@@ -33,12 +36,18 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
   const renameCanceled = useRef(false)
   const [visibleOwn, setVisibleOwn] = useState(24)
   const [query, setQuery] = useState('')
+  const [view, setView] = useAtlasView('connections')
+  const [mapSource, setMapSource] = useState<'saved' | 'public'>('saved')
+  const [country, setCountry] = useState('')
   const live = status.phase === 'on'
   const changing = status.phase === 'starting' || status.phase === 'stopping'
   const refreshAllowed = status.phase === 'off' && status.open !== true
   const st = snap.settings
   const own = snap.profiles.filter(p => p.kind !== 'group')
-  const filteredOwn = query.trim() ? own.filter(p => `${p.name} ${p.host} ${p.version}`.toLowerCase().includes(query.trim().toLowerCase())) : own
+  const matchedOwn = query.trim() ? own.filter(p => `${p.name} ${p.host} ${p.version}`.toLowerCase().includes(query.trim().toLowerCase())) : own
+  const filteredOwn = matchedOwn.filter(profile => !country || atlasCountry(profile.country) === country)
+  const showOwn = view === 'list' || mapSource === 'saved'
+  const showPublic = view === 'list' || mapSource === 'public'
   const available = own.filter(p => !p.revoked)
   const groups = snap.profiles.filter(p => p.kind === 'group')
   const uses = (id: string) => st.routes.filter(r => r.via === id).length + (st.rest === id ? 1 : 0)
@@ -155,7 +164,15 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
       </div>
       <p className="lead">{s('srv.lead')}</p>
 
-      <div className="sec-head"><h2>{s('srv.mine')}</h2><span className="m">{own.length}</span><div className="grow" />{own.length > 24 && <Input className="inp srv-search" value={query} placeholder={s('srv.search')} onChange={e => { setQuery(e.target.value); setVisibleOwn(24) }} />}</div>
+      <div className="atlas-connections-toolbar">
+        <AtlasViewSwitch value={view} onChange={setView} />
+        {view === 'map' && <Seg value={mapSource} onChange={setMapSource} items={[{ v: 'saved', label: s('server.saved'), n: own.length }, { v: 'public', label: s('server.public') }]} />}
+      </div>
+
+      <div className="atlas-connection-section" hidden={!showOwn}>
+      <div className="sec-head"><h2>{s('srv.mine')}</h2><span className="m">{own.length}</span><div className="grow" />{(own.length > 24 || view === 'map') && <Input className="inp srv-search" value={query} placeholder={s('srv.search')} onChange={e => { setQuery(e.target.value); setVisibleOwn(24) }} />}</div>
+      {view === 'map' && showOwn && <Atlas projection={profileAtlas(matchedOwn, status)} country={country} onCountry={next => { setCountry(next); setVisibleOwn(24) }} onList={() => setView('list')} />}
+      {view === 'list' && country && <div className="atlas-list-filter"><span>{s('atlas.filtered', { country: atlasCountryName(country) })}</span><Btn sm kind="ghost" onClick={() => { setCountry(''); setVisibleOwn(24) }}><Icon n="x" s={13} />{s('atlas.region.reset')}</Btn></div>}
       {!own.length && (
         <div className="panel emptyst"><Icon n="server" s={24} /><span>{s('srv.empty')}</span><Btn kind="primary" onClick={() => setAdding(true)}><Icon n="plus" />{s('srv.add')}</Btn></div>
       )}
@@ -191,8 +208,9 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
       </div>
       {!!own.length && !filteredOwn.length && <div className="panel emptyst"><Icon n="search" s={20} /><span>{s('srv.search.empty')}</span></div>}
       {visibleOwn < filteredOwn.length && <div className="srv-more"><Btn kind="ghost" onClick={() => setVisibleOwn(n => n + 24)}>{s('srv.more', { n: Math.min(24, filteredOwn.length - visibleOwn) })}</Btn></div>}
+      </div>
 
-      {groups.length > 0 && <>
+      {groups.length > 0 && <div className="atlas-connection-section" hidden={view === 'map'}>
         <div className="sec-head"><h2>{s('srv.groups')}</h2><span className="m">{groups.length}</span></div>
         <div className="srv-grid">
           {groups.map(p => (
@@ -209,13 +227,15 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
             </div>
           ))}
         </div>
-      </>}
+      </div>}
 
+      <div className="atlas-connection-section" hidden={!showPublic}>
       <div className="sec-head"><h2>{s('pub.sec')}</h2></div>
-      <PublicCatalog toast={toast} used={id => snap.profiles.some(p => p.id === id)} />
+      <PublicCatalog toast={toast} used={id => snap.profiles.some(p => p.id === id)} view={view} onViewChange={setView} active={showPublic} />
+      </div>
 
       {adding && <AddTunnel onClose={() => setAdding(false)} onAdded={(r: ImportResult) => toast(importNote(r))}
-        onPublic={() => { setAdding(false); requestAnimationFrame(() => document.getElementById('public-catalog')?.scrollIntoView({ behavior: 'smooth' })) }} />}
+        onPublic={() => { setAdding(false); setMapSource('public'); requestAnimationFrame(() => document.getElementById('public-catalog')?.scrollIntoView({ behavior: 'smooth' })) }} />}
       {grp && <GroupDialog tunnels={available} groups={st.groups} edit={grp.edit} onClose={() => setGrp(undefined)}
         onSave={g => patch({ groups: st.groups.some(x => x.id === g.id) ? st.groups.map(x => (x.id === g.id ? g : x)) : [...st.groups, g] })} />}
     </div>

@@ -134,7 +134,7 @@ internal class MobileStateMapper {
             RouteUi(route.id, when (route.kind) { "app" -> RouteKind.APP; "preset" -> RouteKind.SERVICE; else -> RouteKind.CUSTOM },
                 route.name, route.via, route.fallback, route.enabled, route.match.takeIf { route.kind == "app" },
                 route.match.takeIf { route.kind == "preset" }, route.match.takeIf { route.kind == "custom" }, status,
-                effectiveViaId = effective, reason = when {
+                effectiveViaId = effective, connectionUse = ConnectionUses.normalize(route.connectionUse), reason = when {
                     !pathAvailable(route.via) -> "Путь удалён или недоступен. Назначьте другой; напрямую трафик не перенаправляется."
                     compiledBlocked -> "Путь не вошёл в текущую конфигурацию VPN. Уменьши число активных туннелей или измени назначение."
                     routeHealth?.down == true -> "Две последовательные проверки внешних сайтов не прошли. Маршрут остаётся назначенным."

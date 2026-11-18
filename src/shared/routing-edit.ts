@@ -9,7 +9,7 @@ export function sameEffectiveRouting(before: Settings, after: Settings): boolean
     const referenced = new Set([s.rest, ...routes.flatMap(r => [r.via, r.fallback].filter((v): v is string => !!v))])
     return JSON.stringify({
       rest: s.rest, ruDirect: s.ruDirect, dnsAll: s.dnsAll, lanDirect: s.lanDirect,
-      routes: routes.map(({ name: _name, ...rule }) => rule),
+      routes: routes.map(({ name: _name, connectionUse: _use, ...rule }) => rule),
       groups: s.groups.filter(g => referenced.has(g.id))
         .map(({ name: _name, ...group }) => group).sort((a, b) => a.id.localeCompare(b.id))
     })

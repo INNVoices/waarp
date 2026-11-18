@@ -4,6 +4,7 @@ import type { Group, Route, Settings, Via } from '../shared/types'
 import { validateCustom } from '../shared/route-validation'
 import { PRESETS } from '../shared/presets'
 import { reservedOk } from '../shared/companion'
+import { isConnectionUse } from '../shared/connection-quality'
 
 const str = (v: unknown, max = 300): v is string => typeof v === 'string' && v.length <= max
 const via = (v: unknown): v is Via => str(v, 80) && /^[\w:.-]+$/.test(v)
@@ -22,6 +23,7 @@ function route(r: any): Route | null {
   if (!r || typeof r !== 'object' || !str(r.id, 400) || !str(r.name, 200) || !via(r.via) || !bool(r.on)) return null
   if (!['app', 'preset', 'custom', 'list'].includes(r.kind)) return null
   const out: any = { id: r.id, kind: r.kind, name: r.name, via: r.via, on: r.on }
+  if (r.connectionUse !== undefined) { if (!isConnectionUse(r.connectionUse)) return null; out.connectionUse = r.connectionUse }
   for (const k of ['exe', 'matchDir', 'preset', 'value', 'icon', 'list'] as const) if (r[k] !== undefined) {
     if (!str(r[k], k === 'icon' ? 200000 : 1000)) return null
     if (k === 'icon' && r[k] !== '' && !/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(r[k])) return null

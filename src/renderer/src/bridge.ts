@@ -2,6 +2,8 @@ import type { Api } from '../../preload'
 import type { AppInfo, Conn, ProfileView, Settings, Snapshot, Status } from '../../shared/types'
 import { effectiveRoutes } from '../../shared/effective'
 import { classify } from '../../shared/evidence'
+import { assessConnection, connectionUse, summarizeChecks } from '../../shared/connection-quality'
+import { atlasCountry, projectAtlas } from '../../shared/atlas'
 
 function mock(): Api {
   const subs: Record<string, ((v: any) => void)[]> = {}
@@ -110,7 +112,7 @@ function mock(): Api {
     removeProfile: async () => undefined,
     notices: async () => [],
     probe: async (t: string) => ({ direct: t.includes('youtube') ? null : 31, a: 88, b: 140 }),
-    diagnose: async (t: string) => {
+    diagnose: async (t: string, routeId?: string) => {
       await new Promise(r => setTimeout(r, 500))
       const cut = t.includes('youtube'), dns = t.includes('rutracker'), dead = t.includes('dead')
       const ok = { result: 'ok' as const }, skip = { result: 'skipped' as const }
@@ -119,7 +121,11 @@ function mock(): Api {
         : cut ? { dnsSystem: { ...ok, addrs: 4 }, dnsDoh: { ...ok, addrs: 4 }, tcp: ok, tls: { result: 'fail' as const, code: 'reset' as const }, http: skip }
         : { dnsSystem: { ...ok, addrs: 2 }, dnsDoh: { ...ok, addrs: 2 }, tcp: ok, tls: ok, http: { result: 'ok' as const, status: 200 } }
       const paths = dead ? { a: null, b: null } : { a: 88, b: 140 }
-      return { target: t, host: t.replace(/^https?:\/\//, '').replace(/[/?#:].*$/, '').toLowerCase(), direct, paths, finding: classify(direct, paths), at: Date.now(), token: 'preview-diagnosis' }
+      const route = settings.routes.find(r => r.id === routeId)
+      const samples = summarizeChecks([paths, paths])
+      const scope = route ? { routeId: route.id, routeName: route.name, connectionUse: connectionUse(route.connectionUse), selectedVia: route.via, effectiveVia: route.via } : undefined
+      return { target: t, host: t.replace(/^https?:\/\//, '').replace(/[/?#:].*$/, '').toLowerCase(), direct, paths, finding: classify(direct, paths), at: Date.now(), token: 'preview-diagnosis', samples, scope,
+        assessment: scope ? assessConnection(scope.connectionUse, scope.effectiveVia, samples, ['a', 'b']) : undefined, systemPath: true }
     },
     diagnoseCancel: async () => true,
     payloadLast: async () => undefined,
@@ -150,11 +156,12 @@ function mock(): Api {
     onNav: on('nav'),
     companionChoose: async (id: string, via: string) => { settings = { ...settings, routes: [...settings.routes.filter(r => r.id !== id), { id, kind: 'custom', name: id, value: 'example.com', via, on: true, owner: 'companion' }] }; emit('snapshot', snap()); return { ok: true, id } },
     catalogGet: async () => catalogState(),
-    catalogPage: async ({ query = '', region, page = 1, pageSize = 12, readyOnly = false }: { query?: string; region?: string; page?: number; pageSize?: number; readyOnly?: boolean } = {}) => {
+    catalogPage: async ({ query = '', region, country, page = 1, pageSize = 12, readyOnly = false }: { query?: string; region?: string; country?: string; page?: number; pageSize?: number; readyOnly?: boolean } = {}) => {
       const matched = publicNodes.filter(node => `${node.name} ${node.proto} ${node.host} ${node.country} ${node.source}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
-      const items = matched.filter(node => (!region || publicRegion(node.country) === region) && (!readyOnly || node.status === 'ready'))
+      const mapped = matched.filter(node => (!region || publicRegion(node.country) === region) && (!readyOnly || node.status === 'ready'))
+      const items = mapped.filter(node => !country || atlasCountry(node.country) === atlasCountry(country))
       const pages = Math.max(1, Math.ceil(items.length / pageSize)), current = Math.max(1, Math.min(pages, page))
-      return { items: items.slice((current - 1) * pageSize, current * pageSize), total: items.length, page: current, pageSize, pages,
+      return { items: items.slice((current - 1) * pageSize, current * pageSize), total: items.length, page: current, pageSize, pages, atlas: projectAtlas(mapped),
         regions: ['eu', 'asia', 'americas', 'other'].map(id => ({ id, name: id, total: matched.filter(node => publicRegion(node.country) === id).length, ready: matched.filter(node => publicRegion(node.country) === id && node.status === 'ready').length })) }
     },
     catalogRefresh: async () => catalogState(),

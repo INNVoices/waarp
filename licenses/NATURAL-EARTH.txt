@@ -1,0 +1,15 @@
+Natural Earth map data
+https://www.naturalearthdata.com/
+
+Natural Earth places its vector and raster map data in the public domain.
+Terms: https://www.naturalearthdata.com/about/terms-of-use/
+
+Waarp includes a simplified local world outline and regional label anchors.
+The data identifies regions, not the physical locations of individual servers.
+There are no remote tiles, geocoding requests, or bundled server locations.
+
+Source: https://github.com/nvkelso/natural-earth-vector
+Revision: ca96624a56bd078437bca8184e78163e5039ad19
+Inputs: geojson/ne_110m_admin_0_countries.geojson and
+        geojson/ne_50m_admin_0_tiny_countries.geojson
+Transformations and output checksums: docs/ATLAS-DATA.md in the source tree.

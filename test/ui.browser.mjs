@@ -6,13 +6,17 @@ import assert from 'node:assert/strict'
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { runAtlasChecks } from './atlas.browser.mjs'
+import { runConnectionQualityChecks } from './connection-quality.browser.mjs'
 
 const dependency = process.env.WAARP_PLAYWRIGHT
 const playwright = await import(dependency ? pathToFileURL(resolve(dependency)).href : 'playwright')
 const { chromium } = playwright.default ?? playwright
 const strings = JSON.parse(readFileSync(new URL('../src/shared/strings/ru.json', import.meta.url), 'utf8'))
 const url = process.env.WAARP_UI_URL ?? 'http://127.0.0.1:4173/'
-const browser = await chromium.launch({ headless: true, ...(process.env.WAARP_CHROMIUM ? { executablePath: process.env.WAARP_CHROMIUM } : {}), args: ['--no-sandbox'] })
+// Electron permits local file modules. This narrow test flag lets Chromium load the same
+// production file tree; the page's real CSP and worker restrictions remain in force.
+const browser = await chromium.launch({ headless: true, ...(process.env.WAARP_CHROMIUM ? { executablePath: process.env.WAARP_CHROMIUM } : {}), args: ['--no-sandbox', '--allow-file-access-from-files'] })
 const errors = []
 const pageConsoleErrors = new WeakMap()
 let passed = 0
@@ -38,6 +42,12 @@ function fixture(options) {
     settings: { routes: [{ id: 'custom:example.com', kind: 'custom', name: 'Example', value: 'example.com', on: true, via: 'a' }], groups: [], rest: 'direct', ruDirect: true, dnsAll: false, lanDirect: true, tray: true, autoConnect: false, autostart: false, notify: true }
   }
   const count = key => state.calls[key] = (state.calls[key] ?? 0) + 1
+  if (options.atlas) {
+    state.profiles[0].country = 'DE'; state.profiles[1].country = 'JP'
+    state.profiles.push({ ...state.profiles[0], id: 'unknown', name: 'Private region unknown', country: undefined })
+    state.status = { ...state.status, phase: 'on', open: true, health: { a: 'ok' },
+      routes: { 'custom:example.com': { desired: 'a', effective: 'a', state: 'ok' } } }
+  }
   const snapshot = () => structuredClone({ admin: !options.adminPending, profiles: state.profiles, settings: state.settings, status: state.status, notices: [] })
   const push = () => emit('snapshot', snapshot())
   const catalog = { busy: false, total: 1, readyCount: 1, planned: 1, checked: 1, updatedAt: Date.now(), sources: [], alive: [{ id: 'pub-fixture', name: 'DE Example', host: '198.51.100.1', port: 443, country: 'DE', proto: 'Trojan', status: 'ready', ping: 42, checkedAt: Date.now() }] }
@@ -48,7 +58,7 @@ function fixture(options) {
   }
   const catalogEntries = options.largeCatalog
     ? Array.from({ length: 257 }, (_, i) => ({ id: 'pool-' + i, name: `Public server ${String(i).padStart(3, '0')}`,
-      host: `node-${i}.example.invalid`, port: 443, country: ['DE', 'JP', 'US'][i % 3], proto: 'Trojan',
+      host: `node-${i}.example.invalid`, port: 443, country: options.atlas && i === 256 ? '??' : ['DE', 'JP', 'US'][i % 3], proto: 'Trojan',
       status: 'ready', ping: 20 + i, checkedAt: Date.now() }))
     : [...catalog.alive, ...(catalog.cached ?? [])]
   if (options.largeCatalog) { catalog.total = catalogEntries.length; catalog.readyCount = catalogEntries.length; catalog.alive = catalogEntries.slice(0, 50) }
@@ -60,10 +70,18 @@ function fixture(options) {
       (!term || [node.name, node.host, node.country, node.proto].join(' ').toLocaleLowerCase().includes(term)))
     const regions = ['eu', 'asia', 'americas', 'other'].map(id => ({ id, name: id,
       total: matching.filter(n => regionOf(n.country) === id).length, ready: matching.filter(n => regionOf(n.country) === id && n.status === 'ready').length }))
-    const all = matching.filter(node => !query?.region || regionOf(node.country) === query.region)
+    const mapped = matching.filter(node => !query?.region || regionOf(node.country) === query.region)
+    const countryGroups = new Map()
+    for (const node of mapped) {
+      const item = countryGroups.get(node.country) ?? { country: node.country, total: 0, ready: 0, failed: 0 }
+      item.total++; if (node.status === 'ready') item.ready++; else if (node.status === 'failed') item.failed++
+      countryGroups.set(node.country, item)
+    }
+    const atlas = { countries: [...countryGroups.values()], total: mapped.length, unknown: countryGroups.get('??')?.total ?? 0 }
+    const all = mapped.filter(node => !query?.country || node.country === query.country)
     const pageSize = Math.max(1, Math.min(50, query?.pageSize ?? 12)), pages = Math.max(1, Math.ceil(all.length / pageSize))
     const page = Math.max(1, Math.min(pages, query?.page ?? 1))
-    return { items: all.slice((page - 1) * pageSize, page * pageSize), total: all.length, page, pageSize, pages, regions }
+    return { items: all.slice((page - 1) * pageSize, page * pageSize), total: all.length, page, pageSize, pages, regions, atlas }
   }
   const listenerCounts = () => Object.fromEntries([...listeners].filter(([, group]) => group.size).map(([channel, group]) => [channel, group.size]))
   window.__waarpTest = { state, push, emit, snapshot, listenerCounts, catalog }
@@ -765,12 +783,19 @@ try {
     await page.waitForFunction(() => window.__waarpTest.state.settings.routes[0].via === 'b')
     assert.deepEqual(await page.evaluate(() => window.__waarpTest.state.lastDiagnosisApply), { token: 'diagnosis-1', via: 'b' })
     assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.settings ?? 0), 0, 'UI cannot bypass the main diagnosis guard with a generic settings patch')
-    await page.evaluate(() => { const f = window.__waarpTest; f.state.settings.routes[0].via = 'a'; f.state.rejectDiagnosisApply = true; f.push() })
-    await page.getByRole('button', { name: applyName, exact: true }).click()
+    await page.getByRole('button', { name: strings['an.probe.go'], exact: true }).click()
     await page.waitForFunction(() => window.__waarpTest.state.calls.diagnose === 2)
     await page.getByRole('button', { name: applyName, exact: true }).waitFor()
-    assert.equal(await page.evaluate(() => window.__waarpTest.state.settings.routes[0].via), 'a', 'stale apply refreshes evidence without silently changing the route')
+    await page.evaluate(() => { const f = window.__waarpTest; f.state.settings.routes[0].via = 'a'; f.state.rejectDiagnosisApply = true; f.push() })
+    await page.getByRole('button', { name: applyName, exact: true }).click()
+    await page.getByText(strings['quality.notice.stale'], { exact: true }).waitFor()
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.diagnose), 2, 'stale evidence starts no hidden check')
+    assert.equal(await page.getByRole('button', { name: applyName, exact: true }).count(), 0)
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.settings.routes[0].via), 'a', 'stale apply never changes the route')
     assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.diagnoseApply), 2)
+    await page.getByRole('button', { name: strings['an.probe.go'], exact: true }).click()
+    await page.waitForFunction(() => window.__waarpTest.state.calls.diagnose === 3)
+    await page.getByRole('button', { name: applyName, exact: true }).waitFor()
     await page.context().close()
   })
   await check('leaving diagnostics cancels the operation and ignores a late result', async () => {
@@ -965,6 +990,8 @@ try {
     assert.equal(await page.locator('.shell').count(), 0)
     await context.close()
   })
+  await runAtlasChecks({ browser, url, fileUrl: pathToFileURL(resolve('out/renderer/index.html')).href, screenshotDir, fixture })
+  await runConnectionQualityChecks({ browser, url, screenshotDir })
   await check('100 production renderer cycles keep state, subscriptions and retained memory bounded', rendererStability)
   assert.deepEqual(errors, [], 'no unhandled promises or React rendering errors')
   console.log(`\n${passed} browser regressions passed; no engine or system routing was started.`)

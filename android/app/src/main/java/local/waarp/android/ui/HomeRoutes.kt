@@ -2,6 +2,7 @@
 
 package local.waarp.android.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -38,6 +39,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import local.waarp.android.data.ConnectionUses
+import java.util.UUID
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -293,12 +296,36 @@ internal fun RouteEditorSheet(state: MobileState, actions: MobileActions, id: St
     var query by rememberSaveable { mutableStateOf("") }
     var showSystem by rememberSaveable { mutableStateOf(false) }
     var deleting by rememberSaveable { mutableStateOf(false) }
+    var connectionUse by rememberSaveable { mutableStateOf(ConnectionUses.normalize(existing?.connectionUse)) }
+    var recommendationProof by rememberSaveable { mutableStateOf<String?>(null) }
+    var step by rememberSaveable { mutableStateOf("form") }
+    val checkContextId = rememberSaveable { UUID.randomUUID().toString() }
+    var checkTarget by rememberSaveable { mutableStateOf("") }
+    DisposableEffect(checkContextId) { onDispose { actions.cancelDiagnostic(checkContextId) } }
     val choices = rememberPathChoices(state)
     val fallbackChoices = listOf(PathChoice("", "Без резерва", "Если путь недоступен — блокировать соединения")) + choices.filter { it.id != via && it.id != DIRECT_PATH }
     val selectedKind = RouteKind.valueOf(kind)
     val eligibleApps = remember(state.apps, query, showSystem, packageName) { state.apps.filter { (!it.system || showSystem || it.packageName == packageName) &&
         (it.name.contains(query, true) || it.packageName.contains(query, true)) } }
-    FormSheet(if (existing == null) "Новый маршрут" else "Изменить маршрут", operation.busy, onDismiss) {
+    val draft = RouteDraft(id, selectedKind, name.trim().ifBlank { selector.trim() }, via,
+        fallback.takeIf { via != DIRECT_PATH && it != DIRECT_PATH }, enabled,
+        packageName.takeIf { selectedKind == RouteKind.APP }, presetId.takeIf { selectedKind == RouteKind.SERVICE },
+        selector.trim().takeIf { selectedKind == RouteKind.CUSTOM }, connectionUse, recommendationProof)
+    val title = when (step) { "check" -> "Проверить соединение"; "path" -> "Выбрать путь"; else -> if (existing == null) "Новый маршрут" else "Изменить маршрут" }
+    FormSheet(title, operation.busy, { actions.cancelDiagnostic(checkContextId); onDismiss() }) {
+        BackHandler(enabled = step != "form") { actions.cancelDiagnostic(checkContextId); step = "form" }
+        if (step == "check") {
+            RouteConnectionCheck(state, actions, draft, checkContextId, checkTarget, { checkTarget = it; recommendationProof = null },
+                onBack = { actions.cancelDiagnostic(checkContextId); step = "form" },
+                onSelect = { path, proof -> via = path; recommendationProof = proof; if (fallback == path) fallback = null; step = "form" })
+            return@FormSheet
+        }
+        if (step == "path") {
+            RoutePathPicker(state, via, { step = "form" }) { path ->
+                via = path; recommendationProof = null; if (fallback == path || path == DIRECT_PATH) fallback = null; step = "form"
+            }
+            return@FormSheet
+        }
         if (existing == null) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(RouteKind.APP to "Приложение", RouteKind.SERVICE to "Сервис", RouteKind.CUSTOM to "Адрес").forEach { (type, label) ->
                 FilterChip(selected = type == selectedKind, onClick = { kind = type.name; query = "" }, label = { Text(label) }, enabled = !operation.busy, modifier = Modifier.heightIn(min = 48.dp))
@@ -342,7 +369,21 @@ internal fun RouteEditorSheet(state: MobileState, actions: MobileActions, id: St
             }
         }
         OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), enabled = !operation.busy, label = { Text("Название") }, singleLine = true)
-        PathField("Основной путь", via, choices, !operation.busy) { via = it; if (fallback == it || it == DIRECT_PATH) fallback = null }
+        PathField("Основной путь", via, choices, !operation.busy) { via = it; recommendationProof = null; if (fallback == it || it == DIRECT_PATH) fallback = null }
+        TextButton(onClick = { step = "path" }, enabled = !operation.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Список и карта подключений") }
+        PathField("Для чего используется", connectionUse, ConnectionUses.ids.map { PathChoice(it, ConnectionUses.label(it), "") }, !operation.busy) {
+            connectionUse = it; recommendationProof = null
+        }
+        TextButton(onClick = {
+            if (checkTarget.isBlank()) checkTarget = when (selectedKind) {
+                RouteKind.SERVICE -> state.presets.find { it.id == presetId }?.domains?.firstOrNull().orEmpty()
+                RouteKind.CUSTOM -> selector.lineSequence().firstOrNull()?.trim()?.takeIf { !it.contains('/') && !it.contains(',') }.orEmpty()
+                RouteKind.APP -> ""
+            }
+            step = "check"
+        }, enabled = !operation.busy && when (selectedKind) { RouteKind.APP -> packageName != null; RouteKind.SERVICE -> presetId != null; RouteKind.CUSTOM -> selector.isNotBlank() },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Проверить соединение для маршрута") }
+        if (recommendationProof != null) Text("Путь выбран по проверке. Изменение вступит в силу после сохранения маршрута.", color = WaarpMuted, style = MaterialTheme.typography.bodySmall)
         if (via != DIRECT_PATH) {
             PathField("Если основной недоступен", fallback ?: "", fallbackChoices, !operation.busy) { fallback = it.takeIf(String::isNotBlank) }
             Text("Резервный туннель или группа; без выхода напрямую.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
@@ -353,9 +394,7 @@ internal fun RouteEditorSheet(state: MobileState, actions: MobileActions, id: St
         OperationFeedback(operation)
         val hasTarget = when (selectedKind) { RouteKind.APP -> packageName != null; RouteKind.SERVICE -> presetId != null; RouteKind.CUSTOM -> selector.isNotBlank() }
         ActionButton("Сохранить маршрут", operation.busy, enabled = hasTarget && (name.isNotBlank() || selectedKind == RouteKind.CUSTOM) && choices.any { it.id == via && it.enabled },
-            onClick = { operation.submit({ actions.saveRoute(RouteDraft(id, selectedKind, name.trim().ifBlank { selector.trim() }, via, fallback.takeIf { via != DIRECT_PATH && it != DIRECT_PATH }, enabled,
-                packageName = packageName.takeIf { selectedKind == RouteKind.APP }, presetId = presetId.takeIf { selectedKind == RouteKind.SERVICE },
-                selector = selector.trim().takeIf { selectedKind == RouteKind.CUSTOM })) }) }, modifier = Modifier.fillMaxWidth())
+            onClick = { operation.submit({ actions.saveRoute(draft) }) }, modifier = Modifier.fillMaxWidth())
         if (id != null) {
             if (deleting) {
                 InlineMessage("После удаления соединения будут следовать общему пути устройства.")

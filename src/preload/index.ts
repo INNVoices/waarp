@@ -28,7 +28,7 @@ const api = {
   removeProfile: (id: string, replace?: string) => ipcRenderer.invoke('profile:remove', id, replace),
   notices: () => ipcRenderer.invoke('notices'),
   probe: (t: string) => ipcRenderer.invoke('probe', t),
-  diagnose: (t: string) => ipcRenderer.invoke('diagnose', t),
+  diagnose: (t: string, routeId?: string) => ipcRenderer.invoke('diagnose', t, routeId),
   diagnoseCancel: () => ipcRenderer.invoke('diagnose:cancel'),
   diagnoseApply: (token: string, via: string) => ipcRenderer.invoke('diagnose:apply', token, via),
   payloadLast: () => ipcRenderer.invoke('payload:last'),
@@ -60,7 +60,7 @@ const api = {
   companionChoose: (id: string, via: string) => ipcRenderer.invoke('companion:choose', id, via),
   // WRP-015 public catalog
   catalogGet: () => ipcRenderer.invoke('catalog:get'),
-  catalogPage: (query?: { query?: string; region?: string; page?: number; pageSize?: number; readyOnly?: boolean }) => ipcRenderer.invoke('catalog:page', query),
+  catalogPage: (query?: { query?: string; region?: string; country?: string; page?: number; pageSize?: number; readyOnly?: boolean }) => ipcRenderer.invoke('catalog:page', query),
   catalogRefresh: () => ipcRenderer.invoke('catalog:refresh'),
   catalogVerify: () => ipcRenderer.invoke('catalog:verify'),
   catalogAdd: (id: string) => ipcRenderer.invoke('catalog:add', id),

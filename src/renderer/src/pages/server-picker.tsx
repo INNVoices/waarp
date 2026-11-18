@@ -7,6 +7,9 @@ import { Pagination } from '../ui/pagination'
 import { AutoHint, Mark, Ping, subOf, viaName } from '../parts'
 import { s } from '../lib/i18n'
 import { PublicCatalog } from './publiccat'
+import { atlasCountry, profileAtlas } from '../../../shared/atlas'
+import { Atlas, atlasCountryName, type AtlasRouteView } from '../ui/atlas'
+import { AtlasViewSwitch, useAtlasView } from '../ui/atlas-view'
 
 const PAGE_SIZE = 10
 type Mode = 'auto' | 'manual' | 'direct'
@@ -21,18 +24,21 @@ export function ServerPicker({ snap, status, route, applying, disabled, onSelect
   const [source, setSource] = useState<'saved' | 'public'>(snap.profiles.some(p => !p.revoked) ? 'saved' : 'public')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
+  const [view, setView] = useAtlasView('server-picker')
+  const [country, setCountry] = useState('')
   const ownIds = autoMembers(snap.profiles)
   const canAuto = ownIds.length > 0 && (route.owner !== 'companion' || safeVia(AUTO_ID, snap.settings, snap.profiles))
   const isCompanion = route.owner === 'companion'
   const saved = snap.profiles.filter(profile => !profile.revoked && profile.id !== AUTO_ID && (!isCompanion || safeVia(profile.id, snap.settings, snap.profiles)))
   const term = query.trim().toLocaleLowerCase()
   const matches = saved.filter(profile => !term || `${profile.name} ${subOf(profile)}`.toLocaleLowerCase().includes(term))
-  const sorted = [...matches.filter(profile => profile.id === route.via), ...matches.filter(profile => profile.id !== route.via)]
+  const filtered = matches.filter(profile => !country || atlasCountry(profile.kind === 'group' ? undefined : profile.country) === country)
+  const sorted = [...filtered.filter(profile => profile.id === route.via), ...filtered.filter(profile => profile.id !== route.via)]
   const currentPage = Math.min(page, Math.max(1, Math.ceil(sorted.length / PAGE_SIZE)))
   const visible = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
   const live = status.phase === 'on'
   useEffect(() => {
-    setMode(initialMode(route)); setQuery(''); setPage(1)
+    setMode(initialMode(route)); setQuery(''); setPage(1); setCountry('')
   }, [route.id])
   const chooseMode = (next: Mode) => {
     setMode(next); setPage(1)
@@ -40,6 +46,9 @@ export function ServerPicker({ snap, status, route, applying, disabled, onSelect
     if (next === 'direct' && (route.via !== 'direct' || !route.on)) void onSelect('direct')
   }
   const select = async (id: Via) => { await onSelect(id) }
+  const active = live ? snap.profiles.find(profile => profile.id === status.routes?.[route.id]?.effective) : undefined
+  const pending = applying ? snap.profiles.find(profile => profile.id === applying) : undefined
+  const mapRoute: AtlasRouteView = { active: active && { name: active.name, country: active.country }, pending: pending && { name: pending.name, country: pending.country } }
   const health = (profile: ProfileView) => {
     const measured = status.pings[profile.id]
     if (measured !== undefined || live && status.health?.[profile.id] === 'down') return <Ping ms={measured} live down={status.health?.[profile.id] === 'down'} />
@@ -81,10 +90,13 @@ export function ServerPicker({ snap, status, route, applying, disabled, onSelect
       {mode === 'manual' && <>
         <div className="server-source-tabs">
           <Seg value={isCompanion ? 'saved' : source} items={[{ v: 'saved', label: s('server.saved'), n: saved.length }, ...(!isCompanion ? [{ v: 'public' as const, label: s('server.public') }] : [])]} onChange={setSource} />
+          <AtlasViewSwitch value={view} onChange={setView} />
           {!applying && route.on && route.via !== 'direct' && route.via !== AUTO_ID && <span className="server-current ell" title={viaName(snap.profiles, route.via)}><Icon n="check" s={13} />{viaName(snap.profiles, route.via)}</span>}
         </div>
         {(source === 'saved' || isCompanion) ? <>
           <Field icon="search" type="search" value={query} onChange={event => { setQuery(event.target.value); setPage(1) }} placeholder={s('server.search')} aria-label={s('server.search')} />
+          {view === 'map' && <Atlas projection={profileAtlas(matches, status)} country={country} onCountry={next => { setCountry(next); setPage(1) }} onList={() => setView('list')} route={mapRoute} />}
+          {view === 'list' && country && <div className="atlas-list-filter"><span>{s('atlas.filtered', { country: atlasCountryName(country) })}</span><Btn sm kind="ghost" onClick={() => { setCountry(''); setPage(1) }}><Icon n="x" s={13} />{s('atlas.region.reset')}</Btn></div>}
           {!visible.length ? <div className="server-list-empty"><p>{s(saved.length ? 'route.picker.notfound' : 'server.saved.empty')}</p>{!saved.length && !isCompanion && <Btn onClick={() => setSource('public')}><Icon n="globe" />{s('server.public')}</Btn>}</div> :
             <div className="server-list saved-server-list">
               <div className="server-list-head"><span /><span>{s('pick.name')}</span><span>{s('pick.ping')}</span><span /></div>
@@ -99,7 +111,7 @@ export function ServerPicker({ snap, status, route, applying, disabled, onSelect
               })}
             </div>}
           <Pagination page={currentPage} total={sorted.length} pageSize={PAGE_SIZE} onChange={setPage} />
-        </> : <PublicCatalog compact toast={toast} onBusyChange={onBusyChange} disabled={disabled} selectedId={route.on ? route.via : undefined} used={id => snap.profiles.some(profile => profile.id === id)} onAdded={id => void select(id)} />}
+        </> : <PublicCatalog compact toast={toast} onBusyChange={onBusyChange} disabled={disabled} selectedId={route.on ? route.via : undefined} used={id => snap.profiles.some(profile => profile.id === id)} onAdded={id => void select(id)} view={view} onViewChange={setView} route={mapRoute} />}
       </>}
     </div>
   </section>

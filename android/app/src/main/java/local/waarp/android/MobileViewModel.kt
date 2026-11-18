@@ -4,6 +4,7 @@ package local.waarp.android
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import androidx.lifecycle.AndroidViewModel
@@ -75,6 +76,9 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
     private var diagnostic: DiagnosticUi? = null
     private var message: UiMessage? = null
     private var diagnosticBusy = false
+    private var diagnosticJob: Job? = null
+    private var diagnosticContext: ConnectionProofContext? = null
+    private var connectionProof: ConnectionProof? = null
     private var appScanBusy = false
     private var tuning: TunnelTuningUi? = null
     private var tuningProof: TuningProof? = null
@@ -132,7 +136,7 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
             while (true) {
                 _state.subscriptionCount.first { it > 0 }
                 delay(15_000)
-                if (catalogHealth.isNotEmpty()) changed() // Expire observations even while the VPN is OFF.
+                if (catalogHealth.isNotEmpty() || connectionProof != null) changed() // Expire observations even while the VPN is OFF.
             }
         }
         viewModelScope.launch {
@@ -177,7 +181,12 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
             proof.current(repository.data.value?.profiles?.find { it.id == proof.profileId }, network.physicalNetwork()?.networkHandle,
                 repository.intentGeneration(), repository.data.value?.revision ?: -1, System.currentTimeMillis())
         } == true
-        _state.value = projected.copy(tuning = tuning?.let { it.copy(canApply = it.canApply && proofCurrent) },
+        val routeProofCurrent = connectionProof?.let { proof -> connectionContext()?.let { actual ->
+            proof.current(actual, SystemClock.elapsedRealtime(), repository.data.value?.profiles.orEmpty()) } } == true
+        _state.value = projected.copy(diagnostic = diagnostic?.let { result ->
+            if (diagnosticContext != null && diagnosticContext != connectionContext() || result.proofId != null && !routeProofCurrent)
+                result.copy(stale = true, proofId = null, suggestedViaId = null) else result
+        }, tuning = tuning?.let { it.copy(canApply = it.canApply && proofCurrent) },
             savedDiagnostics = app.evidence.report.value, transfer = transfer)
     }
 
@@ -200,7 +209,7 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
         }
     }
     override fun connect() {
-        cancelTuning(); cancelTransfer()
+        cancelDiagnostic(); cancelTuning(); cancelTransfer()
         if (repository.requestedOpen.value && (pendingConsentToken != null || controller.status.value.phase in setOf(RuntimePhase.ON, RuntimePhase.STARTING))) return
         val token = repository.requestConnect()
         viewModelScope.launch {
@@ -218,7 +227,7 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
         if (!granted) { repository.consentCancelled(token); notifyUser("Разрешение VPN не получено", true); return }
         viewModelScope.launch { val result = action { repository.completeConnect(token); null }; if (!result.ok) notifyUser(result.message.orEmpty(), true) }
     }
-    override fun disconnect() { cancelTuning(); cancelTransfer(); pendingConsentToken = null; pendingConsentIntent = null; repository.disconnect() }
+    override fun disconnect() { cancelDiagnostic(); cancelTuning(); cancelTransfer(); pendingConsentToken = null; pendingConsentIntent = null; repository.disconnect() }
     override fun requestFileImport(replaceProfileId: String?) {
         if (importPickerOpen || imports.state.value.busy) return
         importPickerOpen = true; pendingReplaceId = replaceProfileId; event(MobileEvent.FileImport(replaceProfileId))
@@ -242,7 +251,7 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
     }
     override fun onCleared() {
         if (repository.confirmStructuralRestart === restartApprovalRequest) repository.confirmStructuralRestart = null
-        cancelTuning(); cancelTransfer(); imports.clearSensitiveInput(); super.onCleared()
+        cancelDiagnostic(); cancelTuning(); cancelTransfer(); imports.clearSensitiveInput(); super.onCleared()
     }
     override fun requestClipboardImport() = event(MobileEvent.ClipboardImport)
     override fun openSystemVpnSettings() = event(MobileEvent.SystemVpnSettings)
@@ -275,7 +284,18 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
         // Repository edit transforms run on Default. Capture the current scan
         // on Main so a concurrent refresh never exposes mutable ViewModel state.
         val availableApps = apps
-        repository.edit { value ->
+        val recommendation = route.recommendationProofId?.let { id ->
+            connectionProof?.takeIf { it.id == id } ?: error("Результат проверки устарел. Проверьте соединение ещё раз или выберите путь вручную.")
+        }
+        repository.edit(beforeCommit = {
+            recommendation?.let { proof ->
+                val actual = connectionContext()
+                check(actual != null && proof.current(actual, SystemClock.elapsedRealtime(), repository.data.value?.profiles.orEmpty()) &&
+                    proof.allows(route.id, routeKind(route.kind), routeMatch(route), route.connectionUse, route.viaId)) {
+                    "Сеть, маршрут или профиль изменились. Проверьте соединение ещё раз или выберите путь вручную."
+                }
+            }
+        }) { value ->
             require(route.name.isNotBlank() && route.name.length <= 80) { "Укажите название до 80 символов" }
             require(validPath(value, route.viaId)) { "Выбранный путь недоступен" }
             val fallback = route.fallbackViaId?.takeIf { route.viaId != DIRECT && it != route.viaId }
@@ -288,7 +308,7 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
             } ?: error("Не указана цель маршрута")
             val id = route.id ?: newId("r-")
             if (route.id != null) require(value.routes.any { it.id == id }) { "Маршрут уже удалён" }
-            val next = TrafficRoute(id, ProfileImporter.name(route.name), kind, match, route.viaId, fallback, route.enabled)
+            val next = TrafficRoute(id, ProfileImporter.name(route.name), kind, match, route.viaId, fallback, route.enabled, ConnectionUses.normalize(route.connectionUse))
             value.copy(routes = if (route.id == null) value.routes + next else value.routes.map { if (it.id == id) next else it })
         }; "Маршрут сохранён"
     }
@@ -473,27 +493,142 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
             }; "Создана группа из ${good.size} разных серверов, ответивших на HTTPS-проверку в текущей сети; проверено $measuredCount, пропущено ${results.size - measuredCount}."
         } finally { diagnosticBusy = false; catalog = catalog.copy(busy = false); changed() }
     }
-    override suspend fun diagnose(target: String) = action {
-        check(!diagnosticBusy && tuningJob?.isCompleted != false && transferJob?.isCompleted != false) { "Дождитесь завершения текущей проверки" }
-        val uri = network.target(target); diagnosticBusy = true
-        diagnostic = DiagnosticUi(uri.toString(), running = true); changed()
-        try {
-            val layers = network.diagnose(uri.toString())
-            diagnostic = diagnostic?.copy(layers = layers); changed()
-            val measured = repository.probe(url = uri.toString())
-            val profiles = repository.ready().profiles
-            val paths = measured.map { sample -> DiagnosticPathUi(sample.tag.removePrefix("p-"),
-                profiles.find { "p-${it.id}" == sample.tag }?.name ?: "Туннель", sample.delayMs?.toDouble(),
-                if (sample.delayMs != null) ObservationResult.OK else ObservationResult.FAILED) }
-            val best = paths.filter { it.result == ObservationResult.OK }.minByOrNull { it.latencyMs ?: Double.MAX_VALUE }
-            diagnostic = diagnostic?.copy(paths = paths, suggestedViaId = best?.id, conclusion = when {
-                best != null -> "Адрес отвечает через «${best.name}». Можно создать для него отдельный маршрут."
-                layers.any { it.name.startsWith("HTTP") && it.result == ObservationResult.OK } -> "Прямой HTTP-ответ получен. В проверенной выборке нет подтверждённого туннеля к этому адресу."
-                paths.isEmpty() -> "Проверены прямые сетевые уровни. Доступных туннелей для проверки нет."
-                else -> "Проверенные пути не подтвердили доступность. Смотрите, на каком уровне прервалась проверка; это не доказывает причину сбоя."
-            }); "Диагностика завершена"
-        } finally { diagnosticBusy = false; diagnostic = diagnostic?.copy(running = false); changed() }
+    private fun routeKind(kind: RouteKind) = when (kind) { RouteKind.APP -> "app"; RouteKind.SERVICE -> "preset"; RouteKind.CUSTOM -> "custom" }
+    private fun routeMatch(route: RouteDraft) = when (route.kind) {
+        RouteKind.APP -> route.packageName.orEmpty()
+        RouteKind.SERVICE -> route.presetId.orEmpty()
+        RouteKind.CUSTOM -> route.selector.orEmpty().trim()
     }
+    private fun connectionContext(): ConnectionProofContext? {
+        val value = repository.data.value ?: return null
+        val physical = network.physicalNetwork()?.networkHandle ?: return null
+        val phase = controller.status.value.phase
+        if (phase !in setOf(RuntimePhase.ON, RuntimePhase.OFF)) return null
+        val selections = controller.groups.value.sortedBy { it.tag }.joinToString(";") { "${it.tag}=${it.selected}" }
+        return ConnectionProofContext(value.revision, repository.intentGeneration(), controller.sessionGeneration(), physical, phase.name, selections)
+    }
+    override fun cancelDiagnostic(contextId: String?) {
+        if (contextId != null && diagnostic?.contextId != contextId) return
+        if (diagnosticJob?.isActive == true) {
+            connectionProof = null
+            diagnosticJob?.cancel()
+            diagnostic = diagnostic?.copy(running = false, cancelled = true, proofId = null, suggestedViaId = null,
+                conclusion = "Проверка отменена. Маршрут сохранён без изменений.")
+            changed()
+        }
+    }
+    override suspend fun diagnose(target: String) = runDiagnostic(target, null)
+    override suspend fun diagnoseRoute(request: RouteCheckRequest) = runDiagnostic(request.target, request)
+
+    private suspend fun runDiagnostic(target: String, request: RouteCheckRequest?): UiResult {
+        if (diagnosticBusy || diagnosticJob?.isCompleted == false || tuningJob?.isCompleted == false || transferJob?.isCompleted == false)
+            return UiResult(false, "Дождитесь завершения текущей проверки")
+        val task = viewModelScope.async(start = CoroutineStart.LAZY) {
+            val owner = currentCoroutineContext()[Job]!!
+            try { action {
+                val uri = network.target(target)
+                val data = repository.ready()
+                val origin = connectionContext() ?: error("Нет доступной физической сети или VPN ещё переключается")
+                val draft = request?.draft
+                if (request != null && draft != null) {
+                    require(request.contextId.isNotBlank() && request.contextId.length <= 80)
+                    require(routeMatch(draft).isNotBlank()) { "Сначала выберите приложение или адрес маршрута" }
+                    require(draft.id == null || data.routes.any { it.id == draft.id }) { "Маршрут уже удалён" }
+                }
+                fun current() = diagnosticJob === owner && owner.isActive && connectionContext() == origin && !repository.applying.value
+                connectionProof = null
+                diagnosticContext = origin
+                diagnosticBusy = true
+                val use = ConnectionUses.normalize(draft?.connectionUse)
+                diagnostic = DiagnosticUi(uri.toString(), running = true, contextId = request?.contextId,
+                    routeName = draft?.name, connectionUse = use, networkLabel = network.networkLabel())
+                changed()
+                // The route helper measures only explicitly available saved paths. The existing global
+                // diagnostic retains its explicitly requested physical-network layered comparison.
+                if (request == null) {
+                    val layers = network.diagnose(uri.toString())
+                    check(current()) { "Сеть изменилась во время проверки; повторите измерение" }
+                    diagnostic = diagnostic?.copy(layers = layers); changed()
+                }
+                val actualRoute = draft?.id?.let { id -> data.routes.find { it.id == id } }
+                val selectedVia = if (draft != null && actualRoute != null && actualRoute.via == draft.viaId && actualRoute.fallback == draft.fallbackViaId)
+                    _state.value.routes.find { it.id == draft.id }?.effectiveViaId ?: draft.viaId
+                else draft?.viaId
+                val currentId = selectedVia?.let { via ->
+                    if (via.startsWith("g-")) controller.groups.value.find { it.tag == "grp-$via" }?.selected?.removePrefix("p-") else via
+                }
+                val eligible = data.profiles.filter { !it.revoked && !it.subscriptionMissing &&
+                    (it.source != "public" || it.id == currentId) &&
+                    (origin.phase != RuntimePhase.ON.name || it.id in repository.compiled.value?.loadedProfiles.orEmpty()) }
+                val candidates = eligible.sortedWith(compareBy<TunnelProfile> { it.id != currentId }
+                    .thenBy { repository.health.value[it.id]?.latencyMs ?: Long.MAX_VALUE }.thenBy { it.id })
+                    .take(ConnectionQuality.CANDIDATES)
+                val samples = candidates.associate { it.id to mutableListOf<HttpPathSample>() }
+                val planned = candidates.size * ConnectionQuality.ROUNDS
+                diagnostic = diagnostic?.copy(plannedChecks = planned); changed()
+                try {
+                    withTimeout(ConnectionQuality.TOTAL_TIMEOUT_MS) {
+                        repeat(ConnectionQuality.ROUNDS) {
+                            for (profile in candidates) {
+                                check(current()) { "Сеть или профиль изменились во время проверки; повторите измерение" }
+                                val measured = repository.probe(url = uri.toString(), profileIds = setOf(profile.id), timeoutMs = ConnectionQuality.TIMEOUT_MS)
+                                check(current()) { "Сеть или профиль изменились во время проверки; повторите измерение" }
+                                measured.filter { it.tag == "p-${profile.id}" && it.checkedAt > 0 }.forEach {
+                                    samples.getValue(profile.id).add(HttpPathSample(it.delayMs, it.checkedAt))
+                                }
+                                val rows = candidates.map { p -> ConnectionQuality.assess(p.id, samples.getValue(p.id)) }
+                                diagnostic = diagnostic?.copy(paths = rows.map { assessment -> assessment.toUi(candidates) },
+                                    completedChecks = rows.sumOf { it.attempted }); changed()
+                            }
+                        }
+                    }
+                } catch (_: TimeoutCancellationException) {
+                    // The bounded operation ends with partial evidence; unstarted/cancelled checks stay unknown.
+                }
+                check(current()) { "Сеть или профиль изменились во время проверки; повторите измерение" }
+                val rows = candidates.map { ConnectionQuality.assess(it.id, samples.getValue(it.id)) }
+                val selected = rows.find { it.id == currentId }
+                val positive = rows.filter { it.consistent }
+                val suggested = if (request == null) positive.minByOrNull { it.medianMs ?: Double.MAX_VALUE }?.id
+                    else ConnectionQuality.recommend(currentId, rows)
+                val at = System.currentTimeMillis()
+                val proof = if (request != null && draft != null && positive.isNotEmpty()) ConnectionProof(newId("check-"), request.contextId,
+                    draft.id, routeKind(draft.kind), routeMatch(draft), use, uri.toString(), origin,
+                    SystemClock.elapsedRealtime(), candidates.filter { p -> positive.any { it.id == p.id } }.associate { it.id to it.config }) else null
+                connectionProof = proof
+                diagnostic = diagnostic?.copy(paths = rows.map { it.toUi(candidates) }, suggestedViaId = suggested,
+                    proofId = proof?.id, checkedAt = at, completedChecks = rows.sumOf { it.attempted }, conclusion = when {
+                        suggested != null && request == null -> "«${candidates.find { it.id == suggested }?.name}» ответил в двух HTTPS-проверках. Можно создать маршрут для этого адреса."
+                        suggested != null -> "Проверяемый путь не ответил в двух HTTPS-проверках; «${candidates.find { it.id == suggested }?.name}» ответил в обеих. Можно выбрать его для этого маршрута."
+                        selected != null && selected.responded > 0 -> "Проверяемый путь ответил на HTTPS-проверку. Оснований менять его по этой проверке нет."
+                        candidates.isEmpty() -> if (origin.phase == RuntimePhase.ON.name) "В текущем VPN нет доступных сохранённых профилей для этой проверки. Список и карта остаются доступны."
+                            else "Добавьте сохранённое подключение для сравнения путей."
+                        positive.isNotEmpty() -> "Найдены пути, ответившие в обеих HTTPS-проверках. Выбранный путь не измерен полностью; сравнение с ним не подтверждено."
+                        rows.any { it.responded > 0 } -> "Получены отдельные HTTPS-ответы; повторная проверка пути не подтверждена. Рекомендация пока недоступна."
+                        else -> "Проверенная выборка не подтвердила доступность адреса. Причина отказа не установлена."
+                    })
+                "Диагностика завершена"
+            } } catch (cancelled: CancellationException) {
+                if (diagnosticJob === owner) diagnostic = diagnostic?.copy(cancelled = true, suggestedViaId = null, proofId = null,
+                    conclusion = "Проверка отменена. Маршрут сохранён без изменений.")
+                throw cancelled
+            } finally {
+                if (diagnosticJob === owner) {
+                    diagnosticBusy = false
+                    diagnostic = diagnostic?.copy(running = false,
+                        stale = diagnostic?.cancelled != true && connectionProof?.let { proof -> connectionContext()?.let { proof.current(it, SystemClock.elapsedRealtime(), repository.data.value?.profiles.orEmpty()) } != true } == true)
+                    changed()
+                }
+            }
+        }
+        diagnosticJob = task
+        return try { task.await() } catch (cancelled: CancellationException) { task.cancel(); throw cancelled }
+    }
+
+    private fun HttpPathAssessment.toUi(profiles: List<TunnelProfile>) = DiagnosticPathUi(id,
+        profiles.find { it.id == id }?.name ?: "Туннель", medianMs,
+        when { responded > 0 -> ObservationResult.OK; attempted > 0 -> ObservationResult.FAILED; else -> ObservationResult.UNKNOWN },
+        attempted, responded, spreadMs)
     override suspend fun probeTunnels() = action {
         check(!diagnosticBusy && tuningJob?.isCompleted != false && transferJob?.isCompleted != false) { "Дождитесь завершения текущей проверки" }
         diagnosticBusy = true

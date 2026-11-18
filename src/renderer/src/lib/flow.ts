@@ -5,19 +5,23 @@ import { appRoute, customRoute, presetRoute } from './routes'
 
 export type Page = 'home' | 'lib' | 'servers' | 'an' | 'settings' | 'route'
 export type LibMode = 'catalog' | 'list'
-export interface Nav { page: Page; libMode: LibMode; routeId?: string; from: Exclude<Page, 'route'> }
+export interface Nav { page: Page; libMode: LibMode; routeId?: string; diagnosisRouteId?: string; from: Exclude<Page, 'route'> }
 
 export const initialNav: Nav = { page: 'home', libMode: 'list', from: 'home' }
 
 /** the rail: Маршруты is the summary list, never the catalog */
-export const goTo = (n: Nav, page: Page): Nav => ({ ...n, page, routeId: undefined, libMode: page === 'lib' ? 'list' : n.libMode, from: page === 'route' ? n.from : page })
+export const goTo = (n: Nav, page: Page): Nav => ({ ...n, page, routeId: undefined, diagnosisRouteId: undefined, libMode: page === 'lib' ? 'list' : n.libMode, from: page === 'route' ? n.from : page })
 /** Home "+" / "Добавить": always target acquisition, whatever the number of existing routes */
-export const addEntry = (n: Nav): Nav => ({ ...n, page: 'lib', libMode: 'catalog', routeId: undefined, from: 'lib' })
+export const addEntry = (n: Nav): Nav => ({ ...n, page: 'lib', libMode: 'catalog', routeId: undefined, diagnosisRouteId: undefined, from: 'lib' })
 export const showCatalog = (n: Nav): Nav => ({ ...n, libMode: 'catalog' })
 export const showList = (n: Nav): Nav => ({ ...n, libMode: 'list' })
 /** the route page remembers the screen it was opened from (the library keeps its catalog/list mode) */
-export const openRoute = (n: Nav, id: string): Nav => ({ ...n, page: 'route', routeId: id, from: n.page === 'route' ? n.from : n.page })
+export const openRoute = (n: Nav, id: string): Nav => ({ ...n, page: 'route', routeId: id, diagnosisRouteId: undefined, from: n.page === 'route' ? n.from : n.page })
 export const back = (n: Nav): Nav => ({ ...n, page: n.from, routeId: undefined })
+/** Contextual diagnosis reuses the existing destination and returns to the exact card/origin. */
+export const openDiagnosis = (n: Nav, routeId: string): Nav => ({ ...n, page: 'an', routeId: undefined, diagnosisRouteId: routeId })
+export const backFromDiagnosis = (n: Nav): Nav => n.diagnosisRouteId
+  ? { ...n, page: 'route', routeId: n.diagnosisRouteId, diagnosisRouteId: undefined } : goTo(n, 'an')
 
 /** a freshly acquired target has no path yet: off + direct, rendered as "not set up" until a path is chosen on its page */
 export const isDraft = (r: Pick<Route, 'on' | 'via'>): boolean => !r.on && r.via === 'direct'

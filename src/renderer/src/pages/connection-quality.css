@@ -1,0 +1,21 @@
+.quality-result { margin-top: 14px; padding: 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--field); }
+.quality-summary { display: flex; align-items: flex-start; gap: 10px; width: 100%; min-width: 0; }
+.quality-summary > .ic { flex: 0 0 auto; margin-top: 2px; color: var(--a); }
+.quality-summary b { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.quality-summary p { color: var(--m); font-size: 12px; line-height: 1.5; margin: 4px 0 0; }
+.quality-result > .btn { max-width: 100%; min-height: 32px; height: auto; white-space: normal; text-align: left; }
+.quality-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--m); font-size: 11px; width: 100%; }
+.quality-meta > span { min-width: 0; overflow-wrap: anywhere; }
+.quality-meta time { margin-left: auto; flex: 0 0 auto; }
+.quality-proof { margin-top: 12px; }
+.quality-proof > summary { display: flex; align-items: center; gap: 8px; width: fit-content; cursor: pointer; color: var(--t2); font-size: 12px; padding: 6px 0; }
+.quality-proof > summary::-webkit-details-marker { display: none; }
+.quality-proof[open] > summary .ic { transform: rotate(180deg); }
+.quality-path { align-items: flex-start; }
+.quality-path .dg-n > span { display: flex; flex-direction: column; gap: 3px; }
+.quality-path small { font-size: 10px; color: var(--m); }
+.quality-path-value { display: flex; flex-direction: column; gap: 3px; text-align: right; }
+.quality-notice { padding: 10px 12px; border-radius: var(--r); background: var(--field); font-size: 12px; color: var(--t2); line-height: 1.5; }
+.quality-notice.applied, .quality-notice.saved { border-left: 2px solid var(--ok); }
+.quality-notice.stale, .quality-notice.pending { border-left: 2px solid var(--warn); }
+@media (max-width: 900px) { .quality-summary { gap: 8px; } .quality-result { padding: 12px; } }

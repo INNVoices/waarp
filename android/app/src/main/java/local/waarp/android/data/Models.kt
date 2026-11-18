@@ -70,10 +70,11 @@ data class TunnelGroup(val id: String = newId("g-"), val name: String, val polic
     companion object { fun fromJson(j: JSONObject) = TunnelGroup(j.getString("id"), j.getString("name"), j.getString("policy"), j.stringList("members")) }
 }
 data class TrafficRoute(val id: String = newId("r-"), val name: String, val kind: String, val match: String,
-    val via: String, val fallback: String? = null, val enabled: Boolean = true) {
-    fun json() = obj("id" to id, "name" to name, "kind" to kind, "match" to match, "via" to via, "fallback" to fallback, "enabled" to enabled)
+    val via: String, val fallback: String? = null, val enabled: Boolean = true, val connectionUse: String = "general") {
+    fun json() = obj("id" to id, "name" to name, "kind" to kind, "match" to match, "via" to via, "fallback" to fallback, "enabled" to enabled,
+        "connectionUse" to ConnectionUses.normalize(connectionUse))
     companion object { fun fromJson(j: JSONObject) = TrafficRoute(j.getString("id"), j.getString("name"), j.getString("kind"),
-        j.getString("match"), j.getString("via"), j.optionalString("fallback"), j.optBoolean("enabled", true)) }
+        j.getString("match"), j.getString("via"), j.optionalString("fallback"), j.optBoolean("enabled", true), ConnectionUses.normalize(j.optString("connectionUse"))) }
 }
 data class AppSettings(val defaultVia: String = DIRECT, val lastWholeDeviceVia: String = AUTO,
     val lanDirect: Boolean = true, val ruDirect: Boolean = false, val autoConnect: Boolean = false,

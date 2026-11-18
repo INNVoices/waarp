@@ -11,10 +11,11 @@ import { api } from '../bridge'
 import type { SettingsPatch } from '../lib/actions'
 import { safeVia } from '../../../shared/companion'
 import { routeSchemeHintKey, routeStateKey } from '../lib/route-state'
+import { CONNECTION_USES, connectionUse } from '../../../shared/connection-quality'
 
-interface P { snap: Snapshot; status: Status; conns: Conn[]; apps: AppInfo[]; id: string; patch: SettingsPatch; toast: (text: string) => void; back: () => void }
+interface P { snap: Snapshot; status: Status; conns: Conn[]; apps: AppInfo[]; id: string; patch: SettingsPatch; toast: (text: string) => void; back: () => void; diagnose: () => void }
 
-export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }: P) {
+export function RoutePage({ snap, status, conns, apps, id, patch, toast, back, diagnose }: P) {
   const [applying, setApplying] = useState<Via>()
   const [saving, setSaving] = useState(false)
   const [checkingServer, setCheckingServer] = useState(false)
@@ -77,8 +78,9 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
       {draft && <div className="route-now" role="status"><span className="st-dot" aria-hidden /><span className="grow">{s('route.draft')}</span></div>}
       {!draft && visibleNowText && <div className={'route-now' + (applying ? ' applying' : e?.state === 'fallback' || e?.state === 'retrying' ? ' warn' : e?.state === 'blocked' ? ' err' : '')} role="status" aria-live="polite">
         <span className="st-dot" aria-hidden /><span className="grow">{visibleNowText}</span>
-        {!applying && (e?.state === 'retrying' && e.reason !== 'waiting' || e?.state === 'fallback') && <span className="m">{s('route.now.why')}</span>}
+        <Btn sm kind="ghost" disabled={locked} onClick={diagnose}><Icon n="investigate" s={14} />{s('quality.open')}</Btn>
       </div>}
+      {!draft && !visibleNowText && <div className="ph-row"><span className="m">{s('quality.route.hint')}</span><Btn sm kind="ghost" disabled={locked} onClick={diagnose}><Icon n="investigate" s={14} />{s('quality.open')}</Btn></div>}
       <ServerPicker snap={snap} status={status} route={r} applying={applying} disabled={locked} onSelect={select} onBusyChange={setCheckingServer} toast={toast} />
 
       <details className="route-details">
@@ -109,6 +111,11 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
 
       <section className="panel">
         <h3>{s('route.more')}</h3>
+        <Row title={s('quality.use')} text={s('quality.use.hint')}>
+          <Select disabled={locked} value={connectionUse(r.connectionUse)} onChange={event => void set({ connectionUse: connectionUse(event.target.value) })} aria-label={s('quality.use')}>
+            {CONNECTION_USES.map(use => <option key={use} value={use}>{s('quality.use.' + use)}</option>)}
+          </Select>
+        </Row>
         <Row title={s('route.dpi')} text={r.via === 'direct' ? s('route.dpi.text') : s('route.dpi.off')}>
           <Toggle on={r.via === 'direct' && r.dpi === true} disabled={locked || r.via !== 'direct'} onChange={v => set({ dpi: v })} label={s('route.dpi')} />
         </Row>

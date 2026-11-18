@@ -132,9 +132,9 @@ class InstrumentationEvidenceTests(unittest.TestCase):
             runner.parse_options(required + ["--route-smoke", "--ui-gallery"])
         self.assertEqual(rejected.exception.code, 2)
 
-    def test_ui_gallery_requires_exactly_its_three_existing_cases_and_no_skips(self):
+    def test_ui_gallery_requires_exactly_its_four_cases_and_no_skips(self):
         cases = sorted(runner.UI_GALLERY_CASES)
-        self.assertEqual(len(cases), 3)
+        self.assertEqual(len(cases), 4)
         source = (Path(__file__).parent.parent / "android/app/src/androidTest/java/local/waarp/android/ui/MobileUiInstrumentedTest.kt").read_text()
         for cls, method in cases:
             self.assertEqual(cls, "local.waarp.android.ui.MobileUiInstrumentedTest")
@@ -151,9 +151,9 @@ class InstrumentationEvidenceTests(unittest.TestCase):
 
     def test_ui_gallery_executes_only_selected_cases_and_keeps_existing_evidence_gates(self):
         cases = sorted(runner.UI_GALLERY_CASES)
-        transcript = "".join(status(method, 0, count=3).replace(
+        transcript = "".join(status(method, 0, count=len(cases)).replace(
             "local.waarp.ExampleTest", cls) for cls, method in cases) + "INSTRUMENTATION_CODE: -1\n"
-        names = ["01-home-empty.png", "02-settings.png", "03-saved-route.png", "04-groups.png"]
+        names = ["01-home-empty.png", "02-settings.png", "03-saved-route.png", "04-groups.png", "05-atlas-local.png"]
         for files, native_ok, expected in ((names, True, 0), (names[:-1], True, 1), (names, False, 1)):
             with self.subTest(files=files, native_ok=native_ok), TemporaryDirectory() as temporary:
                 output = Path(temporary)
@@ -192,9 +192,9 @@ class InstrumentationEvidenceTests(unittest.TestCase):
                     "local.waarp.android.debug.test/androidx.test.runner.AndroidJUnitRunner"]])
                 report = json.loads((output / "result.json").read_text())
                 self.assertEqual(report["passedGate"], expected == 0)
-                self.assertEqual(report["tests"], 3)
+                self.assertEqual(report["tests"], 4)
                 self.assertEqual(report["uiScreenshotCount"], len(files))
-                self.assertIn("three offline scenarios", report["scope"])
+                self.assertIn("four offline scenarios", report["scope"])
 
 
 if __name__ == "__main__":

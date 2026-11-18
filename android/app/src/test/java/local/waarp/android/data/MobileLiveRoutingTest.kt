@@ -15,6 +15,17 @@ class MobileLiveRoutingTest {
     private val initial = AppData(profiles = listOf(proxy("one"), proxy("two")), routes = listOf(route("first"), route("second", "two")))
     private fun compatible(old: CompiledConfiguration, next: CompiledConfiguration) = assertEquals(old.live!!.signature, next.live!!.signature)
 
+    @Test fun connectionUseMetadataDoesNotChangeTheNativeSessionOrRoutingFiles() {
+        val before = compile(initial)
+        for (use in ConnectionUses.ids) {
+            val after = compile(initial.copy(routes = initial.routes.map { it.copy(connectionUse = use) }), before)
+            compatible(before, after)
+            assertEquals(before.live!!.files, after.live!!.files)
+            assertEquals(before.live!!.selections, after.live!!.selections)
+            assertEquals(before.json, after.json)
+        }
+    }
+
     @Test fun directToRealAndRealToRealUseTheSameNativeCoreAndEndpointDefinitions() {
         val direct = initial.copy(routes = listOf(route("first", DIRECT)))
         val a = compile(direct)

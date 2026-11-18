@@ -7,7 +7,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { networkInterfaces } from 'node:os'
-import type { Notice, Profile, Settings, Snapshot, Status } from '../shared/types'
+import type { Notice, Profile, Snapshot, Status } from '../shared/types'
 import { compilePlan, requiresCore } from '../shared/plan'
 import { sameEffectiveRouting } from '../shared/routing-edit'
 import { ConfError, createWireGuardProfile, parseConf, usedProfiles, validateCustom, withoutAuto } from './awg'
@@ -56,7 +56,8 @@ import { parseProbe, probeLayers } from './layered'
 import { activeIds, diagnosisSet, learn, type NetMemory } from '../shared/netmemory'
 import { loadMem, saveMem } from './netmem-store'
 import { networkFingerprint } from './netid'
-import { diagnosisCurrent, diagnosisProof, type DiagnosisProof } from './diagnosis'
+import { diagnosisCurrent, diagnosisProof, diagnosisRouteSignature, diagnosisSettings, type DiagnosisProof } from './diagnosis'
+import { assessConnection, connectionUse, summarizeChecks, summarizedPaths, type DiagnosisScope } from '../shared/connection-quality'
 import { checkPayload, verifyDownload } from './payload-check'
 import { proxyRequest, transferUrl } from './proxy-http'
 import { serviceTransport } from './service-transport'
@@ -937,60 +938,86 @@ function ipc() {
     return { direct, ...via }
   })
   /** W3.2: layered Direct evidence + own eligible paths (bounded, never public) -> a cautious finding */
-  secureHandle('diagnose', async (_e, t: unknown) => {
+  secureHandle('diagnose', async (_e, t: unknown, routeId?: unknown) => {
     const target = probeTarget(t)
     const parsed = target ? parseProbe(target) : undefined
     if (!target || !parsed) return null
+    if (routeId !== undefined && (typeof routeId !== 'string' || routeId.length > 400)) return null
+    const route = routeId === undefined ? undefined : store.settings.routes.find(r => r.id === routeId)
+    if (routeId !== undefined && !route) return null
+    const routeSignature = route ? diagnosisRouteSignature(route) : undefined
     const stopping = cancelDiagnosis()
     const run = diagnoseRun
     await stopping
     if (run !== diagnoseRun || quitting) return null
-    const ac = new AbortController(), context = diagnosisContext()
+    const ac = new AbortController(), context = diagnosisContext(route?.id)
     diagnosisAbort = ac
     const measured = checker
     let lease: symbol | undefined
+    let checkerReady = false
     let cleanup: Promise<boolean> | undefined
     const stopOwned = () => {
       if (lease && measured?.owns(lease)) cleanup = diagnosisCleanup = measured.stop()
     }
     ac.signal.addEventListener('abort', stopOwned, { once: true })
     const timer = setTimeout(() => ac.abort(), DIAGNOSE_MS)
-    const current = () => !ac.signal.aborted && run === diagnoseRun && !quitting && context === diagnosisContext()
+    const current = () => !ac.signal.aborted && run === diagnoseRun && !quitting && context === diagnosisContext(route?.id) && (!route ||
+      store.settings.routes.some(r => r.id === route.id && diagnosisRouteSignature(r) === routeSignature))
     try {
       const st = withRoutes(engine.status)
+      const selected = route?.via
+      const effective = route ? st.routes?.[route.id]?.effective ?? st.picked?.[route.via] ?? (!route.via.startsWith('g-') ? route.via : undefined) : undefined
+      const scope: DiagnosisScope | undefined = route ? { routeId: route.id, routeName: route.name, connectionUse: connectionUse(route.connectionUse), selectedVia: selected!, effectiveVia: effective } : undefined
       const used = activeIds(compilePlan(store.settings, store.profiles).requiredProfiles, st.picked, Object.values(st.routes ?? {}).map(e => e.effective), new Set(store.profiles.map(p => p.id)))
       const host = parsed.host
       const net = await networkFingerprint(netMem.salt, ac.signal)
       if (!current()) return null
-      const eligible = diagnosisSet(autoMembers(store.profiles), used, netMem.data, net, host, Date.now(), AUTO_BUDGET)
+      // Two checks per candidate share the existing eight-check budget. The inspected card goes first.
+      const candidates = diagnosisSet(autoMembers(store.profiles), used, netMem.data, net, host, Date.now(), AUTO_BUDGET)
+      const primary = effective === 'direct' || autoMembers(store.profiles).includes(effective ?? '') ? effective : undefined
+      const eligible = [...new Set([...(primary ? [primary] : []), ...candidates])].slice(0, Math.floor(AUTO_BUDGET / 2))
       const checked = store.profiles.filter(p => eligible.includes(p.id))
       const signatures = new Map(checked.map(p => [p.id, profileSig(p)]))
       const viaPaths = async (): Promise<Record<string, number | null>> => {
         if (!eligible.length || !current()) return {}
         if (engine.status.phase === 'on') return engine.probePaths(parsed.url, eligible, ac.signal)
         if (!measured || master.open || engine.status.phase !== 'off') return {}
-        lease = measured.acquire(() => ac.abort())
+        lease ??= measured.acquire(() => ac.abort())
         if (!lease) return {}
         try {
-          const list = await untilCancelled(adapters(), ac.signal)
-          if (!list || !current() || !measured.owns(lease)) return {}
-          if (!(await measured.ensure(checked, list)) || !current() || !measured.owns(lease)) return {}
+          if (!checkerReady) {
+            const list = await untilCancelled(adapters(), ac.signal)
+            if (!list || !current() || !measured.owns(lease)) return {}
+            if (!checked.length || !(await measured.ensure(checked, list)) || !current() || !measured.owns(lease)) return {}
+            checkerReady = true
+          }
+          if (!current() || !measured.owns(lease)) return {}
           const result = await measured.probe(parsed.url, eligible)
           return current() && measured.owns(lease) ? result : {}
         } catch { return {} }
       }
-      const [direct, all] = await Promise.all([probeLayers(parsed.url, undefined, undefined, ac.signal), viaPaths()])
+      const rounds = async () => {
+        const out: Record<string, number | null>[] = []
+        for (let i = 0; i < 2 && current(); i++) out.push(await viaPaths())
+        return out
+      }
+      const [direct, observations] = await Promise.all([probeLayers(parsed.url, undefined, undefined, ac.signal), rounds()])
       if (!current()) return null
-      const paths: Record<string, number | null> = {}
-      for (const id of eligible) if (all[id] === null || (typeof all[id] === 'number' && Number.isFinite(all[id]) && all[id]! >= 0)) paths[id] = all[id]
+      const samples = summarizeChecks(observations)
+      const paths = Object.fromEntries(Object.entries(summarizedPaths(samples)).filter(([id]) => id !== 'direct'))
       const finding = classify(direct, paths)
+      const assessment = scope ? assessConnection(scope.connectionUse, effective, samples, eligible.filter(id => id !== 'direct')) : undefined
       const latestNet = await networkFingerprint(netMem.salt, ac.signal)
       const stale = !current() || latestNet !== net || checked.some(p => signatures.get(p.id) !== profileSig(store.profiles.find(x => x.id === p.id) ?? p) || !store.profiles.some(x => x.id === p.id && !x.revoked))
       const at = Date.now()
-      if (net && !stale) { netMem.data = learn(netMem.data, net, host, finding, autoMembers(store.profiles), at); saveNetMem() }
-      const proof = !stale && (finding.kind === 'restricted_direct' || finding.kind === 'path_only') ? diagnosisProof(host, paths, checked, net, at, context) : undefined
+      // The layer trace uses system sockets. With our TUN up it cannot independently prove Direct restrictions.
+      if (net && !stale && engine.status.phase === 'off' && !master.open) { netMem.data = learn(netMem.data, net, host, finding, autoMembers(store.profiles), at); saveNetMem() }
+      const stable = Object.fromEntries(Object.entries(paths).filter(([id]) => samples[id]?.attempted >= 2 && samples[id].responded === samples[id].attempted))
+      const allowed = scope ? (assessment?.recommendedVia ? { [assessment.recommendedVia]: stable[assessment.recommendedVia] } : {}) : stable
+      const proof = !stale && (scope ? !!assessment?.recommendedVia : finding.kind === 'restricted_direct' || finding.kind === 'path_only')
+        ? diagnosisProof(host, allowed, checked, net, at, context, route) : undefined
       if (run === diagnoseRun) lastDiagnosis = proof
-      return { target: parsed.shown, host, direct, paths, finding, at, stale, token: proof?.token }
+      return { target: parsed.shown, host, direct, paths, finding, at, stale, token: proof?.token, samples, scope, assessment, systemPath: true }
     } finally {
       clearTimeout(timer)
       stopOwned()
@@ -1061,13 +1088,14 @@ function ipc() {
     const proof = lastDiagnosis
     if (!proof || typeof via !== 'string' || proof.token !== token) return { ok: false, error: 'stale' }
     const net = await networkFingerprint(netMem.salt, AbortSignal.timeout(8000))
-    if (proof !== lastDiagnosis || !diagnosisCurrent(proof, token, via, store.profiles, net, Date.now(), diagnosisContext())) return { ok: false, error: 'stale' }
+    if (proof !== lastDiagnosis || !diagnosisCurrent(proof, token, via, store.profiles, net, Date.now(), diagnosisContext(proof.route?.id), store.settings.routes)) return { ok: false, error: 'stale' }
     if (writeError()) return { ok: false, error: 'save' }
-    const old = store.settings.routes.find(r => r.kind === 'custom' && r.value === proof.host)
-    const route: Settings['routes'][number] = old ? { ...old, via, on: true, fallback: undefined } : { id: 'custom:' + proof.host, kind: 'custom', name: proof.host.slice(0, 80), value: proof.host, via, on: true }
-    const routes = old ? store.settings.routes.map(r => r.id === old.id ? route : r) : [...store.settings.routes, route]
+    const next = diagnosisSettings(proof, via, store.settings)
+    if (!next) return { ok: false, error: 'stale' }
+    const routes = next.routes
+    const route = proof.route ? routes.find(r => r.id === proof.route!.id)! : routes.find(r => r.kind === 'custom' && r.value === proof.host)!
     if (!checkedPatch({ routes }).ok || !companionPatchSafe({ routes, groups: store.settings.groups }, store.settings, store.profiles)) return { ok: false, error: 'invalid' }
-    const applied = await applyRouting({ ...store.settings, routes })
+    const applied = await applyRouting(next)
     if (applied.saved) lastDiagnosis = undefined
     const message = applyText(applied)
     if (message) send('toast', message)
@@ -1614,7 +1642,12 @@ async function withServiceTransport<T>(work: (transport: PinnedHttpGet | undefin
     if (!clean) throw new ConfError('Проверочный движок не подтвердил остановку; загрузка не применена. Открой восстановление сети в настройках')
   }
 }
-const diagnosisContext = () => JSON.stringify([master.revision, engine.status.phase, engine.status.since, tunes])
+const diagnosisContext = (routeId?: string) => {
+  const route = routeId ? store.settings.routes.find(r => r.id === routeId) : undefined
+  const st = route ? withRoutes(engine.status) : undefined
+  const effective = route ? st?.routes?.[route.id]?.effective ?? st?.picked?.[route.via] ?? (!route.via.startsWith('g-') ? route.via : undefined) : undefined
+  return JSON.stringify([master.revision, engine.status.phase, engine.status.since, tunes, effective])
+}
 async function cancelDiagnosis(): Promise<boolean> {
   diagnoseRun++
   lastDiagnosis = undefined

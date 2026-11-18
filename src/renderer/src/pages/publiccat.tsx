@@ -5,10 +5,13 @@ import { Btn, Field, Icon, Select, Tooltip } from '../ui/kit'
 import { Pagination } from '../ui/pagination'
 import { s, sp } from '../lib/i18n'
 import { api } from '../bridge'
+import { projectAtlas, type AtlasProjection } from '../../../shared/atlas'
+import { Atlas, atlasCountryName, type AtlasRouteView } from '../ui/atlas'
+import { AtlasViewSwitch, useAtlasView, type AtlasView } from '../ui/atlas-view'
 
 interface Node { id: string; name: string; proto: string; host: string; port: number; country: string; source?: string; ping?: number; status?: 'ready' | 'cached' | 'failed' | 'unverified'; checkedAt?: number; lastSuccessAt?: number }
 interface State { updatedAt?: number; sources: { url: string; ok: boolean; count: number; error?: string }[]; total: number; readyCount?: number; cachedCount?: number; planned?: number; checked: number; alive: Node[]; cached?: Node[]; busy: boolean; cacheError?: string }
-interface Page { items: Node[]; total: number; page: number; pageSize: number; pages: number; regions: { id: string; name: string; total: number; ready: number }[] }
+interface Page { items: Node[]; total: number; page: number; pageSize: number; pages: number; regions: { id: string; name: string; total: number; ready: number }[]; atlas?: AtlasProjection }
 const PAGE_SIZE = 12
 const cc = (country: string) => /^[A-Z]{2}$/.test(country) ? country : ''
 const ago = (at?: number) => {
@@ -19,16 +22,21 @@ const ago = (at?: number) => {
 }
 const clean = (name: string) => name.replace(/[\u{1F1E6}-\u{1F1FF}]{2}\s*/gu, '').replace(/\[[^\]]*\]/g, '').replace(/#\d+/g, '').trim().replace(/^[A-Z]{2}\s*·\s*/, '') || name
 
-export function PublicCatalog({ toast, used, onAdded, selectedId, onBusyChange, compact = false, disabled = false }: {
+export function PublicCatalog({ toast, used, onAdded, selectedId, onBusyChange, compact = false, disabled = false, view: suppliedView, onViewChange, route, active = true }: {
   toast: (text: string) => void; used: (id: string) => boolean; onAdded?: (id: string) => void; selectedId?: string
   compact?: boolean; disabled?: boolean; onBusyChange?: (busy: boolean) => void
+  view?: AtlasView; onViewChange?: (view: AtlasView) => void; route?: AtlasRouteView
+  active?: boolean
 }) {
+  const [localView, setLocalView] = useAtlasView(compact ? 'picker-public' : 'connections-public')
+  const view = suppliedView ?? localView, setView = onViewChange ?? setLocalView
   const [st, setSt] = useState<State>()
   const [result, setResult] = useState<Page>()
   const [resultKey, setResultKey] = useState('')
   const [revision, setRevision] = useState(0)
   const [query, setQuery] = useState('')
   const [region, setRegion] = useState('')
+  const [country, setCountry] = useState('')
   const [readyOnly, setReadyOnly] = useState(false)
   const [page, setPage] = useState(1)
   const [error, setError] = useState('')
@@ -40,7 +48,8 @@ export function PublicCatalog({ toast, used, onAdded, selectedId, onBusyChange, 
   const autoStarted = useRef(false)
   const initialFilterChosen = useRef(false)
   const request = useRef(0)
-  const queryKey = JSON.stringify([query.trim(), region, readyOnly, page])
+  const queryKey = JSON.stringify([query.trim(), region, country, readyOnly, page])
+  const chooseCountry = (next: string) => { initialFilterChosen.current = true; setCountry(next); setPage(1) }
 
   useEffect(() => {
     let active = true, pushed = false
@@ -63,27 +72,27 @@ export function PublicCatalog({ toast, used, onAdded, selectedId, onBusyChange, 
     // A short debounce lets typing and probe progress coalesce without loading
     // thousands of rows or replacing the user's current page on every result.
     const timer = setTimeout(() => {
-      void api.catalogPage({ query: query.trim(), region: region || undefined, readyOnly, page, pageSize: PAGE_SIZE }).then((next: Page) => {
+      void api.catalogPage({ query: query.trim(), region: region || undefined, country: country || undefined, readyOnly, page, pageSize: PAGE_SIZE }).then((next: Page) => {
         if (request.current !== sequence) return
         setResult(next)
-        setResultKey(JSON.stringify([query.trim(), region, readyOnly, next.page]))
+        setResultKey(JSON.stringify([query.trim(), region, country, readyOnly, next.page]))
         if (next.page !== page) setPage(next.page)
       }).catch(() => { if (request.current === sequence) setError(s('pub.error')) })
     }, 120)
     return () => { clearTimeout(timer); if (request.current === sequence) request.current++ }
-  }, [query, region, readyOnly, page, revision])
+  }, [query, region, country, readyOnly, page, revision])
 
   // Entering this explicit public-server surface starts one bounded search.
   // It never loops on failure, and selecting a row can preempt the pool round.
   useEffect(() => {
-    if (!st || autoStarted.current || disabled) return
+    if (!active || !st || autoStarted.current || disabled) return
     autoStarted.current = true
     if (st.busy || (st.readyCount ?? st.alive.length) > 0) return
     void (st.total ? api.catalogVerify() : api.catalogRefresh()).then((next: State & { error?: string }) => {
       if (next?.error) setError(next.error)
       else if (next) { setSt(next); setRevision(n => n + 1) }
     }).catch(() => setError(s('pub.error')))
-  }, [st, disabled])
+  }, [st, disabled, active])
 
   const run = async (key: string, work: () => Promise<State | undefined>) => {
     if (toolbarLock.current || disabled) return
@@ -137,12 +146,13 @@ export function PublicCatalog({ toast, used, onAdded, selectedId, onBusyChange, 
         <span className="m">{st?.busy ? (st.planned ? s('pub.checking', { n: st.checked, t: st.planned }) : s('pub.fetching')) : s('server.public.stored', { count: sp('server.public.candidates', st?.total ?? 0), ago: ago(st?.updatedAt) })}</span>
       </div>
       <div className="grow" />
+      {!onViewChange && <AtlasViewSwitch value={view} onChange={setView} />}
       <Btn kind="ghost" onClick={() => void run('refresh', () => api.catalogRefresh())} disabled={disabled || checking} title={s('pub.refresh.tip')}><span className={checking ? 'spin' : ''}><Icon n="refresh" /></span>{s('pub.refresh')}</Btn>
       <Btn kind="ghost" onClick={() => void run('verify', () => api.catalogVerify())} disabled={disabled || checking || !st?.total} title={s('server.public.verify.hint')}><Icon n="pulse" />{s('server.public.verify')}</Btn>
     </div>
     <div className="server-filters">
       <Field icon="search" type="search" value={query} onChange={event => { initialFilterChosen.current = true; setQuery(event.target.value); setPage(1) }} placeholder={s('server.public.search')} aria-label={s('server.public.search')} />
-      <Select value={region} onChange={event => { initialFilterChosen.current = true; setRegion(event.target.value); setPage(1) }} aria-label={s('server.region.label')}>
+      <Select value={region} onChange={event => { initialFilterChosen.current = true; setRegion(event.target.value); setCountry(''); setPage(1) }} aria-label={s('server.region.label')}>
         <option value="">{s('server.region.all')}</option>
         {(result?.regions ?? []).map(item => <option value={item.id} key={item.id}>{s('pub.region.' + item.id)}{` · ${readyOnly ? item.ready : item.total}`}</option>)}
       </Select>
@@ -150,6 +160,8 @@ export function PublicCatalog({ toast, used, onAdded, selectedId, onBusyChange, 
         <option value="all">{s('server.filter.all')}</option><option value="ready">{s('server.filter.ready')}</option>
       </Select>
     </div>
+    {active && view === 'map' && <Atlas projection={result?.atlas ?? projectAtlas(result?.items ?? [])} country={country} onCountry={chooseCountry} onList={() => setView('list')} route={route} />}
+    {view === 'list' && country && <div className="atlas-list-filter"><span>{s('atlas.filtered', { country: atlasCountryName(country) })}</span><Btn sm kind="ghost" onClick={() => chooseCountry('')}><Icon n="x" s={13} />{s('atlas.region.reset')}</Btn></div>}
     {error && <p className="ferr" role="alert">{error}</p>}
     {checkError && checkError !== error && <p className="ferr" role="status">{checkError}</p>}
     {st?.cacheError && <p className="ferr" role="alert">{st.cacheError}</p>}

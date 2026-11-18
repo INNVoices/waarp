@@ -9,6 +9,9 @@ Found a bug? Open an issue. Know how to fix it? Send a pull request. Small, focu
 - Keep changes focused. Please no unrelated refactors.
 - For bug fixes, add or update a regression test when practical.
 
+For service presets, route purpose metadata and diagnostic targets, follow the
+[connection profiles and checks guide](docs/CONNECTION-PROFILES.md) for both Windows and Android.
+
 ## Checks
 
 Run the normal offline checks before submitting:

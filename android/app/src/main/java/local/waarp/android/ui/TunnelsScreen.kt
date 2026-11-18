@@ -41,6 +41,8 @@ internal fun TunnelsScreen(state: MobileState, actions: MobileActions, onTunnel:
         }
         screens.SaveableStateProvider(section) {
         var query by rememberSaveable { mutableStateOf("") }
+        var map by rememberSaveable { mutableStateOf(false) }
+        var country by rememberSaveable { mutableStateOf("") }
         val filteredProfiles = remember(state.profiles, query) { state.profiles.filter { p ->
             p.name.contains(query, true) || p.protocol.contains(query, true) || p.host.contains(query, true) } }
         val filteredGroups = remember(state.groups, query) { state.groups.filter { it.id != AUTO_PATH && it.name.contains(query, true) } }
@@ -48,6 +50,11 @@ internal fun TunnelsScreen(state: MobileState, actions: MobileActions, onTunnel:
             PublicCatalog(state, actions)
         } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 104.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { SearchField(query, { query = it }, if (section == "profiles") "Название, протокол или сервер" else "Найти группу") }
+            if (section == "profiles") item {
+                AtlasViewChoice(map) { map = it }
+                if (map) AtlasMap(filteredProfiles.map { AtlasNode(it.id, it.country, it.health == TunnelHealth.OK) }, country, { country = it })
+                else if (country.isNotBlank()) TextButton(onClick = { country = "" }) { Text("Сбросить фильтр региона") }
+            }
             item {
                 SectionHeading(if (section == "profiles") "${state.profiles.size} туннелей" else "Группы и Авто", trailing = {
                     if (section == "profiles") TextButton(onClick = { operation.run({ actions.probeTunnels() }) }, enabled = !operation.busy && state.profiles.isNotEmpty(), modifier = Modifier.heightIn(min = 48.dp)) {
@@ -58,7 +65,7 @@ internal fun TunnelsScreen(state: MobileState, actions: MobileActions, onTunnel:
                 OperationFeedback(operation)
             }
             if (section == "profiles") {
-                val filtered = filteredProfiles
+                val filtered = filteredProfiles.filter { country.isBlank() || atlasCountry(it.country) == country || country == ATLAS_UNKNOWN && atlasCountry(it.country).isBlank() }
                 if (filtered.isEmpty()) item {
                     EmptyState(Icons.Outlined.Hub, if (state.profiles.isEmpty()) "Добавь первый туннель" else "Ничего не найдено",
                         if (state.profiles.isEmpty()) "Ссылка, конфигурация, QR-код или подписка. Туннели появятся здесь после успешного импорта." else "Попробуй название сервера или протокол.") {
@@ -138,6 +145,7 @@ private fun PublicCatalog(state: MobileState, actions: MobileActions) {
     var protocol by rememberSaveable { mutableStateOf("") }
     var onlyChecked by rememberSaveable { mutableStateOf(false) }
     var sourcesExpanded by rememberSaveable { mutableStateOf(false) }
+    var map by rememberSaveable { mutableStateOf(false) }
     val operation = rememberUiOperation()
     val catalog = state.catalog
     val countries = remember(catalog.nodes) { catalog.nodes.map { it.country }.filter { it.isNotBlank() }.distinct().sorted() }
@@ -183,6 +191,12 @@ private fun PublicCatalog(state: MobileState, actions: MobileActions) {
         }
         if (catalog.nodes.isNotEmpty()) {
             item { SearchField(query, { query = it }, "Найти публичный сервер") }
+            item {
+                AtlasViewChoice(map) { map = it }
+                if (map) AtlasMap(sortedNodes.filter { node -> (protocol.isBlank() || node.protocol == protocol) &&
+                    (!onlyChecked || node.health == TunnelHealth.OK) && (node.name.contains(query, true) || node.host.contains(query, true) || node.country.contains(query, true)) }
+                    .map { AtlasNode(it.id, it.country, it.health == TunnelHealth.OK) }, country, { country = it }, showRegionSelector = false)
+            }
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(Modifier.weight(1f)) { PathField("Страна", country, listOf(PathChoice("", "Все страны", "Без фильтра")) + countries.map { PathChoice(it, it, "") }) { country = it } }

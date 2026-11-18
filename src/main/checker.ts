@@ -148,7 +148,7 @@ export class Checker {
 
   private async boundedDelays(url: string, failed: undefined | null, only?: string[]): Promise<Record<string, number | undefined | null>> {
     const out: Record<string, number | undefined | null> = {}
-    const ids = only ? this.ids.filter(id => only.includes(id)) : this.ids
+    const ids = only ? [...new Set(only.filter(id => id === 'direct' || this.ids.includes(id)))] : this.ids
     let cursor = 0
     const child = this.child, version = this.stopVersion
     const worker = async () => {
@@ -156,7 +156,7 @@ export class Checker {
         const at = cursor++
         if (at >= ids.length) return
         const id = ids[at]
-        const ms = await this.delay(tagOf(id), url)
+        const ms = await this.delay(id === 'direct' ? 'direct' : tagOf(id), url)
         if (this.child !== child || this.stopVersion !== version) return
         out[id] = ms ?? failed
       }

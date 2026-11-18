@@ -9,6 +9,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.ViewRootForTest
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.AnnotatedString
@@ -253,6 +254,45 @@ class MobileUiInstrumentedTest {
         assertEditableText("Домен или IP", "example.test")
         compose.onNode(hasText("Соединения") and hasClickAction()).performClick()
         assertEditableText("Приложение, адрес или путь", "test.app")
+        assertEquals(RuntimePhase.OFF, repository.controller.status.value.phase)
+        assertFalse(repository.requestedOpen.value)
+    }
+
+    @Test fun atlasAndConnectionCheckKeepTheDraftUntilTheSingleSave() = withFailureCapture("failure-atlas-draft") {
+        val alpha = ProfileImporter.link("trojan://atlas-alpha@192.0.2.21:443#Atlas%20Alpha").copy(id = "atlas-alpha", country = "DE")
+        val beta = ProfileImporter.link("trojan://atlas-beta@192.0.2.22:443#Atlas%20Beta").copy(id = "atlas-beta", country = "FR")
+        runBlocking { repository.edit { AppData(profiles = listOf(alpha, beta), routes = listOf(
+            TrafficRoute("atlas-route", "Atlas route", "custom", "example.test", alpha.id))) } }
+        awaitData { it.profiles.size == 2 }
+        val revision = repository.data.value!!.revision
+        tab("Туннели")
+        compose.onNode(hasText("Карта") and hasClickAction()).performScrollTo().performClick()
+        compose.waitUntil(20_000) { compose.onAllNodesWithTag("waarp-atlas-map").fetchSemanticsNodes().any {
+            it.config.getOrNull(SemanticsProperties.StateDescription) == "Локальная карта загружена"
+        } }
+        screenshot("05-atlas-local")
+        compose.onNode(hasText("Список") and hasClickAction()).performScrollTo().performClick()
+        assertEquals(revision, repository.data.value!!.revision)
+        assertFalse(repository.requestedOpen.value)
+        tab("Маршруты")
+        compose.onNode(hasText("Atlas route") and hasClickAction()).performClick()
+        modalButton("Список и карта подключений")
+        compose.onNode(hasText("Atlas Beta") and hasClickAction()).performScrollTo().performClick()
+        assertEquals(alpha.id, repository.data.value!!.routes.single().via)
+        modalButton("Выбрать")
+        compose.onNodeWithText("Сохранить маршрут").assertExists()
+        assertEquals(alpha.id, repository.data.value!!.routes.single().via)
+        compose.onNode(hasText("Для чего используется") and hasClickAction()).performScrollTo().performClick()
+        compose.onNode(hasText("Игра") and hasClickAction() and hasAnyAncestor(isDialog())).performClick()
+        modalButton("Проверить соединение для маршрута")
+        field("Адрес для проверки").assertTextContains("example.test")
+        compose.onAllNodesWithText("Сохранить маршрут").assertCountEquals(0)
+        modalButton("Назад к маршруту")
+        assertEquals(revision, repository.data.value!!.revision)
+        modalButton("Сохранить маршрут")
+        awaitData { it.routes.singleOrNull()?.via == beta.id && it.routes.singleOrNull()?.connectionUse == "game" }
+        awaitNoForm()
+        assertEquals(revision + 1, repository.data.value!!.revision)
         assertEquals(RuntimePhase.OFF, repository.controller.status.value.phase)
         assertFalse(repository.requestedOpen.value)
     }

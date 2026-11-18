@@ -119,6 +119,8 @@ export interface Route {
   via: Via
   fallback?: Via
   on: boolean
+  /** Diagnostic requirements only; changing this does not change routing or the native graph. */
+  connectionUse?: import('./connection-quality').ConnectionUse
   /** created for a local companion app through the bridge; edited in Waarp like any route */
   owner?: 'companion'
   exe?: string

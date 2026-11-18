@@ -86,12 +86,16 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          foreach ($waarpPreview in @('app-public-server-picker.png', 'app-public-server-picker-pages.png', 'saved-server-picker-pages.png', 'public-check-failure.png', 'stability-failed.png', 'failure-1.png')) {
+          foreach ($waarpPreview in @('app-public-server-picker.png', 'app-public-server-picker-pages.png', 'saved-server-picker-pages.png', 'public-check-failure.png', 'stability-failed.png', 'failure-1.png', 'atlas-picker-active-preview-1240.png', 'atlas-picker-900.png', 'atlas-public-full-pool-unknown.png', 'atlas-fallback-list.png', 'atlas-file-origin.png', 'quality-context-1240.png', 'quality-context-900.png')) {
             $waarpPreviewPath = Join-Path 'out/ui' $waarpPreview
             if (Test-Path $waarpPreviewPath) { Write-Output ('WAARP_UI_PREVIEW ' + $waarpPreview + ' ' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($waarpPreviewPath))) }
           }
           if (Test-Path 'out/ui/stability-metrics.json') { Get-Content 'out/ui/stability-metrics.json' }
       - run: npm run engine:fetch
+      - name: Verify actual TCP and UDP selector continuity on the pinned core
+        run: node out/test/continuity-native.check.js
+        env:
+          WAARP_CONTINUITY_NATIVE_TEST: '1'
       - run: node out/test/slots.check.js
       - run: node out/test/links.check.js
       - run: node out/test/awg-import.check.js
@@ -250,7 +254,7 @@ jobs:
           script: |
             python3 scripts/android-install.py --serial emulator-5554 --with-tests
             python3 scripts/android-instrument.py --serial emulator-5554 --disposable-emulator --expect-page-size 4096 --route-smoke --timeout 300 --output out/android/route-smoke
-            python3 scripts/android-instrument.py --serial emulator-5554 --disposable-emulator --expect-page-size 4096 --ui-gallery --timeout 300 --output out/android/gallery
+            python3 scripts/android-instrument.py --serial emulator-5554 --disposable-emulator --expect-page-size 4096 --ui-gallery --timeout 360 --output out/android/gallery
       - name: Retain actual Android gallery captures in the job log
         if: always()
         run: |
@@ -258,7 +262,7 @@ jobs:
           import base64
           from pathlib import Path
           root = Path('out/android/gallery/ui-screenshots')
-          for name in ['01-home-empty.png','02-settings.png','03-saved-route.png','04-groups.png']:
+          for name in ['01-home-empty.png','02-settings.png','03-saved-route.png','04-groups.png','05-atlas-local.png']:
               for path in root.rglob(name):
                   print('WAARP_ANDROID_PREVIEW '+name+' '+base64.b64encode(path.read_bytes()).decode('ascii'))
           # These failure captures contain only the gallery's synthetic UI fixtures.

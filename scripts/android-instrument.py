@@ -29,6 +29,7 @@ UI_GALLERY_CASES = frozenset({
     ("local.waarp.android.ui.MobileUiInstrumentedTest", "everyDestinationAndAndroidSettingsScreenOpensWithoutStartingVpn"),
     ("local.waarp.android.ui.MobileUiInstrumentedTest", "rejectedImportAndRouteSaveKeepDraftsUntilCorrectedThenPersist"),
     ("local.waarp.android.ui.MobileUiInstrumentedTest", "groupMemberOrderAndExplicitDeletionReassignmentPersistThroughTheRealUi"),
+    ("local.waarp.android.ui.MobileUiInstrumentedTest", "atlasAndConnectionCheckKeepTheDraftUntilTheSingleSave"),
 })
 
 ROUTE_SMOKE_MUTATIONS = [
@@ -201,7 +202,7 @@ def parse_options(arguments=None):
     mode.add_argument("--route-smoke", action="store_true",
                       help="Run the exact real-TUN route, lifecycle ownership and feedback regressions before artifact uploads; the full API matrix remains separate")
     mode.add_argument("--ui-gallery", action="store_true",
-                      help="Capture the four existing sanitized UI screenshots using only their three offline MobileUiInstrumentedTest scenarios")
+                      help="Capture five sanitized UI screenshots using four offline MobileUiInstrumentedTest scenarios")
     parser.add_argument("--disposable-emulator", action="store_true",
                         help="Read-only verification of the explicitly selected owned CI emulator image")
     return parser.parse_args(arguments)
@@ -258,7 +259,7 @@ def main():
         capture_test_failure_logs(prefix, options.output)
     report = {"schemaVersion": 1, "checkedAtUtc": datetime.now(timezone.utc).isoformat(), "device": device, "preflight": preflight, "wallSeconds": elapsed, **parsed}
     report["scope"] = ("focused real-TUN route mutations, lifecycle ownership and feedback UI; no external tunnel reachability claim" if options.route_smoke
-                       else "four actual UI screenshots from three offline scenarios with synthetic fixtures; no VPN connection or external reachability claim" if options.ui_gallery
+                       else "five actual UI screenshots from four offline scenarios with synthetic fixtures; no VPN connection or external reachability claim" if options.ui_gallery
                        else "full debug instrumentation suite")
     if image_proof is not None:
         report["emulatorImage"] = image_proof
@@ -275,7 +276,7 @@ def main():
     except (OSError, subprocess.TimeoutExpired):
         screenshot_count = 0
     report["uiScreenshotCount"] = screenshot_count
-    required_screenshots = {"01-home-empty.png", "02-settings.png", "03-saved-route.png", "04-groups.png"}
+    required_screenshots = {"01-home-empty.png", "02-settings.png", "03-saved-route.png", "04-groups.png", "05-atlas-local.png"}
     actual_screenshots = {path.name for path in screenshots.rglob("*.png")} if screenshots.exists() else set()
     if options.route_smoke:
         try:

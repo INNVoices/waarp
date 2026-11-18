@@ -25,7 +25,7 @@
     {
       "id": "WN-02",
       "title": "Объединить наблюдения и контекст приложения",
-      "status": "IN_PROGRESS",
+      "status": "IMPLEMENTED_AWAITING_ACCEPTANCE",
       "dependsOn": [
         "WN-01"
       ],
@@ -34,7 +34,7 @@
     {
       "id": "WN-03",
       "title": "Встроить локальный Atlas в существующий UX",
-      "status": "IN_PROGRESS",
+      "status": "IMPLEMENTED_AWAITING_ACCEPTANCE",
       "dependsOn": [
         "WN-01",
         "WN-02"
@@ -44,7 +44,7 @@
     {
       "id": "WN-04",
       "title": "Добавить ограниченные профили и объяснимые рекомендации",
-      "status": "IN_PROGRESS",
+      "status": "IMPLEMENTED_AWAITING_ACCEPTANCE",
       "dependsOn": [
         "WN-02"
       ],
@@ -53,7 +53,7 @@
     {
       "id": "WN-05",
       "title": "Сократить влияние смен маршрутов на активную работу",
-      "status": "IN_PROGRESS",
+      "status": "IMPLEMENTED_AWAITING_ACCEPTANCE",
       "dependsOn": [
         "WN-01",
         "WN-02"
@@ -63,7 +63,7 @@
     {
       "id": "WN-06",
       "title": "Пройти сквозную UI/UX и native-приёмку",
-      "status": "QUEUED",
+      "status": "IN_PROGRESS",
       "dependsOn": [
         "WN-03",
         "WN-04",
@@ -74,7 +74,7 @@
     {
       "id": "WN-07",
       "title": "Подготовить простой путь контрибуции профилей",
-      "status": "QUEUED",
+      "status": "IMPLEMENTED_AWAITING_ACCEPTANCE",
       "dependsOn": [
         "WN-04",
         "WN-06"
@@ -95,5 +95,6 @@
   "spec": "05-PLAN-AND-ACCEPTANCE.md",
   "authorizedOn": "2026-11-18",
   "authorization": "Explicit owner instruction: Иди работай",
-  "execution": "08-IMPLEMENTATION.md"
+  "execution": "08-IMPLEMENTATION.md",
+  "implementationStatus": "INTEGRATING"
 }

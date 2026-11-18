@@ -60,6 +60,7 @@ export function AutoHint({ profiles, bare }: { profiles: ProfileView[]; bare?: b
 }
 
 export function viaName(profiles: ProfileView[], via: Via) {
+  if (!via) return s('via.unknown')
   if (via === 'direct') return s('via.direct')
   if (via === AUTO_ID) return s('via.auto')
   const p = profileOf(profiles, via)

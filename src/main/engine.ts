@@ -22,6 +22,7 @@ import { sameEffectiveRouting } from '../shared/routing-edit'
 import { routeEditGuard } from './live-routing'
 import { DIAGNOSTIC_SELECTOR, type DiagnosticProxy, type DiagnosticTransport } from './diagnostic-proxy'
 import { LiveOutbounds } from './live-outbound'
+import { FlowActivity } from './continuity'
 
 interface CardRuleFiles { slots?: Slots; files: Record<string, string> }
 
@@ -101,6 +102,7 @@ export class Engine extends EventEmitter {
   private requests = new Set<AbortController>()
   private polling?: object
   private pollFailures = 0
+  private flowActivity = new FlowActivity()
   /** HOTFIX-RUNTIME-01: the running core's config, what it loaded and its Auto pool; set on a ready start, cleared on halt */
   private run?: { cfg: ReturnType<typeof buildConfig>; loaded: Loaded; autoLive: string[]; files: Record<string, string>; settings: Settings; hostV6?: boolean; nativeProfiles?: string[] }
   /** count of live route applies in this process (tests, log) */
@@ -400,30 +402,38 @@ export class Engine extends EventEmitter {
     this.set({ phase: 'on', since: Date.now(), engine: 'up' })
     // C08: 'on' = engine + controller up; tunnels carry their own health; the error line only when every tunnel is DOWN
     const health = new Health()
+    const roundVersion = this.stopVersion
+    const roundCurrent = () => this.child === child && this.stopVersion === roundVersion && !this.stopping
     let roundBusy = false
     const round = async (first: boolean) => {
-      if (roundBusy || this.child !== child || this.stopping || this.pollFailures >= 2) return
+      if (roundBusy || !roundCurrent() || this.pollFailures >= 2) return
       roundBusy = true
       try {
+        const snapshot = this.run
         const ids = this.probeIds()
         const pings = await this.pingAll(ids)
-        if (this.child !== child || this.stopping || this.pollFailures >= 2) return
-        const fallback = await this.fbStep(pings)
-        if (this.child !== child || this.stopping || this.pollFailures >= 2) return
-        // only probed ids get a verdict; an unsampled Auto candidate keeps its last evidence (or none)
-        const h = { ...this.lastHealth, ...health.step(pings, ids, undefined, this.ids) }
-        this.lastHealth = h
-        await this.groupStep(h, pings)
-        if (this.child !== child || this.stopping || this.pollFailures >= 2) return
-        // A failed rotating batch is not proof that every loaded path is down.
-        // Unmeasured members and older successful evidence prevent that claim.
-        const allDown = this.ids.length > 0 && this.ids.every(id => h[id] === 'down')
-        const noneYet = first && ids.length > 0 && ids.every(id => h[id] !== 'ok')
-        const error = allDown ? 'Туннели не ответили на две проверки подряд. Проверь сеть или смени подключение' : noneYet ? 'Серверы пока не ответили, проверяю ещё раз' : undefined
-        this.lastAutoPick = this.firstSelected.get(AUTO_ID) ?? this.lastAutoPick
-        this.set({ engine: 'up', pings, pingRound: ++this.pingSeq, pingAt: Date.now(), health: h, fallback, error, picked: Object.fromEntries(this.firstSelected), autoPool: this.autoPool })
+        if (!roundCurrent() || this.pollFailures >= 2) return
+        // Automatic selection and explicit live edits share the existing owner.
+        // Results collected before an acknowledged edit cannot select its paths.
+        await this.serialize(async () => {
+          if (!roundCurrent() || this.pollFailures >= 2 || this.run !== snapshot || this.pendingLive) return
+          const h = { ...this.lastHealth, ...health.step(pings, ids, undefined, this.ids) }
+          const fallback = await this.fbStep(pings, h)
+          if (!roundCurrent() || this.pollFailures >= 2) return
+          // only probed ids get a verdict; an unsampled Auto candidate keeps its last evidence (or none)
+          this.lastHealth = h
+          await this.groupStep(h, pings)
+          if (!roundCurrent() || this.pollFailures >= 2) return
+          // A failed rotating batch is not proof that every loaded path is down.
+          // Unmeasured members and older successful evidence prevent that claim.
+          const allDown = this.ids.length > 0 && this.ids.every(id => h[id] === 'down')
+          const noneYet = first && ids.length > 0 && ids.every(id => h[id] !== 'ok')
+          const error = allDown ? 'Туннели не ответили на две проверки подряд. Проверь сеть или смени подключение' : noneYet ? 'Серверы пока не ответили, проверяю ещё раз' : undefined
+          this.lastAutoPick = this.firstSelected.get(AUTO_ID) ?? this.lastAutoPick
+          this.set({ engine: 'up', pings, pingRound: ++this.pingSeq, pingAt: Date.now(), health: h, fallback, error, picked: Object.fromEntries(this.firstSelected), autoPool: this.autoPool })
+        })
       } catch {
-        if (this.child === child && !this.stopping && this.pollFailures < 2) this.set({ error: 'Не удалось обновить состояние туннелей; повторю проверку' })
+        if (roundCurrent() && this.pollFailures < 2) this.set({ error: 'Не удалось обновить состояние туннелей; повторю проверку' })
       } finally { roundBusy = false }
     }
     void round(true)
@@ -652,6 +662,7 @@ export class Engine extends EventEmitter {
     this.abortRequests()
     this.polling = undefined
     this.pollFailures = 0
+    this.flowActivity.reset()
     this.run = undefined
     this.liveProblem = undefined
     this.pendingLive = undefined
@@ -771,10 +782,23 @@ export class Engine extends EventEmitter {
     } catch { return false } finally { clearTimeout(t); this.requests.delete(ctl) }
   }
 
-  private async fbStep(pings: Record<string, number | undefined>): Promise<Record<string, string>> {
-    const child = this.child, tracker = this.fb
-    const done = await tracker.step(pings, (g, toFb) => this.child === child && !this.stopping ? this.select(g.tag, this.profileTag(toFb ? g.fb : g.main)) : Promise.resolve(false))
-    if (this.child !== child || this.stopping) return {}
+  private pathIdle(path: string): boolean {
+    const group = this.groups.find(value => value.id === path)
+    const paths = group ? [this.firstSelected.get(path) ?? group.members[0]].filter(Boolean) : [path]
+    return this.flowActivity.idle(paths)
+  }
+
+  private async fbStep(pings: Record<string, number | undefined>, health: Record<string, TunnelHealth> = {}): Promise<Record<string, string>> {
+    const child = this.child, tracker = this.fb, version = this.stopVersion
+    const current = () => this.child === child && this.stopVersion === version && !this.stopping && !this.pendingLive
+    const done = await tracker.step(pings, async (g, toFb) => {
+      if (!current()) return Promise.resolve(false)
+      // Returning to a recovered primary is optional while the reserve works.
+      // Unknown telemetry holds it too; a confirmed failed reserve may recover.
+      if (!toFb && health[g.fb] !== 'down' && health[g.fb] !== 'busy' && !this.pathIdle(g.fb)) return Promise.resolve(false)
+      return await this.select(g.tag, this.profileTag(toFb ? g.fb : g.main)) && current()
+    })
+    if (!current()) return {}
     for (const d of done) this.emit('fallback', { main: d.g.main, fb: d.g.fb, toFb: d.toFb, routes: (this.fbRoutes.get(d.g.tag) ?? []).map(r => r.name) })
     const out: Record<string, string> = {}
     for (const g of this.fb.active()) for (const r of this.fbRoutes.get(g.tag) ?? []) out[r.id] = g.fb
@@ -783,13 +807,22 @@ export class Engine extends EventEmitter {
 
   /** W2.2: Waarp, not sing-box, moves group selections: confirmed failure or a sustained clear speed gap only */
   private async groupStep(health: Record<string, TunnelHealth>, pings: Record<string, number | undefined>): Promise<void> {
-    const child = this.child
+    const child = this.child, version = this.stopVersion
+    const stillCurrent = () => this.child === child && this.stopVersion === version && !this.stopping && !this.pendingLive
     await Promise.all(this.groups.map(async g => {
+      if (!stillCurrent()) return
       const current = this.firstSelected.get(g.id) ?? g.members[0]
+      const activeOrUnknown = !this.pathIdle(current)
+      const currentAllowed = g.members.includes(current)
       let next = current
-      if (g.policy === 'first') next = firstAlive(g.members, current, health)
-      else { const r = stickyFastest(g.members, current, health, pings, this.slowStreak.get(g.id) ?? 0, this.conns.some(c => c.via === current)); next = r.next; this.slowStreak.set(g.id, r.streak) }
-      if (next !== current && await this.select(grpTag(g.id), this.profileTag(next)) && this.child === child && !this.stopping) this.firstSelected.set(g.id, next)
+      if (g.policy === 'first') next = currentAllowed && activeOrUnknown && health[current] !== 'down' && health[current] !== 'busy'
+        ? current : firstAlive(g.members, current, health)
+      else {
+        const r = stickyFastest(g.members, current, health, pings, this.slowStreak.get(g.id) ?? 0, activeOrUnknown)
+        next = currentAllowed && activeOrUnknown && health[current] !== 'down' && health[current] !== 'busy' ? current : r.next
+        this.slowStreak.set(g.id, activeOrUnknown ? 0 : r.streak)
+      }
+      if (next !== current && await this.select(grpTag(g.id), this.profileTag(next)) && stillCurrent()) this.firstSelected.set(g.id, next)
     }))
   }
 
@@ -860,15 +893,17 @@ export class Engine extends EventEmitter {
     }
   }
 
-  /** W3 diagnosis: through the given own paths only; Direct is measured separately by the layered prober */
+  /** Diagnosis uses explicit native outbound tags. Direct is included only when
+   * requested; system-socket layers do not prove a Direct path while TUN is on. */
   async probePaths(target: string, ids: string[], signal?: AbortSignal): Promise<Record<string, number | null>> {
     if (signal?.aborted) return {}
     const child = this.child, version = this.stopVersion
     const url = /^https?:\/\//.test(target) ? target : 'https://' + target
     const out: Record<string, number | null> = {}
-    await this.bounded(this.ids.filter(id => ids.includes(id)), async id => {
+    const paths = [...new Set(ids)].filter(id => id === 'direct' || this.ids.includes(id))
+    await this.bounded(paths, async id => {
       if (signal?.aborted) return
-      const delay = await this.delay(this.profileTag(id), url, signal)
+      const delay = await this.delay(id === 'direct' ? 'direct' : this.profileTag(id), url, signal)
       if (!signal?.aborted) out[id] = delay ?? null
     })
     return this.child === child && this.stopVersion === version && !signal?.aborted ? out : {}
@@ -910,30 +945,38 @@ export class Engine extends EventEmitter {
     if (!child || this.polling || this.stopping) return
     const polling = {}
     this.polling = polling
+    const current = () => this.child === child && this.stopVersion === version && !this.stopping
+    const failed = () => {
+      if (!current()) return
+      this.flowActivity.invalidate()
+      this.pollFailures++
+      if (this.pollFailures >= 2) this.set({ engine: 'down', error: 'Движок не отвечает на локальные запросы. Попробуй отключить и снова включить Waarp' })
+    }
     try {
       const r = await this.req('/connections', 2000)
-      if (this.child !== child || this.stopVersion !== version || this.stopping) return
-      if (!r) {
-        this.pollFailures++
-        if (this.pollFailures >= 2) this.set({ engine: 'down', error: 'Движок не отвечает на локальные запросы. Попробуй отключить и снова включить Waarp' })
-        return
+      if (!current()) return
+      if (!r || !Object.hasOwn(r, 'connections') || (r.connections !== null && !Array.isArray(r.connections))) {
+        failed(); return
       }
-      const recovered = this.pollFailures >= 2
-      this.pollFailures = 0
-      if (recovered) this.set({ engine: 'up', error: undefined })
       const now = Date.now()
-      const d = r.downloadTotal ?? 0, u = r.uploadTotal ?? 0
-      if (this.last) {
-        const dt = Math.max(0.2, (now - this.last.t) / 1000)
-        this.set({ down: Math.max(0, (d - this.last.d) / dt), up: Math.max(0, (u - this.last.u) / dt), downTotal: d, upTotal: u })
-      }
-      this.last = { t: now, d, u }
       const slots = this.run?.loaded.slots
-      this.conns = (r.connections ?? []).map((c: any): Conn => {
-        const m = c.metadata ?? {}
+      const loaded = new Set(['direct', ...this.loadedProfileIds])
+      let attributed = true
+      // Validate and project before publishing or resetting the failed-sample count.
+      // An unknown chain must never masquerade as Direct or permit an idle switch.
+      const conns = (r.connections ?? []).map((c: any): Conn => {
+        if (!c || typeof c !== 'object' || typeof c.id !== 'string' || !c.id ||
+          !c.metadata || typeof c.metadata !== 'object' || Array.isArray(c.metadata) ||
+          (c.chains !== undefined && (!Array.isArray(c.chains) || c.chains.some((tag: unknown) => typeof tag !== 'string'))))
+          throw new Error('Invalid connection snapshot')
+        const m = c.metadata
+        if (['processPath', 'process', 'host', 'destinationIP', 'network'].some(key => m[key] !== undefined && typeof m[key] !== 'string'))
+          throw new Error('Invalid connection metadata')
         const exe: string = m.processPath ?? ''
         const chain: string[] = c.chains ?? []
         const slot = chain.map(x => /^rt-([ad])(\d+)$/.exec(x)).find(Boolean)
+        const via = chain.map(tag => this.relays.profile(tag)).find(Boolean) ?? chain.find(tag => tag.startsWith('p-'))?.slice(2) ?? (chain.includes('direct') ? 'direct' : '')
+        if (!via || !loaded.has(via)) attributed = false
         return {
           id: c.id,
           app: exe ? exe.split('\\').pop()!.replace(/\.exe$/i, '') : (m.process || 'система'),
@@ -942,16 +985,30 @@ export class Engine extends EventEmitter {
           ip: typeof m.destinationIP === 'string' ? m.destinationIP : undefined,
           port: Number(m.destinationPort) || 0,
           net: m.network ?? '',
-          via: chain.map(tag => this.relays.profile(tag)).find(Boolean) ?? chain.find(c => c.startsWith('p-'))?.slice(2) ?? 'direct',
-          rule: c.rule ?? '',
+          via,
+          rule: typeof c.rule === 'string' ? c.rule : '',
           ...(slots ? { route: slot ? (slot[1] === 'a' ? slots.app : slots.dom)[Number(slot[2])] ?? '' : '' } : {}),
-          down: c.download ?? 0,
-          up: c.upload ?? 0,
-          start: Date.parse(c.start) || now
+          down: Number.isFinite(c.download) && c.download >= 0 ? c.download : 0,
+          up: Number.isFinite(c.upload) && c.upload >= 0 ? c.upload : 0,
+          start: typeof c.start === 'string' ? Date.parse(c.start) || now : now
         }
       })
+      const recovered = this.pollFailures >= 2
+      this.pollFailures = 0
+      if (recovered) this.set({ engine: 'up', error: undefined })
+      const d = Number.isFinite(r.downloadTotal) && r.downloadTotal >= 0 ? r.downloadTotal : 0
+      const u = Number.isFinite(r.uploadTotal) && r.uploadTotal >= 0 ? r.uploadTotal : 0
+      if (this.last) {
+        const dt = Math.max(0.2, (now - this.last.t) / 1000)
+        this.set({ down: Math.max(0, (d - this.last.d) / dt), up: Math.max(0, (u - this.last.u) / dt), downTotal: d, upTotal: u })
+      }
+      this.last = { t: now, d, u }
+      this.conns = conns
+      if (attributed) this.flowActivity.observe(this.conns, loaded)
+      else this.flowActivity.invalidate()
       this.emit('conns', this.conns)
-    } finally { if (this.polling === polling) this.polling = undefined }
+    } catch { failed() }
+    finally { if (this.polling === polling) this.polling = undefined }
   }
 
 }

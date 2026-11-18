@@ -3,9 +3,11 @@ import groovy.json.JsonOutput
 import java.security.MessageDigest
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -150,7 +152,25 @@ abstract class RuntimeDependencyNoticeTask : DefaultTask() {
     }
 }
 
+/** Both clients package the same audited, offline map data; there is no second generated copy in source control. */
+abstract class AtlasAssetsTask : DefaultTask() {
+    @get:InputFile abstract val world: RegularFileProperty
+    @get:InputFile abstract val countries: RegularFileProperty
+    @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+    @TaskAction fun copyAtlas() {
+        val directory = outputDirectory.get().dir("atlas").asFile.apply { mkdirs() }
+        world.get().asFile.copyTo(directory.resolve("world.json"), overwrite = true)
+        countries.get().asFile.copyTo(directory.resolve("countries.json"), overwrite = true)
+    }
+}
+val generateAtlasAssets = tasks.register<AtlasAssetsTask>("generateAtlasAssets") {
+    world.set(rootProject.layout.projectDirectory.file("../src/shared/atlas-world.json"))
+    countries.set(rootProject.layout.projectDirectory.file("../src/shared/atlas-countries.json"))
+    outputDirectory.set(layout.buildDirectory.dir("generated/atlas-assets"))
+}
+
 androidComponents.onVariants { variant ->
+    variant.sources.assets?.addGeneratedSourceDirectory(generateAtlasAssets, AtlasAssetsTask::outputDirectory)
     val configuration = "${variant.name}RuntimeClasspath"
     val task = tasks.register<RuntimeDependencyNoticeTask>("generate${variant.name.replaceFirstChar { it.uppercaseChar() }}RuntimeDependencyNotice") {
         group = "verification"
@@ -182,6 +202,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    // Stable native API, one OpenGL renderer; styles/data are bundled and require no map service.
+    implementation("org.maplibre.gl:android-sdk-opengl:13.7.1")
     // 5.4.0 bounds HTTP/2 headers and supports compileSdk 36. CompromisedCaGuard
     // applies the 5.5.1 SPKI blocklist without the 5.5.x compileSdk 37 requirement.
     implementation("com.squareup.okhttp3:okhttp:5.4.0")

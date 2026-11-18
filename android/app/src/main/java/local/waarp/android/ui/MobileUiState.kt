@@ -103,6 +103,7 @@ data class RouteUi(
     val reason: String? = null,
     val downloadedBytes: Long = 0,
     val uploadedBytes: Long = 0,
+    val connectionUse: String = "general",
 )
 
 data class AppUi(
@@ -180,7 +181,8 @@ data class LogLineUi(val id: Long, val text: String)
 
 data class LatencySeriesUi(val id: String, val name: String, val samplesMs: List<Double?>)
 data class DiagnosticLayerUi(val name: String, val result: ObservationResult, val detail: String = "")
-data class DiagnosticPathUi(val id: String, val name: String, val latencyMs: Double?, val result: ObservationResult)
+data class DiagnosticPathUi(val id: String, val name: String, val latencyMs: Double?, val result: ObservationResult,
+    val attempted: Int = 0, val responded: Int = 0, val spreadMs: Long? = null)
 data class DiagnosticUi(
     val target: String,
     val running: Boolean = false,
@@ -188,6 +190,16 @@ data class DiagnosticUi(
     val paths: List<DiagnosticPathUi> = emptyList(),
     val conclusion: String? = null,
     val suggestedViaId: String? = null,
+    val contextId: String? = null,
+    val routeName: String? = null,
+    val connectionUse: String = "general",
+    val checkedAt: Long? = null,
+    val networkLabel: String? = null,
+    val completedChecks: Int = 0,
+    val plannedChecks: Int = 0,
+    val stale: Boolean = false,
+    val cancelled: Boolean = false,
+    val proofId: String? = null,
 )
 
 data class NoticeUi(val id: String, val level: NoticeLevel, val title: String, val detail: String = "")
@@ -217,7 +229,11 @@ data class RouteDraft(
     val packageName: String? = null,
     val presetId: String? = null,
     val selector: String? = null,
+    val connectionUse: String = "general",
+    val recommendationProofId: String? = null,
 )
+
+data class RouteCheckRequest(val contextId: String, val draft: RouteDraft, val target: String)
 
 data class GroupDraft(val id: String? = null, val name: String, val policy: GroupPolicy, val members: List<String>)
 data class WireGuardDraft(val name: String, val address: String, val endpoint: String, val serverPublicKey: String)
@@ -251,6 +267,8 @@ interface MobileActions {
     suspend fun addCatalogNode(id: String): UiResult
     suspend fun addBestPublicGroup(): UiResult
     suspend fun diagnose(target: String): UiResult
+    suspend fun diagnoseRoute(request: RouteCheckRequest): UiResult = UiResult(false, "Проверка маршрута недоступна")
+    fun cancelDiagnostic(contextId: String? = null) = Unit
     suspend fun probeTunnels(): UiResult
     suspend fun readLogs(): UiResult
     suspend fun recover(): UiResult

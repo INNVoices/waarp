@@ -255,14 +255,16 @@ class MobileRepository(private val context: Context, val controller: VpnControll
     }
 
     suspend fun probe(extra: List<TunnelProfile>? = null, url: String? = null,
-        preparePublic: (suspend (TunnelProfile) -> TunnelProfile)? = null): List<RuntimeProbeResult> = probes.withLock {
+        preparePublic: (suspend (TunnelProfile) -> TunnelProfile)? = null,
+        profileIds: Set<String>? = null, timeoutMs: Int = 5000): List<RuntimeProbeResult> = probes.withLock {
+        require(timeoutMs in 1000..5000)
         val value = ready()
         val token = generation.get()
         val sessionGeneration = controller.sessionGeneration()
         val phase = controller.status.value.phase
         check(phase !in setOf(RuntimePhase.STARTING, RuntimePhase.STOPPING) && !_applying.value) { "Дождитесь завершения переключения VPN" }
         val active = phase == RuntimePhase.ON
-        val available = (extra ?: value.profiles).filterNot { it.revoked || it.subscriptionMissing }
+        val available = (extra ?: value.profiles).filter { !it.revoked && !it.subscriptionMissing && (profileIds == null || it.id in profileIds) }
         val eligible = if (active) available.filter { it.id in _compiled.value?.loadedProfiles.orEmpty() } else available
         if (eligible.isEmpty()) return@withLock emptyList()
         val selected = controller.groups.value.map { it.selected.removePrefix("p-") }
@@ -291,14 +293,14 @@ class MobileRepository(private val context: Context, val controller: VpnControll
             if (!currentSession()) return emptyList()
             return if (active) tags.map { tag ->
                 if (!currentSession()) return emptyList()
-                try { RuntimeProbeResult(tag, controller.urlTest(tag, target, expectedGeneration = sessionGeneration), null, System.currentTimeMillis()) }
+                try { RuntimeProbeResult(tag, controller.urlTest(tag, target, timeoutMs, expectedGeneration = sessionGeneration), null, System.currentTimeMillis()) }
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) { RuntimeProbeResult(tag, null, "Проверка не прошла", System.currentTimeMillis()) }
             } else {
                 val selectedProfiles = tags.mapNotNull(byTag::get)
                 val checker = withContext(Dispatchers.Default) { RoutingCompiler.compile(value, context.packageName, checkerProfiles = selectedProfiles) }
                 if (!currentSession()) return emptyList()
-                controller.checkOutbounds(checker.json, tags, target)
+                controller.checkOutbounds(checker.json, tags, target, timeoutMs)
             }
         }
         val healthCheck = url == null

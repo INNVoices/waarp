@@ -84,6 +84,17 @@ Waarp applies this blocklist to the validated connection chain before sending
 HTTP request headers, and fails closed when that chain is unavailable.
 
 The full Apache License 2.0 is included in Apache-2.0.txt.
+MapLibre Native Android 13.7.1 (OpenGL artifact): BSD-2-Clause.
+Copyright MapLibre contributors, MapTiler.com and Mapbox.
+The full notice is included in MapLibre-Native.txt.
+https://github.com/maplibre/maplibre-native/tree/4cf121e515d8d065b57cd555a0b231ea27ff0e5d
+Atlas geographic data: Natural Earth, public domain, offline derivative.
+Country anchors indicate regions, not measured server locations.
+Both platforms use src/shared/atlas-world.json and atlas-countries.json.
+Source commit: ca96624a56bd078437bca8184e78163e5039ad19.
+https://github.com/nvkelso/natural-earth-vector/tree/ca96624a56bd078437bca8184e78163e5039ad19
+https://www.naturalearthdata.com/about/terms-of-use/
+
 Maven-runtime-components.json contains the exact resolved Maven component
 versions, generated during the application build.
 Test-only JUnit, AndroidX Test, Espresso, UI Automator and org.json dependencies

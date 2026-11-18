@@ -150,12 +150,34 @@ jobs:
           script: |
             python3 scripts/android-install.py --serial emulator-5554 --with-tests
             python3 scripts/android-instrument.py --serial emulator-5554 --disposable-emulator --expect-page-size 4096 --route-smoke --timeout 300 --output out/android/route-smoke
+            python3 scripts/android-instrument.py --serial emulator-5554 --disposable-emulator --expect-page-size 4096 --ui-gallery --timeout 360 --output out/android/gallery
+      - name: Retain actual Android gallery captures in the job log
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import base64
+          from pathlib import Path
+          root = Path('out/android/gallery/ui-screenshots')
+          for name in ['01-home-empty.png','02-settings.png','03-saved-route.png','04-groups.png','05-atlas-local.png']:
+              for path in root.rglob(name):
+                  print('WAARP_ANDROID_PREVIEW '+name+' '+base64.b64encode(path.read_bytes()).decode('ascii'))
+          # These failure captures contain only the gallery's synthetic UI fixtures.
+          # Keep the real obstruction visible even when Actions artifact storage is full.
+          for path in sorted(root.rglob('failure-*.png'))[:12]:
+              if path.stat().st_size <= 1_500_000:
+                  print('WAARP_ANDROID_FAILURE_PREVIEW '+path.name+' '+base64.b64encode(path.read_bytes()).decode('ascii'))
+          diagnostics = sorted(path for path in root.rglob('failure-*') if path.suffix in {'.txt', '.json'})
+          for path in diagnostics[:20]:
+              print('WAARP_ANDROID_FAILURE_TEXT '+path.name)
+              print(path.read_text(errors='replace')[:100_000])
+              print('WAARP_ANDROID_FAILURE_TEXT_END')
+          PY
       - name: Print build evidence before artifact upload
         if: always()
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          for name in ['out/android/unit-tests.json','out/android/artifacts.json','out/android-core/build-report.json','out/android/route-smoke/result.json']:
+          for name in ['out/android/unit-tests.json','out/android/artifacts.json','out/android-core/build-report.json','out/android/route-smoke/result.json','out/android/gallery/result.json']:
               path=Path(name)
               if path.is_file(): print(name+'\n'+path.read_text())
           PY

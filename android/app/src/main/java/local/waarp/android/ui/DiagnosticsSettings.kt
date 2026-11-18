@@ -72,6 +72,7 @@ private fun ChecksScreen(state: MobileState, actions: MobileActions, onCreateRou
                     singleLine = true, enabled = !operation.busy && diagnostic?.running != true)
                 ActionButton("Проверить соединение", operation.busy || diagnostic?.running == true, target.isNotBlank(),
                     onClick = { operation.run({ actions.diagnose(target.trim()) }) }, modifier = Modifier.fillMaxWidth())
+                if (diagnostic?.running == true) OutlinedButton(onClick = { actions.cancelDiagnostic() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Отменить проверку") }
                 OperationFeedback(operation)
                 if (state.status.phase != ConnectionPhase.ON) Text("VPN сейчас выключен. Проверка прямого соединения не подтверждает работу туннеля.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
             }
@@ -79,7 +80,10 @@ private fun ChecksScreen(state: MobileState, actions: MobileActions, onCreateRou
         if (diagnostic != null) {
             item {
                 Panel {
-                    SectionHeading(diagnostic.target, if (diagnostic.running) "Проверка выполняется…" else "Результат последней проверки")
+                    SectionHeading(diagnostic.routeName?.let { "$it · ${diagnostic.target}" } ?: diagnostic.target,
+                        if (diagnostic.running) "Проверка выполняется…" else "Результат последней проверки")
+                    if (diagnostic.stale) InlineMessage("Сеть или настройки изменились. Результат доступен для просмотра; повторите проверку перед выбором пути.")
+                    Text(local.waarp.android.data.ConnectionUses.coverage(diagnostic.connectionUse), style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
                     if (diagnostic.running) LinearProgressIndicator(Modifier.fillMaxWidth())
                     diagnostic.layers.forEach { layer ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -101,12 +105,15 @@ private fun ChecksScreen(state: MobileState, actions: MobileActions, onCreateRou
                     diagnostic.paths.forEach { path ->
                         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                             ObservationIcon(path.result)
-                            Text(path.name, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(path.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                if (path.attempted > 0) Text(httpCheckSummary(path), style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
+                            }
                             Text(validLatency(path.latencyMs)?.let { "${formatMs(it)} мс" } ?: observationLabel(path.result),
                                 style = MaterialTheme.typography.labelMedium, color = observationColor(path.result))
                         }
                     }
-                    if (!diagnostic.running && diagnostic.suggestedViaId != null) {
+                    if (!diagnostic.running && !diagnostic.stale && !diagnostic.cancelled && diagnostic.contextId == null && diagnostic.suggestedViaId != null) {
                         OutlinedButton(onClick = {
                             val host = runCatching { URI(diagnostic.target).host?.removePrefix("[")?.removeSuffix("]") }.getOrNull()
                             onCreateRoute(host?.takeIf(String::isNotBlank) ?: diagnostic.target, diagnostic.suggestedViaId)
