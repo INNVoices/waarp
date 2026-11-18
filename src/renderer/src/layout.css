@@ -348,7 +348,7 @@
 .health.ok { color: var(--ok, #9bb06e); } .health.degraded { color: var(--warn, #e3b040); } .health.down { color: var(--err, #d6646f); } .health.busy { color: var(--m); }
 /* WRP-015 public catalog panel */
 .pub { display: flex; flex-direction: column; gap: 12px; }
-.pub-head { display: flex; align-items: center; gap: 12px; }
+.pub-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .pub-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .pub-t b { font-size: 15px; font-weight: 600; }
 .pub-t .m { font-size: 12px; }
@@ -361,6 +361,7 @@
 .pub-in { display: grid; place-items: center; width: 28px; color: var(--ok, #9bb06e); }
 .pub-n { font-size: 13px; color: var(--t); }
 .pub-ms { font-size: 12px; color: var(--t2); text-align: right; }
+.pub-node-state { min-width: 0; font-size: 11px; line-height: 1.25; overflow-wrap: anywhere; text-align: right; }
 .pub-foot { display: flex; align-items: center; gap: 8px; }
 .pub-foot .hint { display: inline-flex; align-items: center; gap: 6px; }
 .pub-regions { display: grid; gap: 8px; }

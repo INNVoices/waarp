@@ -1,10 +1,15 @@
 import { createHash } from 'node:crypto'
-// Real Catalog lifecycle with fake HTTP and measuring-core methods. No native process, TUN or external request.
-import { mkdtempSync, rmSync } from 'node:fs'
+// Real Catalog orchestration with injected source data and fake measuring-core
+// methods. No native process, TUN, external request or system network change.
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Catalog, type CatalogState } from '../src/main/catalog'
+import { Catalog, type CatalogState, type CatalogSourceText } from '../src/main/catalog'
+import { CATALOG_READY_TTL } from '../src/main/catalog-pool'
 import { Checker } from '../src/main/checker'
+import { parseLink } from '../src/main/links'
+import { credentialKey } from '../src/main/discovery'
+import { PublicPathCleanupError } from '../src/main/public-service-path'
 import type { Profile } from '../src/shared/types'
 import { stub } from './stubs/electron'
 
@@ -16,82 +21,86 @@ const deferred = <T>() => {
   const promise = new Promise<T>(r => { resolve = r })
   return { promise, resolve }
 }
-
 const source = 'https://raw.githubusercontent.com/example/offline-fixture/main/servers.txt'
 const body = 'trojan://fixture-password@server.example:443#Fixture'
-const oldState = (): CatalogState => ({
-  updatedAt: 123, sources: [], total: 1, checked: 1, busy: false,
-  alive: [{ id: 'pub-old', name: 'Cached fixture', proto: 'Trojan', host: 'cached.example', port: 443, country: '??', ping: 25, checkedAt: 123, alive: true }]
-})
 const dirs: string[] = []
-const make = (allowed: () => boolean = () => true) => {
-  const dir = mkdtempSync(join(tmpdir(), 'waarp-catalog-test-')); dirs.push(dir)
-  const updates: CatalogState[] = []
-  const catalog = new Catalog(dir, join(dir, 'missing-engine.exe'), state => updates.push(state), allowed)
-  catalog.state = oldState()
-  return { catalog, updates, dir }
-}
-
-const original = { fetch: globalThis.fetch, ensure: Checker.prototype.ensure, pings: Checker.prototype.pings, stop: Checker.prototype.stop, secure: stub.secure }
+const original = { ensure: Checker.prototype.ensure, pings: Checker.prototype.pings, stop: Checker.prototype.stop, secure: stub.secure }
 const profiles = new WeakMap<Checker, Profile[]>()
-let fetched = 0, ensured = 0, stopped = 0
-let http: (signal: AbortSignal) => Promise<Response>
+let fetched = 0, ensured = 0, stopped = 0, clock = 0
+let read: (sources: string[], signal: AbortSignal) => Promise<CatalogSourceText[]>
+let ensure: () => Promise<boolean>
 let ping: (profiles: Profile[]) => Promise<Record<string, number | undefined>>
 let stop: () => Promise<boolean>
 const reset = () => {
   fetched = ensured = stopped = 0
-  http = async () => new Response(body)
+  clock = 1_800_000_000_000
+  stub.secure = true
+  read = async sources => sources.map(url => ({ url, body }))
+  ensure = async () => true
   ping = async current => Object.fromEntries(current.map(profile => [profile.id, 10]))
   stop = async () => true
 }
+const make = (allowed: () => boolean = () => true, existing?: string) => {
+  const dir = existing ?? mkdtempSync(join(tmpdir(), 'waarp-catalog-test-'))
+  if (!existing) dirs.push(dir)
+  const updates: CatalogState[] = []
+  const catalog = new Catalog(dir, join(dir, 'missing-engine.exe'), state => updates.push(state), allowed,
+    (sources, signal) => { fetched++; return read(sources, signal) }, () => clock, async () => [{ address: '1.1.1.1', family: 4 }])
+  return { catalog, updates, dir }
+}
 
 ;(async () => {
-  stub.secure = false // encrypted cache writes are outside this lifecycle suite
-  globalThis.fetch = (async (_input: unknown, init?: RequestInit) => { fetched++; return http(init?.signal as AbortSignal) }) as typeof fetch
-  Checker.prototype.ensure = async function (current) { ensured++; profiles.set(this, current); return true }
+  Checker.prototype.ensure = async function (current) { ensured++; profiles.set(this, current); return ensure() }
   Checker.prototype.pings = async function () { return ping(profiles.get(this) ?? []) }
   Checker.prototype.stop = async function () { stopped++; return stop() }
   try {
     {
       reset()
       const { catalog, updates } = make(() => false)
-      const result = await catalog.refresh([source])
-      eq([fetched, ensured, updates.length], [0, 0, 0], 'master-open admission prevents downloads, checker startup and fake progress')
-      eq(result, oldState(), 'refused refresh keeps the cached catalog')
-      eq(await catalog.pause(), true, 'pausing an idle catalog is a clean no-op')
+      await catalog.refresh([source])
+      await catalog.verify()
+      eq([fetched, ensured, updates.length], [0, 0, 0], 'open TUN gate refuses combined refresh/probes without fake progress')
+      eq(await catalog.pause(), true, 'idle pause is a clean no-op')
+      const ingested = await catalog.refresh([source], { probe: false })
+      eq([fetched, ensured, ingested.total, ingested.readyCount], [1, 0, 1, 0], 'fetch-only refresh can ingest while the main core is on without starting a checker')
+      eq(ingested.cached[0]?.status, 'unverified', 'download success does not mean node readiness')
     }
     {
       reset()
+      const { catalog, updates } = make()
+      await catalog.refresh([source])
+      const savedId = catalog.state.alive[0].id
       let aborted = false
-      http = signal => new Promise<Response>((_resolve, reject) => {
-        const cancel = () => { aborted = true; reject(new Error('fixture download cancelled')) }
+      read = (_sources, signal) => new Promise<CatalogSourceText[]>((_resolve, reject) => {
+        const cancel = () => { aborted = true; reject(new Error('fixture cancellation')) }
         if (signal.aborted) cancel()
         else signal.addEventListener('abort', cancel, { once: true })
       })
-      const { catalog, updates } = make()
+      const beforeEnsure = ensured
       const first = catalog.refresh([source]), duplicate = catalog.refresh([source])
-      eq(first === duplicate, true, 'duplicate refresh calls share the same pending operation')
-      eq([fetched, catalog.state.busy], [1, true], 'one download publishes busy state')
+      eq(first === duplicate, true, 'duplicate refresh calls share exactly one pending operation')
+      eq(catalog.state.busy, true, 'download publishes busy state')
       eq(await catalog.pause(), true, 'pause waits for cancelled downloads to settle')
-      eq([aborted, ensured, catalog.state.busy], [true, 0, false], 'download cancellation does not reach the measuring core')
-      eq(await first, oldState(), 'cancelled refresh restores the previous list and its original check time')
-      eq(updates.at(-1), oldState(), 'last published state after cancellation is settled cached data')
-      http = async () => new Response('no supported nodes')
-      await catalog.refresh([source])
-      eq([fetched, catalog.state.busy], [2, false], 'cancelled work does not leave a poisoned refresh promise')
+      await first
+      eq([aborted, ensured, catalog.state.busy], [true, beforeEnsure, false], 'download cancellation cannot start the measuring core')
+      eq(catalog.state.alive[0]?.id, savedId, 'cancelling source loading does not replace a current ready observation')
+      eq(updates.at(-1)?.busy, false, 'last cancellation event is settled')
+      read = async sources => sources.map(url => ({ url, body: 'no supported nodes' }))
+      await catalog.refresh([source], { probe: false })
+      eq(catalog.state.total, 1, 'empty source does not erase the existing reservoir')
     }
     {
       reset()
       let allowed = true
-      const response = deferred<Response>()
-      http = () => response.promise
+      const response = deferred<CatalogSourceText[]>()
+      read = () => response.promise
       const { catalog } = make(() => allowed)
       const pending = catalog.refresh([source])
-      allowed = false // master changed while a source was answering
-      response.resolve(new Response(body))
+      allowed = false
+      response.resolve([{ url: source, body }])
       await pending
       eq([ensured, stopped], [0, 0], 'late source data cannot start a checker after admission closes')
-      eq(catalog.state, oldState(), 'admission change preserves the cached catalog')
+      eq([catalog.state.total, catalog.state.readyCount], [1, 0], 'late data is safely retained as candidates without probes')
     }
     {
       reset()
@@ -102,71 +111,178 @@ const reset = () => {
       const { catalog, updates } = make()
       const refresh = catalog.refresh([source])
       await entered.promise
-      eq(ensured, 1, 'supported source reaches exactly one measuring batch')
-      eq(await catalog.pause(), true, 'pause stops the measuring core and waits for refresh cleanup')
+      eq(ensured, 1, 'a supported source reaches one measuring batch')
+      eq(await catalog.pause(), true, 'pause confirms checker cleanup before resolving')
       await refresh
-      ok(stopped >= 1, 'active checker receives an explicit stop')
-      eq(catalog.state, oldState(), 'late successful measurement after cancellation is not published as a new catalog')
-      eq(updates.at(-1)?.busy, false, 'checker cancellation leaves no perpetual busy indicator')
+      eq(stopped, 1, 'concurrent cancellation and finally share the same checker cleanup')
+      eq([catalog.state.total, catalog.state.readyCount], [1, 0], 'late cancelled success cannot become ready, but ingestion survives')
+      eq(updates.at(-1)?.busy, false, 'checker cancellation does not leave a perpetual busy indicator')
     }
     {
       reset()
-      stop = async () => stopped > 1 // first cleanup is not confirmed; retry is confirmed
+      stop = async () => stopped > 1
       const { catalog } = make()
       const failed = await catalog.refresh([source])
-      eq([ensured, stopped, failed.busy], [1, 1, false], 'unconfirmed checker cleanup finishes with a visible failure state')
-      ok(failed.sources.some(item => item.url === 'local checker' && !item.ok), 'failed checker stop is reported in the source result')
-      eq(failed.alive, oldState().alive, 'unconfirmed cleanup never replaces the last usable list')
-      eq(await catalog.pause(), true, 'later pause can retry and confirm the retained checker stop')
-      eq(stopped, 2, 'pause retries the exact checker instead of forgetting it')
-      eq(await catalog.pause(), true, 'confirmed cleanup remains clean on repeated pause')
-      eq(stopped, 2, 'a confirmed and released checker is not signalled again')
+      eq([ensured, stopped, failed.busy], [1, 1, false], 'unconfirmed cleanup completes with a visible failure')
+      ok(failed.sources.some(item => item.url === 'local checker' && !item.ok), 'unconfirmed stop is reported')
+      eq([failed.total, failed.readyCount], [1, 0], 'unconfirmed cleanup retains candidates but commits no successful observations')
+      await catalog.verify()
+      eq(ensured, 1, 'another verification cannot replace a checker whose stop is unconfirmed')
+      eq(await catalog.pause(), true, 'later pause retries the retained exact checker')
+      eq(stopped, 2, 'retry uses one additional bounded stop')
+      eq(await catalog.pause(), true, 'confirmed cleanup remains clean')
+      eq(stopped, 2, 'released checker is not signalled again')
     }
     {
       reset()
       stop = async () => false
       const { catalog } = make()
       await catalog.refresh([source])
-      eq(await catalog.pause(), false, 'a persistently unconfirmed checker stop prevents successful pause')
-      eq(stopped, 2, 'failed cleanup is retried rather than treated as already stopped')
+      eq(await catalog.pause(), false, 'persistently unconfirmed cleanup prevents a successful pause')
       stop = async () => true
-      eq(await catalog.pause(), true, 'cleanup can recover on the next explicit attempt')
-      eq(stopped, 3, 'recovered cleanup used one more bounded checker stop')
+      eq(await catalog.pause(), true, 'cleanup can recover on a later explicit attempt')
+      eq(stopped, 3, 'recovery did not lose the failed-cleanup process handle')
+    }
+    {
+      reset()
+      const { catalog } = make()
+      await catalog.refresh([source])
+      const id = catalog.state.alive[0].id
+      clock++
+      ping = async current => Object.fromEntries(current.map(profile => [profile.id, undefined]))
+      const failed = await catalog.refresh([source])
+      eq([failed.total, failed.readyCount, failed.alive.length], [1, 0, 0], 'all-failed recheck cannot resurrect the previous ready list')
+      eq(failed.cached[0]?.status, 'failed', 'a measured failure is visible separately from historical success')
+      ok(failed.cached[0]?.lastSuccessAt, 'failed recheck keeps historical success for future recovery ordering')
+      eq(failed.cached[0]?.ping, undefined, 'a cached/failed candidate never displays old latency as current')
+      ok(catalog.node(id), 'failed candidate remains explicitly importable by its stable ID')
+      const before = ensured
+      await catalog.verify()
+      eq(ensured, before, 'failure cooldown prevents an immediate repeated network probe')
+      catalog.invalidateNetwork('another network')
+      ping = async current => Object.fromEntries(current.map(profile => [profile.id, 9]))
+      await catalog.verify()
+      eq(catalog.state.readyCount, 1, 'new network allows rechecking despite the old network failure cooldown')
+    }
+    {
+      reset()
+      const { catalog } = make()
+      await catalog.refresh([source])
+      ping = async () => ({})
+      await catalog.verify()
+      eq(catalog.state.readyCount, 1, 'disappearing checker is not misclassified as a measured server failure')
+      clock += CATALOG_READY_TTL
+      eq([catalog.state.readyCount, catalog.state.alive.length], [0, 0], 'state getter expires readiness even without another operation')
+      eq(catalog.state.cached[0]?.status, 'cached', 'expired success remains labeled as cached history')
+    }
+    {
+      reset()
+      const { catalog } = make()
+      await catalog.refresh([source])
+      eq(catalog.invalidateNetwork('network-A'), true, 'first network context change invalidates readiness')
+      eq(catalog.state.readyCount, 0, 'network invalidation immediately clears the ready projection')
+      await catalog.verify()
+      eq(catalog.invalidateNetwork('network-A'), false, 'duplicate network notification does not invalidate a fresh recheck')
+      eq(catalog.state.readyCount, 1, 'same network fingerprint retains fresh evidence')
+      const entered = deferred<void>(), measurements = deferred<Record<string, number | undefined>>()
+      let current: Profile[] = []
+      ping = items => { current = items; entered.resolve(undefined); return measurements.promise }
+      stop = async () => { measurements.resolve(Object.fromEntries(current.map(profile => [profile.id, 1]))); return true }
+      const pending = catalog.verify()
+      await entered.promise
+      catalog.invalidateNetwork('network-B')
+      await pending
+      eq(catalog.state.readyCount, 0, 'late in-flight measurement from the previous network is ignored')
     }
     {
       reset()
       const a = 'trojan://same-pass@node.example:443?sni=a.example#A', b = 'trojan://same-pass@node.example:443?sni=b.example#B'
-      stub.secure = true
-      http = async () => new Response([a, b, a].join(String.fromCharCode(10)))
+      read = async sources => sources.map(url => ({ url, body: [a, b, a].join('\n') }))
       const { catalog, dir } = make()
-      const r = await catalog.refresh([source])
-      eq(r.alive.length, 2, 'same endpoint and password with a different SNI stay two catalog entries; an exact duplicate merges')
-      const legacy = 'pub-' + createHash('sha256').update('trojan|node.example|443|same-pass').digest('hex').slice(0, 20)
-      eq(r.alive.some(n => n.id === legacy), true, 'the first config keeps its historical id, so imported nodes and cards stay bound')
-      const originalIds = r.alive.map(n => [n.id, (catalog.node(n.id) as any)?.outbound.tls.server_name]).sort()
-      http = async () => new Response([b, a].join('\n'))
-      const reversed = await catalog.refresh([source])
-      eq(reversed.alive.map(n => [n.id, (catalog.node(n.id) as any)?.outbound.tls.server_name]).sort(), originalIds, 'source reordering never rebinds historical ids to another SNI')
-      http = async () => new Response(b)
-      const onlySecond = await catalog.refresh([source])
-      eq(onlySecond.alive[0].id, originalIds.find(([, sni]) => sni === 'b.example')?.[0], 'removing the first variant never promotes the second into its historical id')
-      http = async () => new Response('trojan://same-pass@node.example:443?sni=new.example#New')
-      stop = async () => false
+      const initial = await catalog.refresh([source])
+      eq([initial.total, initial.alive.length], [2, 2], 'exact duplicate merges while different SNI configurations remain independent')
+      const bindings = initial.alive.map(node => [node.id, (catalog.node(node.id) as any)?.outbound.tls.server_name]).sort()
+      read = async sources => sources.map(url => ({ url, body: b }))
       await catalog.refresh([source])
-      eq(catalog.state.alive, onlySecond.alive, 'failed refresh preserves the last usable state')
-      eq((catalog.node(onlySecond.alive[0].id) as any)?.outbound.tls.server_name, 'b.example', 'failed refresh also preserves the importable config behind a cached id')
-      stop = async () => true
-      await catalog.pause()
-      const reloaded = new Catalog(dir, join(dir, 'missing-engine.exe'), () => undefined)
-      eq(reloaded.state.alive, onlySecond.alive, 'offline catalog reload preserves the last successfully committed result')
-      const newVariant = await reloaded.refresh([source])
-      ok(newVariant.alive[0].id !== legacy, 'a new SNI cannot steal the disappeared legacy id, even after restart')
-      http = async () => new Response([b, a].join('\n'))
-      const returned = await reloaded.refresh([source])
-      eq(returned.alive.map(n => [n.id, (reloaded.node(n.id) as any)?.outbound.tls.server_name]).sort(), originalIds, 'returning configs retain ids across absence and offline cache reload')
+      eq(catalog.state.total, 2, 'temporary absence from a source does not discard another cached config')
+      eq(catalog.state.alive.map(node => [node.id, (catalog.node(node.id) as any)?.outbound.tls.server_name]).sort(), bindings, 'partial source updates cannot rebind existing IDs')
+      const contents = readFileSync(join(dir, 'catalog.json'), 'utf8')
+      eq(JSON.parse(contents).version, 2, 'reservoir persists in the versioned encrypted cache')
+      ok(!contents.includes('same-pass') && !contents.includes('node.example'), 'at-rest file has no plaintext endpoint or credentials')
+      const restored = make(() => true, dir).catalog
+      eq([restored.state.total, restored.state.readyCount], [2, 0], 'restart retains candidate configs but never restores ready')
+      eq(restored.recoveryCandidates().map(node => node.id).sort(), initial.alive.map(node => node.id).sort(), 'historical successes remain bounded recovery options')
+      eq(restored.state.cached.map(node => [node.id, (restored.node(node.id) as any)?.outbound.tls.server_name]).sort(), bindings, 'encrypted restart preserves the exact SNI behind each imported ID')
+      await restored.verify()
+      eq(restored.state.readyCount, 2, 'cached records can be reverified without downloading any source')
+    }
+    {
+      reset()
+      const profile = parseLink(body)!
+      const legacyId = 'pub-' + createHash('sha256').update('trojan|server.example|443|fixture-password').digest('hex').slice(0, 20)
+      profile.id = legacyId
+      const { dir } = make()
+      const state = { updatedAt: clock, alive: [{ id: legacyId, ping: 20, checkedAt: clock, alive: true }] }
+      const old = { nodes: [profile], identities: [[credentialKey(profile), legacyId]], state }
+      writeFileSync(join(dir, 'catalog.json'), JSON.stringify({ version: 1, sealed: Buffer.from('enc:' + JSON.stringify(old)).toString('base64') }))
+      const migrated = make(() => true, dir).catalog
+      eq([migrated.state.total, migrated.state.readyCount, migrated.state.cached[0]?.id], [1, 0, legacyId], 'v1 migration preserves saved IDs without restoring old ready state')
+      await migrated.refresh([source], { probe: false })
+      eq(migrated.state.cached[0]?.id, legacyId, 'new source ingestion keeps the migrated ID')
+      eq(JSON.parse(readFileSync(join(dir, 'catalog.json'), 'utf8')).version, 2, 'next successful save atomically upgrades the encrypted cache')
+    }
+    {
+      reset()
+      const { catalog, dir } = make()
+      const second = source + '?second'
+      read = async sources => sources.map(url => ({ url, body }))
+      await catalog.refresh([source, second], { probe: false })
+      eq(catalog.state.total, 1, 'overlapping sources produce one candidate')
+      ok(catalog.state.sources.every(item => item.ok && item.count === 1), 'a duplicate-only source is correctly reported as a successful source')
+      read = async sources => sources.map(url => ({ url, error: 'fixture unavailable' }))
+      await catalog.refresh([source, second], { probe: false })
+      eq(catalog.state.total, 1, 'every source being blocked preserves saved candidates')
+      const restored = make(() => true, dir).catalog
+      eq(restored.state.total, 1, 'failed source response does not replace the durable pool with an empty list')
+      stub.secure = false
+      await catalog.refresh([source], { probe: false })
+      ok(catalog.state.cacheError, 'unavailable encryption is visible instead of pretending persistence succeeded')
+      ok(existsSync(join(dir, 'catalog.json')), 'unavailable encryption never removes the previously encrypted cache')
+    }
+    {
+      reset()
+      const { catalog } = make()
+      await catalog.refresh([source], { probe: false })
+      const cached = catalog.state.cached.map(node => node.id)
+      read = async () => { throw new PublicPathCleanupError() }
+      const result = await catalog.refresh([source])
+      eq([ensured, stopped, result.readyCount], [0, 0, 0], 'fatal loader cleanup cannot fall through into a second native checker')
+      eq(result.cached.map(node => node.id), cached, 'fatal loader cleanup preserves cached candidate identities')
+      ok(result.sources.some(item => item.error?.includes('Движок загрузки не подтвердил остановку')), 'fatal loader cleanup is reported distinctly from a blocked source')
+    }
+    {
+      reset()
+      read = async sources => sources.map(url => ({ url, body: Array.from({ length: 24 }, (_, index) => `trojan://fixture-${index}@node-${index}.example:443#Node-${index}`).join('\n') }))
+      const { catalog, dir } = make()
+      await catalog.refresh([source], { probe: false })
+      const first = catalog.recoveryCandidates(8)
+      const restored = make(() => true, dir).catalog
+      const second = restored.recoveryCandidates(8)
+      ok(second.every(candidate => !first.some(previous => previous.id === candidate.id)), 'Catalog persists recovery progress before another process chooses paths')
+      eq([restored.state.total, restored.state.readyCount], [24, 0], 'recovery selection changes neither candidate count nor readiness')
+    }
+    {
+      reset()
+      ensure = async () => false
+      const { catalog, dir } = make()
+      read = async sources => sources.map(url => ({ url, body: Array.from({ length: 250 }, (_, index) => `trojan://fixture-${index}@node-${index}.example:443#Node-${index}`).join('\n') }))
+      await catalog.refresh([source])
+      eq([catalog.state.total, catalog.state.readyCount, catalog.state.checked], [250, 0, 0], 'missing engine preserves all downloaded candidates without inventing failed measurements')
+      const restored = make(() => true, dir).catalog
+      eq(restored.state.total, 250, 'persistence stores the candidate reservoir, not only the ready shortlist')
+      eq(restored.state.cached.length, 200, 'large cache exposes a bounded renderer shortlist')
     }
   } finally {
-    globalThis.fetch = original.fetch
     Checker.prototype.ensure = original.ensure
     Checker.prototype.pings = original.pings
     Checker.prototype.stop = original.stop

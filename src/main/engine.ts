@@ -109,6 +109,9 @@ export class Engine extends EventEmitter {
   private pendingLive?: { guard: string; files: Record<string, string>; selectors: { tag: string; to: string }[] }
   get liveApplyFailure(): string | undefined { return this.liveProblem }
   get acknowledgedSettings(): Settings | undefined { return this.run?.settings }
+  /** Read-only capabilities for service downloads; never infer loaded paths
+   * from settings which may have pending, unapplied edits. */
+  get loadedProfileIds(): readonly string[] { return [...(this.run?.loaded.profiles ?? [])] }
   get routingGuarded(): boolean { return !!this.pendingLive }
   private pingSeq = 0
   /** R1.4: read-only Windows check before a TUN start (set by main); absent in offline tests */

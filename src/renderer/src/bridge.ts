@@ -133,6 +133,7 @@ function mock(): Api {
     catalogGet: async () => ({ updatedAt: Date.now() - 6e5, busy: false, total: 1840, checked: 160, sources: [{ url: 'igareck', ok: true, count: 1500 }, { url: 'awesome-vpn', ok: true, count: 340 }],
       alive: [['🇩🇪 Frankfurt', 'VLESS · REALITY', 48, 'DE', 'Russia checked'], ['🇳🇱 Amsterdam', 'Trojan · TLS', 61, 'NL', 'Epodonios'], ['🇫🇮 Helsinki', 'Shadowsocks · aes-256-gcm', 72, 'FI', 'Awesome VPN'], ['🇺🇸 New York', 'VMess · TLS · WS', 131, 'US', 'VPN Gate'], ['🇯🇵 Tokyo', 'Hysteria2', 212, 'JP', 'V2Ray Configs']].map(([n, p, ms, c, source], i) => ({ id: 'pub' + i, name: n, proto: p, host: '198.51.100.' + (i + 1), port: 443, country: c, source, ping: ms, alive: true })) }),
     catalogRefresh: async () => undefined,
+    catalogVerify: async () => undefined,
     catalogAdd: async (id: string) => ({ ok: true, id }),
     catalogBest: async () => ({ ok: true, id: 'g-public' }),
     onCatalog: on('catalog')
