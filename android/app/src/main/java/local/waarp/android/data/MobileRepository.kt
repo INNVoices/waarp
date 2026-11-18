@@ -254,7 +254,8 @@ class MobileRepository(private val context: Context, val controller: VpnControll
         }
     }
 
-    suspend fun probe(extra: List<TunnelProfile>? = null, url: String? = null): List<RuntimeProbeResult> = probes.withLock {
+    suspend fun probe(extra: List<TunnelProfile>? = null, url: String? = null,
+        preparePublic: (suspend (TunnelProfile) -> TunnelProfile)? = null): List<RuntimeProbeResult> = probes.withLock {
         val value = ready()
         val token = generation.get()
         val sessionGeneration = controller.sessionGeneration()
@@ -267,10 +268,25 @@ class MobileRepository(private val context: Context, val controller: VpnControll
         val selected = controller.groups.value.map { it.selected.removePrefix("p-") }
         val sample = SelectionPolicy.sample(eligible.map { it.id }, selected, cursor)
         cursor = sample.second
-        val profiles = sample.first.mapNotNull { id -> eligible.find { it.id == id } }
-        val byTag = profiles.associateBy { "p-${it.id}" }
+        val sampled = sample.first.mapNotNull { id -> eligible.find { it.id == id } }
         fun currentSession() = generation.get() == token && _data.value?.revision == value.revision &&
             controller.isSessionGeneration(sessionGeneration) && controller.status.value.phase == phase && !_applying.value
+        val rejected = mutableListOf<RuntimeProbeResult>()
+        val profiles = if (extra != null && sampled.any { it.source == "public" }) {
+            check(!active && preparePublic != null) { "Для безопасной проверки новых публичных узлов нужен отдельный проверяющий путь при выключенном VPN" }
+            sampled.mapNotNull { original ->
+                if (!currentSession()) return@withLock emptyList()
+                if (original.source != "public") original else try {
+                    preparePublic(original).also { check(it.id == original.id && it.host == original.host && it.source == "public") }
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) {
+                    // This was not a tunnel measurement. checkedAt=0 keeps an unsafe/unsupported preflight out of health.
+                    rejected.add(RuntimeProbeResult("p-${original.id}", null, "Не удалось безопасно проверить публичный адрес", 0))
+                    null
+                }
+            }
+        } else sampled
+        val byTag = profiles.associateBy { "p-${it.id}" }
         suspend fun measure(tags: List<String>, target: String): List<RuntimeProbeResult> {
             if (!currentSession()) return emptyList()
             return if (active) tags.map { tag ->
@@ -286,7 +302,8 @@ class MobileRepository(private val context: Context, val controller: VpnControll
             }
         }
         val healthCheck = url == null
-        val results = HealthProbe.run(byTag.keys.toList(), url ?: HealthProbe.PRIMARY, healthCheck, ::currentSession, ::measure)
+        val results = rejected + if (byTag.isEmpty()) emptyList() else
+            HealthProbe.run(byTag.keys.toList(), url ?: HealthProbe.PRIMARY, healthCheck, ::currentSession, ::measure)
         if (!currentSession()) return@withLock emptyList()
         if (extra == null && healthCheck) {
             _health.update { before -> before.toMutableMap().apply {

@@ -61,6 +61,7 @@ const api = {
   // WRP-015 public catalog
   catalogGet: () => ipcRenderer.invoke('catalog:get'),
   catalogRefresh: () => ipcRenderer.invoke('catalog:refresh'),
+  catalogVerify: () => ipcRenderer.invoke('catalog:verify'),
   catalogAdd: (id: string) => ipcRenderer.invoke('catalog:add', id),
   catalogBest: () => ipcRenderer.invoke('catalog:best'),
   onCatalog: on('catalog')

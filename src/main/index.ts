@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
+import { networkInterfaces } from 'node:os'
 import type { Notice, Profile, Settings, Snapshot, Status } from '../shared/types'
 import { compilePlan, requiresCore } from '../shared/plan'
 import { sameEffectiveRouting } from '../shared/routing-edit'
@@ -17,6 +18,10 @@ import { Checker } from './checker'
 import { checkedPatch, importRequest, MAX_IMPORT_BYTES, probeTarget, profileName, settingsPatchCurrent } from './validate'
 import { linksInContainer, parseAny } from './links'
 import { Catalog, fetchCatalogSources } from './catalog'
+import { preparePublicCandidate, publicCandidateHasPinnedEndpoints } from './catalog-endpoint'
+import { publicServicePaths, recoverPublicSources, type PublicServicePath } from './public-recovery'
+import { publicServiceTransport } from './public-service-transport'
+import { PublicPathCleanupError, withPublicServicePath } from './public-service-path'
 import { credentialKey, Discovery } from './discovery'
 import { looksLikeOpenVpn, parseOpenVpn } from './openvpn'
 import { Health } from './health'
@@ -86,6 +91,7 @@ let connectionAction = 0
 let notices: Notice[] = []
 let bridgeError = false
 let engineIntegrity = false
+let publicCleanupBlocked = false
 let relaunching = false
 let bridgeServer: ReturnType<typeof startBridge> | undefined
 const qrImports = new Map<string, { text: string; expires: number }>()
@@ -100,7 +106,7 @@ let store: Store
 let engine: Engine
 
 const runtimeRecovery = new RuntimeRecovery({
-  ready: () => !!engine && engine.recoveryReady,
+  ready: () => !!engine && engine.recoveryReady && !publicCleanupBlocked,
   recover: recoverRuntimes,
   changed: () => { send('status', statusView(engine.status)); updateTray() }
 })
@@ -226,7 +232,9 @@ async function recoverRuntimes(): Promise<boolean> {
       ? `Проверка каталога: ${catalog?.recoveryError ?? 'не удалось восстановить прошлый процесс'}`
       : !stopped ? 'Проверочный движок не подтвердил остановку. Повтори восстановление.'
         : !engineStopped ? 'Основной движок не подтвердил остановку. Повтори восстановление.' : undefined
-  return engine.killOrphans(stopped && engineStopped && checkerRecovered && catalogRecovered, relatedError)
+  const recovered = await engine.killOrphans(stopped && engineStopped && checkerRecovered && catalogRecovered, relatedError)
+  if (recovered) publicCleanupBlocked = false
+  return recovered
 }
 
 async function prepareConnection(current: () => boolean = () => true) {
@@ -471,7 +479,7 @@ function ipc() {
     try { store.save(); send('snapshot', snapshot()); return true }
     catch { store.profiles = previousProfiles; return false }
   }
-  secureHandle('catalog:get', () => catalog?.state)
+  secureHandle('catalog:get', () => { checkCatalogLink(); return catalog?.state })
   secureHandle('discover:scan', async () => {
     if (!discovery || discoveryBusy) return { ok: false, error: 'Поиск уже идёт' }
     discoveryBusy = true
@@ -523,8 +531,17 @@ function ipc() {
   secureHandle('catalog:refresh', async () => {
     if (!engineIntegrity) return { ok: false, error: 'Движок Waarp повреждён. Обновление и проверка каталога заблокированы.' }
     if (!runtimeRecovery.ready) return { ...catalog?.state, error: 'Дождись восстановления Waarp перед проверкой каталога' }
-    if (master.open || engine.status.phase !== 'off') return { ...catalog?.state, error: 'Обновление продолжится после отключения Waarp' }
-    return await catalog?.refresh()
+    if (!['on', 'off'].includes(engine.status.phase)) return { ...catalog?.state, error: 'Дождись завершения текущего подключения' }
+    await refreshCatalogNetwork(true)
+    // ON only downloads configurations through existing paths. It never
+    // starts a second checker or changes the running application's routes.
+    return await catalog?.refresh(undefined, { probe: !master.open && engine.status.phase === 'off' })
+  })
+  secureHandle('catalog:verify', async () => {
+    if (!engineIntegrity || !runtimeRecovery.ready) return { ...catalog?.state, error: 'Проверка станет доступна после восстановления движка Waarp' }
+    if (master.open || engine.status.phase !== 'off') return { ...catalog?.state, error: 'Проверка сохранённых узлов доступна при выключенном Waarp. Списки можно обновить сейчас.' }
+    await refreshCatalogNetwork(true)
+    return await catalog?.verify()
   })
   secureIntentHandle('catalog:add', async (_e, id: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
@@ -535,12 +552,17 @@ function ipc() {
     catch { store.profiles = previousProfiles; return { ok: false, error: 'Не удалось сохранить публичный узел' } }
     await refreshNotices(); send('snapshot', snapshot()); return { ok: true, id: pid }
   })
-  // The five fastest alive nodes become a selectable group; creating it never changes routing by surprise.
+  // Fresh, diverse candidates become a selectable group; creating it never changes routes.
   secureIntentHandle('catalog:best', async () => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
+    const revision = master.revision, phase = engine.status.phase
+    // Interface addresses can stay the same after switching Wi-Fi/gateways.
+    // Re-read that context before promoting observations into a saved group.
+    await refreshCatalogNetwork(true)
+    if (master.revision !== revision || engine.status.phase !== phase) return { ok: false, error: 'Состояние подключения изменилось. Повтори подбор группы.' }
     const previousProfiles = store.profiles.slice(), previousSettings = store.settings
-    const top = [...new Set((catalog?.state.alive ?? []).slice(0, 5).map(n => addPublic(n.id)).filter((x): x is string => !!x))]
-    if (!top.length) return { ok: false, error: 'Живых публичных узлов пока нет. Обнови каталог' }
+    const top = [...new Set((catalog?.bestReady(5) ?? []).map(n => addPublic(n.id)).filter((x): x is string => !!x))]
+    if (!top.length) return { ok: false, error: 'Свежих успешных проверок пока нет. Проверь сохранённые узлы при выключенном Waarp' }
     const existing = store.settings.groups.find(g => g.id.startsWith('g-public') && g.policy === 'fastest' && g.members.length === top.length && g.members.every((id, i) => id === top[i]))
     if (existing) return { ok: true, id: existing.id }
     if (store.settings.groups.length >= 50) { store.profiles = previousProfiles; return { ok: false, error: 'Достигнут предел в 50 групп. Удали ненужную группу перед добавлением.' } }
@@ -1308,8 +1330,8 @@ app.whenReady().then(async () => {
   engine.preflight = async () => tunPreflight(await tunSnapshot())
   const allowMeasurements = () => runtimeRecovery.ready && !quitting && !master.open && engine.status.phase === 'off'
   checker = engineIntegrity ? new Checker(engineExe, join(app.getPath('userData'), 'check'), allowMeasurements) : undefined
-  catalog = new Catalog(join(app.getPath('userData'), 'catalog'), engineExe, s => send('catalog', s), allowMeasurements,
-    (sources, signal) => withServiceTransport((transport, scoped) => fetchCatalogSources(sources, scoped, transport), signal))
+  catalog = new Catalog(join(app.getPath('userData'), 'catalog'), engineExe, s => send('catalog', s),
+    () => allowMeasurements() && catalogLinkCurrent(), fetchPublicCatalog)
   discovery = new Discovery()
   // Public checks are explicit. Opening Waarp must not contact third-party nodes or race their checker with TUN.
   // Showing the shell must not wait for PowerShell, orphan recovery, or network-related cleanup.
@@ -1402,9 +1424,11 @@ app.whenReady().then(async () => {
       })
     },
   })
-  powerMonitor.on('suspend', () => sleepWake.suspend())
-  powerMonitor.on('resume', () => sleepWake.resume())
+  powerMonitor.on('suspend', () => { resetCatalogNetwork(); sleepWake.suspend() })
+  powerMonitor.on('resume', () => { resetCatalogNetwork(); sleepWake.resume() })
   const watchTimer = setInterval(watch, 15000); watchTimer.unref()
+  // Read-only network context checks. No background public-node traffic.
+  const catalogNetworkTimer = setInterval(() => void refreshCatalogNetwork().catch(() => undefined), 15000); catalogNetworkTimer.unref()
   // tunnel off: bounded rotating checks plus a public resolver, so the analyzer stays useful without a probe storm
   const offHealth = new Health()
   let offPingBusy = false
@@ -1481,6 +1505,58 @@ async function cancelPayloadCheck(): Promise<boolean> { payloadTask?.abort(); re
 let serviceTask: AbortController | undefined
 function cancelServiceDownload(): void { serviceTask?.abort() }
 
+let recentPublicPath: string | undefined
+/** Only public list URLs may try this reserve. Private subscriptions and list
+ * downloads keep their original, explicitly selected single-path policy. */
+async function fetchPublicCatalog(sources: string[], cancel: AbortSignal) {
+  if (serviceTask || quitting) throw new ConfError('Другая загрузка уже выполняется; повтори чуть позже')
+  const task = new AbortController(), signal = AbortSignal.any([task.signal, cancel])
+  const revision = master.revision, preferred = store.settings.serviceVia ?? 'direct'
+  const phase = engine.status.phase, since = engine.status.since
+  const current = () => !signal.aborted && !quitting && serviceTask === task && master.revision === revision &&
+    (store.settings.serviceVia ?? 'direct') === preferred && engine.status.phase === phase && engine.status.since === since && catalogLinkCurrent()
+  const publicSafeWhenLoaded = (p: Profile) => p.source !== 'public' || publicCandidateHasPinnedEndpoints(p)
+  const paths = publicServicePaths({
+    profiles: phase === 'on' ? store.profiles.filter(publicSafeWhenLoaded) : store.profiles,
+    cached: phase === 'on' ? [] : catalog?.recoveryCandidates(8) ?? [],
+    preferred, recent: recentPublicPath, ...(phase === 'on' ? { loaded: engine.loadedProfileIds } : {})
+  })
+  const candidateCurrent = (path: PublicServicePath) => {
+    if (!current()) return false
+    if (!path.profile) return path.id === 'direct'
+    const now = path.cached ? catalog?.node(path.id) : store.profiles.find(p => p.id === path.id)
+    return !!now && !now.revoked && !('subMissing' in now && now.subMissing) && profileSig(now) === profileSig(path.profile)
+  }
+  serviceTask = task
+  try {
+    return await recoverPublicSources(sources, paths, async (path, remaining, scoped, budgetMs) => {
+      if (!candidateCurrent(path)) throw new Error('cancelled')
+      try {
+        return await withPublicServicePath(path, {
+          phase: () => engine.status.phase, open: () => master.open,
+          current: () => candidateCurrent(path), live: engine, checker,
+          adapters: s => untilCancelled(adapters(), s),
+          profile: async (candidate, s) => {
+            const actual = candidate.cached ? catalog?.node(candidate.id)
+              : tuned(store.profiles, tunes, netCache?.net, Date.now()).find(p => p.id === candidate.id)
+            if (!actual || !candidateCurrent(candidate)) return undefined
+            // Public endpoint DNS is checked and pinned only in this temporary
+            // checker config. Saved names/credentials are never rewritten.
+            return actual.source === 'public' ? preparePublicCandidate(actual, s) : actual
+          }
+        }, scoped, budgetMs, (proxy, requests) => fetchCatalogSources(remaining, requests, proxy ? publicServiceTransport(proxy) : undefined))
+      } catch (error) {
+        if (error instanceof PublicPathCleanupError) {
+          publicCleanupBlocked = true
+          task.abort(error)
+          send('status', statusView(engine.status))
+        }
+        throw error
+      }
+    }, signal, { onSuccess: id => { if (current()) recentPublicPath = id } })
+  } finally { if (serviceTask === task) serviceTask = undefined }
+}
+
 /** One selected path owns the complete download batch. Reuse the live core, or
  * lease the existing headless checker while OFF; never create a competing core
  * or silently retry subscription credentials over Direct. */
@@ -1550,6 +1626,46 @@ let runtimeTuneSignature = '[]'
 let runtimeTuneIds = new Set<string>()
 let runtimeNet: string | undefined
 const TUNE_MS = 60_000
+
+let catalogLink: string | undefined
+let catalogNetworkRead: Promise<void> | undefined
+let catalogNetworkAt = 0
+/** Hash only in memory: neither adapter addresses nor SSIDs leave this process.
+ * Ignore our TUN so opening it is not mistaken for a physical network change. */
+function catalogLinkStamp(): string {
+  const links = Object.entries(networkInterfaces()).filter(([name]) => name.toLowerCase() !== TUN.name.toLowerCase())
+    .flatMap(([name, addresses]) => (addresses ?? []).filter(address => !address.internal)
+      .map(address => [name, address.address, address.netmask, address.mac].join('|'))).sort()
+  return createHash('sha256').update(JSON.stringify(links)).digest('hex')
+}
+function catalogLinkCurrent(): boolean { return catalogLink !== undefined && catalogLink === catalogLinkStamp() }
+function resetCatalogNetwork(): void {
+  catalogLink = undefined; catalogNetworkAt = 0; recentPublicPath = undefined
+  catalog?.invalidateNetwork(); cancelServiceDownload()
+}
+function checkCatalogLink(): boolean {
+  const stamp = catalogLinkStamp()
+  if (catalogLink === stamp) return false
+  catalogLink = stamp; catalogNetworkAt = 0; recentPublicPath = undefined
+  catalog?.invalidateNetwork(); cancelServiceDownload()
+  return true
+}
+async function refreshCatalogNetwork(force = false): Promise<void> {
+  if (!catalog || quitting || (!force && !catalog.state.total)) return
+  checkCatalogLink()
+  if (catalogNetworkRead) return catalogNetworkRead
+  if (!force && Date.now() - catalogNetworkAt < 60_000) return
+  const stamp = catalogLink
+  catalogNetworkRead = (async () => {
+    const net = await currentNet()
+    if (catalogLink !== stamp || !catalogLinkCurrent()) { checkCatalogLink(); return }
+    catalogNetworkAt = Date.now()
+    if (catalog?.invalidateNetwork(stamp + '|' + (net ?? 'unidentified'))) {
+      recentPublicPath = undefined; cancelServiceDownload()
+    }
+  })().finally(() => { catalogNetworkRead = undefined })
+  return catalogNetworkRead
+}
 async function currentNet(signal?: AbortSignal): Promise<string | undefined> {
   const read = ++netRead
   const net = await networkFingerprint(netMem.salt, signal)

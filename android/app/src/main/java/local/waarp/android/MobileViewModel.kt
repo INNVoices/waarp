@@ -71,6 +71,7 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
     private var catalogProfiles: List<TunnelProfile> = emptyList()
     private var catalog = CatalogUi()
     private var catalogHealth: Map<String, ProbeHealth> = emptyMap()
+    private var catalogHealthNetwork: Long? = null
     private var diagnostic: DiagnosticUi? = null
     private var message: UiMessage? = null
     private var diagnosticBusy = false
@@ -119,11 +120,19 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
         streams.forEach { stream -> viewModelScope.launch { stream.collect { changed() } } }
         viewModelScope.launch {
             runCatching { catalogCache.read() }.getOrNull()?.takeIf { it.profiles.isNotEmpty() }?.let { cached ->
+                val restored = withContext(Dispatchers.Default) { PublicCatalog.merge(cached.profiles, emptyList()) }
                 if (catalogProfiles.isEmpty()) {
-                    catalogProfiles = cached.profiles
-                    catalog = CatalogUi(total = cached.profiles.size, updatedAtMillis = cached.revision)
+                    catalogProfiles = restored
+                    catalog = CatalogUi(total = catalogProfiles.size, updatedAtMillis = cached.revision)
                     changed()
                 }
+            }
+        }
+        viewModelScope.launch {
+            while (true) {
+                _state.subscriptionCount.first { it > 0 }
+                delay(15_000)
+                if (catalogHealth.isNotEmpty()) changed() // Expire observations even while the VPN is OFF.
             }
         }
         viewModelScope.launch {
@@ -147,6 +156,8 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
     private fun event(event: MobileEvent) { viewModelScope.launch { eventsChannel.send(event) } }
     private suspend fun rebuild() {
         // Capture all inputs together on Main; mapping and formatting never block rendering.
+        catalogHealth = PublicCatalog.freshHealth(catalogHealth, catalogHealthNetwork,
+            network.physicalNetwork()?.networkHandle, System.currentTimeMillis())
         val compiled = repository.compiled.value
         val snapshot = MobileStateSnapshot(repository.data.value, controller.status.value, repository.health.value,
             controller.groups.value, controller.connections.value, controller.logs.value, apps,
@@ -393,15 +404,25 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
     override suspend fun refreshCatalog() = action {
         check(!catalog.busy) { "Каталог уже обновляется" }; catalog = catalog.copy(busy = true, error = null); changed()
         try {
-            val result = network.catalog(::fetchService)
+            val data = repository.ready()
+            val intent = repository.intentGeneration()
+            val physical = network.physicalNetwork()?.networkHandle
+            val result = network.catalog(::fetchPublicCatalog)
+            check(repository.data.value?.revision == data.revision && repository.intentGeneration() == intent &&
+                network.physicalNetwork()?.networkHandle == physical) { "Сеть или служебный путь изменились; предыдущий каталог сохранён" }
             if (result.profiles.isEmpty()) { catalog = catalog.copy(sources = result.sources, error = "Источники недоступны; предыдущий каталог сохранён"); error("Не удалось обновить публичные источники") }
             val fetchedAt = System.currentTimeMillis()
-            catalogCache.write(AppData(profiles = result.profiles, revision = fetchedAt))
-            catalogProfiles = result.profiles
+            val freshHealth = PublicCatalog.freshHealth(catalogHealth, catalogHealthNetwork, physical, fetchedAt)
+            val protected = freshHealth.filterValues { it.healthy }.keys + data.profiles.filter { it.source == "public" && !it.revoked }.map { it.id }
+            val blocked = data.profiles.filter { it.revoked || it.subscriptionMissing }.mapTo(HashSet(), ProfileImporter::identity)
+            val merged = withContext(Dispatchers.Default) { PublicCatalog.merge(catalogProfiles, result.profiles, protected, blocked) }
+            require(merged.isNotEmpty()) { "Нет допустимых публичных узлов; предыдущий каталог сохранён" }
+            catalogCache.write(AppData(profiles = merged, revision = fetchedAt))
+            catalogProfiles = merged
             val currentIds = catalogProfiles.mapTo(HashSet()) { it.id }
-            catalogHealth = catalogHealth.filterKeys { it in currentIds }
-            catalog = catalog.copy(sources = result.sources, total = result.profiles.size, updatedAtMillis = fetchedAt, checked = 0, planned = 0)
-            "Публичных узлов: ${result.profiles.size}. Работоспособность ещё не проверена."
+            catalogHealth = freshHealth.filterKeys { it in currentIds }
+            catalog = catalog.copy(sources = result.sources, total = merged.size, updatedAtMillis = fetchedAt, checked = 0, planned = 0)
+            "В пуле ${merged.size} публичных узлов; источников ответило ${result.sources.count { it.ok }} из ${result.sources.size}. Новые и устаревшие узлы требуют проверки в текущей сети."
         } finally { catalog = catalog.copy(busy = false); changed() }
     }
     override suspend fun addCatalogNode(id: String) = mutation {
@@ -420,19 +441,36 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
         diagnosticBusy = true
         catalog = catalog.copy(busy = true, checked = 0, planned = minOf(8, catalogProfiles.size)); changed()
         try {
-            val results = repository.probe(extra = catalogProfiles)
-            catalogHealth = catalogHealth.toMutableMap().apply {
-                results.forEach { sample -> val id = sample.tag.removePrefix("p-"); this[id] = (this[id] ?: ProbeHealth()).measured(sample.delayMs, sample.checkedAt) }
+            val physical = network.physicalNetwork()?.networkHandle ?: error("Нет физического подключения к сети")
+            val intent = repository.intentGeneration()
+            val candidates = catalogProfiles
+            val results = repository.probe(extra = candidates, preparePublic = network::preparePublicProbe)
+            fun current() = network.physicalNetwork()?.networkHandle == physical && repository.intentGeneration() == intent &&
+                controller.status.value.phase !in setOf(RuntimePhase.ON, RuntimePhase.STARTING, RuntimePhase.STOPPING)
+            check(current()) { "Сеть или состояние VPN изменились; повторите проверку" }
+            catalogHealth = PublicCatalog.freshHealth(catalogHealth, catalogHealthNetwork, physical, System.currentTimeMillis()).toMutableMap().apply {
+                results.forEach { sample ->
+                    val id = sample.tag.removePrefix("p-")
+                    if (sample.checkedAt > 0) this[id] = (this[id] ?: ProbeHealth()).measured(sample.delayMs, sample.checkedAt)
+                    else remove(id) // DNS/policy preflight skipped the probe; this is neither OK nor DOWN.
+                }
             }
-            catalog = catalog.copy(checked = results.size)
-            val good = results.filter { it.delayMs != null }.sortedBy { it.delayMs }.take(5).mapNotNull { sample -> catalogProfiles.find { "p-${it.id}" == sample.tag } }
-            require(good.isNotEmpty()) { "В проверенной выборке нет работающих узлов. Повторная проверка возьмёт следующие." }
+            catalogHealthNetwork = physical
+            val measuredCount = results.count { it.checkedAt > 0 }
+            catalog = catalog.copy(checked = measuredCount)
+            val delays = results.mapNotNull { sample -> sample.delayMs?.let { sample.tag.removePrefix("p-") to it } }.toMap()
+            val good = PublicCatalog.diverseBest(candidates, delays)
+            require(good.isNotEmpty()) {
+                if (measuredCount == 0) "Узлы этой выборки не удалось безопасно проверить. Повторная проверка возьмёт следующие."
+                else "В проверенной выборке нет работающих узлов. Повторная проверка возьмёт следующие."
+            }
             repository.validateProfiles(good)
-            repository.edit { value ->
+            check(current()) { "Сеть или состояние VPN изменились; повторите проверку" }
+            repository.edit(beforeCommit = { check(current()) { "Сеть или состояние VPN изменились; группа не сохранена" } }) { value ->
                 val all = value.profiles.toMutableList()
                 val members = good.map { profile -> all.find { ProfileImporter.identity(it) == ProfileImporter.identity(profile) }?.id ?: profile.id.also { all.add(profile.copy(source = "public")) } }
                 value.copy(profiles = all, groups = value.groups + TunnelGroup(name = "Публичные узлы ${value.groups.count { it.name.startsWith("Публичные узлы") } + 1}", members = members))
-            }; "Создана группа из ${good.size} узлов, прошедших реальную HTTPS-проверку; проверено ${results.size}."
+            }; "Создана группа из ${good.size} разных серверов, ответивших на HTTPS-проверку в текущей сети; проверено $measuredCount, пропущено ${results.size - measuredCount}."
         } finally { diagnosticBusy = false; catalog = catalog.copy(busy = false); changed() }
     }
     override suspend fun diagnose(target: String) = action {
@@ -553,6 +591,36 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
             data.copy(settings = data.settings.copy(serviceVia = id))
         }
         "Путь служебных загрузок сохранён"
+    }
+
+    /** Public catalogs get strict endpoint/redirect rules, without changing private subscription policy.
+     * The pinned native diagnostic HTTP API follows unobservable redirects and is unsuitable for feed recovery.
+     * Until a safe per-outbound fetch API exists, use only the selected service path and registered delivery mirrors. */
+    private suspend fun fetchPublicCatalog(source: PublicCatalogSource, url: String, maxBytes: Int): String {
+        val data = repository.ready(); val via = data.settings.serviceVia
+        if (via == DIRECT) return network.fetchPublic(source, url, maxBytes)
+        val profile = data.profiles.find { it.id == via && it.source == "personal" && !it.revoked && !it.subscriptionMissing }
+            ?: error("Служебный путь недоступен. Выберите другой в настройках.")
+        val session = controller.sessionGeneration(); val intent = repository.intentGeneration()
+        val physical = network.physicalNetwork()?.networkHandle
+        fun current() = controller.isSessionGeneration(session) && controller.status.value.phase == RuntimePhase.ON &&
+            repository.intentGeneration() == intent && repository.data.value?.revision == data.revision &&
+            network.physicalNetwork()?.networkHandle == physical &&
+            controller.groups.value.any { it.tag == "rt-service" && it.selected == "p-${profile.id}" }
+        check(current()) { "Для служебной загрузки включите VPN с выбранным личным путём; прямой резерв не используется." }
+        val vpn = network.vpnNetwork() ?: error("Сеть VPN ещё не готова")
+        return coroutineScope {
+            val owner = currentCoroutineContext()[Job]!!
+            val guard = launch {
+                while (current()) delay(100)
+                owner.cancel(CancellationException("Сеть или выбранный служебный путь изменились"))
+            }
+            try {
+                val body = network.fetchPublic(source, url, maxBytes, physical = false, boundNetwork = vpn)
+                check(current()) { "Состояние или путь изменились во время загрузки; результат не сохранён" }
+                body
+            } finally { guard.cancel() }
+        }
     }
 
     /** Binding to the owned VPN network prevents an OFF/revoke from retrying over the physical default route. */
