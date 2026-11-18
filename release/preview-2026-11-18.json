@@ -21,7 +21,7 @@
     "productionSigned": false
   },
   "notes": "Desktop correction: automatic public checks, actual packaged Windows acceptance, useful diagnostics, taller map and bundled taskbar icon. Android remains at r5.",
-  "revision": 13,
+  "revision": 14,
   "platforms": [
     "windows"
   ]

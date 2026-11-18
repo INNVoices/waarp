@@ -211,7 +211,12 @@ export async function runAtlasChecks({ browser, url, fileUrl, screenshotDir, fix
     await capture(page, 'atlas-saved-desktop-1920.png')
     await page.locator('.atlas-connections-toolbar').getByRole('button', { name: strings['server.public'], exact: true }).click()
     await mapReady(page)
-    await page.locator('.atlas-summary').getByText(strings['atlas.summary.ready'], { exact: true }).waitFor()
+    // The stat is one span containing both its <b> count and the text label;
+    // an exact text-only locator cannot match that combined DOM text.
+    const readyStat = page.locator('#public-catalog .atlas-summary .atlas-stat.ready')
+    await page.waitForFunction(() => document.querySelector('#public-catalog .atlas-summary .atlas-stat.ready b')?.textContent === '257')
+    assert.equal(await readyStat.locator('b').innerText(), '257', 'public map summary includes every fresh fixture response')
+    assert.ok((await readyStat.innerText()).includes(strings['atlas.summary.ready']), 'the measured count retains its availability label')
     assert.ok((await page.locator('.atlas-total').innerText()).includes('257'))
     await capture(page, 'atlas-public-desktop-1920.png')
     await page.context().close()
