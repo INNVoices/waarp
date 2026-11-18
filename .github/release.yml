@@ -1,0 +1,30 @@
+# GitHub's automatically generated release-note categories; release workflows may use manual notes.
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+      - internal-only
+  categories:
+    - title: Features / Возможности
+      labels:
+        - enhancement
+        - feature
+    - title: Fixes / Исправления
+      labels:
+        - bug
+        - bugfix
+        - fix
+    - title: Android
+      labels:
+        - android
+    - title: Windows and routing
+      labels:
+        - windows
+        - networking
+    - title: Documentation / Документация
+      labels:
+        - documentation
+        - docs
+    - title: Other changes
+      labels:
+        - "*"

@@ -1,52 +1,62 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/waarp-wordmark-light.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/brand/waarp-wordmark-dark.svg">
-    <img alt="waarp" src="docs/brand/waarp-wordmark-dark.svg" width="220">
-  </picture>
+  <img src="docs/brand/waarp-cover.svg" alt="Waarp — управление маршрутизацией трафика" width="100%">
 </p>
 
 <p align="center">
-  <strong>Открытый маршрутизатор трафика для Windows и Android: приложения, сайты, нестабильные сети.</strong><br>
-  Маршрутизация в духе ExitLag, только бесплатно, прозрачно и через ваши собственные VPN и прокси.
+  <a href="README.md">English</a> · <a href="README.ru.md"><b>Русский</b></a>
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> · <a href="README.ru.md">Русский</a>
+  <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%2F%2011-2374CF?style=flat-square&logo=windows11&logoColor=white">
+  <img alt="Android 10+" src="https://img.shields.io/badge/Android-10%2B-267F61?style=flat-square&logo=android&logoColor=white">
+  <img alt="Лицензия Apache 2.0" src="https://img.shields.io/badge/Code-Apache%202.0-7148C6?style=flat-square">
+  <img alt="Статус предварительной версии" src="https://img.shields.io/badge/Channel-preview-F59E0B?style=flat-square">
 </p>
 
 <p align="center">
-  <a href="#скачать">Скачать</a> · <a href="#скриншоты">Скриншоты</a> · <a href="#как-это-работает">Как это работает</a> · <a href="#безопасность">Безопасность</a> · <a href="ROADMAP.md">Roadmap</a> · <a href="#участие">Участие</a>
+  <strong>Управляйте маршрутами приложений, сайтов и сервисов в одном месте.</strong><br>
+  Собственные VPN и прокси, группы, резервирование и публичный каталог по запросу — без подписки Waarp.
 </p>
-
-> **Бесплатно и с открытым кодом. Подписка на Waarp не нужна.**
-> Подключения (VPN, VPS, прокси) ваши; у сторонней инфраструктуры может быть своя цена.
 
 <p align="center">
-  <img src="docs/screenshots/hero-home.png" alt="Главный экран Waarp" width="860">
+  <a href="#скачать"><b>Скачать</b></a> ·
+  <a href="#скриншоты">Скриншоты</a> ·
+  <a href="#возможности">Возможности</a> ·
+  <a href="docs/README.md">Документация</a> ·
+  <a href="README.md">English</a> ·
+  <a href="ROADMAP.md">Roadmap</a>
 </p>
-<p align="center"><em>Пускайте по другому пути только то, что нужно. Остальной Windows не трогается.</em></p>
 
-| Точная маршрутизация | Стабильность | Видно, что сломалось |
-| --- | --- | --- |
-| Приложения и сайты идут разными путями. | Авто держит рабочий маршрут, а не гонится за каждым пингом. | DNS, TCP, TLS и HTTP напрямую и через ваши подключения рядом. |
+> [!IMPORTANT]
+> **Текущий исходный код — кандидат в релиз, а не утверждённая stable-версия.** Опубликованный EXE относится к более ранней бете; подписанного производственного APK для Android пока нет. [Версии, хеши и требования к выпуску](docs/RELEASES.md).
+
+<p align="center">
+  <img src="docs/screenshots/hero-home.png" alt="Главный экран Windows-версии Waarp" width="860">
+</p>
+<p align="center"><sub>Скриншот Windows из репозитория. Текущий RC-интерфейс может немного отличаться.</sub></p>
+
+## Возможности
+
+| **Маршрутизация по правилам** | **Стабильный выбор пути** | **Диагностика без догадок** |
+| :--- | :--- | :--- |
+| Отдельные маршруты для приложений, сервисов, доменов и других целей. | «Авто» держит рабочий личный маршрут и не перескакивает при каждом изменении ping. | Сравнение Direct и своих подключений: DNS, TCP, TLS и HTTP. |
+| **Свои подключения** | **Публичный пул по желанию** | **Windows и Android** |
+| WireGuard / AmneziaWG, VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, OpenVPN и поддерживаемый импорт. | Загрузка, проверка и выбор чужих узлов вручную. Публичные серверы не попадают в «Авто» сами. | Десктоп-клиент Electron и нативный Android-клиент Kotlin / Compose в одном проекте. |
+
+Нет multipath-агрегации, гарантии снижения задержки или обещания анонимности. [Принцип работы](#как-это-работает) · [Доверие и источники публичных узлов](docs/SOURCES.md).
 
 ## Скачать
 
-**[Скачать последнюю версию для Windows →](../../releases/latest)**
+| <img src="https://img.shields.io/badge/Windows-x64-2374CF?style=flat-square&logo=windows11&logoColor=white" alt="Windows"> | <img src="https://img.shields.io/badge/Android-APK-267F61?style=flat-square&logo=android&logoColor=white" alt="Android"> |
+| :--- | :--- |
+| **[Скачать v0.4.0 Portable EXE](../../releases/download/v0.4.0/Waarp-0.4.0-portable.exe)** · [Описание релиза](../../releases/tag/v0.4.0) | **Android 0.5.0-rc.4** находится в исходниках. [Сборка и установка](docs/ANDROID.md#build-and-install) · [Android CI](../../actions/workflows/android.yml) |
+| Опубликованная бета для Windows 10/11 x64. Более новые исходники **0.4.1-rc.2** пока не опубликованы как проверенный бинарник. | Debug APK можно устанавливать для тестов после успешной сборки. **Release-unsigned APK нельзя установить**; производственная подпись и приёмка — отдельный этап. |
 
-Windows 10 / 11, x64.
+**[Все релизы](../../releases)** · **[Workflow предварительных выпусков](.github/workflows/release-preview.yml)** · **[Правила релизов и проверки хешей](docs/RELEASES.md)**
 
-Текущие версии — **ПК 0.4.1-rc.2** и **Android 0.5.0-rc.4**, обе в `main`. Исправлены обычные изменения маршрутов и ошибки живого применения, приводившие к перезапуску VPN; в существующие экраны добавлены ограниченные инструменты проверки и настройки подключения. [Что изменилось и как проверено](docs/ROUTE-AND-CONNECTION-AUDIT-2026-11-18.md), [MASQUE и подбор параметров](docs/MASQUE-AND-CONNECTION-HELPER.md). Обе версии остаются RC: [критерии stable](docs/STABLE-AUDIT-2026-11-16.md) требуют отдельной приёмки. Артефакты CI не означают прохождение всех реальных сетевых сценариев. Интерфейс пока на русском.
+Репозиторий сейчас приватный: для загрузок и CI может потребоваться доступ к нему. Сторонние VPN/VPS и прокси могут быть платными.
 
-### APK для Android
 
-В этом же репозитории находится нативный Kotlin/Compose-клиент **0.5.0-rc.4**, каталог `android/`.
-Команда `npm run android:build` собирает и проверяет APK, результат — **`out/android/`**. Минимум Android 10 (API 29).
-Маршруты работают через настоящий `VpnService` и Android AAR sing-box-lx; приложения выбираются по Android-пакетам.
-[Функции, отличия платформы, сборка и проверки Android](docs/ANDROID.md). Debug APK можно установить; `release-unsigned` требует подписи. Статус новой мобильной версии — проверочный кандидат.
-
-**Нашли баг?** Заводите issue. **Знаете, как исправить?** Присылайте pull request — небольшие точечные фиксы особенно приветствуются.
 
 ## Как это работает
 
@@ -92,13 +102,12 @@ Waarp отвечает на практичные вопросы: работае�
 
 ## Скриншоты
 
-<p align="center">
-  <img src="docs/screenshots/routing.png" alt="Маршрут приложения на Авто и его фактический путь" width="420">
-  <img src="docs/screenshots/add-connection.png" alt="Добавление подключения" width="420">
-</p>
-<p align="center">
-  <img src="docs/screenshots/diagnostics.png" alt="Диагностика: напрямую и через туннель" width="420">
-</p>
+<table>
+<tr><td align="center" width="50%"><img src="docs/screenshots/routing.png" width="420" alt="Настройка маршрута"><br><sub><strong>Маршруты</strong> — назначение пути приложению</sub></td><td align="center" width="50%"><img src="docs/screenshots/add-connection.png" width="420" alt="Добавление подключения"><br><sub><strong>Подключения</strong> — импорт и свои серверы</sub></td></tr>
+<tr><td align="center"><img src="docs/screenshots/diagnostics.png" width="420" alt="Диагностика подключений"><br><sub><strong>Диагностика</strong> — сравнение доступности</sub></td><td align="center"><img src="docs/screenshots/hero-home.png" width="420" alt="Главная Windows"><br><sub><strong>Обзор</strong> — куда направляется трафик</sub></td></tr>
+</table>
+
+Это существующие кадры Windows-приложения. Проверенных и очищенных от приватных данных скриншотов Android пока нет — подменять их макетами не будем. [Как готовить скриншоты](docs/screenshots/README.md).
 
 ## Осторожное поведение при сбоях Windows
 

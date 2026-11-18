@@ -1,0 +1,22 @@
+# Waarp documentation
+
+**Start here:** [English](../README.md) · [Русский](../README.ru.md) · [Downloads & releases](RELEASES.md) · [Roadmap](../ROADMAP.md) · [Support](../SUPPORT.md)
+
+| Area | Document |
+| --- | --- |
+| Android capabilities, build, signing and acceptance | [ANDROID.md](ANDROID.md) |
+| Routing safety and failure behavior | [RELIABILITY.md](RELIABILITY.md) |
+| Public node sources, mirrors and trust model | [SOURCES.md](SOURCES.md) · [2026-11-18 pool update](PUBLIC-POOL-2026-11-18.md) |
+| Diagnosing connections and compatible modes | [MASQUE / connection helper](MASQUE-AND-CONNECTION-HELPER.md) |
+| Desktop and Android network verification | [Route/connection audit](ROUTE-AND-CONNECTION-AUDIT-2026-11-18.md) |
+| TUN ownership and UI behavior | [TUN/UI audit](TUN-OWNERSHIP-AND-UI-2026-11-18.md) |
+| Companion applications integration | [BRIDGE.md](BRIDGE.md) |
+| Public service dependencies | [SERVICE-DEPENDENCIES.md](SERVICE-DEPENDENCIES.md) |
+| Host and service setup | [SERVER.md](SERVER.md) |
+| Release integrity and acceptance | [RELEASES.md](RELEASES.md) · [STABLE-AUDIT](STABLE-AUDIT-2026-11-16.md) · [VALIDATION](VALIDATION-2026-11-16.md) |
+| Android acceptance evidence | [ANDROID-ACCEPTANCE-READINESS](ANDROID-ACCEPTANCE-READINESS.md) |
+| Build/security advisory | [BUILD-AUDIT](BUILD-AUDIT-2026-11-18.md) |
+| Repository presentation & About metadata | [GITHUB-PUBLISHING.md](GITHUB-PUBLISHING.md) |
+| Screenshots | [Screenshot policy](screenshots/README.md) |
+
+Other dated documents in this directory are historical engineering records, not a blanket approval of the current `main`. See their commit/version scope before quoting test results.

@@ -1,53 +1,62 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/waarp-wordmark-light.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/brand/waarp-wordmark-dark.svg">
-    <img alt="waarp" src="docs/brand/waarp-wordmark-dark.svg" width="220">
-  </picture>
+  <img src="docs/brand/waarp-cover.svg" alt="Waarp — route traffic, keep control" width="100%">
 </p>
 
 <p align="center">
-  <strong>Open-source traffic routing for Windows, Android and unstable networks.</strong><br>
-  ExitLag-style routing, but free, transparent and built around your own VPN/proxy paths.
+  <a href="README.md"><b>English</b></a> · <a href="README.ru.md">Русский</a>
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> · <a href="README.ru.md">Русский</a>
+  <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%2F%2011-2374CF?style=flat-square&logo=windows11&logoColor=white">
+  <img alt="Android 10+" src="https://img.shields.io/badge/Android-10%2B-267F61?style=flat-square&logo=android&logoColor=white">
+  <img alt="License Apache 2.0" src="https://img.shields.io/badge/Code-Apache%202.0-7148C6?style=flat-square">
+  <img alt="Release channel: preview" src="https://img.shields.io/badge/Channel-preview-F59E0B?style=flat-square">
 </p>
 
 <p align="center">
-  <a href="#download">Download</a> · <a href="#screenshots">Screenshots</a> · <a href="#how-it-works">How it works</a> · <a href="#security-model">Security</a> · <a href="ROADMAP.md">Roadmap</a> · <a href="#contributing">Contribute</a>
+  <strong>One place to route apps, sites and services through the connection you choose.</strong><br>
+  Personal VPNs, proxies, groups, failover and an opt-in public catalog — without a paid Waarp subscription.
 </p>
-
-> **Free and open source. No Waarp subscription required.**
-> Bring your own VPN / VPS / proxy paths; third-party infrastructure may have its own cost.
 
 <p align="center">
-  <img src="docs/screenshots/hero-home.png" alt="Waarp home screen" width="860">
+  <a href="#download"><b>Download</b></a> ·
+  <a href="#screenshots">Screenshots</a> ·
+  <a href="#why-waarp">Features</a> ·
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="README.ru.md">Русский</a> ·
+  <a href="ROADMAP.md">Roadmap</a>
 </p>
-<p align="center"><em>Route only what needs a different path. Leave the rest of Windows alone.</em></p>
 
-| Route precisely | Stay stable | See what failed |
-| --- | --- | --- |
-| Apps and sites can use different paths. | Auto holds a working route instead of chasing every ping. | Compare DNS / TCP / TLS / HTTP evidence across Direct and your own paths. |
+> [!IMPORTANT]
+> **Current source is a release candidate, not an approved stable build.** The existing Windows download is an older beta; Android has no publicly published production-signed APK yet. [Versions, checksums and release criteria](docs/RELEASES.md).
+
+<p align="center">
+  <img src="docs/screenshots/hero-home.png" alt="Waarp desktop — home and routing overview" width="860">
+</p>
+<p align="center"><sub>Windows desktop capture from the repository. UI details may differ from the latest RC source.</sub></p>
+
+## Why Waarp
+
+| **Precise routing** | **Stable path selection** | **Useful diagnostics** |
+| :--- | :--- | :--- |
+| Assign a direct or protected path to apps, services, domains and custom targets. | Auto holds a working personal route; explicit failover avoids reflexive ping-based switching. | Compare Direct and protected connections with DNS, TCP, TLS and HTTP observations. |
+| **Bring your own connections** | **Public pool, by choice** | **Desktop + mobile** |
+| WireGuard / AmneziaWG, VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, OpenVPN and supported imports. | Explicitly load, inspect and choose third-party nodes. Public relays are not silently promoted into Auto. | Electron-based Windows client and native Kotlin / Compose Android client in one repository. |
+
+No multi-path aggregation, no guaranteed latency improvement, and no anonymity promise. [How routing works](#how-it-works) · [Public node trust and sources](docs/SOURCES.md).
 
 ## Download
 
-**[Download the latest Windows release →](../../releases/latest)**
+| <img src="https://img.shields.io/badge/Windows-x64-2374CF?style=flat-square&logo=windows11&logoColor=white" alt="Windows"> | <img src="https://img.shields.io/badge/Android-APK-267F61?style=flat-square&logo=android&logoColor=white" alt="Android"> |
+| :--- | :--- |
+| **[Download v0.4.0 portable EXE](../../releases/download/v0.4.0/Waarp-0.4.0-portable.exe)** · [Release notes](../../releases/tag/v0.4.0) | **Android 0.5.0-rc.4** is in source. [Build/install instructions](docs/ANDROID.md#build-and-install) · [Android CI](../../actions/workflows/android.yml) |
+| Published beta, Windows 10/11 x64. The newer **0.4.1-rc.2** desktop source has not been published as a verified binary. | Debug APKs can be installed for testing after a successful build. **Unsigned release APKs are not installable**; production signing and acceptance remain separate. |
 
-Windows 10 / 11, x64. The interface is currently Russian-first.
+**[All releases](../../releases)** · **[Preview publishing workflow](.github/workflows/release-preview.yml)** · **[Release and integrity guide](docs/RELEASES.md)**
 
-The current desktop source is **0.4.1-rc.2**; Android is **0.5.0-rc.4**. Both live in `main`. This pass fixes ordinary route changes and failed live updates restarting the VPN, and adds bounded connection tools through the existing UI. See the [shared implementation and acceptance record](docs/ROUTE-AND-CONNECTION-AUDIT-2026-11-18.md) and [MASQUE / compatible variants guide](docs/MASQUE-AND-CONNECTION-HELPER.md). Both remain validation candidates: stable approval requires the [release acceptance gates](docs/STABLE-AUDIT-2026-11-16.md), and CI artifacts do not establish every real-network scenario.
+The repo is currently private; GitHub download and Actions links may require repository access. Third-party infrastructure can cost money, even though Waarp itself has no subscription.
 
-### Android APK
 
-The same repository includes a native Kotlin/Compose Android client, **0.5.0-rc.4**, under `android/`.
-Build with `npm run android:build`; verified per-ABI APKs are written to **`out/android/`**. Android 10 (API 29) or later is required.
-The client uses Android `VpnService` and a pinned sing-box-lx Android AAR. App routing uses Android package names.
-See [Android features, architecture, build and validation](docs/ANDROID.md) for platform differences and signing instructions.
-Android approval includes optimized-release UI journeys and a two-hour encrypted AWG2 soak. Signed release APKs use a retained update identity; explicitly unsigned APKs are signing inputs, and debug APKs are separate test builds. See [the build and release acceptance contract](docs/ANDROID.md).
-
-**Found a bug?** Open an issue. **Know how to fix it?** Send a pull request — small, focused fixes are very welcome.
 
 ## How it works
 
@@ -93,13 +102,12 @@ The public connection catalog refreshes and checks its nodes only when you reque
 
 ## Screenshots
 
-<p align="center">
-  <img src="docs/screenshots/routing.png" alt="An app route on Auto with its effective path" width="420">
-  <img src="docs/screenshots/add-connection.png" alt="Adding a connection" width="420">
-</p>
-<p align="center">
-  <img src="docs/screenshots/diagnostics.png" alt="Direct vs tunnel diagnostics" width="420">
-</p>
+<table>
+<tr><td align="center" width="50%"><img src="docs/screenshots/routing.png" width="420" alt="Route settings"><br><sub><strong>Routing</strong> — assign an app to a path</sub></td><td align="center" width="50%"><img src="docs/screenshots/add-connection.png" width="420" alt="Add a connection"><br><sub><strong>Connections</strong> — import or add your own</sub></td></tr>
+<tr><td align="center"><img src="docs/screenshots/diagnostics.png" width="420" alt="Connection diagnostics"><br><sub><strong>Diagnostics</strong> — compare connectivity observations</sub></td><td align="center"><img src="docs/screenshots/hero-home.png" width="420" alt="Windows desktop home"><br><sub><strong>Overview</strong> — see where traffic goes</sub></td></tr>
+</table>
+
+These are the existing Windows captures. No verified, sanitized Android device screenshots are committed yet; we intentionally do not substitute mockups for real captures. See [screenshot guidelines](docs/screenshots/README.md).
 
 ## Conservative Windows failure handling
 
