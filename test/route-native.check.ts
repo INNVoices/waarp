@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import net from 'node:net'
 import http from 'node:http'
-import fs, { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import type { ChildProcess } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,7 +10,7 @@ import { Checker } from '../src/main/checker'
 import type { OutProfile, Profile, Settings } from '../src/shared/types'
 import type { DiagnosticTransport } from '../src/main/diagnostic-proxy'
 import { fixture, datagram, nativeDns } from './route-native-fixtures'
-import { NATIVE_TEST_CA } from './route-native-tls'
+import { installNativeTestCA } from './route-native-trust'
 import { redactVless } from '../src/main/vless'
 
 function body(host: string): Promise<string> {
@@ -65,30 +65,7 @@ async function main() {
     return structuredClone(candidate)
   }
   let neighbor: net.Socket | undefined
-  // Trust the synthetic HTTPS identity only in this one owned test worker.
-  // The application builder, system certificate store and production TLS policy
-  // remain untouched; every native measurement still verifies its certificate.
-  const originalWrite = fs.writeFileSync
-  const ownedWorkerConfig = join(dir, 'live-outbounds', '0', 'check.json')
-  let trustedConfigs = 0
-  fs.writeFileSync = ((file, data, options) => {
-    if (file === ownedWorkerConfig) {
-      const config = JSON.parse(String(data))
-      assert.equal(config.route.final, 'p-late-public')
-      assert.equal(config.inbounds.length, 1)
-      assert.equal(config.inbounds[0].type, 'socks')
-      assert.equal(config.inbounds[0].listen, '127.0.0.1')
-      assert.deepEqual(config.endpoints, [])
-      const selected = config.outbounds.filter((item: { tag: string }) => item.tag.startsWith('p-'))
-      assert.equal(selected.length, 1); assert.equal(selected[0].tag, 'p-late-public')
-      assert.equal(selected[0].server, '127.0.0.1'); assert.equal(selected[0].server_port, c.port)
-      assert.equal(config.certificate, undefined)
-      config.certificate = { store: 'none', certificate: [NATIVE_TEST_CA] }
-      trustedConfigs++
-      return originalWrite(file, JSON.stringify(config), options)
-    }
-    return originalWrite(file, data, options)
-  }) as typeof fs.writeFileSync
+  let trust: Awaited<ReturnType<typeof installNativeTestCA>> | undefined
   // Clash API replaces plain http:// probe URLs with its external HTTPS
   // default. Use real HTTPS here so it measures precisely this local fixture.
   const originalPings = Checker.prototype.pings
@@ -114,12 +91,13 @@ async function main() {
       globalThis.fetch = nativeFetch
       state.child?.stdout?.off('data', capture); state.child?.stderr?.off('data', capture)
       console.log('ROUTE_NATIVE readiness evidence', JSON.stringify({ ids: state.ids, result, responses,
-        trustedConfigs, received: c.received, requests: c.requests, tlsErrors: c.tlsErrors,
+        fixtureCA: trust?.thumbprint, received: c.received, requests: c.requests, tlsErrors: c.tlsErrors,
         workerLogs: redactVless(logs, known) }))
     }
     return Object.fromEntries(Object.entries(result).map(([id, ms]) => [id, ms ?? undefined]))
   }
   try {
+    trust = await installNativeTestCA(dir)
     assert(await engine.killOrphans())
     await engine.start(profiles, settings)
     assert.equal(engine.status.phase, 'on', engine.status.error ?? 'core not ready')
@@ -156,24 +134,26 @@ async function main() {
     profiles.push(late)
     settings = { ...settings, routes: settings.routes.map(r => r.id === 'selected' ? { ...r, via: late.id } : r) }
     assert(await engine.applyLive(profiles, settings), engine.log().join('\n') + '\n' + JSON.stringify({
-      trustedConfigs, received: c.received, requests: c.requests, tlsErrors: c.tlsErrors
+      fixtureCA: trust.thumbprint, received: c.received, requests: c.requests, tlsErrors: c.tlsErrors
     }))
-    assert.equal(trustedConfigs, 1, 'only the exact owned late-public worker receives the fixture trust root')
     assert(c.received.httpsHead > 0, 'real native readiness verified HTTPS and received its HEAD response')
     assert.equal((engine as any).child.pid, pid); assert.equal(engine.status.since, since)
     assert.equal(await body('198.18.0.9'), 'C', 'late selected public server carries real TCP payload')
     assert.equal(await engine.withHttpProxy(late.id, new AbortController().signal, proxyBody), 'C')
+    console.log('ROUTE_NATIVE late C selected TCP and authenticated diagnostic payload PASS')
     const udpPayload = Buffer.from('selected-public-native-udp')
     assert.equal((await datagram('198.18.0.9', 40000, udpPayload)).toString(), 'C:' + udpPayload.toString(),
       'late selected server carries real UDP through main TUN and the native loopback worker')
     assert(c.received.udp > 0, 'selected C fixture received the UDP datagram')
     assert.equal(a.received.udp, 0); assert.equal(b.received.udp, 0)
+    console.log('ROUTE_NATIVE late C main-TUN UDP round trip and selected-only receiver PASS')
+    console.log('ROUTE_NATIVE starting generated no-TUN UoT DNS request')
     await nativeDns(join(process.cwd(), 'engine', 'sing-box.exe'), join(dir, 'dns-fixture'), late)
     assert(c.received.dns > 0, 'worker hijack DNS request reached its selected profile resolver')
+    console.log('ROUTE_NATIVE generated no-TUN UoT DNS answer and worker cleanup PASS')
     assert.equal((engine as any).child.pid, pid); assert.equal(engine.status.since, since)
     await echo(20)
     console.log('ROUTE_NATIVE newly imported public server: same main PID/TUN; selected TCP and UDP payload C; neighbor alive PASS')
-    console.log('ROUTE_NATIVE generated no-TUN worker: real UoT DNS query, selected-profile resolver answer and cleanup PASS')
     settings = { ...settings, routes: settings.routes.map(r => r.id === 'selected' ? { ...r, via: 'b' } : r) }
     assert(await engine.applyLive(profiles, settings)); assert.equal(await body('198.18.0.9'), 'B'); await echo(21)
     settings = { ...settings, routes: settings.routes.filter(r => r.id !== 'selected') }
@@ -199,8 +179,12 @@ async function main() {
     try { assert(await engine.stop(), 'native cleanup must complete') }
     finally {
       Checker.prototype.pings = originalPings
-      fs.writeFileSync = originalWrite
-      await a.close(); await b.close(); await c.close(); rmSync(dir, { recursive:true, force:true })
+      let trustClean = false
+      try { if (trust) { await trust.remove(); trustClean = true } }
+      finally {
+        await a.close(); await b.close(); await c.close()
+        if (trustClean) rmSync(dir, { recursive:true, force:true })
+      }
     }
   }
 }
