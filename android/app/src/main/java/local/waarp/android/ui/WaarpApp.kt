@@ -21,6 +21,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.intl.LocaleList
+import androidx.compose.ui.text.style.Hyphens
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -104,6 +107,8 @@ fun WaarpApp(state: MobileState, actions: MobileActions) {
                                     // Keep every label inside its own destination and align icons when
                                     // large text wraps. Material's item grows to the measured label height.
                                     Text(destination.title, Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                                        style = LocalTextStyle.current.copy(lineBreak = LineBreak.Heading,
+                                            hyphens = Hyphens.Auto, localeList = LocaleList("ru")),
                                         minLines = 2, maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis)
                                 })
                         }
