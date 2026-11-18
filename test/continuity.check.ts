@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { FlowActivity, FLOW_QUIET_MS, FLOW_SAMPLE_MAX_AGE_MS } from '../src/main/continuity'
 import { Engine } from '../src/main/engine'
 import { FbTracker } from '../src/main/fallback'
+import { DEFAULTS } from '../src/main/store-core'
 
 const loaded = new Set(['a', 'b'])
 const activity = new FlowActivity()
@@ -61,6 +62,71 @@ async function offDuringAutomaticStep(dir: string, kind: 'fallback' | 'group', l
     kind + ' cannot start another controller PUT after OFF while stopNow is queued')
   assert.deepEqual([...e.firstSelected], [['g-first', 'a'], ['g-second', 'c']], 'cancelled selection never publishes a new group member')
   assert.equal(e.fb.active().length, 0, 'cancelled selection never publishes an active fallback')
+}
+
+async function explicitDuringAutomaticStep(dir: string, kind: 'fallback' | 'group', intent: 'apply' | 'start') {
+  const e = new Engine(process.execPath, dir, process.execPath) as any
+  e.child = {}; e.run = {}; e.status.phase = 'on'
+  const events: string[] = []
+  let foreground: Promise<boolean | void> | undefined
+  e.fb = new FbTracker([{ tag: 'pair-1', main: 'a', fb: 'b' }, { tag: 'pair-2', main: 'c', fb: 'd' }], 1)
+  e.groups = [
+    { id: 'g-first', name: 'First', policy: 'first', members: ['a', 'b'] },
+    { id: 'g-second', name: 'Second', policy: 'first', members: ['c', 'd'] }
+  ]
+  e.firstSelected = new Map([['g-first', 'a'], ['g-second', 'c']])
+  const acknowledged = () => {
+    if (kind === 'fallback') assert.deepEqual(e.fb.active().map((pair: { tag: string }) => pair.tag), ['pair-1'])
+    else assert.deepEqual([...e.firstSelected], [['g-first', 'b'], ['g-second', 'c']])
+  }
+  const work = async () => {
+    acknowledged() // Foreground receives the actual in-flight selection, not its old intent.
+    events.push('foreground ' + intent)
+    return true
+  }
+  e.liveApply = work; e.startNow = work
+  e.select = async (tag: string) => {
+    events.push('select:' + tag)
+    if (!foreground) {
+      events.push(intent + ' queued')
+      foreground = intent === 'apply' ? e.applyLive([], DEFAULTS) : e.start([], DEFAULTS)
+    }
+    return true // The already-started native request really acknowledged its change.
+  }
+  const health = { a: 'down', b: 'ok', c: 'down', d: 'ok' }
+  const pings = { a: undefined, b: 20, c: undefined, d: 20 }
+  await e.serialize(async () => {
+    if (kind === 'fallback') {
+      await e.fbStep(pings, health)
+      await e.groupStep(health, pings) // Same health round cannot start its later group selections either.
+    } else await e.groupStep(health, pings)
+  })
+  assert(foreground, 'fixture enqueued a real foreground method')
+  await foreground
+  assert.deepEqual(events, [kind === 'fallback' ? 'select:pair-1' : 'select:grp-g-first', intent + ' queued', 'foreground ' + intent],
+    kind + ' yields to queued ' + intent + ' before any following automatic PUT')
+  acknowledged()
+  assert.equal(e.pendingExplicit, 0, 'foreground completion releases its intent barrier')
+  if (kind === 'fallback') await e.fbStep(pings, health)
+  else await e.groupStep(health, pings)
+  assert.equal(events.filter(event => event.startsWith('select:')).length, 2, 'automatic work can continue after foreground settles')
+}
+
+async function explicitBarrierCleanup(dir: string) {
+  const e = new Engine(process.execPath, dir, process.execPath) as any
+  e.child = {}; e.run = {}; e.status.phase = 'on'
+  const fail = async () => { throw new Error('foreground fixture failure') }
+  e.liveApply = fail; e.startNow = fail
+  await assert.rejects(e.applyLive([], DEFAULTS), /foreground fixture failure/)
+  await assert.rejects(e.start([], DEFAULTS), /foreground fixture failure/)
+  let began = false
+  await e.start([], DEFAULTS, () => false, () => { began = true })
+  assert.equal(began, false, 'superseded foreground intent never begins')
+  const selected: string[] = []
+  e.select = async (tag: string) => { selected.push(tag); return true }
+  e.fb = new FbTracker([{ tag: 'after-errors', main: 'a', fb: 'b' }], 1)
+  await e.fbStep({ a: undefined, b: 20 }, { a: 'down', b: 'ok' })
+  assert.deepEqual(selected, ['after-errors'], 'failed or skipped foreground operations cannot leave background selection blocked')
 }
 
 async function malformedTelemetry(dir: string) {
@@ -168,6 +234,11 @@ async function main() {
       await offDuringAutomaticStep(dir, 'fallback', lateAck)
       await offDuringAutomaticStep(dir, 'group', lateAck)
     }
+    for (const intent of ['apply', 'start'] as const) {
+      await explicitDuringAutomaticStep(dir, 'fallback', intent)
+      await explicitDuringAutomaticStep(dir, 'group', intent)
+    }
+    await explicitBarrierCleanup(dir)
     await malformedTelemetry(dir)
     console.log('continuity.check: known idle, invalid telemetry, multi-channel hold, OFF precedence, failure and explicit-edit precedence PASS')
   } finally { rmSync(dir, { recursive: true, force: true }) }

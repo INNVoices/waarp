@@ -96,6 +96,9 @@ export class Engine extends EventEmitter {
   private recoveryOk = false
   private recoveryError?: string
   private transition: Promise<void> = Promise.resolve()
+  /** Foreground intent is visible before it reaches the serialized owner.
+   * Hold the next automatic choice, while allowing an in-flight ACK to finish. */
+  private pendingExplicit = 0
   /** OFF cancels both the active startup and starts already queued before that command. */
   private stopVersion = 0
   private starting?: AbortController
@@ -213,6 +216,7 @@ export class Engine extends EventEmitter {
 
   start(profiles: Profile[], s: Settings, current: () => boolean = () => true, began: () => void = () => {}): Promise<void> {
     const version = this.stopVersion
+    this.pendingExplicit++
     return this.serialize(async () => {
       if (version !== this.stopVersion || !current()) return
       began()
@@ -220,7 +224,7 @@ export class Engine extends EventEmitter {
       this.starting = controller
       try { await this.startNow(profiles, s, controller.signal) }
       finally { if (this.starting === controller) this.starting = undefined }
-    })
+    }).finally(() => { this.pendingExplicit-- })
   }
 
   /** HOTFIX-RUNTIME-01: a routing change the running core can already serve, as selector switches (no stop, no spawn, no
@@ -228,10 +232,11 @@ export class Engine extends EventEmitter {
    *  always restarts, so resume / explicit restarts keep their meaning. */
   applyLive(profiles: Profile[], s: Settings): Promise<boolean> {
     const version = this.stopVersion
+    this.pendingExplicit++
     return this.serialize(async () => {
       this.liveProblem = undefined
       return version === this.stopVersion && this.child && this.status.phase === 'on' && this.run ? this.liveApply(profiles, s) : false
-    })
+    }).finally(() => { this.pendingExplicit-- })
   }
 
   private async startNow(profiles: Profile[], s: Settings, signal: AbortSignal, retry = true): Promise<void> {
@@ -416,7 +421,7 @@ export class Engine extends EventEmitter {
         // Automatic selection and explicit live edits share the existing owner.
         // Results collected before an acknowledged edit cannot select its paths.
         await this.serialize(async () => {
-          if (!roundCurrent() || this.pollFailures >= 2 || this.run !== snapshot || this.pendingLive) return
+          if (!roundCurrent() || this.pollFailures >= 2 || this.run !== snapshot || this.pendingLive || this.pendingExplicit) return
           const h = { ...this.lastHealth, ...health.step(pings, ids, undefined, this.ids) }
           const fallback = await this.fbStep(pings, h)
           if (!roundCurrent() || this.pollFailures >= 2) return
@@ -792,7 +797,7 @@ export class Engine extends EventEmitter {
     const child = this.child, tracker = this.fb, version = this.stopVersion
     const current = () => this.child === child && this.stopVersion === version && !this.stopping && !this.pendingLive
     const done = await tracker.step(pings, async (g, toFb) => {
-      if (!current()) return Promise.resolve(false)
+      if (!current() || this.pendingExplicit) return Promise.resolve(false)
       // Returning to a recovered primary is optional while the reserve works.
       // Unknown telemetry holds it too; a confirmed failed reserve may recover.
       if (!toFb && health[g.fb] !== 'down' && health[g.fb] !== 'busy' && !this.pathIdle(g.fb)) return Promise.resolve(false)
@@ -810,7 +815,7 @@ export class Engine extends EventEmitter {
     const child = this.child, version = this.stopVersion
     const stillCurrent = () => this.child === child && this.stopVersion === version && !this.stopping && !this.pendingLive
     await Promise.all(this.groups.map(async g => {
-      if (!stillCurrent()) return
+      if (!stillCurrent() || this.pendingExplicit) return
       const current = this.firstSelected.get(g.id) ?? g.members[0]
       const activeOrUnknown = !this.pathIdle(current)
       const currentAllowed = g.members.includes(current)
