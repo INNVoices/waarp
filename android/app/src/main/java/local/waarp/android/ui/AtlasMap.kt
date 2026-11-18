@@ -2,6 +2,7 @@
 
 package local.waarp.android.ui
 
+import android.content.Context
 import android.graphics.RectF
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -40,6 +41,35 @@ internal const val ATLAS_UNKNOWN = "__unknown__"
 private val atlasCountryCodes = "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BW BY BZ CA CD CF CG CH CI CK CL CM CN CO CR CU CW CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MT MU MV MW MX MY MZ NA NC NE NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RO RS RU RW SA SB SC SD SE SG SH SI SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG US UY UZ VA VC VE VG VI VN VU WF WS XK YE ZA ZM ZW".split(' ').toSet()
 internal fun atlasCountry(value: String?) = value?.trim()?.uppercase(Locale.ROOT)?.takeIf { it in atlasCountryCodes }.orEmpty()
 
+internal data class AtlasRegionPreference(val country: String, val choose: (String) -> Unit)
+internal val LocalAtlasRegion = staticCompositionLocalOf<AtlasRegionPreference> { error("Atlas UI preference is not provided") }
+
+/** Shared by the screen and its forms; a map leaving composition must not erase this UI choice. */
+@Composable
+internal fun rememberAtlasRegion(): AtlasRegionPreference {
+    val context = LocalContext.current.applicationContext
+    val preferences = remember(context) { context.getSharedPreferences("waarp-ui", Context.MODE_PRIVATE) }
+    var country by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(preferences) {
+        val saved = withContext(Dispatchers.IO) {
+            runCatching { atlasCountry(preferences.getString("atlas-device-region", null)) }.getOrDefault("")
+        }
+        // A late disk read must not replace a newer manual choice, including clearing it.
+        if (country == null) country = saved
+    }
+    val choose: (String) -> Unit = remember(preferences) { { value ->
+        val next = atlasCountry(value)
+        country = next
+        // This optional UI preference is independent of routing revisions and VPN intent.
+        runCatching {
+            preferences.edit().apply {
+                if (next.isBlank()) remove("atlas-device-region") else putString("atlas-device-region", next)
+            }.apply()
+        }
+    } }
+    return remember(country, choose) { AtlasRegionPreference(country.orEmpty(), choose) }
+}
+
 @Composable
 internal fun AtlasViewChoice(map: Boolean, onMap: (Boolean) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -55,7 +85,8 @@ internal fun AtlasMap(nodes: List<AtlasNode>, country: String, onCountry: (Strin
     val context = LocalContext.current
     var assets by remember { mutableStateOf<AtlasAssets?>(null) }
     var failure by remember { mutableStateOf(false) }
-    var userCountry by rememberSaveable { mutableStateOf("") }
+    val userRegion = LocalAtlasRegion.current
+    val userCountry = userRegion.country
     var locationExpanded by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         try {
@@ -110,7 +141,7 @@ internal fun AtlasMap(nodes: List<AtlasNode>, country: String, onCountry: (Strin
             }
             if (locationExpanded) PathField("Мой регион · вручную", userCountry,
                 listOf(PathChoice("", "Не указан", "")) + available.anchors.keys.sortedBy(::countryName).map { PathChoice(it, countryName(it), "") }) {
-                userCountry = it; locationExpanded = false
+                userRegion.choose(it); locationExpanded = false
             }
             if (userCountry.isNotBlank() && country in available.anchors) Text("Линия показывает выбранное направление. Фактический путь пакетов не измерен.",
                 style = MaterialTheme.typography.labelSmall, color = WaarpMuted)

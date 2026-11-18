@@ -38,10 +38,11 @@ private val destinations = listOf(
     Destination("Диагностика", Icons.Outlined.MonitorHeart),
 )
 
-/** Pure screen tree. The application owns persistence, VPN consent and all network work. */
+/** Screen tree with local UI preferences. The application owns profiles, VPN consent and network work. */
 @Composable
 fun WaarpApp(state: MobileState, actions: MobileActions) {
     WaarpTheme {
+        val atlasRegion = rememberAtlasRegion()
         var tab by rememberSaveable { mutableIntStateOf(0) }
         var settings by rememberSaveable { mutableStateOf(false) }
         var sheet by rememberSaveable { mutableStateOf<String?>(null) }
@@ -67,7 +68,8 @@ fun WaarpApp(state: MobileState, actions: MobileActions) {
         BackHandler(enabled = settings && sheet == null) { settings = false }
         BackHandler(enabled = !settings && tab != 0 && sheet == null) { tab = 0 }
 
-        CompositionLocalProvider(LocalOperationMessage provides announce, LocalOperationSnackbar provides snackbar) {
+        CompositionLocalProvider(LocalOperationMessage provides announce, LocalOperationSnackbar provides snackbar,
+            LocalAtlasRegion provides atlasRegion) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val wide = maxWidth >= 840.dp
             Scaffold(

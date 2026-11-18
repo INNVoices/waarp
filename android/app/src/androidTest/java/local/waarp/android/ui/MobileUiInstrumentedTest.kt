@@ -334,9 +334,20 @@ class MobileUiInstrumentedTest {
             assertFalse(repository.requestedOpen.value)
         } } finally { setFontScale(originalFontScale) }
         awaitMap()
+        val regionName = countryName("FR")
+        compose.onNode(hasClickAction() and (hasText("Указать мой регион") or hasText("Вы: ", substring = true)))
+            .performScrollTo().performClick()
+        compose.onNode(hasText("Мой регион · вручную") and hasClickAction()).performScrollTo().performClick()
+        field("Поиск").enterText(regionName)
+        dismissKeyboard(field("Поиск"))
+        compose.onNode(hasText(regionName) and hasClickAction() and hasAnyAncestor(isDialog())).performClick()
         val listChoice = compose.onNode(hasText("Список") and hasClickAction())
+        listChoice.performScrollTo()
         awaitFocusedWindow(listChoice, SystemClock.uptimeMillis() + 15_000L)
         listChoice.assertIsDisplayed().performTouchInput { click() }
+        compose.onNode(hasText("Карта") and hasClickAction()).performScrollTo().performTouchInput { click() }
+        awaitMap()
+        compose.onNode(hasText("Вы: $regionName") and hasClickAction()).performScrollTo().assertIsDisplayed()
         assertEquals(revision, repository.data.value!!.revision)
         assertFalse(repository.requestedOpen.value)
         tab("Маршруты")

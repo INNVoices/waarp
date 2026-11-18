@@ -14,7 +14,8 @@
 .quality-path { align-items: flex-start; }
 .quality-path .dg-n > span { display: flex; flex-direction: column; gap: 3px; }
 .quality-path small { font-size: 10px; color: var(--m); }
-.quality-path-value { display: flex; flex-direction: column; gap: 3px; text-align: right; }
+.quality-path > .quality-path-value { display: flex; flex-direction: column; gap: 3px; text-align: right; min-width: min-content; }
+.quality-path-value > small { white-space: nowrap; }
 .quality-notice { padding: 10px 12px; border-radius: var(--r); background: var(--field); font-size: 12px; color: var(--t2); line-height: 1.5; }
 .quality-notice.applied, .quality-notice.saved { border-left: 2px solid var(--ok); }
 .quality-notice.stale, .quality-notice.pending { border-left: 2px solid var(--warn); }
