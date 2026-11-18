@@ -78,3 +78,21 @@ An unavailable WebGL renderer leaves the list, search, region control and explic
 
 Tests use synthetic node geography and an injected IPC fixture. They do not validate real network quality,
 node ownership or the correctness of a third-party country tag. Native routing and continuity have separate gates.
+
+## Android native notices
+
+The Android application bundles MapLibre Native OpenGL `13.7.1`. Besides its root BSD-2-Clause license,
+it includes the complete upstream [`platform/android/LICENSE.md`](https://github.com/maplibre/maplibre-native/blob/4cf121e515d8d065b57cd555a0b231ea27ff0e5d/platform/android/LICENSE.md)
+and [`LICENSES.core.md`](https://github.com/maplibre/maplibre-native/blob/4cf121e515d8d065b57cd555a0b231ea27ff0e5d/LICENSES.core.md)
+from the exact pinned source, at `assets/licenses/MapLibre-Android-Dependencies.txt` and
+`assets/licenses/MapLibre-Core-Dependencies.txt`. The core file also retains the current HarfBuzz notice.
+Original upstream files are preserved in full; overlapping notices are intentionally not removed.
+
+The separate gestures `0.0.4` notice is also shipped at `assets/licenses/MapLibre-Gestures.txt`, copied
+from [`823df84b427c6f8a320c2f14660f986243f6987b/LICENSE.md`](https://github.com/maplibre/maplibre-gestures-android/blob/823df84b427c6f8a320c2f14660f986243f6987b/LICENSE.md).
+It retains the Mapbox/MapLibre copyright and the Android Gesture Detectors Framework notice.
+
+For GeoJSON/Turf `6.0.1`, the published POM declares Apache-2.0, while the corresponding
+[`maplibre-java` source tag LICENSE](https://github.com/maplibre/maplibre-java/blob/db35dfd06f9d671bfda1fd5771b478772c872631/LICENSE)
+contains the Mapbox MIT notice. Both provided texts are retained: the Android aggregate and
+`assets/licenses/MapLibre-Java.txt`. This records the upstream discrepancy without substituting a new license assertion.

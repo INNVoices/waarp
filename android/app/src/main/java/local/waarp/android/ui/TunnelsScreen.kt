@@ -48,13 +48,14 @@ internal fun TunnelsScreen(state: MobileState, actions: MobileActions, onTunnel:
         val filteredGroups = remember(state.groups, query) { state.groups.filter { it.id != AUTO_PATH && it.name.contains(query, true) } }
         if (section == "public") {
             PublicCatalog(state, actions)
-        } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 104.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        } else LazyColumn(
+            // Move the existing FAB clearance outside the scrolling viewport in map mode.
+            // End padding alone lets the region controls scroll underneath the floating action.
+            Modifier.fillMaxSize().padding(bottom = if (section == "profiles" && map) 80.dp else 0.dp),
+            contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, if (section == "profiles" && map) 24.dp else 104.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             item { SearchField(query, { query = it }, if (section == "profiles") "Название, протокол или сервер" else "Найти группу") }
-            if (section == "profiles") item {
-                AtlasViewChoice(map) { map = it }
-                if (map) AtlasMap(filteredProfiles.map { AtlasNode(it.id, it.country, it.health == TunnelHealth.OK) }, country, { country = it })
-                else if (country.isNotBlank()) TextButton(onClick = { country = "" }) { Text("Сбросить фильтр региона") }
-            }
             item {
                 SectionHeading(if (section == "profiles") "${state.profiles.size} туннелей" else "Группы и Авто", trailing = {
                     if (section == "profiles") TextButton(onClick = { operation.run({ actions.probeTunnels() }) }, enabled = !operation.busy && state.profiles.isNotEmpty(), modifier = Modifier.heightIn(min = 48.dp)) {
@@ -63,6 +64,11 @@ internal fun TunnelsScreen(state: MobileState, actions: MobileActions, onTunnel:
                     } else TextButton(onClick = onAddGroup, Modifier.heightIn(min = 48.dp)) { Icon(Icons.Outlined.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Группа") }
                 })
                 OperationFeedback(operation)
+            }
+            if (section == "profiles") item {
+                AtlasViewChoice(map) { map = it }
+                if (map) AtlasMap(filteredProfiles.map { AtlasNode(it.id, it.country, it.health == TunnelHealth.OK) }, country, { country = it })
+                else if (country.isNotBlank()) TextButton(onClick = { country = "" }) { Text("Сбросить фильтр региона") }
             }
             if (section == "profiles") {
                 val filtered = filteredProfiles.filter { country.isBlank() || atlasCountry(it.country) == country || country == ATLAS_UNKNOWN && atlasCountry(it.country).isBlank() }
@@ -162,7 +168,8 @@ private fun PublicCatalog(state: MobileState, actions: MobileActions) {
             (!onlyChecked || node.health == TunnelHealth.OK) &&
             (node.name.contains(query, true) || node.host.contains(query, true) || node.country.contains(query, true)) }
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 104.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(Modifier.fillMaxSize().padding(bottom = if (map) 80.dp else 0.dp),
+        contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, if (map) 24.dp else 104.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { InlineMessage("Публичные серверы принадлежат третьим лицам. Добавление сохраняет туннель, но не меняет маршруты. Используй их только там, где доверяешь владельцу.") }
         item {
             Panel {

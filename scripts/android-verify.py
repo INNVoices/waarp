@@ -127,7 +127,9 @@ def verify(path: Path, expected: str) -> dict:
         names = [entry.filename for entry in entries]
         require(len(names) == len(set(names)), "APK contains duplicate ZIP entries.")
         require("AndroidManifest.xml" in names and "classes.dex" in names, "Not a complete Android application APK.")
-        for notice in ("GPL-3.0.txt", "NOTICE.txt", "Libbox-LICENSE.txt", "WireGuard-Apache-2.0.txt", "Apache-2.0.txt", "Go-BSD.txt", "Libbox-buildinfo.txt", "Maven-runtime-components.json"):
+        for notice in ("GPL-3.0.txt", "NOTICE.txt", "Libbox-LICENSE.txt", "WireGuard-Apache-2.0.txt", "Apache-2.0.txt", "Go-BSD.txt", "Libbox-buildinfo.txt", "Maven-runtime-components.json",
+                       "MapLibre-Native.txt", "MapLibre-Android-Dependencies.txt", "MapLibre-Core-Dependencies.txt",
+                       "MapLibre-Gestures.txt", "MapLibre-Java.txt"):
             require(f"assets/licenses/{notice}" in names, f"APK lacks its license notice: {notice}")
         notice_index_path = "assets/licenses/native-notices/index.json"
         require(notice_index_path in names, "APK lacks its complete native dependency license inventory.")

@@ -82,6 +82,19 @@ The contextual check currently makes bounded HTTP checks through existing native
 
 General diagnostics also expose staged DNS/TCP/TLS/HTTP observations. Keep their scope explicit: Windows system sockets can follow the OS routing configuration; they do not prove a native `direct` outbound. Do not label results from one transport as measurements of another.
 
+## Current contextual recovery policies
+
+All four `connectionUse` values use the same recovery rules on each platform. The route check runs two rounds. Any response from the current path keeps it selected; an unknown, incomplete or cancelled current-path check cannot justify a replacement. A recommendation requires two completed checks with no response from the current path and two responses out of two completed checks from an eligible alternative.
+
+| Platform | Choice among eligible alternatives after the current path fails both checks |
+| --- | --- |
+| Windows | [`assessConnection`](../src/shared/connection-quality.ts) takes the first consistently responding candidate in the trusted order supplied by the diagnostic. It does not sort these candidates by HTTP timing. |
+| Android | [`ConnectionQuality.recommend`](../android/app/src/main/java/local/waarp/android/data/ConnectionQuality.kt) takes the lowest median HTTPS timing among alternatives that responded in both checks. This tie-break applies only after the current path failed both checks; it never moves a responding current path. |
+
+Windows accepts HTTP(S) targets; Android accepts HTTPS targets. These platform policies describe recovery of access to the checked address. Their timings do not establish game, voice or application-session fitness.
+
+Versioned per-application capability definitions, method/source metadata attached to those definitions, and UDP fitness assessments are **not implemented**. `connectionUse` remains purpose metadata; current proofs do not reference a separately versioned application-capability definition. Introduce a richer contract together with a real additional measurement method, its verified scope and source, and tests linking its interpretation to proof validity.
+
 ## Preserve the existing editing flow
 
 On Android, checking a route and browsing the map are substeps of the existing route form. Selecting a checked path changes the draft. There is one **Save route** action in the parent form; Back, cancellation and tapping a map region must not commit settings. Preserve the existing structural-change consent and native acknowledgement rules.

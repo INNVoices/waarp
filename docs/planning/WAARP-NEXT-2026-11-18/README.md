@@ -91,8 +91,9 @@
 | [04-TECHNICAL-SPEC.md](04-TECHNICAL-SPEC.md) | Владельцы состояния, контракты данных, измерения, выбор, применение и сохранение сессий |
 | [05-PLAN-AND-ACCEPTANCE.md](05-PLAN-AND-ACCEPTANCE.md) | Ограниченные задачи, зависимости, проверяемые результаты и условия приёмки |
 | [06-ATLAS-DATA-COMMUNITY.md](06-ATLAS-DATA-COMMUNITY.md) | Данные карты, геолокация, offline, добровольная коллективная статистика и её пределы |
-| [07-HANDOFF.md](07-HANDOFF.md) | Что сохранено, что не выполнялось, сверка с соседней работой и запуск после команды |
-| [task-status.json](task-status.json) | Машиночитаемая очередь; все задачи реализации ожидают старта |
+| [07-HANDOFF.md](07-HANDOFF.md) | Историческая передача подготовки; прежнее условие ожидания уже выполнено |
+| [08-IMPLEMENTATION.md](08-IMPLEMENTATION.md) | Текущая реализация, конкретные прогоны, ограничения и доступность сборок |
+| [task-status.json](task-status.json) | Актуальная машиночитаемая очередь с учётом полученной команды на начало |
 | [baseline.json](baseline.json) | Исходный SHA/tree и хеши опорных файлов |
 | [sources-oss.json](sources-oss.json), [sources-product.json](sources-product.json) | Реестр внешних первичных источников и границ выводов |
 

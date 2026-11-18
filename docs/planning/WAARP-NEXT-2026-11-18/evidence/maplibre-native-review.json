@@ -1,0 +1,186 @@
+{
+  "checkedAtUtc": "2026-11-18T11:20:07.999960+00:00",
+  "scope": "Static review of the actual published MapLibre Native AAR, its exposed API and packaging prerequisites. Does not establish assembled APK manifest/ZIP validity or device rendering.",
+  "artifact": {
+    "coordinate": "org.maplibre.gl:android-sdk-opengl:13.7.1",
+    "url": "https://repo.maven.apache.org/maven2/org/maplibre/gl/android-sdk-opengl/13.7.1/android-sdk-opengl-13.7.1.aar",
+    "bytes": 15866238,
+    "sha256": "4a6762e878ae8f392a27d89138c19196a519121d1449f824e542058147a8a072",
+    "sha1": "a76dd84df30debda782c6ae6929fab493f8d1d6a",
+    "mavenHeaderSha1Matches": true,
+    "upstreamSourceCommit": "4cf121e515d8d065b57cd555a0b231ea27ff0e5d"
+  },
+  "aarMetadata": "aarFormatVersion=1.0\naarMetadataVersion=1.0\nminCompileSdk=34\nminCompileSdkExtension=0\nminAndroidGradlePluginVersion=1.0.0\ncoreLibraryDesugaringEnabled=false\n",
+  "aarManifest": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"\n    package=\"org.maplibre.android\" >\n\n    <uses-sdk android:minSdkVersion=\"23\" />\n\n    <uses-feature\n        android:name=\"android.hardware.wifi\"\n        android:required=\"false\" /> <!-- Implied by ACCESS_WIFI_STATE. -->\n\n    <uses-permission android:name=\"android.permission.INTERNET\" />\n    <uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />\n    <uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\" />\n    <uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\" />\n    <uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" />\n\n</manifest>",
+  "nativeLibraries": [
+    {
+      "file": "jni/arm64-v8a/libmaplibre.so",
+      "bytes": 11042072,
+      "sha256": "ec63a12face954ce34ef1692292de8e41e562accc86c9fd33506666b0a55c6b5",
+      "elfBits": 64,
+      "loadAlignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "relro16kSafe": true,
+      "result": "PASS"
+    },
+    {
+      "file": "jni/armeabi-v7a/libmaplibre.so",
+      "bytes": 8054608,
+      "sha256": "ffd99d47de7a14d0b0f83eca77097b3a84bf1eff515d9095ee567eb4ecb8f17c",
+      "elfBits": 32,
+      "loadAlignments": [
+        4096,
+        4096,
+        4096
+      ],
+      "relro16kSafe": false,
+      "result": "PASS"
+    },
+    {
+      "file": "jni/x86/libmaplibre.so",
+      "bytes": 11190308,
+      "sha256": "a50a3e06e6773b61594b8b6164e0b027b272f7e014f9e33dbf8307e7fe9e9d05",
+      "elfBits": 32,
+      "loadAlignments": [
+        4096,
+        4096,
+        4096
+      ],
+      "relro16kSafe": false,
+      "result": "PASS"
+    },
+    {
+      "file": "jni/x86_64/libmaplibre.so",
+      "bytes": 11423144,
+      "sha256": "b80b8f5243b701ddec465689c5d827b4b0f491609c694f97a4e9bd99690e453a",
+      "elfBits": 64,
+      "loadAlignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "relro16kSafe": true,
+      "result": "PASS"
+    }
+  ],
+  "permissionGateFixtures": [
+    {
+      "case": "required network/VPN and existing camera permissions pass",
+      "result": "PASS"
+    },
+    {
+      "case": "uses-permission ACCESS_COARSE_LOCATION rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "uses-permission-sdk-23 ACCESS_COARSE_LOCATION rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "uses-permission ACCESS_FINE_LOCATION rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "uses-permission-sdk-23 ACCESS_FINE_LOCATION rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "uses-permission ACCESS_BACKGROUND_LOCATION rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "uses-permission-sdk-23 ACCESS_BACKGROUND_LOCATION rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "uses-permission ACCESS_WIFI_STATE rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "uses-permission-sdk-23 ACCESS_WIFI_STATE rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "missing INTERNET rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "missing ACCESS_NETWORK_STATE rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "missing FOREGROUND_SERVICE rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "missing FOREGROUND_SERVICE_SYSTEM_EXEMPTED rejected",
+      "result": "PASS"
+    }
+  ],
+  "manifestRemovalDirectives": [
+    "android.permission.ACCESS_COARSE_LOCATION",
+    "android.permission.ACCESS_FINE_LOCATION",
+    "android.permission.ACCESS_WIFI_STATE"
+  ],
+  "publishedApiSignatures": [
+    "public static synchronized org.maplibre.android.MapLibre getInstance(android.content.Context);",
+    "public static synchronized org.maplibre.android.MapLibre getInstance(android.content.Context, java.lang.String, org.maplibre.android.WellKnownTileServer);",
+    "public static synchronized org.maplibre.android.MapLibre getInstance(android.content.Context, java.lang.String, org.maplibre.android.WellKnownTileServer, org.maplibre.android.RenderingEngine$Type);",
+    "public org.maplibre.android.maps.MapView(android.content.Context);",
+    "public org.maplibre.android.maps.MapView(android.content.Context, android.util.AttributeSet);",
+    "public org.maplibre.android.maps.MapView(android.content.Context, android.util.AttributeSet, int);",
+    "public org.maplibre.android.maps.MapView(android.content.Context, org.maplibre.android.maps.MapLibreMapOptions);",
+    "public void onCreate(android.os.Bundle);",
+    "public void onStart();",
+    "public void onResume();",
+    "public void onPause();",
+    "public void onStop();",
+    "public void onDestroy();",
+    "public void addOnDidFailLoadingMapListener(org.maplibre.android.maps.MapView$OnDidFailLoadingMapListener);",
+    "public void removeOnDidFailLoadingMapListener(org.maplibre.android.maps.MapView$OnDidFailLoadingMapListener);",
+    "public void addOnDidFinishRenderingMapListener(org.maplibre.android.maps.MapView$OnDidFinishRenderingMapListener);",
+    "public void removeOnDidFinishRenderingMapListener(org.maplibre.android.maps.MapView$OnDidFinishRenderingMapListener);",
+    "public void getMapAsync(org.maplibre.android.maps.OnMapReadyCallback);",
+    "public org.maplibre.android.maps.MapLibreMapOptions();",
+    "public org.maplibre.android.maps.MapLibreMapOptions textureMode(boolean);",
+    "public boolean getLogoEnabled();",
+    "public boolean getRotateGesturesEnabled();",
+    "public boolean getTiltGesturesEnabled();",
+    "public boolean getAttributionEnabled();",
+    "public void getStyle(org.maplibre.android.maps.Style$OnStyleLoaded);",
+    "public org.maplibre.android.maps.Style getStyle();",
+    "void onStart();",
+    "void onStop();",
+    "void onDestroy();",
+    "public void setStyle(java.lang.String);",
+    "public void setStyle(java.lang.String, org.maplibre.android.maps.Style$OnStyleLoaded);",
+    "public void setStyle(org.maplibre.android.maps.Style$Builder);",
+    "public void setStyle(org.maplibre.android.maps.Style$Builder, org.maplibre.android.maps.Style$OnStyleLoaded);",
+    "public void addOnMapClickListener(org.maplibre.android.maps.MapLibreMap$OnMapClickListener);",
+    "public java.util.List<org.maplibre.geojson.Feature> queryRenderedFeatures(android.graphics.RectF, java.lang.String...);",
+    "public java.util.List<org.maplibre.geojson.Feature> queryRenderedFeatures(android.graphics.RectF, org.maplibre.android.style.expressions.Expression, java.lang.String...);",
+    "public void setLogoEnabled(boolean);",
+    "public boolean isLogoEnabled();",
+    "public void setAttributionEnabled(boolean);",
+    "public boolean isAttributionEnabled();",
+    "public void setRotateGesturesEnabled(boolean);",
+    "public boolean isRotateGesturesEnabled();",
+    "public void setTiltGesturesEnabled(boolean);",
+    "public boolean isTiltGesturesEnabled();",
+    "public <T extends org.maplibre.android.style.sources.Source> T getSourceAs(java.lang.String);",
+    "public org.maplibre.android.maps.Style$Builder fromJson(java.lang.String);",
+    "public final void setGeoJson(java.lang.String);",
+    "public interface org.maplibre.android.maps.MapView$OnDidFailLoadingMapListener {",
+    "public abstract void onDidFailLoadingMap(java.lang.String);",
+    "public interface org.maplibre.android.maps.MapView$OnDidFinishRenderingMapListener {",
+    "public abstract void onDidFinishRenderingMap(boolean);"
+  ],
+  "gradleSourceReview": {
+    "artifact": "com.android.tools.build:gradle:8.13.2:sources",
+    "source": "com/android/build/api/variant/impl/SourceDirectoriesImpl.kt",
+    "wiring": "addGeneratedSourceDirectory uses TaskProvider.flatMap; applies a convention to DirectoryProperty, preserving explicit outputDirectory. Shared task sources are included for each app variant."
+  }
+}

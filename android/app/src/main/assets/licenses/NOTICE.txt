@@ -86,7 +86,11 @@ HTTP request headers, and fails closed when that chain is unavailable.
 The full Apache License 2.0 is included in Apache-2.0.txt.
 MapLibre Native Android 13.7.1 (OpenGL artifact): BSD-2-Clause.
 Copyright MapLibre contributors, MapTiler.com and Mapbox.
-The full notice is included in MapLibre-Native.txt.
+The root license is included in MapLibre-Native.txt.
+Complete upstream Android/Java dependency notices are included verbatim in
+MapLibre-Android-Dependencies.txt; native core notices (including HarfBuzz)
+are included in MapLibre-Core-Dependencies.txt. Both are taken from the
+exact upstream source revision below.
 https://github.com/maplibre/maplibre-native/tree/4cf121e515d8d065b57cd555a0b231ea27ff0e5d
 Atlas geographic data: Natural Earth, public domain, offline derivative.
 Country anchors indicate regions, not measured server locations.
@@ -100,3 +104,12 @@ versions, generated during the application build.
 Test-only JUnit, AndroidX Test, Espresso, UI Automator and org.json dependencies
 are not bundled into the release application. Instrumentation is distributed as
 a separate debug test APK and is never enabled in the release manifest.
+
+MapLibre Gestures Android 0.0.4: Mapbox/MapLibre and Android Gesture Detectors
+Framework (Almer Thie) notices are preserved in full in MapLibre-Gestures.txt.
+https://github.com/maplibre/maplibre-gestures-android/tree/823df84b427c6f8a320c2f14660f986243f6987b
+
+MapLibre Java GeoJSON/Turf 6.0.1: the upstream source MIT license is reproduced
+in MapLibre-Java.txt. Published POM metadata declares Apache-2.0; its notice is
+also retained in the complete upstream Android aggregate above.
+https://github.com/maplibre/maplibre-java/tree/db35dfd06f9d671bfda1fd5771b478772c872631

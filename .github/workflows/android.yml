@@ -164,7 +164,7 @@ jobs:
           import base64
           from pathlib import Path
           root = Path('out/android/gallery/ui-screenshots')
-          for name in ['01-home-empty.png','02-settings.png','03-saved-route.png','04-groups.png','05-atlas-local.png']:
+          for name in ['01-home-empty.png','02-settings.png','03-saved-route.png','04-groups.png','05-atlas-local.png','06-atlas-large-font.png']:
               for path in root.rglob(name):
                   print('WAARP_ANDROID_PREVIEW '+name+' '+base64.b64encode(path.read_bytes()).decode('ascii'))
           # These failure captures contain only the gallery's synthetic UI fixtures.

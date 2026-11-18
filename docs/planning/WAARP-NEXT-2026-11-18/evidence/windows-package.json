@@ -1,0 +1,13 @@
+{
+  "version": "0.4.1-rc.3",
+  "commit": "6df55eba3b3e87294ef34d38dde549a3c5560ee1",
+  "passed": true,
+  "noTestBundlesOrReports": true,
+  "runtimeEntriesPresent": true,
+  "packagedEngineMatchesPin": true,
+  "asarBytes": 74809904,
+  "asarEntryCount": 5828,
+  "portableBytes": 130517956,
+  "portableSha256": "8c52cc85b4607029d8b0604165a1c4c177a113e332e0699e2f5f9d20ef204cd3",
+  "engineVersion": "1.14.2-lx.11"
+}

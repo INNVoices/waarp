@@ -56,8 +56,8 @@ import { parseProbe, probeLayers } from './layered'
 import { activeIds, diagnosisSet, learn, type NetMemory } from '../shared/netmemory'
 import { loadMem, saveMem } from './netmem-store'
 import { networkFingerprint } from './netid'
-import { diagnosisCurrent, diagnosisProof, diagnosisRouteSignature, diagnosisSettings, type DiagnosisProof } from './diagnosis'
-import { assessConnection, connectionUse, summarizeChecks, summarizedPaths, type DiagnosisScope } from '../shared/connection-quality'
+import { DiagnosisRequests, diagnosisCurrent, diagnosisProof, diagnosisRequestScope, diagnosisSettings, type DiagnosisProof } from './diagnosis'
+import { assessConnection, connectionUse, summarizeChecks, summarizedPaths, type DiagnosisResult, type DiagnosisScope } from '../shared/connection-quality'
 import { checkPayload, verifyDownload } from './payload-check'
 import { proxyRequest, transferUrl } from './proxy-http'
 import { serviceTransport } from './service-transport'
@@ -945,87 +945,87 @@ function ipc() {
     if (routeId !== undefined && (typeof routeId !== 'string' || routeId.length > 400)) return null
     const route = routeId === undefined ? undefined : store.settings.routes.find(r => r.id === routeId)
     if (routeId !== undefined && !route) return null
-    const routeSignature = route ? diagnosisRouteSignature(route) : undefined
-    const stopping = cancelDiagnosis()
-    const run = diagnoseRun
-    await stopping
-    if (run !== diagnoseRun || quitting) return null
-    const ac = new AbortController(), context = diagnosisContext(route?.id)
-    diagnosisAbort = ac
-    const measured = checker
-    let lease: symbol | undefined
-    let checkerReady = false
-    let cleanup: Promise<boolean> | undefined
-    const stopOwned = () => {
-      if (lease && measured?.owns(lease)) cleanup = diagnosisCleanup = measured.stop()
-    }
-    ac.signal.addEventListener('abort', stopOwned, { once: true })
-    const timer = setTimeout(() => ac.abort(), DIAGNOSE_MS)
-    const current = () => !ac.signal.aborted && run === diagnoseRun && !quitting && context === diagnosisContext(route?.id) && (!route ||
-      store.settings.routes.some(r => r.id === route.id && diagnosisRouteSignature(r) === routeSignature))
-    try {
-      const st = withRoutes(engine.status)
-      const selected = route?.via
-      const effective = route ? st.routes?.[route.id]?.effective ?? st.picked?.[route.via] ?? (!route.via.startsWith('g-') ? route.via : undefined) : undefined
-      const scope: DiagnosisScope | undefined = route ? { routeId: route.id, routeName: route.name, connectionUse: connectionUse(route.connectionUse), selectedVia: selected!, effectiveVia: effective } : undefined
-      const used = activeIds(compilePlan(store.settings, store.profiles).requiredProfiles, st.picked, Object.values(st.routes ?? {}).map(e => e.effective), new Set(store.profiles.map(p => p.id)))
-      const host = parsed.host
-      const net = await networkFingerprint(netMem.salt, ac.signal)
-      if (!current()) return null
-      // Two checks per candidate share the existing eight-check budget. The inspected card goes first.
-      const candidates = diagnosisSet(autoMembers(store.profiles), used, netMem.data, net, host, Date.now(), AUTO_BUDGET)
-      const primary = effective === 'direct' || autoMembers(store.profiles).includes(effective ?? '') ? effective : undefined
-      const eligible = [...new Set([...(primary ? [primary] : []), ...candidates])].slice(0, Math.floor(AUTO_BUDGET / 2))
-      const checked = store.profiles.filter(p => eligible.includes(p.id))
-      const signatures = new Map(checked.map(p => [p.id, profileSig(p)]))
-      const viaPaths = async (): Promise<Record<string, number | null>> => {
-        if (!eligible.length || !current()) return {}
-        if (engine.status.phase === 'on') return engine.probePaths(parsed.url, eligible, ac.signal)
-        if (!measured || master.open || engine.status.phase !== 'off') return {}
-        lease ??= measured.acquire(() => ac.abort())
-        if (!lease) return {}
-        try {
-          if (!checkerReady) {
-            const list = await untilCancelled(adapters(), ac.signal)
-            if (!list || !current() || !measured.owns(lease)) return {}
-            if (!checked.length || !(await measured.ensure(checked, list)) || !current() || !measured.owns(lease)) return {}
-            checkerReady = true
-          }
-          if (!current() || !measured.owns(lease)) return {}
-          const result = await measured.probe(parsed.url, eligible)
-          return current() && measured.owns(lease) ? result : {}
-        } catch { return {} }
+    const context = diagnosisContext(route?.id), deadline = Date.now() + DIAGNOSE_MS
+    const requestScope = diagnosisRequestScope(parsed.url, context, store.profiles, route)
+    const requestCurrent = () => !quitting && Date.now() < deadline && requestScope === diagnosisRequestScope(parsed.url,
+      diagnosisContext(route?.id), store.profiles, route ? store.settings.routes.find(r => r.id === route.id) : undefined)
+    return diagnosisRequests.request(requestScope,
+      signal => networkFingerprint(netMem.salt, AbortSignal.any([signal, AbortSignal.timeout(DIAGNOSE_MS)])), requestCurrent, async net => {
+      const run = diagnoseRun, ac = new AbortController()
+      diagnosisAbort = ac
+      const measured = checker
+      let lease: symbol | undefined
+      let checkerReady = false
+      let cleanup: Promise<boolean> | undefined
+      const stopOwned = () => {
+        if (lease && measured?.owns(lease)) cleanup = diagnosisCleanup = measured.stop()
       }
-      const rounds = async () => {
-        const out: Record<string, number | null>[] = []
-        for (let i = 0; i < 2 && current(); i++) out.push(await viaPaths())
-        return out
+      ac.signal.addEventListener('abort', stopOwned, { once: true })
+      const timer = setTimeout(() => ac.abort(), Math.max(0, deadline - Date.now()))
+      const current = () => !ac.signal.aborted && run === diagnoseRun && requestCurrent()
+      try {
+        const st = withRoutes(engine.status)
+        const selected = route?.via
+        const effective = route ? st.routes?.[route.id]?.effective ?? st.picked?.[route.via] ?? (!route.via.startsWith('g-') ? route.via : undefined) : undefined
+        const scope: DiagnosisScope | undefined = route ? { routeId: route.id, routeName: route.name, connectionUse: connectionUse(route.connectionUse), selectedVia: selected!, effectiveVia: effective } : undefined
+        const used = activeIds(compilePlan(store.settings, store.profiles).requiredProfiles, st.picked, Object.values(st.routes ?? {}).map(e => e.effective), new Set(store.profiles.map(p => p.id)))
+        const host = parsed.host
+        if (!current()) return null
+        // Two checks per candidate share the existing eight-check budget. The inspected card goes first.
+        const candidates = diagnosisSet(autoMembers(store.profiles), used, netMem.data, net, host, Date.now(), AUTO_BUDGET)
+        const primary = effective === 'direct' || autoMembers(store.profiles).includes(effective ?? '') ? effective : undefined
+        const eligible = [...new Set([...(primary ? [primary] : []), ...candidates])].slice(0, Math.floor(AUTO_BUDGET / 2))
+        const checked = store.profiles.filter(p => eligible.includes(p.id))
+        const signatures = new Map(checked.map(p => [p.id, profileSig(p)]))
+        const viaPaths = async (): Promise<Record<string, number | null>> => {
+          if (!eligible.length || !current()) return {}
+          if (engine.status.phase === 'on') return engine.probePaths(parsed.url, eligible, ac.signal)
+          if (!measured || master.open || engine.status.phase !== 'off') return {}
+          lease ??= measured.acquire(() => ac.abort())
+          if (!lease) return {}
+          try {
+            if (!checkerReady) {
+              const list = await untilCancelled(adapters(), ac.signal)
+              if (!list || !current() || !measured.owns(lease)) return {}
+              if (!checked.length || !(await measured.ensure(checked, list)) || !current() || !measured.owns(lease)) return {}
+              checkerReady = true
+            }
+            if (!current() || !measured.owns(lease)) return {}
+            const result = await measured.probe(parsed.url, eligible)
+            return current() && measured.owns(lease) ? result : {}
+          } catch { return {} }
+        }
+        const rounds = async () => {
+          const out: Record<string, number | null>[] = []
+          for (let i = 0; i < 2 && current(); i++) out.push(await viaPaths())
+          return out
+        }
+        const [direct, observations] = await Promise.all([probeLayers(parsed.url, undefined, undefined, ac.signal), rounds()])
+        if (!current()) return null
+        const samples = summarizeChecks(observations)
+        const paths = Object.fromEntries(Object.entries(summarizedPaths(samples)).filter(([id]) => id !== 'direct'))
+        const finding = classify(direct, paths)
+        const assessment = scope ? assessConnection(scope.connectionUse, effective, samples, eligible.filter(id => id !== 'direct')) : undefined
+        const latestNet = await networkFingerprint(netMem.salt, ac.signal)
+        const stale = !current() || latestNet !== net || checked.some(p => signatures.get(p.id) !== profileSig(store.profiles.find(x => x.id === p.id) ?? p) || !store.profiles.some(x => x.id === p.id && !x.revoked))
+        const at = Date.now()
+        // The layer trace uses system sockets. With our TUN up it cannot independently prove Direct restrictions.
+        if (net && !stale && engine.status.phase === 'off' && !master.open) { netMem.data = learn(netMem.data, net, host, finding, autoMembers(store.profiles), at); saveNetMem() }
+        const stable = Object.fromEntries(Object.entries(paths).filter(([id]) => samples[id]?.attempted >= 2 && samples[id].responded === samples[id].attempted))
+        const allowed = scope ? (assessment?.recommendedVia ? { [assessment.recommendedVia]: stable[assessment.recommendedVia] } : {}) : stable
+        const proof = !stale && (scope ? !!assessment?.recommendedVia : finding.kind === 'restricted_direct' || finding.kind === 'path_only')
+          ? diagnosisProof(host, allowed, checked, net, at, context, route) : undefined
+        if (run === diagnoseRun) lastDiagnosis = proof
+        return { target: parsed.shown, host, direct, paths, finding, at, stale, token: proof?.token, samples, scope, assessment, systemPath: true }
+      } finally {
+        clearTimeout(timer)
+        stopOwned()
+        if (cleanup) await cleanup
+        if (lease) measured?.release(lease)
+        ac.signal.removeEventListener('abort', stopOwned)
+        if (diagnosisAbort === ac) diagnosisAbort = undefined
       }
-      const [direct, observations] = await Promise.all([probeLayers(parsed.url, undefined, undefined, ac.signal), rounds()])
-      if (!current()) return null
-      const samples = summarizeChecks(observations)
-      const paths = Object.fromEntries(Object.entries(summarizedPaths(samples)).filter(([id]) => id !== 'direct'))
-      const finding = classify(direct, paths)
-      const assessment = scope ? assessConnection(scope.connectionUse, effective, samples, eligible.filter(id => id !== 'direct')) : undefined
-      const latestNet = await networkFingerprint(netMem.salt, ac.signal)
-      const stale = !current() || latestNet !== net || checked.some(p => signatures.get(p.id) !== profileSig(store.profiles.find(x => x.id === p.id) ?? p) || !store.profiles.some(x => x.id === p.id && !x.revoked))
-      const at = Date.now()
-      // The layer trace uses system sockets. With our TUN up it cannot independently prove Direct restrictions.
-      if (net && !stale && engine.status.phase === 'off' && !master.open) { netMem.data = learn(netMem.data, net, host, finding, autoMembers(store.profiles), at); saveNetMem() }
-      const stable = Object.fromEntries(Object.entries(paths).filter(([id]) => samples[id]?.attempted >= 2 && samples[id].responded === samples[id].attempted))
-      const allowed = scope ? (assessment?.recommendedVia ? { [assessment.recommendedVia]: stable[assessment.recommendedVia] } : {}) : stable
-      const proof = !stale && (scope ? !!assessment?.recommendedVia : finding.kind === 'restricted_direct' || finding.kind === 'path_only')
-        ? diagnosisProof(host, allowed, checked, net, at, context, route) : undefined
-      if (run === diagnoseRun) lastDiagnosis = proof
-      return { target: parsed.shown, host, direct, paths, finding, at, stale, token: proof?.token, samples, scope, assessment, systemPath: true }
-    } finally {
-      clearTimeout(timer)
-      stopOwned()
-      if (cleanup) await cleanup
-      if (lease) measured?.release(lease)
-      ac.signal.removeEventListener('abort', stopOwned)
-      if (diagnosisAbort === ac) diagnosisAbort = undefined
-    }
+    })
   })
   secureHandle('diagnose:cancel', () => cancelDiagnosis())
   secureHandle('payload:last', () => {
@@ -1533,6 +1533,7 @@ let diagnoseRun = 0
 let diagnosisAbort: AbortController | undefined
 let diagnosisCleanup: Promise<boolean> = Promise.resolve(true)
 let lastDiagnosis: DiagnosisProof | undefined
+const diagnosisRequests = new DiagnosisRequests<DiagnosisResult>(stopDiagnosis)
 let lastPayloadReport: PayloadReport | undefined
 let sessionEvidence: LastSessionEvidence
 let payloadTask: AbortController | undefined
@@ -1646,9 +1647,10 @@ const diagnosisContext = (routeId?: string) => {
   const route = routeId ? store.settings.routes.find(r => r.id === routeId) : undefined
   const st = route ? withRoutes(engine.status) : undefined
   const effective = route ? st?.routes?.[route.id]?.effective ?? st?.picked?.[route.via] ?? (!route.via.startsWith('g-') ? route.via : undefined) : undefined
-  return JSON.stringify([master.revision, engine.status.phase, engine.status.since, tunes, effective])
+  return JSON.stringify([master.revision, diagnosisRequests.sessionKey(engine.sessionToken), engine.status.phase, engine.status.since, tunes, effective])
 }
-async function cancelDiagnosis(): Promise<boolean> {
+function cancelDiagnosis(): Promise<boolean> { return diagnosisRequests.cancel() }
+async function stopDiagnosis(): Promise<boolean> {
   diagnoseRun++
   lastDiagnosis = undefined
   diagnosisAbort?.abort()

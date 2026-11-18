@@ -153,7 +153,7 @@ class InstrumentationEvidenceTests(unittest.TestCase):
         cases = sorted(runner.UI_GALLERY_CASES)
         transcript = "".join(status(method, 0, count=len(cases)).replace(
             "local.waarp.ExampleTest", cls) for cls, method in cases) + "INSTRUMENTATION_CODE: -1\n"
-        names = ["01-home-empty.png", "02-settings.png", "03-saved-route.png", "04-groups.png", "05-atlas-local.png"]
+        names = ["01-home-empty.png", "02-settings.png", "03-saved-route.png", "04-groups.png", "05-atlas-local.png", "06-atlas-large-font.png"]
         for files, native_ok, expected in ((names, True, 0), (names[:-1], True, 1), (names, False, 1)):
             with self.subTest(files=files, native_ok=native_ok), TemporaryDirectory() as temporary:
                 output = Path(temporary)
@@ -194,7 +194,7 @@ class InstrumentationEvidenceTests(unittest.TestCase):
                 self.assertEqual(report["passedGate"], expected == 0)
                 self.assertEqual(report["tests"], 4)
                 self.assertEqual(report["uiScreenshotCount"], len(files))
-                self.assertIn("four offline scenarios", report["scope"])
+                self.assertIn("six actual UI screenshots from four offline scenarios", report["scope"])
 
 
 if __name__ == "__main__":

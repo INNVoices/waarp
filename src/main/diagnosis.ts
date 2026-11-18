@@ -20,6 +20,81 @@ export function diagnosisRouteSignature(route: Route): string {
   return routeEvidenceSignature(route)
 }
 
+/** Main-owned identity before the asynchronous physical-network read. Never log this key. */
+export function diagnosisRequestScope(target: string, context: string, profiles: readonly Profile[], route?: Route): string {
+  return JSON.stringify([target, context, route ? diagnosisRouteSignature(route) : null, profiles.map(p => [p.id, profileSig(p)])])
+}
+
+interface DiagnosisFlight<T> {
+  net: string | undefined
+  result: Promise<T | null>
+  /** Only subscribers already admitted before completion may receive the completed operation. */
+  completedThrough?: number
+}
+
+/** Shares the existing diagnosis owner, not a new scheduler or persistent result cache. */
+export class DiagnosisRequests<T> {
+  private scope?: string
+  private generation = 0
+  private requested = 0
+  private accepted = 0
+  private flight?: DiagnosisFlight<T>
+  private reads = new Set<AbortController>()
+  private sessionIds = new WeakMap<object, number>()
+  private nextSession = 0
+
+  constructor(private stop: () => Promise<boolean>) {}
+
+  /** Engine tokens are opaque ChildProcess objects or OFF generations; never serialize a child. */
+  sessionKey(token: object | number): string {
+    if (typeof token === 'number') return 'off:' + token
+    let id = this.sessionIds.get(token)
+    if (id === undefined) { id = ++this.nextSession; this.sessionIds.set(token, id) }
+    return 'on:' + id
+  }
+
+  cancel(): Promise<boolean> {
+    this.generation++
+    this.scope = undefined
+    this.flight = undefined
+    for (const read of this.reads) read.abort()
+    this.reads.clear()
+    return this.stop()
+  }
+
+  async request(scope: string, readNetwork: (signal: AbortSignal) => Promise<string | undefined>,
+    current: () => boolean, measure: (net: string | undefined) => Promise<T | null>): Promise<T | null> {
+    // A changed target/card/runtime cancels immediately, even while its new fingerprint is being read.
+    if (this.scope !== scope) { void this.cancel(); this.scope = scope }
+    const generation = this.generation, request = ++this.requested, read = new AbortController()
+    this.reads.add(read)
+    let net: string | undefined
+    try { net = await readNetwork(read.signal) }
+    finally { this.reads.delete(read) }
+    if (read.signal.aborted || generation !== this.generation || !current()) return null
+    const prior = this.flight
+    // An unknown network is not a shared bucket. Its ordinary diagnostic may still run without an apply proof.
+    if (net && prior?.net === net && (prior.completedThrough === undefined || request <= prior.completedThrough)) {
+      this.accepted = Math.max(this.accepted, request)
+      return prior.result
+    }
+    // A slower fingerprint from an older request cannot displace a newer network's measurement.
+    if (request < this.accepted) return null
+    this.accepted = request
+    const stopped = this.stop()
+    const flight: DiagnosisFlight<T> = { net, result: Promise.resolve(null) }
+    this.flight = flight
+    const owns = () => this.flight === flight && generation === this.generation && current()
+    flight.result = (async () => {
+      await stopped
+      if (!owns()) return null
+      const result = await measure(net)
+      return owns() ? result : null
+    })().finally(() => { flight.completedThrough = this.requested })
+    return flight.result
+  }
+}
+
 /** A result is a short-lived capability for the exact personal paths actually measured. */
 export function diagnosisProof(host: string, paths: Record<string, number | null>, profiles: Profile[], net: string | undefined, at: number, context: string, route?: Route): DiagnosisProof | undefined {
   if (!net) return undefined

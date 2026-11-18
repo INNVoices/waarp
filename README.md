@@ -40,7 +40,7 @@
 
 | **Precise routing** | **Stable path selection** | **Useful diagnostics** |
 | :--- | :--- | :--- |
-| Assign a direct or protected path to apps, services, domains and custom targets. | Auto holds a working personal route; explicit failover avoids reflexive ping-based switching. | Compare Direct and protected connections with DNS, TCP, TLS and HTTP observations. |
+| Assign a direct or protected path to apps, services, domains and custom targets. | Auto holds a working personal route; explicit failover avoids reflexive ping-based switching. | Check a target through your connections and explain observed DNS, TCP, TLS and HTTP failures. |
 | **Bring your own connections** | **Public pool, by choice** | **Desktop + mobile** |
 | WireGuard / AmneziaWG, VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, OpenVPN and supported imports. | On Windows, browse current availability, search the full pool and check a chosen server while the VPN stays on. Public relays never join Auto silently. | Electron-based Windows client and native Kotlin / Compose Android client in one repository. |
 
@@ -67,6 +67,12 @@ Public checks can run while Waarp is on. Changing a card's server updates the ro
 
 [What changed and how it behaves](docs/SERVER-SELECTION-2026-11-18.md) · [Preview notes](release/preview-2026-11-18.md)
 
+## New connection tools in main
+
+The current source embeds a local map in the existing Windows and Android connection pickers. Search and filters stay in place; choosing a region filters the selectable rows. A check opened from a card compares responses from its target through eligible connections, explains the result and applies a chosen path to that card. On Android, the result stays in the draft until the single Save route action.
+
+Windows also holds active paths during optional changes and gives explicit user actions priority. These changes are being prepared for the next release; the download links above refer to the published `r3` preview. [Usage](docs/CONNECTION-TOOLS.md) · [Actual checks and limits](docs/planning/WAARP-NEXT-2026-11-18/08-IMPLEMENTATION.md) · [Contribute a profile](docs/CONNECTION-PROFILES.md).
+
 ## How it works
 
 Waarp does not put the whole computer behind one VPN. Each target gets its own intent:
@@ -91,7 +97,7 @@ Failover closes the affected sessions so traffic can use the replacement path. G
 
 ### Diagnostics
 
-Waarp answers practical questions: does the target work directly? Through one of my connections? Did it fail at DNS, TCP, TLS or HTTP? It avoids overclaiming: "fails on Direct but works through a connection" is evidence, not automatically censorship. With the tunnel closed, a separate local checker probes a bounded set of your connections without creating a TUN or touching system routes.
+Waarp checks a target through eligible connections and reports the observed failure stage: DNS, TCP, TLS or HTTP. Detailed system checks follow operating-system routes and can traverse the active VPN. Checks of specific connections address their native outbound. One failed request does not establish a cause such as provider blocking. With the tunnel closed, a separate local checker probes a bounded set of your connections without creating a TUN or touching system routes.
 
 Displayed latency measures an HTTP check, not game-server ping. Waarp selects a path for each route; it does not send a session through several paths at once (multipath).
 

@@ -23,6 +23,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import java.io.File
+import java.net.InetAddress
+import java.net.ServerSocket
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
@@ -259,19 +261,64 @@ class MobileUiInstrumentedTest {
     }
 
     @Test fun atlasAndConnectionCheckKeepTheDraftUntilTheSingleSave() = withFailureCapture("failure-atlas-draft") {
-        val alpha = ProfileImporter.link("trojan://atlas-alpha@192.0.2.21:443#Atlas%20Alpha").copy(id = "atlas-alpha", country = "DE")
-        val beta = ProfileImporter.link("trojan://atlas-beta@192.0.2.22:443#Atlas%20Beta").copy(id = "atlas-beta", country = "FR")
+        // The real Probe action reaches a closed loopback port, never an external server.
+        val port = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
+        val alpha = ProfileImporter.link("trojan://atlas-alpha@127.0.0.1:$port#Atlas%20Alpha").copy(id = "atlas-alpha", country = "DE")
+        val beta = ProfileImporter.link("trojan://atlas-beta@127.0.0.1:$port#Atlas%20Beta").copy(id = "atlas-beta", country = "FR")
         runBlocking { repository.edit { AppData(profiles = listOf(alpha, beta), routes = listOf(
             TrafficRoute("atlas-route", "Atlas route", "custom", "example.test", alpha.id))) } }
         awaitData { it.profiles.size == 2 }
         val revision = repository.data.value!!.revision
         tab("Туннели")
-        compose.onNode(hasText("Карта") and hasClickAction()).performScrollTo().performClick()
-        compose.waitUntil(20_000) { compose.onAllNodesWithTag("waarp-atlas-map").fetchSemanticsNodes().any {
-            it.config.getOrNull(SemanticsProperties.StateDescription) == "Локальная карта загружена"
-        } }
+        compose.onNode(hasText("Карта") and hasClickAction()).assertIsDisplayed().performTouchInput { click() }
+        fun awaitMap() = compose.waitUntil(20_000) {
+            compose.onAllNodesWithTag("waarp-atlas-map").fetchSemanticsNodes().any {
+                it.config.getOrNull(SemanticsProperties.StateDescription) == "Локальная карта загружена"
+            }
+        }
+        fun assertMapControlsClearOfFab() {
+            val fab = compose.onNodeWithContentDescription("Добавить туннель").fetchSemanticsNode().boundsInRoot
+            val controls = hasClickAction() and (hasText("Проверить") or hasText("Карта") or hasText("Список") or
+                hasText("Указать мой регион") or hasText("Показать регион") or hasText("Все регионы"))
+            compose.onAllNodes(controls).fetchSemanticsNodes().forEach { node ->
+                val bounds = node.boundsInRoot
+                if (bounds.width > 0f && bounds.height > 0f) assertFalse("A visible map control is under the import FAB", bounds.overlaps(fab))
+            }
+            val mapBounds = compose.onNodeWithTag("waarp-atlas-map").fetchSemanticsNode().boundsInRoot
+            assertTrue("Map viewport must finish above the import FAB", mapBounds.bottom <= fab.top)
+        }
+        awaitMap()
+        compose.onNode(hasText("Проверить") and hasClickAction()).assertIsDisplayed().assertIsEnabled()
+        assertMapControlsClearOfFab()
         screenshot("05-atlas-local")
-        compose.onNode(hasText("Список") and hasClickAction()).performScrollTo().performClick()
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val originalFontScale = device.executeShellCommand("settings get system font_scale").trim().toFloatOrNull() ?: 1f
+        fun setFontScale(scale: Float) {
+            device.executeShellCommand("settings put system font_scale $scale")
+            compose.waitUntil(15_000) { kotlin.math.abs(compose.activity.resources.configuration.fontScale - scale) < 0.01f }
+            compose.waitForIdle()
+        }
+        try { withFailureCapture("failure-atlas-large-font") {
+            setFontScale(1.5f)
+            awaitMap()
+            val probe = compose.onNode(hasText("Проверить") and hasClickAction())
+            awaitFocusedWindow(probe, SystemClock.uptimeMillis() + 15_000L)
+            probe.assertIsDisplayed().assertIsEnabled()
+            assertMapControlsClearOfFab()
+            screenshot("06-atlas-large-font")
+            val checkedBefore = repository.health.value[alpha.id]?.checkedAt ?: 0L
+            // No performScrollTo/semantic click: exercise the original viewport and Android hit testing.
+            probe.performTouchInput { click() }
+            compose.waitUntil(30_000) { (repository.health.value[alpha.id]?.checkedAt ?: 0L) > checkedBefore }
+            compose.onNodeWithTag("waarp-form-sheet").assertDoesNotExist()
+            assertEquals(revision, repository.data.value!!.revision)
+            assertEquals(RuntimePhase.OFF, repository.controller.status.value.phase)
+            assertFalse(repository.requestedOpen.value)
+        } } finally { setFontScale(originalFontScale) }
+        awaitMap()
+        val listChoice = compose.onNode(hasText("Список") and hasClickAction())
+        awaitFocusedWindow(listChoice, SystemClock.uptimeMillis() + 15_000L)
+        listChoice.assertIsDisplayed().performTouchInput { click() }
         assertEquals(revision, repository.data.value!!.revision)
         assertFalse(repository.requestedOpen.value)
         tab("Маршруты")

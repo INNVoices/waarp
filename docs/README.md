@@ -7,6 +7,7 @@
 | Current Windows server picker, pagination and live checks | [Windows 0.4.1-rc.3](SERVER-SELECTION-2026-11-18.md) |
 | Android capabilities, build, signing and acceptance | [ANDROID.md](ANDROID.md) |
 | Android Chameleon / Sticky entry feasibility (concept only) | [Chameleon research, 2026-11-18](ANDROID-CHAMELEON-2026-11-18.md) |
+| Local map, per-card checks and contribution guide (new main; acceptance in progress) | [Using connection tools](CONNECTION-TOOLS.md) · [Contributing profiles](CONNECTION-PROFILES.md) · [Map data](ATLAS-DATA.md) |
 | Atlas, application-aware routing and continuity (implementation in progress) | [Implementation preparation, 2026-11-18](planning/WAARP-NEXT-2026-11-18/README.md) |
 | Routing safety and failure behavior | [RELIABILITY.md](RELIABILITY.md) |
 | Public node sources, mirrors and trust model | [SOURCES.md](SOURCES.md) · [2026-11-18 pool update](PUBLIC-POOL-2026-11-18.md) |

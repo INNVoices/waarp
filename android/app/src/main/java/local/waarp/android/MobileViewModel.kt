@@ -13,6 +13,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.coroutineScope
@@ -76,7 +77,8 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
     private var diagnostic: DiagnosticUi? = null
     private var message: UiMessage? = null
     private var diagnosticBusy = false
-    private var diagnosticJob: Job? = null
+    private var diagnosticJob: Deferred<UiResult>? = null
+    private var diagnosticIdentity: ConnectionCheckIdentity? = null
     private var diagnosticContext: ConnectionProofContext? = null
     private var connectionProof: ConnectionProof? = null
     private var appScanBusy = false
@@ -521,6 +523,11 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
     override suspend fun diagnoseRoute(request: RouteCheckRequest) = runDiagnostic(request.target, request)
 
     private suspend fun runDiagnostic(target: String, request: RouteCheckRequest?): UiResult {
+        val requested = connectionContext()?.let { ConnectionCheckIdentity(target, request, it) }
+        sharedConnectionCheck(diagnosticJob, diagnosticIdentity, requested, repository.applying.value)?.let {
+            // Awaiting a duplicate does not own cancellation. Explicit cancel/owner disposal still does.
+            return it.await()
+        }
         if (diagnosticBusy || diagnosticJob?.isCompleted == false || tuningJob?.isCompleted == false || transferJob?.isCompleted == false)
             return UiResult(false, "Дождитесь завершения текущей проверки")
         val task = viewModelScope.async(start = CoroutineStart.LAZY) {
@@ -538,6 +545,7 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
                 fun current() = diagnosticJob === owner && owner.isActive && connectionContext() == origin && !repository.applying.value
                 connectionProof = null
                 diagnosticContext = origin
+                diagnosticIdentity = ConnectionCheckIdentity(target, request, origin)
                 diagnosticBusy = true
                 val use = ConnectionUses.normalize(draft?.connectionUse)
                 diagnostic = DiagnosticUi(uri.toString(), running = true, contextId = request?.contextId,
@@ -615,6 +623,7 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
             } finally {
                 if (diagnosticJob === owner) {
                     diagnosticBusy = false
+                    diagnosticIdentity = null
                     diagnostic = diagnostic?.copy(running = false,
                         stale = diagnostic?.cancelled != true && connectionProof?.let { proof -> connectionContext()?.let { proof.current(it, SystemClock.elapsedRealtime(), repository.data.value?.profiles.orEmpty()) } != true } == true)
                     changed()
