@@ -156,6 +156,24 @@ const master = new ConnectionControl({
   changed: () => { void cancelDiagnosis(); void cancelPayloadCheck(); cancelServiceDownload(); send('status', statusView(engine.status)); updateTray() }
 })
 const setMaster = (open: boolean) => master.set(open)
+
+/** Native, explicit confirmation for edits that would recreate TUN. Invisible
+ * automation and external companions cannot approve a restart. */
+async function confirmTunRestart(reason: string): Promise<boolean> {
+  if (!win || win.isDestroyed() || !win.isVisible() || !master.open || engine.status.phase !== 'on') return false
+  const revision = master.revision
+  const result = await dialog.showMessageBox(win, {
+    type: 'warning',
+    title: 'Waarp — перезапуск VPN',
+    message: 'Для этого изменения нужно перезапустить VPN.',
+    detail: reason + '\n\nРаботающие соединения временно прервутся. При отмене действующий TUN останется без изменений.',
+    buttons: ['Отмена', 'Перезапустить VPN'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true
+  })
+  return result.response === 1 && master.current(revision) && engine.status.phase === 'on'
+}
 const statusView = (s: Status) => ({ ...withRoutes(s), open: master.open, startup: runtimeRecovery.state })
 async function pauseMeasurements(): Promise<boolean> {
   void cancelDiagnosis()
@@ -282,6 +300,7 @@ const toggle = () => { connectionAction++; return master.toggle() }
 const disconnect = () => { connectionAction++; return master.disconnect() }
 
 let watchBusy = false
+let pendingTuneRestartNotice = false
 async function watch() {
   if (engine.status.phase !== 'on') return
   if (watchBusy) return
@@ -292,11 +311,14 @@ async function watch() {
     const block = n.find(x => x.level === 'block')
     if (!master.current(revision) || engine.status.phase !== 'on') return
     if (!block) {
-      if (await refreshTuneNetwork()) await intentWrites.run(async () => {
-        if (!master.current(revision) || engine.status.phase !== 'on') return
-        const r = await master.reconnect(revision, { restart: true, preserveIntent: true })
-        if (!r.ok && r.error) send('toast', r.error)
-      })
+      // Network changes may invalidate an optional tuning overlay, but must not
+      // silently recycle TUN. The current acknowledged path remains active.
+      if (await refreshTuneNetwork()) {
+        if (!pendingTuneRestartNotice) {
+          pendingTuneRestartNotice = true
+          send('toast', 'Сеть изменилась. VPN сохранён; для новых параметров выключи и включи Waarp вручную.')
+        }
+      } else pendingTuneRestartNotice = false
       return
     }
     setMaster(false)
@@ -526,20 +548,34 @@ function ipc() {
     if ('serviceVia' in patch && previous.serviceVia !== store.settings.serviceVia) cancelServiceDownload()
     if (routing) {
       const revision = master.revision
-      // Owner OFF wins immediately even if this settings write entered the FIFO earlier/later.
-      // Save the new intent, but leave engine shutdown to the master toggle and apply it on the next open.
-      if (!master.open) { updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true } }
-      const retainCore = engine.status.phase === 'on' || engine.status.phase === 'starting'
-      if (engine.status.phase === 'on' && (await engine.applyLive(await runtimeProfiles(false), store.settings))) { updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true } }
-      if (engine.liveApplyFailure) { send('toast', engine.liveApplyFailure); updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true } }
-      const currentNotices = await refreshNotices()
-      if (!master.current(revision)) return { ...snapshot(), saved: true }
-      const action = onRoutingPatch(engine.status.phase, currentNotices.some(n => n.level === 'block'))
-      if (action === 'stop') { setMaster(false); await engine.stop() }
-      else if (action === 'start' || (demandsTunnel(store.settings) && !currentNotices.some(n => n.level === 'block'))) {
-        const result = await master.reconnect(revision, { restart: true, retainCore, preserveIntent: true })
-        if (!result.ok && master.revision === revision) send('toast', result.error)
+      if (!master.open || engine.status.phase !== 'on') {
+        updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true }
       }
+      if (await engine.applyLive(await runtimeProfiles(false), store.settings)) {
+        updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true }
+      }
+      if (engine.liveApplyFailure) {
+        send('toast', engine.liveApplyFailure)
+        updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true }
+      }
+      const rollback = () => {
+        store.settings = previous
+        try { store.save() } catch { store.settings = { ...previous, ...patch } }
+      }
+      if (!await confirmTunRestart('Изменённые маршруты или группы требуют нового нативного определения.')) {
+        if (master.current(revision)) rollback()
+        send('toast', 'Изменение отменено: перезапуск VPN не подтверждён')
+        updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: false }
+      }
+      const currentNotices = await refreshNotices()
+      if (!master.current(revision)) return { ...snapshot(), saved: false }
+      if (currentNotices.some(n => n.level === 'block')) {
+        rollback()
+        send('toast', 'Новый маршрут заблокирован проверкой безопасности; старый TUN сохранён')
+        updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: false }
+      }
+      const result = await master.reconnect(revision, { restart: true, retainCore: true, preserveIntent: true })
+      if (!result.ok && master.revision === revision) send('toast', result.error ?? 'Не удалось применить конфигурацию')
     }
     updateTray()
     send('snapshot', snapshot())
@@ -729,6 +765,7 @@ function ipc() {
     if (dup) return { ok: false, error: `Этот конфиг уже есть: «${dup.name}»` }
     // The stable ID keeps cards and groups attached. The old engine must stop before the key changes.
     if (engine.status.phase === 'starting' || engine.status.phase === 'stopping') return { ok: false, error: 'Дождись завершения подключения или остановки' }
+    if (engine.status.phase === 'on' && !await confirmTunRestart('Новые ключи или транспорт нельзя заменить без пересоздания текущего VPN.')) return { ok: false, error: 'Замена отменена; действующий VPN сохранён' }
     if (!(await pauseMeasurements())) return { ok: false, error: 'Проверочный движок не остановился; конфиг не изменён' }
     const revision = master.revision
     const wasOn = engine.status.phase === 'on'
@@ -798,6 +835,7 @@ function ipc() {
     const revision = master.revision
     const wasOn = engine.status.phase === 'on'
     const inertRemoval = wasOn && !engine.isProfileLoaded(id) && sameEffectiveRouting(previousSettings, nextSettings)
+    if (wasOn && !inertRemoval && !await confirmTunRestart('Удаление загруженного сервера требует пересоздания VPN.')) return { ok: false, error: 'Удаление отменено; действующий VPN сохранён' }
     if (!inertRemoval && engine.status.phase !== 'off' && !(await engine.stop())) return { ok: false, error: 'Туннель не удалось остановить; профиль не удалён' }
     store.profiles = remaining
     store.settings = nextSettings
@@ -991,8 +1029,9 @@ function ipc() {
       if (!master.current(revision) || engine.status.phase !== 'on' || !store.settings.routes.some(r => r.kind === 'list' && r.list === id && r.on)) return true
       if (await engine.applyLive(await runtimeProfiles(false), store.settings)) return true
       if (engine.liveApplyFailure) { send('toast', engine.liveApplyFailure); return false }
-      if (!master.current(revision)) return true // OFF supersedes a pending apply; the next open uses saved data.
-      return (await master.reconnect(revision, { restart: true })).ok
+      if (!master.current(revision)) return true // OFF supersedes a pending apply.
+      send('toast', 'Список обновлён, но живое применение недоступно. Текущий TUN сохранён; для новых правил выключи и включи Waarp вручную.')
+      return false
     } catch { return false }
     finally { send('snapshot', snapshot()) }
   }
@@ -1538,13 +1577,15 @@ const applyRouting = createApply({
   },
   live: async s => engine.applyLive(await runtimeProfiles(false), s),
   liveFailure: () => engine.liveApplyFailure,
+  confirmRestart: () => confirmTunRestart('Этот маршрут требует нового нативного определения или превышает предел живых правил.'),
   stop: () => engine.stop(),
   changed: () => send('snapshot', snapshot())
 })
 /** user-facing text for a routing write that was saved but not applied (or not saved) */
 function applyText(r: ApplyResult): string | undefined {
   if (!r.saved) return 'Не удалось сохранить маршрут'
-  if (r.code === 'block') return (notices.find(n => n.level === 'block')?.title ?? 'Запуск заблокирован') + '. Маршрут сохранён, туннель остановлен'
+  if (r.code === 'block') return (notices.find(n => n.level === 'block')?.title ?? 'Запуск заблокирован') + '. Изменение отменено; действующий TUN сохранён'
+  if (r.code === 'restart') return 'Изменение отменено: перезапуск VPN не подтверждён, прежний маршрут сохранён'
   if (r.code === 'start') return 'Маршрут сохранён, но текущее состояние туннеля не применило изменение'
   return undefined
 }

@@ -16,7 +16,7 @@ const base: Settings = { ...DEFAULTS, rest: 'p1', routes: [
   { id: 'custom:x.org', kind: 'custom', name: 'x.org', value: 'x.org', via: 'p1', fallback: 'p2', on: false }
 ] } as Settings
 
-function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?: string; open?: boolean } = {}) {
+function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?: string; open?: boolean; confirm?: boolean } = {}) {
   let cur = base, phase = o.phase ?? 'off', starts = 0, stops = 0, saves = 0, changed = 0
   const d: ApplyDeps = {
     get: () => cur, set: s => { cur = s },
@@ -27,6 +27,7 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
     demandsTunnel: requiresCore,
     start: async () => { starts++; phase = o.startTo ?? 'on' },
     stop: async () => { stops++; phase = 'off' },
+    confirmRestart: async () => o.confirm !== false,
     changed: () => { changed++ }
   }
   return { apply: createApply(d), get: () => cur, counts: () => ({ starts, stops, saves, changed }) }
@@ -38,7 +39,7 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
   {
     const r = rig({ open: true })
     const a = await r.apply(dpi)
-    eq([a.applied, r.counts().starts], [true, 1], 'enabling Direct+DPI starts an open idle master')
+    eq([a.applied, r.counts().starts], [false, 0], 'an edit cannot start an idle TUN')
   }
   {
     const r = rig({ phase: 'on', open: true })
@@ -60,8 +61,9 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
   { const r = rig({ phase: 'on' }); const a = await r.apply(sel); eq(a, { saved: true, applied: true, running: true }, 'running: saved and applied'); eq(r.counts().starts, 1, 'running: one restart') }
   // C3a: running + failed restart -> saved, not applied, intent kept
   { const r = rig({ phase: 'on', startTo: 'error' }); const a = await r.apply(sel); eq(a, { saved: true, applied: false, running: true, code: 'start' }, 'failed restart: saved, not applied'); eq(r.get(), sel, 'failed restart keeps the intent') }
-  // C3b: running + block -> saved, not applied, stopped
-  { const r = rig({ phase: 'on', block: true }); const a = await r.apply(sel); eq(a, { saved: true, applied: false, running: true, code: 'block' }, 'block: saved, not applied'); eq([r.counts().starts, r.counts().stops], [0, 1], 'block: stopped, not started') }
+  // An invalid edit or rejected consent must preserve both the old route and TUN.
+  { const r = rig({ phase: 'on', block: true }); const a = await r.apply(sel); eq(a, { saved: false, applied: false, running: true, code: 'block' }, 'blocked edit rejected'); eq(r.get(), base, 'blocked edit rolled back'); eq([r.counts().starts, r.counts().stops], [0, 0], 'blocked edit did not stop TUN') }
+  { const r = rig({ phase: 'on', confirm: false }); const a = await r.apply(sel); eq(a, { saved: false, applied: false, running: true, code: 'restart' }, 'restart requires consent'); eq(r.get(), base, 'denial restored previous route'); eq([r.counts().starts, r.counts().stops], [0, 0], 'denial cannot cycle TUN') }
   // C4: save failure -> not saved, previous restored, runtime untouched
   { const r = rig({ phase: 'on', saveFails: true }); const a = await r.apply(sel); eq(a, { saved: false, applied: false, running: true, code: 'save' }, 'save failure: not saved'); eq(r.get(), base, 'save failure restores previous'); eq([r.counts().starts, r.counts().stops], [0, 0], 'save failure: runtime untouched') }
   // C: snapshot pushed for every saved write

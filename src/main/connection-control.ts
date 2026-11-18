@@ -40,14 +40,8 @@ export class ConnectionControl {
     const canceled = (): ConnectionResult => ({ ok: false, error: 'Подключение отменено' })
     if (!this.current(revision)) return canceled()
     const idle = async (): Promise<ConnectionResult> => {
-      if (this.d.phase() === 'off') return { ok: true }
-      let stopped = false
-      try { stopped = await this.d.stop() } catch { /* one failed cleanup is reported below, never retried here */ }
-      if (!this.current(revision)) return canceled()
-      if (stopped && this.d.phase() === 'off') return { ok: true }
-      const error = this.d.error() ?? 'Не удалось подтвердить остановку ненужного туннеля'
-      if (!options.preserveIntent) this.set(false)
-      return { ok: false, error }
+      // Direct-only routing cannot implicitly close an open TUN.
+      return this.current(revision) ? { ok: true } : canceled()
     }
     try {
       // Open but idle is valid only after the previous core has actually stopped.

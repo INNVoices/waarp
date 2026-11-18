@@ -2,7 +2,7 @@
 // Saved intent and runtime application are reported separately; a failed restart never rolls the intent back.
 import type { Settings } from '../shared/types'
 
-export type ApplyCode = 'save' | 'block' | 'start'
+export type ApplyCode = 'save' | 'block' | 'start' | 'restart'
 /** saved: the intent is on disk. applied: the running engine now uses it (false when closed: closed stays closed). */
 export type ApplyResult = { saved: boolean; applied: boolean; running: boolean; code?: ApplyCode }
 
@@ -23,6 +23,8 @@ export interface ApplyDeps {
   live?: (s: Settings) => Promise<boolean>
   /** Operational live failures keep the previous session; only structural misses restart. */
   liveFailure?: () => string | undefined
+  /** Explicit consent is mandatory before a structural change cycles an active TUN. */
+  confirmRestart?: () => Promise<boolean>
   stop: () => Promise<unknown>
   changed: () => void
 }
@@ -35,6 +37,7 @@ export function createApply(d: ApplyDeps): (next: Settings) => Promise<ApplyResu
     d.set(next)
     try { d.save() } catch { d.set(previous); return { saved: false, applied: false, running: isRunning(d.phase()), code: 'save' } }
     const running = isRunning(d.phase())
+    const revert = () => { d.set(previous); try { d.save(); return true } catch { d.set(next); return false } }
     try {
       // The owner's global close is higher priority than a route write. Save intent, but never live-switch/restart
       // a core that the master is closing; the next explicit open uses the saved settings.
@@ -50,12 +53,17 @@ export function createApply(d: ApplyDeps): (next: Settings) => Promise<ApplyResu
       }
       const blocked = await d.blocked()
       if (!current()) return { saved: true, applied: false, running }
-      if (blocked) { if (running) await d.stop(); return { saved: true, applied: false, running, code: 'block' } }
+      if (blocked) return { saved: !revert(), applied: false, running, code: 'block' }
       if (!running) {
-        // E: master open but the core was idle (no card needed it): a card that needs a tunnel starts it, no second master click
-        if (d.open?.() && d.demandsTunnel(next)) { await d.start(next); return !current() ? { saved: true, applied: false, running } : d.phase() === 'on' ? { saved: true, applied: true, running } : { saved: true, applied: false, running, code: 'start' } }
+        // Only the master ON is allowed to create a TUN. A route edit saves intent,
+        // but never starts a previously idle VPN on its own.
         return { saved: true, applied: false, running }
       }
+      if (!(await d.confirmRestart?.())) {
+        if (!current()) return { saved: true, applied: false, running }
+        return { saved: !revert(), applied: false, running, code: 'restart' }
+      }
+      if (!current()) return { saved: true, applied: false, running }
       // A running session remains owned by the master even when every card becomes
       // Direct/disabled. Reconcile structural changes without treating a card
       // edit as an implicit global OFF; operational failures returned above.
