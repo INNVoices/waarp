@@ -21,6 +21,7 @@ import { runtimePreload } from './runtime-pool'
 import { sameEffectiveRouting } from '../shared/routing-edit'
 import { routeEditGuard } from './live-routing'
 import { DIAGNOSTIC_SELECTOR, type DiagnosticProxy, type DiagnosticTransport } from './diagnostic-proxy'
+import { LiveOutbounds } from './live-outbound'
 
 interface CardRuleFiles { slots?: Slots; files: Record<string, string> }
 
@@ -90,6 +91,7 @@ export class Engine extends EventEmitter {
   private fbRoutes = new Map<string, { id: string; name: string }[]>()
   private tail: string[] = []
   private journal: RuntimeJournal
+  private relays: LiveOutbounds
   private recoveryOk = false
   private recoveryError?: string
   private transition: Promise<void> = Promise.resolve()
@@ -100,7 +102,7 @@ export class Engine extends EventEmitter {
   private polling?: object
   private pollFailures = 0
   /** HOTFIX-RUNTIME-01: the running core's config, what it loaded and its Auto pool; set on a ready start, cleared on halt */
-  private run?: { cfg: ReturnType<typeof buildConfig>; loaded: Loaded; autoLive: string[]; files: Record<string, string>; settings: Settings; hostV6?: boolean }
+  private run?: { cfg: ReturnType<typeof buildConfig>; loaded: Loaded; autoLive: string[]; files: Record<string, string>; settings: Settings; hostV6?: boolean; nativeProfiles?: string[] }
   /** count of live route applies in this process (tests, log) */
   liveApplies = 0
   /** A failed live transaction is not a request to recreate TUN. Keep the last
@@ -113,7 +115,9 @@ export class Engine extends EventEmitter {
   get sessionToken(): object | number { return this.child ?? this.stopVersion }
   /** Read-only capabilities for service downloads; never infer loaded paths
    * from settings which may have pending, unapplied edits. */
-  get loadedProfileIds(): readonly string[] { return [...(this.run?.loaded.profiles ?? [])] }
+  get loadedProfileIds(): readonly string[] {
+    return (this.run?.loaded.profiles ?? []).filter(id => !this.relays.tag(id) || this.relays.ready(id))
+  }
   get routingGuarded(): boolean { return !!this.pendingLive }
   private pingSeq = 0
   /** R1.4: read-only Windows check before a TUN start (set by main); absent in offline tests */
@@ -131,12 +135,13 @@ export class Engine extends EventEmitter {
   constructor(private exe: string, private dir: string, private selfExe: string) {
     super()
     this.journal = new RuntimeJournal(dir, exe, 'run.json')
+    this.relays = new LiveOutbounds(exe, dir)
   }
 
   log(): string[] { return this.tail.slice(-300) }
   get recoveryReady(): boolean { return this.recoveryOk }
   /** True includes prewarmed profiles: removing credentials still owned by the core needs its normal reconciliation. */
-  isProfileLoaded(id: string): boolean { return this.run?.loaded.profiles.includes(id) ?? this.ids.includes(id) }
+  isProfileLoaded(id: string): boolean { return this.run ? this.loadedProfileIds.includes(id) : this.ids.includes(id) }
 
   /** OFF checker samples share the same sequence as running-core health rounds. */
   recordIdlePings(pings: Status['pings'], health?: Status['health']): void {
@@ -182,6 +187,7 @@ export class Engine extends EventEmitter {
         // this instance while a late bootstrap/reset callback was waiting in the queue.
         if (this.child) error = 'Движок ещё работает. Сначала закрой Waarp, затем повтори восстановление'
         else if (!(await this.journal.recover())) error = this.journal.lastError ?? 'Не удалось восстановить прошлый процесс движка. Повтори восстановление'
+        else if (!(await this.relays.recover())) error = this.relays.lastError ?? 'Не удалось восстановить процессы выбранных серверов'
         else if (!otherRuntimesOk) error = otherError ?? 'Проверочный движок не подтвердил остановку. Повтори восстановление'
         else {
           const inspected = await RuntimeJournal.inspectUntracked(this.exe)
@@ -216,7 +222,7 @@ export class Engine extends EventEmitter {
   }
 
   /** HOTFIX-RUNTIME-01: a routing change the running core can already serve, as selector switches (no stop, no spawn, no
-   *  Windows scan). false = not applicable now; the caller then takes its normal path (scan + one restart). `start` itself
+   *  Windows scan). A false result preserves the prior route; card writes never recreate TUN. `start` itself
    *  always restarts, so resume / explicit restarts keep their meaning. */
   applyLive(profiles: Profile[], s: Settings): Promise<boolean> {
     const version = this.stopVersion
@@ -234,6 +240,9 @@ export class Engine extends EventEmitter {
     const began = Date.now()
     let clean = false
     if (this.child) { if (!(await this.stopNow())) return; clean = true }
+    // An unexpected main-core exit can leave asynchronous worker cleanup in
+    // flight. Finish it before allocating a new generation of fixed slots.
+    if (!(await this.relays.stop())) { this.set({ phase: 'error', error: this.relays.lastError }); return }
     if (signal.aborted) return
     if (!existsSync(this.exe)) { this.set({ phase: 'error', error: 'Не найден движок engine\\sing-box.exe' }); return }
     this.stopping = false
@@ -271,11 +280,16 @@ export class Engine extends EventEmitter {
     let files: Record<string, string>
     // R5: the core gets a bounded Auto live pool; the plan/UI keep the full logical Auto membership
     const autoLive = runtimeAutoLive(s, profiles, this.lastAutoPick)
+    if (!(await this.relays.reserve(() => !signal.aborted, pickPort, [this.api.port, this.diagnostic.port]))) {
+      if (!signal.aborted) this.set({ phase: 'error', error: this.relays.lastError ?? 'Не удалось подготовить выбор серверов' })
+      return
+    }
+    this.secrets.push(...this.relays.graph.slots.flatMap(slot => [slot.username, slot.password]))
     const live = { autoLive }
     const preload = runtimePreload(profiles, s, usedProfiles(s, profiles, live).map(p => p.id))
     const slots = planSlots(s)!
     const ruleDir = join(this.dir, 'rules')
-    try { ({ cfg, files } = buildRuntime(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive, selectors: true, slots, ruleDir, hostV6, preload, preloadGroups: true, diagnostic: this.diagnostic })) }
+    try { ({ cfg, files } = buildRuntime(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive, selectors: true, slots, ruleDir, hostV6, preload, preloadGroups: true, diagnostic: this.diagnostic, relays: this.relays.graph })) }
     catch { this.set({ phase: 'error', error: 'Не удалось подготовить конфиг движка' }); return }
     try {
       mkdirSync(ruleDir, { recursive: true })
@@ -377,7 +391,8 @@ export class Engine extends EventEmitter {
       }
       return
     }
-    this.run = { cfg, loaded: { ...loadedOf(loadedSets(profiles, s, { ...live, preload, preloadGroups: true })), slots }, autoLive, files, settings: s, hostV6 }
+    this.run = { cfg: structuredClone(cfg), loaded: { ...loadedOf(loadedSets(profiles, s, { ...live, preload, preloadGroups: true })), slots }, autoLive, files, settings: structuredClone(s), hostV6,
+      nativeProfiles: loadedOf(loadedSets(profiles, s, { ...live, preload, preloadGroups: true })).profiles }
     this.push(`[start] ready in ${Date.now() - began} ms; card slots ${slots.app.length}+${slots.dom.length}; host IPv6 ${hostV6 === undefined ? 'unknown' : hostV6 ? 'yes' : 'no'}`)
     this.timer = setInterval(() => void this.poll(), 1000)
     // Controller readiness is the start boundary. Health probes continue independently and must
@@ -421,15 +436,18 @@ export class Engine extends EventEmitter {
   private async liveApply(profiles: Profile[], s: Settings): Promise<boolean> {
     const run = this.run!, child = this.child, version = this.stopVersion
     const current = () => this.child === child && this.stopVersion === version && !this.stopping
+    const protectedIds = new Set([...usedProfiles(run.settings, profiles, { autoLive: run.autoLive }).map(profile => profile.id),
+      ...(run.settings.serviceVia ? [run.settings.serviceVia] : [])])
     const failed = async (stage: string): Promise<false> => {
       if (!current()) return false
       const restored = await this.restoreLive(current)
       if (!current()) return false
       this.liveProblem = restored
-        ? 'Изменение сохранено, но движок его не подтвердил. Прежние маршруты восстановлены; повтори действие'
-        : 'Изменение сохранено, но состояние изменяемых маршрутов ещё не подтверждено. Сессия VPN сохранена; повтори действие'
+        ? 'Не удалось применить изменение. Прежние маршруты восстановлены; повтори действие'
+        : 'Состояние изменяемых маршрутов ещё не подтверждено. Сессия VPN сохранена; повтори действие'
       this.push(`[apply] ${stage}; ${restored ? 'previous routing restored' : 'edit barrier reconciliation pending'}; core and TUN kept`)
       this.set({ error: this.liveProblem })
+      if (restored) await this.relays.trim(protectedIds)
       return false
     }
     // A retry must first reconcile a possibly half-applied native state, even if
@@ -440,15 +458,33 @@ export class Engine extends EventEmitter {
     // The comparison uses the last acknowledged runtime, not an intent on disk.
     const slots = sameEffectiveRouting(run.settings, s) && run.loaded.slots
       ? run.loaded.slots : planSlots(s, run.loaded.slots)
-    if (!slots) { this.push('[apply] no free card slot; explicit restart approval required'); return false }
+    if (!slots) {
+      this.liveProblem = 'Достигнут предел одновременных маршрутов. Действующие соединения сохранены'
+      this.set({ error: this.liveProblem }); return false
+    }
+    const needed = usedProfiles(s, profiles, { autoLive: run.autoLive })
+    const nativeProfiles = new Set(run.nativeProfiles ?? run.loaded.profiles)
+    const late = needed.filter(profile => !nativeProfiles.has(profile.id))
+    if (late.some(candidate => candidate.kind === 'awg' && profiles.some(loaded => nativeProfiles.has(loaded.id) &&
+      loaded.kind === 'awg' && loaded.privateKey === candidate.privateKey && loaded.peer.publicKey === candidate.peer.publicKey))) {
+      this.liveProblem = 'Эти ключи WireGuard уже используются текущей сессией. Выбери существующее подключение с этими ключами'
+      this.set({ error: this.liveProblem }); return false
+    }
+    if (!(await this.relays.ensure(late, protectedIds, current))) {
+      if (current()) { this.liveProblem = this.relays.lastError ?? 'Не удалось применить выбранный сервер. Действующий маршрут сохранён'; this.set({ error: this.liveProblem }); await this.relays.trim(protectedIds) }
+      return false
+    }
+    const relayGraph = this.relays.graph
+    const kept = { ...run.loaded, profiles: run.loaded.profiles.filter(id => nativeProfiles.has(id) || relayGraph.bindings[id]) }
     let next: ReturnType<typeof buildRuntime>
-    try { next = buildRuntime(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive: run.autoLive, selectors: true, keep: run.loaded, slots, ruleDir: join(this.dir, 'rules'), hostV6: run.hostV6, diagnostic: this.diagnostic }) }
-    catch { return false }
+    try { next = buildRuntime(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive: run.autoLive, selectors: true, keep: kept, slots, ruleDir: join(this.dir, 'rules'), hostV6: run.hostV6, diagnostic: this.diagnostic, relays: relayGraph }) }
+    catch { return failed('route preparation failed') }
     const switches = liveSwitches(run.cfg, next.cfg)
     if (!switches) {
       const sections = Object.keys(run.cfg).filter(key => JSON.stringify((run.cfg as any)[key]) !== JSON.stringify((next.cfg as any)[key]))
-      this.push('[apply] structural change in ' + sections.join(', ') + '; controlled reconfiguration required')
-      return false
+      this.liveProblem = 'Это изменение системных настроек нельзя применить к текущей сессии. Действующие маршруты сохранены'
+      this.push('[apply] structural change in ' + sections.join(', ') + '; current core and TUN kept')
+      this.set({ error: this.liveProblem }); await this.relays.trim(protectedIds); return false
     }
     const changed = Object.keys(next.files).filter(k => next.files[k] !== run.files[k])
     const guarded = !!(switches.length || changed.length)
@@ -475,12 +511,13 @@ export class Engine extends EventEmitter {
     if (!current()) return false
     this.pendingLive = undefined
     this.liveProblem = undefined
-    this.run = { ...run, cfg: next.cfg, files: next.files, loaded: { ...run.loaded, slots }, settings: s }
+    const loaded = { ...loadedOf(loadedSets(profiles, s, { autoLive: run.autoLive, keep: kept })), slots }
+    this.run = { ...run, cfg: structuredClone(next.cfg), files: next.files, loaded, settings: structuredClone(s) }
     this.fbRoutes = new Map(run.loaded.fbs.map(g => [g.tag, activeRoutes(s).filter(r => r.via === g.main && r.fallback === g.fb).map(r => ({ id: r.id, name: r.name }))]))
     // The loaded pool and the active routing set are different. A newly chosen warm
     // path must join health checks immediately; an unused path must stop being probed.
     this.ids = usedProfiles(s, profiles, { autoLive: run.autoLive }).map(p => p.id)
-    this.groups = liveGroups(withAuto(s, profiles, run.autoLive), new Set(run.loaded.profiles))
+    this.groups = liveGroups(withAuto(s, profiles, run.autoLive), new Set(loaded.profiles))
     this.firstSelected = new Map(run.loaded.groups.map(g => [g.id,
       g.members.includes(this.firstSelected.get(g.id) ?? '') ? this.firstSelected.get(g.id)! : g.members[0]]))
     this.slowStreak = new Map(run.loaded.groups.map(g => [g.id, this.slowStreak.get(g.id) ?? 0]))
@@ -493,6 +530,8 @@ export class Engine extends EventEmitter {
     const written = changed.length ? `${changed.length} rule file(s) written, each reload confirmed` : 'no rule file changes'
     this.push(`live route apply: ${switches.length} selector switch(es), ${written}; connections closed ${closed.closed}/${closed.tried}; core and TUN kept`)
     this.set({ error: undefined })
+    if (!(await this.relays.trim(new Set([...needed.map(profile => profile.id), ...(s.serviceVia ? [s.serviceVia] : [])]))))
+      this.push('[apply] inactive server cleanup is pending; owner journal retained')
     return true
   }
 
@@ -609,6 +648,7 @@ export class Engine extends EventEmitter {
   }
 
   private halt() {
+    void this.relays.stop()
     this.abortRequests()
     this.polling = undefined
     this.pollFailures = 0
@@ -627,17 +667,23 @@ export class Engine extends EventEmitter {
     this.stopVersion++
     this.starting?.abort()
     this.abortRequests()
-    return this.serialize(() => this.stopNow())
+    const workers = this.relays.stop()
+    return this.serialize(async () => { const stopped = await this.stopNow(); return await workers && stopped })
   }
 
   /** R2 (A + C): try CTRL_BREAK to the verified owned core, wait only if sent; then a forced stop through our own
    *  child handle (it cannot hit a reused PID), bounded wait; then a read-only residue check. 'off' only when clean. */
   private async stopNow(): Promise<boolean> {
+    const workers = this.relays.stop()
     const c = this.child
     if (!c) {
       // A second stop after a crash/residue failure must not turn an unclean state into a successful reset.
       const r = this.status.recovery ? await this.residue() : undefined
       if (r) { this.set({ phase: 'error', engine: 'down', since: undefined, error: r.text, recovery: r.kind }); return false }
+      if (!(await workers)) {
+        this.set({ phase: 'error', engine: 'down', since: undefined, error: this.relays.lastError ?? 'Процесс выбранного сервера ещё работает' })
+        return false
+      }
       this.halt()
       const error = !this.recoveryOk ? this.recoveryError : undefined
       this.set({ phase: error ? 'error' : 'off', engine: 'down', since: undefined, error, recovery: undefined, pings: {}, health: {}, picked: {}, fallback: {}, autoPool: undefined, down: 0, up: 0 })
@@ -670,6 +716,7 @@ export class Engine extends EventEmitter {
       // must not report success while a stale adapter/route is still present.
       return false
     }
+    if (!(await workers)) { this.set({ phase: 'error', engine: 'down', since: undefined, error: this.relays.lastError, ...zero }); return false }
     if (!cleaned) { this.set({ phase: 'error', engine: 'down', since: undefined, error: this.recoveryError, ...zero }); return false }
     this.set({ phase: 'off', engine: 'down', since: undefined, error: undefined, recovery: undefined, ...zero })
     return true
@@ -690,6 +737,7 @@ export class Engine extends EventEmitter {
   }
 
   stopSync() {
+    this.relays.stopSync()
     this.stopVersion++
     this.starting?.abort()
     this.abortRequests()
@@ -697,6 +745,8 @@ export class Engine extends EventEmitter {
     this.stopping = true
     try { this.child.kill() } catch {}
   }
+
+  private profileTag(id: string): string { return this.relays.tag(id) ?? tagOf(id) }
 
   private async select(tag: string, to: string, signal?: AbortSignal): Promise<boolean> {
     const child = this.child, api = this.api, version = this.stopVersion
@@ -723,7 +773,7 @@ export class Engine extends EventEmitter {
 
   private async fbStep(pings: Record<string, number | undefined>): Promise<Record<string, string>> {
     const child = this.child, tracker = this.fb
-    const done = await tracker.step(pings, (g, toFb) => this.child === child && !this.stopping ? this.select(g.tag, tagOf(toFb ? g.fb : g.main)) : Promise.resolve(false))
+    const done = await tracker.step(pings, (g, toFb) => this.child === child && !this.stopping ? this.select(g.tag, this.profileTag(toFb ? g.fb : g.main)) : Promise.resolve(false))
     if (this.child !== child || this.stopping) return {}
     for (const d of done) this.emit('fallback', { main: d.g.main, fb: d.g.fb, toFb: d.toFb, routes: (this.fbRoutes.get(d.g.tag) ?? []).map(r => r.name) })
     const out: Record<string, string> = {}
@@ -739,7 +789,7 @@ export class Engine extends EventEmitter {
       let next = current
       if (g.policy === 'first') next = firstAlive(g.members, current, health)
       else { const r = stickyFastest(g.members, current, health, pings, this.slowStreak.get(g.id) ?? 0, this.conns.some(c => c.via === current)); next = r.next; this.slowStreak.set(g.id, r.streak) }
-      if (next !== current && await this.select(grpTag(g.id), tagOf(next)) && this.child === child && !this.stopping) this.firstSelected.set(g.id, next)
+      if (next !== current && await this.select(grpTag(g.id), this.profileTag(next)) && this.child === child && !this.stopping) this.firstSelected.set(g.id, next)
     }))
   }
 
@@ -780,7 +830,7 @@ export class Engine extends EventEmitter {
     const url = /^https?:\/\//.test(target) ? target : 'https://' + target
     const out: Record<string, number | null> = {}
     await this.bounded(['direct', ...(only ? this.ids.filter(id => only.includes(id)) : this.ids)], async id => {
-      const ms = await this.delay(id === 'direct' ? 'direct' : tagOf(id), url)
+      const ms = await this.delay(id === 'direct' ? 'direct' : this.profileTag(id), url)
       out[id] = ms ?? null
     })
     return this.child === child && this.stopVersion === version ? out : {}
@@ -794,13 +844,13 @@ export class Engine extends EventEmitter {
     if (this.diagnosticOwner) throw new Error('busy')
     const child = this.child, version = this.stopVersion, proxy = this.diagnostic
     if (!child || !proxy || this.status.phase !== 'on' || this.stopping) throw new Error('engine')
-    if (profileId !== 'direct' && !this.run?.loaded.profiles.includes(profileId)) throw new Error('not_loaded')
+    if (profileId !== 'direct' && !this.loadedProfileIds.includes(profileId)) throw new Error('not_loaded')
     const owner = new AbortController()
     this.diagnosticOwner = owner
     const linked = AbortSignal.any([signal, owner.signal])
     const current = () => !linked.aborted && this.child === child && this.stopVersion === version && !this.stopping
     try {
-      if (!(await this.select(DIAGNOSTIC_SELECTOR, profileId === 'direct' ? 'direct' : tagOf(profileId), linked)) || !current()) throw new Error('cancelled')
+      if (!(await this.select(DIAGNOSTIC_SELECTOR, profileId === 'direct' ? 'direct' : this.profileTag(profileId), linked)) || !current()) throw new Error('cancelled')
       const result = await work({ ...proxy, host: '127.0.0.1', signal: linked })
       if (!current()) throw new Error('cancelled')
       return result
@@ -818,7 +868,7 @@ export class Engine extends EventEmitter {
     const out: Record<string, number | null> = {}
     await this.bounded(this.ids.filter(id => ids.includes(id)), async id => {
       if (signal?.aborted) return
-      const delay = await this.delay(tagOf(id), url, signal)
+      const delay = await this.delay(this.profileTag(id), url, signal)
       if (!signal?.aborted) out[id] = delay ?? null
     })
     return this.child === child && this.stopVersion === version && !signal?.aborted ? out : {}
@@ -843,13 +893,13 @@ export class Engine extends EventEmitter {
   async pingAll(ids = this.ids) {
     const child = this.child, version = this.stopVersion
     const out: Record<string, number | undefined> = {}
-    await this.bounded(['direct', ...ids], async id => { out[id] = id === 'direct' ? await this.delay('direct') : await this.probe2(tagOf(id)) })
+    await this.bounded(['direct', ...ids], async id => { out[id] = id === 'direct' ? await this.delay('direct') : await this.probe2(this.profileTag(id)) })
     if (this.child !== child || this.stopVersion !== version) return {}
     // A group's latency is the measured latency of its actually selected member.
     // Do not report the minimum of unrelated members as though it were the active route.
     await Promise.all(this.groups.map(async g => {
       const state = await this.req(`/proxies/${grpTag(g.id)}`)
-      const selected = typeof state?.now === 'string' ? g.members.find(id => tagOf(id) === state.now) : undefined
+      const selected = typeof state?.now === 'string' ? g.members.find(id => this.profileTag(id) === state.now) : undefined
       out[g.id] = selected ? out[selected] : undefined
     }))
     return this.child === child && this.stopVersion === version ? out : {}
@@ -892,7 +942,7 @@ export class Engine extends EventEmitter {
           ip: typeof m.destinationIP === 'string' ? m.destinationIP : undefined,
           port: Number(m.destinationPort) || 0,
           net: m.network ?? '',
-          via: chain.find(c => c.startsWith('p-'))?.slice(2) ?? 'direct',
+          via: chain.map(tag => this.relays.profile(tag)).find(Boolean) ?? chain.find(c => c.startsWith('p-'))?.slice(2) ?? 'direct',
           rule: c.rule ?? '',
           ...(slots ? { route: slot ? (slot[1] === 'a' ? slots.app : slots.dom)[Number(slot[2])] ?? '' : '' } : {}),
           down: c.download ?? 0,

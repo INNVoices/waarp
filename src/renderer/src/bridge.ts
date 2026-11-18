@@ -45,6 +45,25 @@ function mock(): Api {
     emit('status', status); emit('conns', [])
     return { ok: true }
   }
+  // Browser-only server examples; the production renderer always uses preload IPC.
+  const publicExamples = [
+    ['Frankfurt', 'VLESS · REALITY', 'DE', 'Russia checked'],
+    ['Amsterdam', 'Trojan · TLS', 'NL', 'Epodonios'],
+    ['Helsinki', 'Shadowsocks', 'FI', 'Awesome VPN'],
+    ['New York', 'VMess · TLS · WS', 'US', 'VPN Gate'],
+    ['Tokyo', 'Hysteria2', 'JP', 'V2Ray Configs']
+  ]
+  const publicNodes = Array.from({ length: 72 }, (_, index) => {
+    const [name, proto, country, source] = publicExamples[index % publicExamples.length]
+    return { id: 'pub' + index, name: `${name}${index < 5 ? '' : ' ' + (index + 1)}`, proto, country, source,
+      host: '198.51.100.' + (index + 1), port: 443, ping: index < 5 ? 48 + index * 31 : undefined,
+      checkedAt: index < 5 ? Date.now() : undefined, status: (index < 5 ? 'ready' : 'unverified') as 'ready' | 'unverified' }
+  })
+  const publicRegion = (country: string) => ['DE', 'NL', 'FI'].includes(country) ? 'eu' : country === 'US' ? 'americas' : 'asia'
+  const catalogState = () => ({ updatedAt: Date.now() - 6e5, busy: false, total: publicNodes.length, cachedCount: publicNodes.length,
+    readyCount: publicNodes.filter(node => node.status === 'ready').length, checked: 5,
+    sources: [{ url: 'igareck', ok: true, count: publicNodes.length }],
+    alive: publicNodes.filter(node => node.status === 'ready'), cached: publicNodes })
   return {
     snapshot: async () => snap(),
     toggle: async () => {
@@ -130,11 +149,25 @@ function mock(): Api {
     onToast: on('toast'),
     onNav: on('nav'),
     companionChoose: async (id: string, via: string) => { settings = { ...settings, routes: [...settings.routes.filter(r => r.id !== id), { id, kind: 'custom', name: id, value: 'example.com', via, on: true, owner: 'companion' }] }; emit('snapshot', snap()); return { ok: true, id } },
-    catalogGet: async () => ({ updatedAt: Date.now() - 6e5, busy: false, total: 1840, checked: 160, sources: [{ url: 'igareck', ok: true, count: 1500 }, { url: 'awesome-vpn', ok: true, count: 340 }],
-      alive: [['🇩🇪 Frankfurt', 'VLESS · REALITY', 48, 'DE', 'Russia checked'], ['🇳🇱 Amsterdam', 'Trojan · TLS', 61, 'NL', 'Epodonios'], ['🇫🇮 Helsinki', 'Shadowsocks · aes-256-gcm', 72, 'FI', 'Awesome VPN'], ['🇺🇸 New York', 'VMess · TLS · WS', 131, 'US', 'VPN Gate'], ['🇯🇵 Tokyo', 'Hysteria2', 212, 'JP', 'V2Ray Configs']].map(([n, p, ms, c, source], i) => ({ id: 'pub' + i, name: n, proto: p, host: '198.51.100.' + (i + 1), port: 443, country: c, source, ping: ms, alive: true })) }),
-    catalogRefresh: async () => undefined,
-    catalogVerify: async () => undefined,
-    catalogAdd: async (id: string) => ({ ok: true, id }),
+    catalogGet: async () => catalogState(),
+    catalogPage: async ({ query = '', region, page = 1, pageSize = 12, readyOnly = false }: { query?: string; region?: string; page?: number; pageSize?: number; readyOnly?: boolean } = {}) => {
+      const matched = publicNodes.filter(node => `${node.name} ${node.proto} ${node.host} ${node.country} ${node.source}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+      const items = matched.filter(node => (!region || publicRegion(node.country) === region) && (!readyOnly || node.status === 'ready'))
+      const pages = Math.max(1, Math.ceil(items.length / pageSize)), current = Math.max(1, Math.min(pages, page))
+      return { items: items.slice((current - 1) * pageSize, current * pageSize), total: items.length, page: current, pageSize, pages,
+        regions: ['eu', 'asia', 'americas', 'other'].map(id => ({ id, name: id, total: matched.filter(node => publicRegion(node.country) === id).length, ready: matched.filter(node => publicRegion(node.country) === id && node.status === 'ready').length })) }
+    },
+    catalogRefresh: async () => catalogState(),
+    catalogVerify: async () => catalogState(),
+    catalogAdd: async (id: string) => {
+      const node = publicNodes.find(item => item.id === id)
+      if (!node) return { ok: false }
+      await new Promise(resolve => setTimeout(resolve, 500))
+      node.status = 'ready'; node.ping = 61; node.checkedAt = Date.now()
+      if (!profiles.some(profile => profile.id === id)) profiles = [...profiles, { id, kind: 'vless', name: node.name, host: node.host, port: node.port, address: [], version: node.proto, source: 'public' }]
+      emit('catalog', catalogState()); emit('snapshot', snap())
+      return { ok: true, id }
+    },
     catalogBest: async () => ({ ok: true, id: 'g-public' }),
     onCatalog: on('catalog')
   } as unknown as Api

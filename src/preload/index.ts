@@ -60,6 +60,7 @@ const api = {
   companionChoose: (id: string, via: string) => ipcRenderer.invoke('companion:choose', id, via),
   // WRP-015 public catalog
   catalogGet: () => ipcRenderer.invoke('catalog:get'),
+  catalogPage: (query?: { query?: string; region?: string; page?: number; pageSize?: number; readyOnly?: boolean }) => ipcRenderer.invoke('catalog:page', query),
   catalogRefresh: () => ipcRenderer.invoke('catalog:refresh'),
   catalogVerify: () => ipcRenderer.invoke('catalog:verify'),
   catalogAdd: (id: string) => ipcRenderer.invoke('catalog:add', id),

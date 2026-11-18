@@ -5,43 +5,11 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Engine } from '../src/main/engine'
-import type { OutProfile, Settings } from '../src/shared/types'
+import { Checker } from '../src/main/checker'
+import type { OutProfile, Profile, Settings } from '../src/shared/types'
 import type { DiagnosticTransport } from '../src/main/diagnostic-proxy'
+import { fixture, datagram, nativeDns } from './route-native-fixtures'
 
-async function fixture(label: string) {
-  const sockets = new Set<net.Socket>()
-  const server = net.createServer(socket => {
-    sockets.add(socket); socket.on('error', () => {}); socket.once('close', () => sockets.delete(socket))
-    let stage = 0, data = Buffer.alloc(0)
-    socket.on('data', chunk => {
-      data = Buffer.concat([data, typeof chunk === 'string' ? Buffer.from(chunk) : chunk])
-      if (data.length > 8192) { socket.destroy(); return }
-      if (stage === 0) {
-        if (data.length < 2 || data.length < 2 + data[1]) return
-        data = data.subarray(2 + data[1]); socket.write(Buffer.from([5, 0])); stage = 1
-      }
-      if (stage === 1) {
-        if (data.length < 5) return
-        const length = data[3] === 1 ? 10 : data[3] === 4 ? 22 : data[3] === 3 ? 7 + data[4] : 0
-        if (!length) { socket.destroy(); return }
-        if (data.length < length) return
-        data = data.subarray(length); socket.write(Buffer.from([5,0,0,1,127,0,0,1,0,0])); stage = 2
-      }
-      if (stage === 2 && data.length) {
-        if (data.toString().startsWith('GET ')) {
-          if (!data.includes(Buffer.from('\r\n\r\n'))) return
-          socket.end('HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: ' + label.length + '\r\n\r\n' + label)
-        } else if (data.toString().startsWith('PING')) { socket.write(data); data = Buffer.alloc(0) }
-        else if (data.length > 64) socket.destroy()
-      }
-    })
-  })
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-  return { port: (server.address() as net.AddressInfo).port, close: async () => {
-    for (const socket of sockets) socket.destroy()
-    await new Promise<void>(resolve => server.close(() => resolve()))
-  } }
-}
 function body(host: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const request = http.get({ host, port: 80, path: '/', agent: false }, response => {
@@ -73,7 +41,7 @@ async function main() {
   if (process.env.WAARP_NATIVE_SWITCH_TEST !== '1') { console.log('route-native: SKIP (explicit disposable Windows opt-in required)'); return }
   assert.equal(process.platform, 'win32'); assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted')
   const dir = mkdtempSync(join(tmpdir(), 'waarp-route-native-'))
-  const a = await fixture('A'), b = await fixture('B')
+  const a = await fixture('A'), b = await fixture('B'), c = await fixture('C')
   const profile = (id: string, port: number): OutProfile => ({ kind: 'out', id, name: id, host: '127.0.0.1', port,
     version: 'SOCKS fixture', source: 'personal', addedAt: 1,
     outbound: { type: 'socks', server: '127.0.0.1', server_port: port, version: '5' } })
@@ -86,7 +54,20 @@ async function main() {
   // Test only the controlled fixtures. No public health requests are needed.
   ;(engine as any).pingAll = async () => ({ a: 1, b: 2 })
   engine.hostV6 = async () => false
+  // Production pins/rejects public endpoints; this disposable native test deliberately uses only its loopback fixture.
+  ;(engine as any).relays.preparePublic = async (candidate: Profile) => {
+    assert.equal(candidate.id, 'late-public'); assert.equal(candidate.kind, 'out')
+    const checked = candidate as OutProfile
+    assert.equal(checked.host, '127.0.0.1'); assert.equal(checked.port, c.port)
+    return structuredClone(candidate)
+  }
   let neighbor: net.Socket | undefined
+  // Late-public readiness uses the same real native checker, but an entirely local HTTP fixture.
+  const originalPings = Checker.prototype.pings
+  Checker.prototype.pings = async function () {
+    const result = await this.probe('http://198.18.0.11')
+    return Object.fromEntries(Object.entries(result).map(([id, ms]) => [id, ms ?? undefined]))
+  }
   try {
     assert(await engine.killOrphans())
     await engine.start(profiles, settings)
@@ -119,6 +100,27 @@ async function main() {
       await echo(i + 1)
       console.log('ROUTE_NATIVE switch', via, 'same PID; neighbor alive; selected tunnel verified where applicable')
     }
+    // Import a public profile after startup: it was never in the primary core graph.
+    const late = { ...profile('late-public', c.port), source: 'public' as const }
+    profiles.push(late)
+    settings = { ...settings, routes: settings.routes.map(r => r.id === 'selected' ? { ...r, via: late.id } : r) }
+    assert(await engine.applyLive(profiles, settings), engine.log().join('\n'))
+    assert.equal((engine as any).child.pid, pid); assert.equal(engine.status.since, since)
+    assert.equal(await body('198.18.0.9'), 'C', 'late selected public server carries real TCP payload')
+    assert.equal(await engine.withHttpProxy(late.id, new AbortController().signal, proxyBody), 'C')
+    const udpPayload = Buffer.from('selected-public-native-udp')
+    assert.equal((await datagram('198.18.0.9', 40000, udpPayload)).toString(), 'C:' + udpPayload.toString(),
+      'late selected server carries real UDP through main TUN and the native loopback worker')
+    assert(c.received.udp > 0, 'selected C fixture received the UDP datagram')
+    assert.equal(a.received.udp, 0); assert.equal(b.received.udp, 0)
+    await nativeDns(join(process.cwd(), 'engine', 'sing-box.exe'), join(dir, 'dns-fixture'), late)
+    assert(c.received.dns > 0, 'worker hijack DNS request reached its selected profile resolver')
+    assert.equal((engine as any).child.pid, pid); assert.equal(engine.status.since, since)
+    await echo(20)
+    console.log('ROUTE_NATIVE newly imported public server: same main PID/TUN; selected TCP and UDP payload C; neighbor alive PASS')
+    console.log('ROUTE_NATIVE generated no-TUN worker: real UoT DNS query, selected-profile resolver answer and cleanup PASS')
+    settings = { ...settings, routes: settings.routes.map(r => r.id === 'selected' ? { ...r, via: 'b' } : r) }
+    assert(await engine.applyLive(profiles, settings)); assert.equal(await body('198.18.0.9'), 'B'); await echo(21)
     settings = { ...settings, routes: settings.routes.filter(r => r.id !== 'selected') }
     assert(await engine.applyLive(profiles, settings)); await echo(5)
     assert.equal((engine as any).child.pid, pid)
@@ -138,8 +140,12 @@ async function main() {
     assert.equal((engine as any).child.pid, pid); assert.equal(engine.status.since, since)
     console.log('ROUTE_NATIVE last-route removal and re-addition: same PID and new selected path verified PASS')
   } finally {
-    neighbor?.destroy(); assert(await engine.stop(), 'native cleanup must complete')
-    await a.close(); await b.close(); rmSync(dir, { recursive:true, force:true })
+    neighbor?.destroy()
+    try { assert(await engine.stop(), 'native cleanup must complete') }
+    finally {
+      Checker.prototype.pings = originalPings
+      await a.close(); await b.close(); await c.close(); rmSync(dir, { recursive:true, force:true })
+    }
   }
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })

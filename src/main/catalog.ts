@@ -44,6 +44,21 @@ export interface CatalogState {
   planned?: number; checked: number; alive: CatalogNode[]; cached: CatalogNode[]; busy: boolean
   cacheError?: string
 }
+export type CatalogRegion = 'eu' | 'asia' | 'americas' | 'other'
+export interface CatalogPage {
+  items: CatalogNode[]; total: number; page: number; pageSize: number; pages: number
+  regions: { id: CatalogRegion; name: string; total: number; ready: number }[]
+}
+const REGIONS: { id: CatalogRegion; name: string; countries: ReadonlySet<string> }[] = [
+  { id: 'eu', name: 'Европа', countries: new Set('AL AT BE BG CH CY CZ DE DK EE ES FI FR GB GR HR HU IE IS IT LT LU LV MD ME MK MT NL NO PL PT RO RS SE SI SK UA'.split(' ')) },
+  { id: 'asia', name: 'Азия и Ближний Восток', countries: new Set('AE AM AZ BD BH BN BT CN GE HK ID IL IN IQ IR JO JP KG KH KR KZ LA LB LK MM MN MO MY NP OM PH PK PS QA SA SG SY TH TJ TL TM TR TW UZ VN YE'.split(' ')) },
+  { id: 'americas', name: 'Северная и Южная Америка', countries: new Set('AR BO BR CA CL CO CR CU DO EC GT HN JM MX NI PA PE PR PY SV US UY VE'.split(' ')) },
+  { id: 'other', name: 'Другие регионы', countries: new Set() }
+]
+const regionOf = (country: string): CatalogRegion => REGIONS.find(region => region.countries.has(country))?.id ?? 'other'
+const countryLabels = ['ru', 'en'].map(locale => new Intl.DisplayNames([locale], { type: 'region' }))
+const countrySearch = (country: string): string => /^[A-Z]{2}$/.test(country)
+  ? countryLabels.map(labels => labels.of(country) ?? '').join(' ') : ''
 interface CatalogMetadata {
   updatedAt?: number; verifiedAt?: number; sources: CatalogSourceReport[]
   planned?: number; checked: number; busy: boolean; cacheError?: string
@@ -121,6 +136,28 @@ export class Catalog {
 
   node(id: string): Profile | undefined { return this.pool.profile(id) }
   bestReady(limit = 5): CatalogNode[] { return this.pool.bestReady(limit).map(entry => this.view(entry)) }
+  /** Page the complete reservoir in main. The small event snapshot is only a
+   * summary; its first 200 candidates must never truncate search or navigation. */
+  page(input: unknown = {}): CatalogPage {
+    const request = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
+    const query = typeof request.query === 'string' ? request.query.trim().slice(0, 200).toLocaleLowerCase('ru') : ''
+    const region = REGIONS.some(item => item.id === request.region) ? request.region as CatalogRegion : undefined
+    const bounded = (value: unknown, fallback: number, maximum: number) => typeof value === 'number' && Number.isFinite(value)
+      ? Math.max(1, Math.min(maximum, Math.floor(value))) : fallback
+    const pageSize = bounded(request.pageSize, 12, 100)
+    const rank = (node: CatalogNode) => node.status === 'ready' ? 0 : node.status === 'cached' ? 1 : node.status === 'failed' ? 3 : 2
+    const candidates = this.pool.all().map(entry => this.view(entry)).filter(node => !query ||
+      [node.name, node.country, countrySearch(node.country), node.host, node.proto, node.source ?? '', REGIONS.find(item => item.id === regionOf(node.country))!.name]
+        .join(' ').toLocaleLowerCase('ru').includes(query))
+    const regions = REGIONS.map(item => ({ id: item.id, name: item.name,
+      total: candidates.filter(node => regionOf(node.country) === item.id).length,
+      ready: candidates.filter(node => regionOf(node.country) === item.id && node.status === 'ready').length }))
+    const nodes = candidates.filter(node => (!region || regionOf(node.country) === region) && (request.readyOnly !== true || node.status === 'ready'))
+      .sort((a, b) => rank(a) - rank(b) || (a.ping ?? Infinity) - (b.ping ?? Infinity) ||
+        (b.lastSuccessAt ?? 0) - (a.lastSuccessAt ?? 0) || a.id.localeCompare(b.id))
+    const pages = Math.max(1, Math.ceil(nodes.length / pageSize)), page = bounded(request.page, 1, pages)
+    return { items: nodes.slice((page - 1) * pageSize, page * pageSize), total: nodes.length, page, pageSize, pages, regions }
+  }
   /** Historical candidates for a bounded recovery attempt, not a health claim. */
   recoveryCandidates(limit = 8): Profile[] {
     const candidates = this.pool.recoveryCandidates(limit)
@@ -167,6 +204,22 @@ export class Catalog {
   /** Verification can keep progressing from cache when every source is blocked. */
   verify(limit = CHECK_TOTAL): Promise<CatalogState> {
     return this.start(abort => this.runProbes(abort, limit), true)
+  }
+
+  /** A click is the verification request. Give it priority over a long pool
+   * round, wait for that checker's cleanup, then measure this exact candidate.
+   * Explicit selection may retry a failed node without waiting for cooldown. */
+  async verifyNode(id: string): Promise<{ ok: boolean; node?: CatalogNode; error?: string }> {
+    let entry = this.pool.entry(id)
+    if (!entry) return { ok: false, error: 'Сервер пропал из каталога. Обнови список.' }
+    if (this.pool.ready(entry)) return { ok: true, node: this.view(entry) }
+    if (!this.allowStart()) return { ok: false, error: 'Дождись завершения текущего подключения и повтори выбор сервера.' }
+    if (this.pending && !(await this.pause())) return { ok: false, error: 'Предыдущая проверка не завершилась. Повтори выбор сервера.' }
+    await this.start(abort => this.runProbes(abort, 1, [id]), true)
+    entry = this.pool.entry(id)
+    if (entry && this.pool.ready(entry)) return { ok: true, node: this.view(entry) }
+    const error = this.metadata.sources.find(source => source.url === 'local checker' && !source.ok)?.error
+    return { ok: false, error: error ?? 'Сервер не ответил через интернет. Выбери другой сервер или повтори проверку позже.' }
   }
 
   private start(work: (abort: AbortController) => Promise<void>, probe: boolean): Promise<CatalogState> {
@@ -239,12 +292,12 @@ export class Catalog {
     if (probe && !abort.signal.aborted && this.allowStart()) await this.runProbes(abort, CHECK_TOTAL)
   }
 
-  private async runProbes(abort: AbortController, limit: number): Promise<void> {
+  private async runProbes(abort: AbortController, limit: number, selected?: string[]): Promise<void> {
     const context = this.pool.context
     const active = () => !abort.signal.aborted && this.allowStart() && this.pool.context === context
     if (!active()) return
     if (!this.checkerStopped || this.checker) { this.localError('Предыдущий проверочный движок не подтвердил остановку'); return }
-    const sample = this.pool.plan(limit)
+    const sample = selected ? selected.map(id => this.pool.profile(id)).filter((profile): profile is NonNullable<typeof profile> => !!profile) : this.pool.plan(limit)
     this.metadata.planned = sample.length
     this.metadata.checked = 0
     this.metadata.sources = this.metadata.sources.filter(source => source.url !== 'local checker')
@@ -253,37 +306,49 @@ export class Catalog {
     const checker = new Checker(this.exe, join(this.dir, 'catalog-check'), active)
     this.checker = checker
     this.checkerStopped = false
-    const observations: { id: string; latency: number | undefined; at: number }[] = []
-    let started = 0
+    let started = 0, measured = 0, successful = 0, preparedCount = 0, cleanupAttempted = false
     try {
       for (let offset = 0; offset < sample.length && active(); offset += CHECK_BATCH) {
         const prepared = await Promise.all(sample.slice(offset, offset + CHECK_BATCH).map(profile => preparePublicCandidate(profile, abort.signal, this.resolveCandidate)))
         const batch = prepared.filter((profile): profile is NonNullable<typeof profile> => !!profile)
         if (!active()) break
         if (!batch.length) continue
+        preparedCount += batch.length
+        this.checker = checker
+        this.checkerStopped = false
+        cleanupAttempted = false
         if (!(await checker.ensure(batch, []))) continue
         started++
         const pings = await checker.pings()
+        if (!active()) break
+        // Publish each completed batch promptly. A user can select a working
+        // server while the rest are still being checked; the process that
+        // measured that batch must first confirm its own cleanup.
+        const stopped = await this.stopChecker(checker)
+        cleanupAttempted = true
+        if (!stopped) break
         if (!active()) break
         const at = this.now()
         for (const profile of batch) {
           // An empty map means the checker disappeared/cancelled. Its explicit
           // id -> undefined result means that this outbound was really tried.
-          if (Object.prototype.hasOwnProperty.call(pings, profile.id)) observations.push({ id: profile.id, latency: pings[profile.id], at })
+          if (!Object.prototype.hasOwnProperty.call(pings, profile.id)) continue
+          this.pool.observe(profile.id, pings[profile.id], context, at)
+          measured++
+          if (validLatency(pings[profile.id])) successful++
         }
-        this.metadata.checked = observations.length
+        this.metadata.checked = measured
+        if (measured) this.metadata.verifiedAt = at
+        this.save()
         this.publish()
       }
     } catch { if (active()) this.localError('Проверочный движок не завершил все измерения') }
-    finally { await this.stopChecker(checker) }
+    finally { if (!cleanupAttempted) await this.stopChecker(checker) }
     if (!active()) { this.save(); return }
     if (!this.checkerStopped) { this.localError('Проверочный движок не подтвердил остановку'); this.save(); return }
-    // Commit observations only after confirmed cleanup. A cancelled operation
-    // can retain ingested configs but cannot promote late results to ready.
-    for (const observation of observations) this.pool.observe(observation.id, observation.latency, context, observation.at)
-    if (observations.length) this.metadata.verifiedAt = this.now()
-    if (!started || !observations.length) this.localError('Проверочный движок не выполнил измерения; кандидаты сохранены')
-    else if (!observations.some(observation => validLatency(observation.latency))) this.localError('Проверенные узлы не ответили; кандидаты сохранены без статуса готовности')
+    if (!preparedCount) this.localError('Адреса серверов не удалось безопасно проверить. Выбери другой сервер или повтори проверку позже.')
+    else if (!started || !measured) this.localError('Проверочный движок не выполнил измерения; кандидаты сохранены')
+    else if (!successful) this.localError('Проверенные серверы не ответили через интернет. Выбери другой сервер или повтори проверку позже.')
     this.save()
   }
 

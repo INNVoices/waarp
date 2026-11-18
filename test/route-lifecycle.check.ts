@@ -127,7 +127,7 @@ async function main() {
       const next = { ...acknowledged, rest: 'node1', routes: stage === 'drop' ? initial.routes : acknowledged.routes }
       const result = await apply(next)
       assert(injected, stage + ' fault was reached')
-      assert(result.saved && !result.applied && result.running, stage + ' reports saved but unapplied')
+      assert(!result.saved && !result.applied && result.running, stage + ' restores saved selection on an unapplied change')
       assert.equal(native.run.settings, acknowledged)
       assert.equal(guard, false, stage + ' restores and acknowledges the old rules')
       assert(engine.liveApplyFailure)

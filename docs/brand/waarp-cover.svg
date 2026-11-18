@@ -1,31 +1,31 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="370" viewBox="0 0 1200 370" role="img" aria-label="WAARP — route traffic, keep control">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#090E1B"/><stop offset="57%" stop-color="#101A31"/><stop offset="100%" stop-color="#13152D"/></linearGradient>
-    <linearGradient id="pulse" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#73E5E3"/><stop offset="54%" stop-color="#5FAAFF"/><stop offset="100%" stop-color="#B38BFF"/></linearGradient>
-    <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#5EA8FF" stop-opacity="0"/><stop offset="100%" stop-color="#5EA8FF" stop-opacity=".14"/></linearGradient>
-    <radialGradient id="glow"><stop stop-color="#4363DF" stop-opacity=".38"/><stop offset="100%" stop-color="#4363DF" stop-opacity="0"/></radialGradient>
-    <pattern id="dots" width="27" height="27" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#A4BDF5" opacity=".08"/></pattern>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#111110"/><stop offset="57%" stop-color="#1D1916"/><stop offset="100%" stop-color="#251B16"/></linearGradient>
+    <linearGradient id="pulse" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FFCF98"/><stop offset="54%" stop-color="#EE895F"/><stop offset="100%" stop-color="#DC6E4B"/></linearGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#E9845B" stop-opacity="0"/><stop offset="100%" stop-color="#E9845B" stop-opacity=".14"/></linearGradient>
+    <radialGradient id="glow"><stop stop-color="#E47C54" stop-opacity=".38"/><stop offset="100%" stop-color="#E47C54" stop-opacity="0"/></radialGradient>
+    <pattern id="dots" width="27" height="27" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#FFE1C6" opacity=".08"/></pattern>
   </defs>
   <rect width="1200" height="370" rx="24" fill="url(#bg)"/>
   <rect width="1200" height="370" rx="24" fill="url(#dots)"/>
   <circle cx="942" cy="177" r="284" fill="url(#glow)"/>
-  <path d="M700 360C763 295 734 250 824 235S957 265 1013 170S1132 57 1210 91" fill="none" stroke="#506CC9" stroke-width="2" opacity=".23"/>
-  <path d="M694 298C781 251 743 151 831 174S958 272 1065 177S1165 145 1210 159" fill="none" stroke="#729BEE" stroke-width="1.5" stroke-dasharray="5 8" opacity=".28"/>
+  <path d="M700 360C763 295 734 250 824 235S957 265 1013 170S1132 57 1210 91" fill="none" stroke="#A65A3D" stroke-width="2" opacity=".23"/>
+  <path d="M694 298C781 251 743 151 831 174S958 272 1065 177S1165 145 1210 159" fill="none" stroke="#D59672" stroke-width="1.5" stroke-dasharray="5 8" opacity=".28"/>
   <path d="M715 230C786 236 790 110 873 115S1012 154 1060 99S1140 53 1210 57" fill="none" stroke="url(#pulse)" stroke-width="3" opacity=".85"/>
-  <path d="M815 115L872 115M938 134L1000 133" stroke="#DDEAFF" stroke-width="8" stroke-linecap="round" opacity=".08"/>
-  <g fill="#131D36" stroke="#74B3FF" stroke-width="2">
+  <path d="M815 115L872 115M938 134L1000 133" stroke="#FFECDC" stroke-width="8" stroke-linecap="round" opacity=".08"/>
+  <g fill="#271D17" stroke="#F0A77B" stroke-width="2">
     <circle cx="873" cy="115" r="13"/><circle cx="1060" cy="99" r="13"/><circle cx="790" cy="210" r="10"/><circle cx="1013" cy="170" r="10"/>
   </g>
-  <g fill="#A4E9FF"><circle cx="873" cy="115" r="5"/><circle cx="1060" cy="99" r="5"/><circle cx="790" cy="210" r="3.5"/><circle cx="1013" cy="170" r="3.5"/></g>
+  <g fill="#FFD9AC"><circle cx="873" cy="115" r="5"/><circle cx="1060" cy="99" r="5"/><circle cx="790" cy="210" r="3.5"/><circle cx="1013" cy="170" r="3.5"/></g>
   <rect x="54" y="53" width="7" height="48" rx="3.5" fill="url(#pulse)"/>
-  <text x="79" y="98" fill="#F8FBFF" font-family="Arial, Helvetica, sans-serif" font-size="61" font-weight="800" letter-spacing="7">WAARP</text>
-  <text x="57" y="151" fill="#B8C6E2" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="600" letter-spacing="2.2">ROUTE TRAFFIC. KEEP CONTROL.</text>
-  <line x1="57" x2="575" y1="182" y2="182" stroke="#597097" opacity=".38"/>
-  <text x="57" y="220" fill="#ECF4FF" font-family="Arial, Helvetica, sans-serif" font-size="18">Per-app routing. Personal tunnels. Public node discovery.</text>
-  <text x="57" y="250" fill="#94A5C3" font-family="Arial, Helvetica, sans-serif" font-size="16">An independent, source-available routing client.</text>
-  <rect x="57" y="290" width="135" height="36" rx="18" fill="#162947" stroke="#467BAD" stroke-opacity=".5"/>
-  <rect x="203" y="290" width="134" height="36" rx="18" fill="#152E30" stroke="#337B70" stroke-opacity=".5"/>
-  <rect x="348" y="290" width="168" height="36" rx="18" fill="#2C2144" stroke="#8B66C0" stroke-opacity=".5"/>
-  <g fill="#D7EBFF" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" letter-spacing="1.2" text-anchor="middle"><text x="124.5" y="312.7">WINDOWS</text><text x="270" y="312.7">ANDROID</text><text x="432" y="312.7">OPEN SOURCE</text></g>
-  <rect x=".75" y=".75" width="1198.5" height="368.5" rx="23.25" fill="none" stroke="#7891C8" stroke-opacity=".19" stroke-width="1.5"/>
+  <text x="79" y="98" fill="#FFF9F2" font-family="Arial, Helvetica, sans-serif" font-size="61" font-weight="800" letter-spacing="7">WAARP</text>
+  <text x="57" y="151" fill="#D8C6B6" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="600" letter-spacing="2.2">ROUTE TRAFFIC. KEEP CONTROL.</text>
+  <line x1="57" x2="575" y1="182" y2="182" stroke="#9B7860" opacity=".38"/>
+  <text x="57" y="220" fill="#F4E8DB" font-family="Arial, Helvetica, sans-serif" font-size="18">Per-app routing. Your tunnels. Public server discovery.</text>
+  <text x="57" y="250" fill="#BDA794" font-family="Arial, Helvetica, sans-serif" font-size="16">Open-source routing for Windows and Android.</text>
+  <rect x="57" y="290" width="135" height="36" rx="18" fill="#322017" stroke="#B66A47" stroke-opacity=".5"/>
+  <rect x="203" y="290" width="134" height="36" rx="18" fill="#29261B" stroke="#88804E" stroke-opacity=".5"/>
+  <rect x="348" y="290" width="168" height="36" rx="18" fill="#2C211D" stroke="#A07155" stroke-opacity=".5"/>
+  <g fill="#F9E5D2" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" letter-spacing="1.2" text-anchor="middle"><text x="124.5" y="312.7">WINDOWS</text><text x="270" y="312.7">ANDROID</text><text x="432" y="312.7">OPEN SOURCE</text></g>
+  <rect x=".75" y=".75" width="1198.5" height="368.5" rx="23.25" fill="none" stroke="#C39B7A" stroke-opacity=".19" stroke-width="1.5"/>
 </svg>

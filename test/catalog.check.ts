@@ -282,6 +282,84 @@ const make = (allowed: () => boolean = () => true, existing?: string) => {
       eq(restored.state.total, 250, 'persistence stores the candidate reservoir, not only the ready shortlist')
       eq(restored.state.cached.length, 200, 'large cache exposes a bounded renderer shortlist')
     }
+    {
+      reset()
+      const { catalog } = make()
+      read = async sources => sources.map(url => ({ url, body: Array.from({ length: 260 }, (_, index) =>
+        `trojan://fixture-${index}@node-${index}.example:443#${index % 2 ? 'DE-Germany' : 'JP-Japan'}-${index}`).join('\n') }))
+      await catalog.refresh([source], { probe: false })
+      const visited = new Set<string>()
+      for (let page = 1; page <= 26; page++) {
+        const result = catalog.page({ page, pageSize: 10 })
+        eq([result.page, result.pages, result.total, result.items.length], [page, 26, 260, 10], 'complete reservoir page ' + page)
+        result.items.forEach(node => visited.add(node.id))
+      }
+      eq(visited.size, 260, 'pagination reaches every cached candidate once, including beyond old 200-item preview')
+      const europe = catalog.page({ region: 'eu', pageSize: 100 })
+      eq([europe.total, europe.regions.find(item => item.id === 'asia')?.total], [130, 130], 'region filter and facets count the complete pool')
+      eq(catalog.page({ query: 'Германия' }).total, 130, 'Russian country search reaches all German candidates')
+      eq(catalog.page({ query: 'Japan' }).total, 130, 'English country search reaches all Japanese candidates')
+      const selected = catalog.page({ query: 'node-249.example' }).items[0]
+      ok(selected, 'search finds a candidate outside the old preview')
+      let lastMeasured: string[] = []
+      ping = async current => { lastMeasured = current.map(profile => profile.id); return Object.fromEntries(current.map(profile => [profile.id, 12])) }
+      eq((await catalog.verifyNode(selected.id)).ok, true, 'click verifies an exact saved candidate without a separate precheck')
+      eq(lastMeasured, [selected.id], 'on-demand verification never substitutes another available node')
+      eq([catalog.page({ readyOnly: true }).total, catalog.page({ readyOnly: true }).items[0]?.id], [1, selected.id], 'only measured success enters the working-server filter')
+      const before = ensured
+      eq((await catalog.verifyNode(selected.id)).ok, true, 'fresh evidence can be reused for an immediate second selection')
+      eq(ensured, before, 'a fresh ready selection does not start another checker')
+      clock += CATALOG_READY_TTL
+      ping = async current => Object.fromEntries(current.map(profile => [profile.id, undefined]))
+      const failure = await catalog.verifyNode(selected.id)
+      eq(failure.ok, false, 'unreachable selected candidate is rejected, not silently imported as working')
+      ok(failure.error, 'failed candidate selection gives an actionable reason')
+      ping = async current => Object.fromEntries(current.map(profile => [profile.id, 9]))
+      eq((await catalog.verifyNode(selected.id)).ok, true, 'an explicit retry may verify a candidate during automatic failure cooldown')
+      eq([catalog.page({ page: Infinity, pageSize: 0 }).page, catalog.page({ page: 999999, pageSize: 1000 }).items.length], [1, 60], 'invalid and oversized page inputs are bounded')
+      eq((await catalog.verifyNode('missing')).ok, false, 'unknown selected ID cannot start a native check')
+    }
+    {
+      reset()
+      const { catalog } = make()
+      read = async sources => sources.map(url => ({ url, body: Array.from({ length: 20 }, (_, index) =>
+        `trojan://fixture-${index}@node-${index}.example:443#Node-${index}`).join('\n') }))
+      await catalog.refresh([source], { probe: false })
+      const target = catalog.page({ query: 'node-19.example' }).items[0]
+      const entered = deferred<void>(), oldMeasurements = deferred<Record<string, number | undefined>>()
+      let first = true, oldIds: string[] = [], selectedIds: string[] = []
+      ping = async current => {
+        if (first) { first = false; oldIds = current.map(profile => profile.id); entered.resolve(undefined); return oldMeasurements.promise }
+        selectedIds = current.map(profile => profile.id)
+        return Object.fromEntries(current.map(profile => [profile.id, 17]))
+      }
+      stop = async () => { oldMeasurements.resolve(Object.fromEntries(oldIds.map(id => [id, 1]))); return true }
+      const batch = catalog.verify()
+      await entered.promise
+      const picked = await catalog.verifyNode(target.id)
+      await batch
+      eq([picked.ok, selectedIds, catalog.state.readyCount], [true, [target.id], 1], 'a row click preempts a busy pool safely and only publishes the exact selected measurement')
+      eq(stopped, 2, 'old batch and selected candidate each confirm isolated checker cleanup')
+    }
+    {
+      reset()
+      const { catalog, updates } = make()
+      read = async sources => sources.map(url => ({ url, body: Array.from({ length: 20 }, (_, index) =>
+        `trojan://fixture-${index}@node-${index}.example:443#Node-${index}`).join('\n') }))
+      await catalog.refresh([source], { probe: false })
+      const entered = deferred<void>(), remaining = deferred<Record<string, number | undefined>>()
+      let round = 0
+      ping = async current => {
+        if (++round > 1) { entered.resolve(undefined); return remaining.promise }
+        return Object.fromEntries(current.map(profile => [profile.id, 11]))
+      }
+      stop = async () => { if (round > 1) remaining.resolve({}); return true }
+      const checking = catalog.verify()
+      await entered.promise
+      ok(updates.some(state => state.busy && state.checked === 8 && state.readyCount === 8), 'working first batch is visible before the whole pool round finishes')
+      await catalog.pause(); await checking
+      eq(catalog.state.readyCount, 8, 'cancelling the remaining round retains already cleaned-up real observations')
+    }
   } finally {
     Checker.prototype.ensure = original.ensure
     Checker.prototype.pings = original.pings

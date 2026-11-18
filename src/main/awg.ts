@@ -13,6 +13,7 @@ import { compilePlan, planProfileIds } from '../shared/plan'
 import { serviceGuardRule, TUN, TUN_ADDRESSES } from './tun'
 import { diagnosticConfig, type DiagnosticProxy } from './diagnostic-proxy'
 import { DnsPriority } from './dns-priority'
+import { relayOutbounds, relayDnsTag, RELAY_DNS_IP, type RelayGraph, type ForwardProxy } from './relay-config'
 
 export { validateCustom } from '../shared/route-validation'
 
@@ -295,6 +296,8 @@ export interface BuildOpts {
   /** Keep complete groups over the warm private pool available for selector-only switches. */
   preloadGroups?: boolean
   diagnostic?: DiagnosticProxy
+  /** Fixed loopback destinations allow new paths without changing the active TUN graph. */
+  relays?: RelayGraph
 }
 
 /** HOTFIX-RUNTIME-01: what one core run has loaded: profiles (ids, in profile order), live groups, fallback pairs */
@@ -500,19 +503,24 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
   const s = withAuto(given, profiles, o.autoLive)
   const { used, lg, fbs } = loadedSets(profiles, given, o)
   const known = new Set(used.map(p => p.id))
+  const relaySlots = o.relays?.slots ?? []
+  const binding = o.relays?.bindings ?? {}
+  const physical = (id: string) => binding[id] ?? tagOf(id)
+  const nativeUsed = used.filter(p => !binding[p.id])
+  const dnsTag = (id: string) => binding[id] ? relayDnsTag(binding[id]) : 'dns-' + id
   // R5: a fallback pointing at Auto resolves through the same bounded pool
   const knownG = new Set(lg.map(g => g.id))
   // C03: a target that is not direct and not a known tunnel/group is BLOCKED, never silently direct
-  const out = (v: Via) => (v === 'direct' ? 'direct' : knownG.has(v) ? grpTag(v) : known.has(v) ? tagOf(v) : BLOCK)
-  const dnsOf = (v: Via) => (v === 'direct' ? 'local' : knownG.has(v) || known.has(v) ? 'dns-' + v : BLOCK)
+  const out = (v: Via) => (v === 'direct' ? 'direct' : knownG.has(v) ? grpTag(v) : known.has(v) ? physical(v) : BLOCK)
+  const dnsOf = (v: Via) => (v === 'direct' ? 'local' : knownG.has(v) || known.has(v) ? dnsTag(v) : BLOCK)
   const outR = (r: Route) => { const f = validFb(r, known); return f ? selTag(r.via, f) : out(r.via) }
   const dnsR = (r: Route) => { const f = validFb(r, known); return f ? 'dns-' + selTag(r.via, f) : dnsOf(r.via) }
   const rest = out(s.rest)
   const DIRECT = 'direct'
   const act = activeRoutes(s)
   // HOTFIX-RUNTIME-01 selector layer: one selector per route over everything this core has loaded; BLOCK stays a reject rule
-  const loadedTags = [DIRECT, ...used.map(p => tagOf(p.id)), ...lg.map(g => grpTag(g.id)), ...fbs.map(g => g.tag)]
-  const diagnostic = diagnosticConfig(o.diagnostic, [DIRECT, ...used.map(p => tagOf(p.id))])
+  const loadedTags = [DIRECT, ...nativeUsed.map(p => tagOf(p.id)), ...relaySlots.map(slot => slot.id), ...lg.map(g => grpTag(g.id)), ...fbs.map(g => g.tag)]
+  const diagnostic = diagnosticConfig(o.diagnostic, [DIRECT, ...nativeUsed.map(p => tagOf(p.id)), ...relaySlots.map(slot => slot.id)])
   const sels: Record<string, unknown>[] = []
   const routeDns: { tag: string; from: string; detour: string }[] = []
   const via = (sel: string, target: string) => {
@@ -537,6 +545,8 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
   const v6id = (id: string) => { const p = used.find(x => x.id === id); return !!p && v6p(p) }
   const v6 = (tag: string): boolean => {
     if (tag === DIRECT) return o.hostV6 !== false
+    const relayed = used.find(p => binding[p.id] === tag)
+    if (relayed) return v6p(relayed)
     const g = lg.find(x => grpTag(x.id) === tag)
     if (g) return g.members.every(v6id)
     const f = fbs.find(x => x.tag === tag)
@@ -628,7 +638,8 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
     }
     for (const [tag, list] of buckets) set(tag, list)
     dnsRules.push({ rule_set: ['dn-block'], action: 'reject' }, { rule_set: ['dn-direct'], server: 'local' })
-    for (const p of used) dnsRules.push({ rule_set: ['dn-' + tagOf(p.id)], server: 'dns-' + p.id })
+    for (const p of nativeUsed) dnsRules.push({ rule_set: ['dn-' + tagOf(p.id)], server: 'dns-' + p.id })
+    for (const slot of relaySlots) dnsRules.push({ rule_set: ['dn-' + slot.id], server: relayDnsTag(slot.id) })
     for (const g of lg) dnsRules.push({ rule_set: ['dn-' + grpTag(g.id)], server: 'dns-' + g.id })
     for (const g of fbs) dnsRules.push({ rule_set: ['dn-' + g.tag], server: 'dns-' + g.tag })
   }
@@ -671,6 +682,7 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
       append(name, rest === target ? [{ domain_regex: ['.*'] }] : [])
       if (target === BLOCK) dnsRules.push({ rule_set: [name], action: 'reject' })
       else dnsRules.push({ rule_set: [name], server: target === DIRECT ? 'local'
+        : relaySlots.some(slot => slot.id === target) ? relayDnsTag(target)
         : target.startsWith('p-') ? 'dns-' + target.slice(2)
         : target.startsWith('grp-') ? 'dns-' + target.slice(4) : 'dns-' + target })
     }
@@ -695,7 +707,9 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
     // A private resolver belonging to one provider cannot be assumed reachable through another provider.
     return same ? resolvers[0] : { type: 'https', server: '1.1.1.1' }
   }
-  for (const p of used) dnsServers.push({ ...resolver(p), tag: 'dns-' + p.id, detour: tagOf(p.id) })
+  for (const p of nativeUsed) dnsServers.push({ ...resolver(p), tag: 'dns-' + p.id, detour: tagOf(p.id) })
+  // The selected worker resolves these queries through its own profile, including imported private DNS.
+  for (const slot of relaySlots) dnsServers.push({ type: 'udp', server: RELAY_DNS_IP, server_port: 53, tag: relayDnsTag(slot.id), detour: slot.id })
   for (const g of lg) dnsServers.push({ ...groupResolver(g.members), tag: 'dns-' + g.id, detour: grpTag(g.id) })
   for (const g of fbs) dnsServers.push({ ...groupResolver([g.main, g.fb]), tag: 'dns-' + g.tag, detour: g.tag })
   // a route's DNS follows the route's own selector: the same resolver as its target, detour = the route switch
@@ -729,15 +743,16 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
       stack: 'mixed',
       ...(s.lanDirect ? { route_exclude_address: PRIVATE } : {})
     }],
-    endpoints: used.flatMap(p => (p.kind === 'awg' ? [endpoint(p)] : p.kind === 'openvpn' ? [{ ...p.endpoint, tag: tagOf(p.id) }] : [])),
+    endpoints: nativeUsed.flatMap(p => (p.kind === 'awg' ? [endpoint(p)] : p.kind === 'openvpn' ? [{ ...p.endpoint, tag: tagOf(p.id) }] : [])),
     outbounds: [
       { type: 'direct', tag: DIRECT },
       ...diagnostic.outbounds,
-      ...used.flatMap(p => (p.kind === 'vless' ? [vlessOutbound(p, tagOf(p.id))] : p.kind === 'out' ? [{ ...p.outbound, tag: tagOf(p.id) }] : [])),
+      ...relayOutbounds(relaySlots),
+      ...nativeUsed.flatMap(p => (p.kind === 'vless' ? [vlessOutbound(p, tagOf(p.id))] : p.kind === 'out' ? [{ ...p.outbound, tag: tagOf(p.id) }] : [])),
       // every group is a selector driven by Waarp's own probe rounds (engine.groupStep): no urltest ping-chasing (W2.2).
       // A failed path must release old TCP/UDP sessions. The controller holds healthy paths while traffic is active.
-      ...lg.map(g => ({ type: 'selector', tag: grpTag(g.id), outbounds: g.members.map(tagOf), default: tagOf(g.members[0]), interrupt_exist_connections: true })),
-      ...fbs.map(g => ({ type: 'selector', tag: g.tag, outbounds: [tagOf(g.main), tagOf(g.fb)], default: tagOf(g.main), interrupt_exist_connections: true })),
+      ...lg.map(g => ({ type: 'selector', tag: grpTag(g.id), outbounds: g.members.map(physical), default: physical(g.members[0]), interrupt_exist_connections: true })),
+      ...fbs.map(g => ({ type: 'selector', tag: g.tag, outbounds: [physical(g.main), physical(g.fb)], default: physical(g.main), interrupt_exist_connections: true })),
       ...sels
     ],
     route: { ...(ruleSets.length ? { rule_set: ruleSets } : {}), rules: blockRules(rest === BLOCK && !slotMode ? [...rules, { network: ['tcp', 'udp'], outbound: BLOCK }] : rules), final, auto_detect_interface: true, find_process: true, default_domain_resolver: 'local' },
@@ -746,20 +761,30 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
   return { cfg, files }
 }
 
-/** WRP-013 local checker config: no inbound, no TUN, userspace WireGuard, clash API on localhost only.
- *  Lets Waarp measure every tunnel (urltest / site probe) while the system tunnel is closed. */
-export function checkConfig(profiles: Profile[], api: { port: number; secret: string }, proxy?: DiagnosticProxy) {
+/** No-TUN native worker. Measurements need no inbound; explicit forwarding uses
+ * authenticated loopback SOCKS and the selected profile's own DNS. */
+export function checkConfig(profiles: Profile[], api: { port: number; secret: string }, proxy?: DiagnosticProxy, forward?: ForwardProxy) {
   const active = profiles.filter(p => !p.revoked)
   const diagnostic = diagnosticConfig(proxy, ['direct', ...active.map(p => tagOf(p.id))])
+  const forwarded = forward && active.find(p => p.id === forward.profileId)
+  if (forward && !forwarded) throw new Error('forward profile missing')
+  const importedDns = forwarded?.kind === 'awg' ? forwarded.dns.find(ip => isIP(ip)) : undefined
+  const forwardDns = forwarded ? [{ ...(importedDns ? { type: 'udp', server: importedDns, server_port: 53 }
+    : { type: 'https', server: '1.1.1.1' }), tag: 'forward-dns', detour: tagOf(forwarded.id) }] : []
   return {
     log: { level: 'warn', timestamp: false },
     // Endpoint bootstrap and probe target names use an explicit local resolver, matching main's
     // bootstrap policy. IPv4-only AWG clients must not be judged by an unrouteable AAAA candidate.
-    dns: { servers: [{ type: 'local', tag: 'local' }], final: 'local', strategy: 'ipv4_only' },
-    ...(proxy ? { inbounds: diagnostic.inbounds } : {}),
+    dns: { servers: [{ type: 'local', tag: 'local' }, ...forwardDns], final: forwarded ? 'forward-dns' : 'local', strategy: 'ipv4_only' },
+    ...(forward ? { inbounds: [{ type: 'socks', tag: 'live-forward', listen: '127.0.0.1', listen_port: forward.proxy.port,
+      users: [{ username: forward.proxy.username, password: forward.proxy.password }] }] }
+      : proxy ? { inbounds: diagnostic.inbounds } : {}),
     endpoints: active.flatMap((p): Record<string, unknown>[] => (p.kind === 'awg' ? [{ ...endpoint(p), system: false }] : p.kind === 'openvpn' ? [{ ...p.endpoint, tag: tagOf(p.id) }] : [])),
     outbounds: [{ type: 'direct', tag: 'direct' }, ...diagnostic.outbounds, ...active.flatMap(p => (p.kind === 'vless' ? [vlessOutbound(p, tagOf(p.id))] : p.kind === 'out' ? [{ ...p.outbound, tag: tagOf(p.id) }] : []))],
-    route: { ...(proxy ? { rules: diagnostic.rules } : {}), final: 'direct', default_domain_resolver: 'local' },
+    route: { ...(forward ? { rules: [{ inbound: ['live-forward'], ip_cidr: [RELAY_DNS_IP + '/32'], port: 53, action: 'hijack-dns' }] }
+      : proxy ? { rules: diagnostic.rules } : {}), final: forwarded ? tagOf(forwarded.id) : 'direct',
+      // The same binary is exempted by the owned Windows TUN; bind outbound sockets to the physical NIC.
+      auto_detect_interface: true, default_domain_resolver: 'local' },
     experimental: { clash_api: { external_controller: `127.0.0.1:${api.port}`, secret: api.secret } }
   }
 }

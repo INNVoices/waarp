@@ -1,5 +1,5 @@
 // RC2 C: one result contract for every routing write (renderer route select, companion picker, bridge routes.ensure).
-// Saved intent and runtime application are reported separately; a failed restart never rolls the intent back.
+// Saved intent and runtime application are reported separately; failed live edits restore the visible selection.
 import type { Settings } from '../shared/types'
 
 export type ApplyCode = 'save' | 'block' | 'start' | 'restart' | 'rollback'
@@ -25,9 +25,9 @@ export interface ApplyDeps {
   start: (s: Settings, current: () => boolean) => Promise<void>
   /** HOTFIX-RUNTIME-01 B2: switch the running core live; true = applied, no scan or restart needed */
   live?: (s: Settings) => Promise<boolean>
-  /** Operational live failures keep the previous session; only structural misses restart. */
+  /** Live failures keep the previous session and restore the saved selection. */
   liveFailure?: () => string | undefined
-  /** Explicit consent is mandatory before a structural change cycles an active TUN. */
+  /** Retained for callers managing explicit system reconfiguration; card writes never use it. */
   confirmRestart?: () => Promise<boolean>
   stop: () => Promise<unknown>
   changed: () => void
@@ -43,7 +43,7 @@ export function createApply(d: ApplyDeps): (next: Settings) => Promise<ApplyResu
     d.set(next)
     try { d.save() } catch { d.set(previous); return { saved: false, applied: false, running: isRunning(d.phase()), code: 'save' } }
     const running = isRunning(d.phase())
-    const reject = (code: 'block' | 'restart'): ApplyResult => {
+    const reject = (code: 'block' | 'restart' | 'start'): ApplyResult => {
       d.set(previous)
       try { d.save(); return { saved: false, applied: false, running, code } }
       catch { return { saved: false, applied: false, running, code: 'rollback' } }
@@ -65,18 +65,17 @@ export function createApply(d: ApplyDeps): (next: Settings) => Promise<ApplyResu
         if (!current()) return applied ? { saved: true, applied: false, running } :
           reject('restart')
         if (applied) return { saved: true, applied: true, running }
-        if (d.liveFailure?.()) return { saved: true, applied: false, running, code: 'start' }
+        // A card edit never turns a live-apply miss into a TUN restart prompt.
+        // Keep both the acknowledged path and its visible saved selection.
+        return reject('start')
       }
       const blocked = await d.blocked()
       if (!current()) return reject('restart')
       if (blocked) return reject('block')
       if (!running) {
-        // An open-but-idle master may acquire a TUN only after a second explicit
-        // decision: route changes never silently turn the adapter on.
+        // The owner already turned the master ON. Selecting the first route
+        // fulfills that intent without a second confirmation dialog.
         if (d.phase() === 'off' && d.open?.() && d.demandsTunnel(next)) {
-          if (!(await d.confirmRestart?.())) {
-            return reject('restart')
-          }
           if (!current()) return reject('restart')
           await d.start(next, current)
           return !ownerCurrent() ? { saved: true, applied: false, running } :
@@ -84,19 +83,13 @@ export function createApply(d: ApplyDeps): (next: Settings) => Promise<ApplyResu
         }
         return { saved: true, applied: false, running }
       }
-      if (!(await d.confirmRestart?.())) {
-        return reject('restart')
-      }
-      if (!current()) return reject('restart')
-      // A running session remains owned by the master even when every card becomes
-      // Direct/disabled. Reconcile structural changes without treating a card
-      // edit as an implicit global OFF; operational failures returned above.
-      await d.start(next, current)
-      return !ownerCurrent() ? { saved: true, applied: false, running } : d.phase() === 'on' ? { saved: true, applied: true, running } : { saved: true, applied: false, running, code: 'start' }
+      // Only the master lifecycle can replace the active native session. Even a
+      // caller without live support must not quietly restart it for a card edit.
+      return reject('start')
     } catch {
       // A failed read/preflight/start is not permission to stop or report the
       // still-running previous configuration as successfully applied.
-      return { saved: true, applied: false, running, code: 'start' }
+      return running ? reject('start') : { saved: true, applied: false, running, code: 'start' }
     } finally { d.changed() }
   }
 }

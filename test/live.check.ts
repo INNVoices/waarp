@@ -68,10 +68,9 @@ const settings = (on: boolean): Settings => ({ ...DEFAULTS, routes: [route(on)] 
   })
 
   const enabled = await apply(settings(true))
-  check('master-open idle refuses an unapproved activation and preserves TUN state', !enabled.saved && !enabled.applied && enabled.code === 'restart' && starts === 0 && phase === 'off')
+  check('already-open idle master applies the first selected route without a second ON decision', enabled.saved && enabled.applied && starts === 1 && phase === 'on')
 
-  // The separate manual master ON starts the native core, not the route mutation.
-  phase = 'on'; starts++
+  // The last card can be disabled without revoking the separate master ON intent.
   const disabled = await apply(settings(false))
   check('turning last routed card off changes routing but leaves manually opened TUN up',
     disabled.saved && disabled.applied && starts === 1 && stops === 0 && phase === 'on')

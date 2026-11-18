@@ -480,6 +480,7 @@ function ipc() {
     catch { store.profiles = previousProfiles; return false }
   }
   secureHandle('catalog:get', () => { checkCatalogLink(); return catalog?.state })
+  secureHandle('catalog:page', (_e, query: unknown) => { checkCatalogLink(); return catalog?.page(query) })
   secureHandle('discover:scan', async () => {
     if (!discovery || discoveryBusy) return { ok: false, error: 'Поиск уже идёт' }
     discoveryBusy = true
@@ -533,19 +534,25 @@ function ipc() {
     if (!runtimeRecovery.ready) return { ...catalog?.state, error: 'Дождись восстановления Waarp перед проверкой каталога' }
     if (!['on', 'off'].includes(engine.status.phase)) return { ...catalog?.state, error: 'Дождись завершения текущего подключения' }
     await refreshCatalogNetwork(true)
-    // ON only downloads configurations through existing paths. It never
-    // starts a second checker or changes the running application's routes.
-    return await catalog?.refresh(undefined, { probe: !master.open && engine.status.phase === 'off' })
+    // Catalog checks own an isolated userspace core with no TUN. They can
+    // verify new servers while the application's routes keep running.
+    return await catalog?.refresh()
   })
   secureHandle('catalog:verify', async () => {
     if (!engineIntegrity || !runtimeRecovery.ready) return { ...catalog?.state, error: 'Проверка станет доступна после восстановления движка Waarp' }
-    if (master.open || engine.status.phase !== 'off') return { ...catalog?.state, error: 'Проверка сохранённых узлов доступна при выключенном Waarp. Списки можно обновить сейчас.' }
+    if (!['on', 'off'].includes(engine.status.phase)) return { ...catalog?.state, error: 'Дождись завершения текущего подключения.' }
     await refreshCatalogNetwork(true)
     return await catalog?.verify()
   })
   secureIntentHandle('catalog:add', async (_e, id: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     if (typeof id !== 'string' || !/^pub-[0-9a-f]{20}$/.test(id)) return { ok: false, error: 'Неверный узел каталога' }
+    if (!engineIntegrity || !runtimeRecovery.ready) return { ok: false, error: 'Проверка станет доступна после восстановления движка Waarp.' }
+    const revision = master.revision
+    await refreshCatalogNetwork(true)
+    const verified = await catalog?.verifyNode(id)
+    if (revision !== master.revision || quitting) return { ok: false, error: 'Выбор сервера отменён: состояние подключения изменилось.' }
+    if (!verified?.ok) return { ok: false, error: verified?.error ?? 'Сервер не прошёл проверку. Выбери другой сервер.' }
     const previousProfiles = store.profiles.slice()
     const pid = addPublic(id); if (!pid) return { ok: false, error: 'Узел пропал из списка, обнови каталог' }
     try { store.save() }
@@ -562,7 +569,7 @@ function ipc() {
     if (master.revision !== revision || engine.status.phase !== phase) return { ok: false, error: 'Состояние подключения изменилось. Повтори подбор группы.' }
     const previousProfiles = store.profiles.slice(), previousSettings = store.settings
     const top = [...new Set((catalog?.bestReady(5) ?? []).map(n => addPublic(n.id)).filter((x): x is string => !!x))]
-    if (!top.length) return { ok: false, error: 'Свежих успешных проверок пока нет. Проверь сохранённые узлы при выключенном Waarp' }
+    if (!top.length) return { ok: false, error: 'Рабочие серверы пока не найдены. Нажми «Проверить пул» или выбери сервер для проверки.' }
     const existing = store.settings.groups.find(g => g.id.startsWith('g-public') && g.policy === 'fastest' && g.members.length === top.length && g.members.every((id, i) => id === top[i]))
     if (existing) return { ok: true, id: existing.id }
     if (store.settings.groups.length >= 50) { store.profiles = previousProfiles; return { ok: false, error: 'Достигнут предел в 50 групп. Удали ненужную группу перед добавлением.' } }
@@ -1331,9 +1338,10 @@ app.whenReady().then(async () => {
   const allowMeasurements = () => runtimeRecovery.ready && !quitting && !master.open && engine.status.phase === 'off'
   checker = engineIntegrity ? new Checker(engineExe, join(app.getPath('userData'), 'check'), allowMeasurements) : undefined
   catalog = new Catalog(join(app.getPath('userData'), 'catalog'), engineExe, s => send('catalog', s),
-    () => allowMeasurements() && catalogLinkCurrent(), fetchPublicCatalog)
+    () => engineIntegrity && runtimeRecovery.ready && !quitting && ['on', 'off'].includes(engine.status.phase) && catalogLinkCurrent(), fetchPublicCatalog)
   discovery = new Discovery()
-  // Public checks are explicit. Opening Waarp must not contact third-party nodes or race their checker with TUN.
+  // The public server picker explicitly starts a bounded verification round.
+  // Its checker owns no TUN and cannot change application routing.
   // Showing the shell must not wait for PowerShell, orphan recovery, or network-related cleanup.
   // Those checks finish immediately after first paint and update the same snapshot.
   adminReady = checkAdmin()
@@ -1711,7 +1719,7 @@ const DIAGNOSE_MS = 20_000
 let probeCursor = 0
 const viewName = (v: string): string | undefined => store.views().find(p => p.id === v)?.name ?? (v === AUTO_ID ? 'Авто' : undefined)
 
-/** All routing edits share live application and explicit structural-change consent. */
+/** Card choices apply to the current session; only the master owns TUN lifecycle. */
 const applyRouting = createApply({
   get: () => store.settings,
   set: s => { store.settings = s },
@@ -1732,14 +1740,13 @@ const applyRouting = createApply({
   },
   start: async (_settings, current) => {
     const revision = master.revision
-    // The caller has already obtained consent. Keep the master intent even if
-    // preflight/native start fails, and retain an open Direct-only TUN.
+    // The master is already ON: the first selected route fulfills that intent.
+    // Keep it if preflight/native start fails, and retain an open Direct-only TUN.
     const result = await master.reconnect(revision, { restart: true, retainCore: true, preserveIntent: true, beforeStart: current })
     if (!result.ok) throw new Error(result.error ?? 'Не удалось применить маршрут')
   },
   live: async s => engine.applyLive(await runtimeProfiles(false), s),
   liveFailure: () => engine.liveApplyFailure,
-  confirmRestart: () => confirmTunRestart('Этот маршрут требует нового нативного определения или превышает предел живых правил.'),
   stop: () => engine.stop(),
   changed: () => send('snapshot', snapshot())
 })
@@ -1747,9 +1754,11 @@ const applyRouting = createApply({
 function applyText(r: ApplyResult): string | undefined {
   if (r.code === 'rollback') return 'Изменение отменено в текущей сессии, но прежние настройки не удалось восстановить на диске. VPN не переключён; повтори сохранение перед следующим запуском приложения.'
   if (r.code === 'block') return (notices.find(n => n.level === 'block')?.title ?? 'Запуск заблокирован') + '. Изменение отменено; действующий TUN сохранён'
-  if (r.code === 'restart') return 'Изменение отменено: перезапуск VPN не подтверждён, прежний маршрут сохранён'
+  if (r.code === 'restart') return 'Состояние VPN изменилось. Прежний маршрут сохранён; повтори выбор'
+  if (r.code === 'start') return engine.liveApplyFailure ?? (r.saved
+    ? 'Не удалось запустить выбранный маршрут. Повтори подключение'
+    : 'Не удалось применить маршрут. Прежний выбор сохранён')
   if (!r.saved) return 'Не удалось сохранить маршрут'
-  if (r.code === 'start') return 'Маршрут сохранён, но текущее состояние туннеля не применило изменение'
   return undefined
 }
 

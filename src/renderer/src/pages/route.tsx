@@ -1,15 +1,14 @@
 import { useRef, useState } from 'react'
 import type { AppInfo, Conn, Route, Snapshot, Status, Via } from '../../../shared/types'
 import { PRESETS } from '../../../shared/presets'
-import { Btn, fmtBytes, Icon, Input, Plain, Toggle } from '../ui/kit'
+import { Btn, fmtBytes, Icon, Plain, Select, Toggle } from '../ui/kit'
 import { s } from '../lib/i18n'
-import { connsOf, dropRoute, hueOf, patchRoute, profileOf } from '../lib/routes'
+import { connsOf, dropRoute, hueOf, patchRoute } from '../lib/routes'
 import { isDraft } from '../lib/flow'
-import { kindLabel, Mark, Ping, RouteIcon, subOf, viaName, AutoHint } from '../parts'
-import { PublicCatalog } from './publiccat'
+import { kindLabel, Mark, RouteIcon, viaName } from '../parts'
+import { ServerPicker } from './server-picker'
 import { api } from '../bridge'
 import type { SettingsPatch } from '../lib/actions'
-import { AUTO_ID, autoMembers } from '../../../shared/groups'
 import { safeVia } from '../../../shared/companion'
 import { routeSchemeHintKey, routeStateKey } from '../lib/route-state'
 
@@ -18,10 +17,7 @@ interface P { snap: Snapshot; status: Status; conns: Conn[]; apps: AppInfo[]; id
 export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }: P) {
   const [applying, setApplying] = useState<Via>()
   const [saving, setSaving] = useState(false)
-  const [serverQuery, setServerQuery] = useState('')
-  const [serverLimit, setServerLimit] = useState(8)
-  const [backupQuery, setBackupQuery] = useState('')
-  const [backupLimit, setBackupLimit] = useState(8)
+  const [checkingServer, setCheckingServer] = useState(false)
   const changing = useRef(false)
   const st = snap.settings
   const r = st.routes.find(x => x.id === id)
@@ -29,7 +25,7 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
   if (!r) return <div className="page"><p className="lead">{s('route.removed')}</p><Btn kind="ghost" onClick={back}><Icon n="back" />{s('nav.back')}</Btn></div>
   const live = status.phase === 'on'
   const draft = isDraft(r) // new target: off, no path chosen yet
-  const locked = saving || !!applying
+  const locked = saving || !!applying || checkingServer
   const set = async (p: Partial<Route>) => {
     if (changing.current) return
     changing.current = true; setSaving(true)
@@ -56,7 +52,6 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
   const cs = live ? connsOf(r, conns) : []
   const forCompanion = r.owner === 'companion'
   const safe = (v: Via) => !forCompanion || safeVia(v, st, snap.profiles)
-  const opts: Via[] = [...(autoMembers(snap.profiles).length ? [AUTO_ID] : []), 'direct', ...snap.profiles.filter(p => !p.revoked).map(p => p.id)].filter(safe)
   const e = status.routes?.[r.id]
   const nowText = !e ? '' : e.state === 'ok' ? (e.effective && e.effective !== r.via ? s('route.now.picked', { a: viaName(snap.profiles, r.via), v: viaName(snap.profiles, e.effective) }) : s('route.now.ok', { v: viaName(snap.profiles, r.via) }))
     : e.state === 'fallback' ? s('route.now.fallback', { v: viaName(snap.profiles, e.effective ?? '') })
@@ -68,22 +63,6 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
   const eff = (live && status.fallback[r.id]) || r.via
   const onFb = eff !== r.via
   const fbOpts = snap.profiles.filter(p => !p.revoked && p.id !== r.via && p.kind !== 'group').map(p => p.id).filter(safe)
-  // Pin the current path and Direct/Auto in the unfiltered list. A search shows
-  // only matches; clearing it restores those pins without changing the route.
-  const matches = (v: Via, term: string) => {
-    if (!term) return true
-    const p = profileOf(snap.profiles, v)
-    return [p?.name ?? viaName(snap.profiles, v), p?.host ?? '', p ? subOf(p) : ''].join(' ').toLocaleLowerCase().includes(term)
-  }
-  const serverTerm = serverQuery.trim().toLocaleLowerCase(), backupTerm = backupQuery.trim().toLocaleLowerCase()
-  const pinned = new Set<Via>([r.via, AUTO_ID, 'direct'])
-  const filtered = opts.filter(v => matches(v, serverTerm))
-  const sorted = [...filtered.filter(v => pinned.has(v)), ...filtered.filter(v => !pinned.has(v))]
-  const visible = sorted.slice(0, serverLimit)
-  const filteredBackup = [undefined, ...fbOpts].filter(v => v === undefined ? !backupTerm || s('route.fb.none').toLocaleLowerCase().includes(backupTerm) : matches(v, backupTerm))
-  const selectedBackup = filteredBackup.filter(v => v === r.fallback)
-  const orderedBackup = [...selectedBackup, ...filteredBackup.filter(v => v !== r.fallback)]
-  const visibleBackup = orderedBackup.slice(0, backupLimit)
   return (
     <div className="page">
       <div className="page-head">
@@ -95,69 +74,23 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
         <Btn kind="danger" disabled={locked} onClick={() => void remove()}><Icon n="trash" />{s('conn.remove')}</Btn>
       </div>
 
-      {draft && <div className="route-now warn" role="status"><span className="st-dot" aria-hidden /><span className="grow">{s('route.draft')}</span></div>}
+      {draft && <div className="route-now" role="status"><span className="st-dot" aria-hidden /><span className="grow">{s('route.draft')}</span></div>}
       {!draft && visibleNowText && <div className={'route-now' + (applying ? ' applying' : e?.state === 'fallback' || e?.state === 'retrying' ? ' warn' : e?.state === 'blocked' ? ' err' : '')} role="status" aria-live="polite">
         <span className="st-dot" aria-hidden /><span className="grow">{visibleNowText}</span>
         {!applying && (e?.state === 'retrying' && e.reason !== 'waiting' || e?.state === 'fallback') && <span className="m">{s('route.now.why')}</span>}
       </div>}
-      <section className="panel">
-        <h3>{s('route.server')}</h3>
-        {opts.length > 8 && <div className="route-choice-tools">
-          <Input className="inp" type="search" value={serverQuery} onChange={e => { setServerQuery(e.target.value); setServerLimit(8) }} placeholder={s('route.picker.search')} aria-label={s('route.picker.search.label')} />
-          <span className="hint">{s('route.picker.count', { count: sorted.length, total: opts.length })}</span>
-        </div>}
-        <div className={'vgrid route-choices' + (serverLimit > 8 ? ' expanded' : '')}>
-          {visible.map(v => {
-            const on = !draft && r.via === v
-            const p = snap.profiles.find(x => x.id === v)
-            return (
-              <Plain key={v} disabled={locked} aria-busy={applying === v} aria-pressed={on} className={'vopt' + (on ? ' on' : '') + (applying === v ? ' applying' : '')} onClick={() => void select(v)}>
-                <span className="radio" />
-                <span className="vo-t"><span className="vo-n"><Mark profiles={snap.profiles} via={v} /><span className="vo-name" title={viaName(snap.profiles, v)}>{viaName(snap.profiles, v)}</span></span>
-                  <span className="vo-meta"><small className="m ell" title={v === 'direct' ? s('via.direct.hint') : v === AUTO_ID ? s('route.picker.auto.tip') : subOf(p)}>{v === 'direct' ? s('via.direct.hint') : v === AUTO_ID ? <AutoHint profiles={snap.profiles} bare /> : subOf(p)}</small>
-                    <span className="vo-metric"><Ping ms={status.pings[v]} live={live} down={v === r.via ? e?.reason === 'path_down' : status.health?.[v] === 'down'} /></span></span></span>
-              </Plain>
-            )
-          })}
-        </div>
-        {sorted.length > visible.length && <Btn kind="ghost" onClick={() => setServerLimit(n => n + 16)}>{s('route.picker.more', { count: Math.min(16, sorted.length - visible.length) })}</Btn>}
-        {serverLimit > 8 && sorted.length > 8 && <Btn kind="ghost" onClick={() => setServerLimit(8)}>{s('route.picker.collapse')}</Btn>}
-        {serverQuery && sorted.length === 0 && <p className="hint">{s('route.picker.notfound')}</p>}
-        {!snap.profiles.length && <p className="hint">{s('route.noservers')}</p>}
-      </section>
+      <ServerPicker snap={snap} status={status} route={r} applying={applying} disabled={locked} onSelect={select} onBusyChange={setCheckingServer} toast={toast} />
 
-      {/* public nodes are a low-trust extra source, never in the main flow (GPT 35816ee C) */}
-      {!forCompanion && <details className="pub-more"><summary>{s('route.pub.more')}</summary>
-        <PublicCatalog disabled={locked} refreshAllowed={status.phase === 'off' && status.open !== true} compact toast={toast} used={pid => snap.profiles.some(p => p.id === pid)} onAdded={pid => void select(pid)} />
-      </details>}
-
-      {!draft && r.via !== 'direct' && snap.profiles.find(p => p.id === r.via)?.kind !== 'group' && fbOpts.length > 0 && (
-        <section className="panel">
-          <h3>{s('route.fb')}</h3>
-          <p className="hint">{s('route.fb.hint')}</p>
-          {fbOpts.length > 7 && <div className="route-choice-tools">
-            <Input className="inp" type="search" value={backupQuery} onChange={e => { setBackupQuery(e.target.value); setBackupLimit(8) }} placeholder={s('route.picker.backup.search')} aria-label={s('route.picker.backup.search.label')} />
-            <span className="hint">{s('route.picker.count', { count: orderedBackup.length, total: fbOpts.length + 1 })}</span>
-          </div>}
-          <div className={'vgrid route-choices' + (backupLimit > 8 ? ' expanded' : '')}>
-            {visibleBackup.map(v => {
-              const on = r.fallback === v
-              const p = snap.profiles.find(x => x.id === v)
-              return (
-                <Plain disabled={locked} aria-pressed={on} key={v ?? 'none'} className={'vopt' + (on ? ' on' : '')} onClick={() => set({ fallback: v })}>
-                  <span className="radio" />
-                  <span className="vo-t"><span className="vo-n">{v && <Mark profiles={snap.profiles} via={v} />}<span className="vo-name" title={v ? viaName(snap.profiles, v) : s('route.fb.none')}>{v ? viaName(snap.profiles, v) : s('route.fb.none')}</span></span>
-                    <span className="vo-meta"><small className="m ell" title={v ? subOf(p) : s('route.fb.none.hint')}>{v ? subOf(p) : s('route.fb.none.hint')}</small>
-                      {v && <span className="vo-metric"><Ping ms={status.pings[v]} live={live} down={status.health?.[v] === 'down'} /></span>}</span></span>
-                </Plain>
-              )
-            })}
-          </div>
-          {orderedBackup.length > visibleBackup.length && <Btn kind="ghost" onClick={() => setBackupLimit(n => n + 16)}>{s('route.picker.more', { count: Math.min(16, orderedBackup.length - visibleBackup.length) })}</Btn>}
-          {backupLimit > 8 && orderedBackup.length > 8 && <Btn kind="ghost" onClick={() => setBackupLimit(8)}>{s('route.picker.collapse')}</Btn>}
-          {backupQuery && orderedBackup.length === 0 && <p className="hint">{s('route.picker.backup.notfound')}</p>}
-        </section>
-      )}
+      <details className="route-details">
+        <summary><Icon n="gear" /><span>{s('server.details')}</span><Icon n="chev" /></summary>
+        <div className="route-details-body">
+          {!draft && r.via !== 'direct' && snap.profiles.find(p => p.id === r.via)?.kind !== 'group' && fbOpts.length > 0 && <section className="panel">
+            <h3>{s('route.fb')}</h3><p className="hint">{s('route.fb.hint')}</p>
+            <Select disabled={locked} value={r.fallback ?? ''} onChange={event => void set({ fallback: event.target.value || undefined })} aria-label={s('route.fb')}>
+              <option value="">{s('route.fb.none')}</option>
+              {fbOpts.map(v => <option key={v} value={v}>{viaName(snap.profiles, v)}</option>)}
+            </Select>
+          </section>}
 
       <section className="panel">
         <div className="ph-row"><h3>{s('route.scheme')}</h3>{schemeHint && <span className="m">{s(schemeHint)}</span>}</div>
@@ -192,6 +125,8 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
           <p className="hint">{s('custom.dest.note')}</p>
         </>}
       </section>
+        </div>
+      </details>
     </div>
   )
 }

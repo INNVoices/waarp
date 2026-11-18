@@ -32,19 +32,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           INPUT_TAG: ${{ inputs.tag }}
-        run: |
-          set -euo pipefail
-          RELEASE_TAG="${INPUT_TAG:-preview-2026-11-18}"
-          [[ "$RELEASE_TAG" =~ ^preview-[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo 'Invalid preview tag'; exit 1; }
-          test "$(node -p "require('./package.json').version")" = "0.4.1-rc.2"
-          grep -Fq 'versionName = "0.5.0-rc.4"' android/app/build.gradle.kts
-          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "Waarp preview · Windows 0.4.1-rc.2 / Android 0.5.0-rc.4" --notes-file release/preview-2026-11-18.md --draft --prerelease
-          fi
-          TAG_SHA=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')
-          test "$TAG_SHA" = "$GITHUB_SHA" || { echo 'Refusing to replace an existing tag or mix commits'; exit 1; }
-          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true || { echo 'Refusing to mutate a published release'; exit 1; }
+        run: node scripts/release-preview.mjs prepare
   windows:
     name: Validate + upload Windows portable
     needs: prepare
@@ -66,6 +54,16 @@ jobs:
       - run: npm run build
       - run: npx playwright install chromium
       - run: npm run test:ui
+        env:
+          WAARP_UI_SCREENSHOTS: out/ui
+      - name: Retain reviewable UI previews in the job log
+        if: always()
+        shell: pwsh
+        run: |
+          foreach ($waarpPreview in @('app-public-server-picker.png', 'public-min-width.png', 'public-check-failure.png', 'failure-1.png')) {
+            $waarpPreviewPath = Join-Path 'out/ui' $waarpPreview
+            if (Test-Path $waarpPreviewPath) { Write-Output ('WAARP_UI_PREVIEW ' + $waarpPreview + ' ' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($waarpPreviewPath))) }
+          }
       - run: npm run engine:fetch
       - run: node out/test/slots.check.js
       - run: node out/test/links.check.js
@@ -86,12 +84,17 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $matches = @(Get-ChildItem -Path dist -Filter 'Waarp-0.4.1-rc.2-portable.exe' -File)
-          if ($matches.Count -ne 1) { throw "Expected exactly one Windows 0.4.1-rc.2 portable EXE" }
-          $exe = $matches[0]
+          $waarpPortableFiles = @(Get-ChildItem -Path dist -Filter 'Waarp-0.4.1-rc.3-portable.exe' -File)
+          if ($waarpPortableFiles.Count -ne 1) { throw "Expected exactly one Windows 0.4.1-rc.3 portable EXE" }
+          $exe = $waarpPortableFiles[0]
           $hash = (Get-FileHash -Path $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           [System.IO.File]::WriteAllText((Join-Path (Get-Location) 'dist/SHA256SUMS-windows.txt'), "$hash  $($exe.Name)`n")
-          gh release upload "$env:RELEASE_TAG" "$($exe.FullName)" 'dist/SHA256SUMS-windows.txt' --clobber
+          gh release download v0.4.0 --pattern 'sing-box-lx-1.14.2-lx.11-src.tar.gz' --dir dist --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Engine source download failed' }
+          $waarpSourceHash = (Get-FileHash 'dist/sing-box-lx-1.14.2-lx.11-src.tar.gz' -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($waarpSourceHash -ne 'cfe0234e422a61d5ace36798e76b2466e6773565745c493925fd14aafbfb615c') { throw 'Engine source digest differs' }
+          Copy-Item 'out/validation/package-integrity.json' 'dist/package-integrity-windows.json'
+          gh release upload "$env:RELEASE_TAG" "$($exe.FullName)" 'dist/SHA256SUMS-windows.txt' 'dist/sing-box-lx-1.14.2-lx.11-src.tar.gz' 'dist/package-integrity-windows.json' --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Windows draft upload failed' }
   android:
     name: Validate + upload Android debug APKs
@@ -240,19 +243,25 @@ jobs:
           apks=(out/android/waarp-android-0.5.0-rc.4-*-debug.apk)
           test "${#apks[@]}" -eq 3 || { echo 'Expected precisely three verified Android debug APKs'; exit 1; }
           ( cd out/android && sha256sum waarp-android-0.5.0-rc.4-*-debug.apk > SHA256SUMS-android-debug.txt )
-          gh release upload "$RELEASE_TAG" "${apks[@]}" out/android/SHA256SUMS-android-debug.txt --clobber
+          python3 - <<'PYREPORT'
+          import json, os
+          from pathlib import Path
+          report = json.loads(Path('out/android/artifacts.json').read_text())
+          report['sourceCommit'] = os.environ['GITHUB_SHA']
+          Path('out/android/android-artifacts.json').write_text(json.dumps(report, indent=2)+'\n')
+          PYREPORT
+          gh release upload "$RELEASE_TAG" "${apks[@]}" out/android/SHA256SUMS-android-debug.txt out/android/android-artifacts.json --clobber
   publish:
     name: Publish preview only after both platform gates pass
     needs: [prepare, windows, android]
     runs-on: ubuntu-24.04
     steps:
-      - name: Publish prerelease; leave stable/latest untouched
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify uploaded bytes, source identity and complete installable asset set
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-        run: |
-          set -euo pipefail
-          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
-          gh release edit "$RELEASE_TAG" --draft=false --prerelease
-          gh release view "$RELEASE_TAG" --json url,name,isPrerelease,isDraft
+          INPUT_TAG: ${{ needs.prepare.outputs.tag }}
+        run: node scripts/release-preview.mjs publish

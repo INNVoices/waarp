@@ -1,159 +1,182 @@
-// Public candidates and recent successful observations are separate. Loading
-// lists never needs a TUN restart; isolated verification remains an OFF action.
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Btn, Icon, Plain, Tooltip } from '../ui/kit'
+// The catalogue is a server browser. Every candidate can be checked and selected
+// from the same row; a running VPN never turns browsing into an OFF-only action.
+import { useEffect, useRef, useState } from 'react'
+import { Btn, Field, Icon, Select, Tooltip } from '../ui/kit'
+import { Pagination } from '../ui/pagination'
 import { s, sp } from '../lib/i18n'
 import { api } from '../bridge'
 
 interface Node { id: string; name: string; proto: string; host: string; port: number; country: string; source?: string; ping?: number; status?: 'ready' | 'cached' | 'failed' | 'unverified'; checkedAt?: number; lastSuccessAt?: number }
 interface State { updatedAt?: number; sources: { url: string; ok: boolean; count: number; error?: string }[]; total: number; readyCount?: number; cachedCount?: number; planned?: number; checked: number; alive: Node[]; cached?: Node[]; busy: boolean; cacheError?: string }
-
-/** Windows has no flag emoji: the country is a small code badge; unknown -> globe icon */
-const cc = (c: string) => (/^[A-Z]{2}$/.test(c) ? c : '')
-const ago = (t?: number) => {
-  if (!t) return s('pub.never')
-  const minutes = Math.max(0, Math.floor((Date.now() - t) / 6e4))
+interface Page { items: Node[]; total: number; page: number; pageSize: number; pages: number; regions: { id: string; name: string; total: number; ready: number }[] }
+const PAGE_SIZE = 12
+const cc = (country: string) => /^[A-Z]{2}$/.test(country) ? country : ''
+const ago = (at?: number) => {
+  if (!at) return s('pub.never')
+  const minutes = Math.max(0, Math.floor((Date.now() - at) / 6e4))
   return minutes < 1 ? s('pub.now') : minutes < 60 ? sp('pub.min', minutes)
     : minutes < 1440 ? sp('pub.hour', Math.floor(minutes / 60)) : sp('pub.day', Math.floor(minutes / 1440))
 }
-/** the node name without its leading flag / country code, for a calm row */
-const clean = (n: string) => {
-  const t = n.replace(/[\u{1F1E6}-\u{1F1FF}]{2}\s*/gu, '').replace(/\[[^\]]*\]/g, '').replace(/#\d+/g, '').trim().replace(/^[A-Z]{2}\s*·\s*/, '')
-  const city = t.includes('/') ? t.split('/').pop()!.trim() : t
-  return city || t || n
-}
+const clean = (name: string) => name.replace(/[\u{1F1E6}-\u{1F1FF}]{2}\s*/gu, '').replace(/\[[^\]]*\]/g, '').replace(/#\d+/g, '').trim().replace(/^[A-Z]{2}\s*·\s*/, '') || name
 
-type Region = 'eu' | 'asia' | 'americas' | 'other'
-type PickMode = 'auto' | 'manual'
-const REGION: Record<Region, Set<string>> = {
-  eu: new Set('AL AT BE BG CH CY CZ DE DK EE ES FI FR GB GR HR HU IE IS IT LT LU LV MD ME MK MT NL NO PL PT RO RS SE SI SK UA'.split(' ')),
-  asia: new Set('AE AM AZ BD BH BN BT CN GE HK ID IL IN IQ IR JO JP KG KH KR KZ LA LB LK MM MN MO MY NP OM PH PK PS QA SA SG SY TH TJ TL TM TR TW UZ VN YE'.split(' ')),
-  americas: new Set('AR BO BR CA CL CO CR CU DO EC GT HN JM MX NI PA PE PR PY SV US UY VE'.split(' ')),
-  other: new Set()
-}
-const regionOf = (country: string): Region => country === 'US' || country === 'CA' || REGION.americas.has(country) ? 'americas' : REGION.eu.has(country) ? 'eu' : REGION.asia.has(country) ? 'asia' : 'other'
-
-export function PublicCatalog({ toast, used, onAdded, compact = false, disabled = false, refreshAllowed = true }: { toast: (x: string) => void; used: (id: string) => boolean; onAdded?: (id: string) => void; compact?: boolean; disabled?: boolean; refreshAllowed?: boolean }) {
-  // Keep the parent's existing prop contract: it gates measurement, not list I/O.
-  const probeAllowed = refreshAllowed
+export function PublicCatalog({ toast, used, onAdded, selectedId, onBusyChange, compact = false, disabled = false }: {
+  toast: (text: string) => void; used: (id: string) => boolean; onAdded?: (id: string) => void; selectedId?: string
+  compact?: boolean; disabled?: boolean; onBusyChange?: (busy: boolean) => void
+}) {
   const [st, setSt] = useState<State>()
-  const [cachedOnly, setCachedOnly] = useState(false)
-  const [all, setAll] = useState(false)
-  const [mode, setMode] = useState<PickMode>()
-  const [region, setRegion] = useState<Region>()
+  const [result, setResult] = useState<Page>()
+  const [resultKey, setResultKey] = useState('')
+  const [revision, setRevision] = useState(0)
+  const [query, setQuery] = useState('')
+  const [region, setRegion] = useState('')
+  const [readyOnly, setReadyOnly] = useState(false)
+  const [page, setPage] = useState(1)
   const [error, setError] = useState('')
-  const [action, setAction] = useState<string>()
-  const actionLock = useRef(false)
+  const [operation, setOperation] = useState<string>()
+  const [selecting, setSelecting] = useState<string>()
+  const mounted = useRef(true)
+  const selectionLock = useRef(false)
+  const toolbarLock = useRef(false)
+  const autoStarted = useRef(false)
+  const initialFilterChosen = useRef(false)
+  const request = useRef(0)
+  const queryKey = JSON.stringify([query.trim(), region, readyOnly, page])
+
   useEffect(() => {
-    let mounted = true, pushed = false
-    const unsubscribe = api.onCatalog((next: State) => { pushed = true; if (mounted) setSt(next) })
-    void api.catalogGet().then((next: State) => { if (mounted && !pushed) setSt(next) }).catch(() => { if (mounted) setError(s('pub.error')) })
-    return () => { mounted = false; unsubscribe() }
+    let active = true, pushed = false
+    mounted.current = true
+    const accept = (next: State) => {
+      if (!active || !next) return
+      if (!initialFilterChosen.current) {
+        initialFilterChosen.current = true
+        setReadyOnly((next.readyCount ?? next.alive.length) > 0)
+      }
+      setSt(next); setRevision(n => n + 1)
+    }
+    const unsubscribe = api.onCatalog((next: State) => { pushed = true; accept(next) })
+    void api.catalogGet().then((next: State) => { if (!pushed) accept(next) }).catch(() => { if (active) setError(s('pub.error')) })
+    return () => { active = false; mounted.current = false; onBusyChange?.(false); unsubscribe() }
   }, [])
-  const perform = async (key: string, work: () => Promise<void>) => {
-    if (actionLock.current || disabled) return
-    actionLock.current = true; setAction(key); setError('')
-    try { await work() }
-    catch { setError(s('pub.error')) }
-    finally { actionLock.current = false; setAction(undefined) }
+
+  useEffect(() => {
+    const sequence = ++request.current
+    // A short debounce lets typing and probe progress coalesce without loading
+    // thousands of rows or replacing the user's current page on every result.
+    const timer = setTimeout(() => {
+      void api.catalogPage({ query: query.trim(), region: region || undefined, readyOnly, page, pageSize: PAGE_SIZE }).then((next: Page) => {
+        if (request.current !== sequence) return
+        setResult(next)
+        setResultKey(JSON.stringify([query.trim(), region, readyOnly, next.page]))
+        if (next.page !== page) setPage(next.page)
+      }).catch(() => { if (request.current === sequence) setError(s('pub.error')) })
+    }, 120)
+    return () => { clearTimeout(timer); if (request.current === sequence) request.current++ }
+  }, [query, region, readyOnly, page, revision])
+
+  // Entering this explicit public-server surface starts one bounded search.
+  // It never loops on failure, and selecting a row can preempt the pool round.
+  useEffect(() => {
+    if (!st || autoStarted.current || disabled) return
+    autoStarted.current = true
+    if (st.busy || (st.readyCount ?? st.alive.length) > 0) return
+    void (st.total ? api.catalogVerify() : api.catalogRefresh()).then((next: State & { error?: string }) => {
+      if (next?.error) setError(next.error)
+      else if (next) { setSt(next); setRevision(n => n + 1) }
+    }).catch(() => setError(s('pub.error')))
+  }, [st, disabled])
+
+  const run = async (key: string, work: () => Promise<State | undefined>) => {
+    if (toolbarLock.current || disabled) return
+    toolbarLock.current = true; setOperation(key); setError('')
+    try {
+      const next = await work() as State & { error?: string } | undefined
+      if (next?.error) setError(next.error)
+      else if (next) { setSt(next); setRevision(n => n + 1) }
+    } catch { setError(s('pub.error')) }
+    finally { toolbarLock.current = false; setOperation(undefined) }
   }
-  const refresh = () => perform('refresh', async () => {
-    const result = await api.catalogRefresh()
-    if (result?.error) setError(result.error)
-    else if (result) setSt(result)
-  })
-  const verify = () => perform('verify', async () => {
-    if (!probeAllowed) { setError(s('pub.refresh.stop')); return }
-    const result = await api.catalogVerify()
-    if (result?.error) setError(result.error)
-    else if (result) setSt(result)
-  })
-  const best = () => perform('best', async () => {
-    const r = await api.catalogBest()
-    if (!r?.ok) { setError(r?.error ?? s('pub.error')); return }
-    toast(s('pub.best.ok')); if (r.id) onAdded?.(r.id)
-  })
-  const add = (n: Node) => perform(n.id, async () => {
-    const r = await api.catalogAdd(n.id)
-    if (!r?.ok) { setError(r?.error ?? s('pub.error')); return }
-    toast(s('pub.add.ok', { v: clean(n.name) })); if (r.id) onAdded?.(r.id)
-  })
-  const pending = disabled || !!action || st?.busy === true
-  const alive = st?.alive ?? []
-  const cached = st?.cached ?? []
-  const nodes = cachedOnly ? cached : alive
-  const regional = region ? nodes.filter(n => regionOf(n.country) === region) : []
-  const shown = all ? regional : regional.slice(0, 10)
-  const regions = useMemo(() => (['eu', 'asia', 'americas', 'other'] as Region[]).map(id => {
-    const regionalNodes = nodes.filter(n => regionOf(n.country) === id)
-    return { id, count: regionalNodes.length, ping: cachedOnly ? undefined : regionalNodes.reduce<number | undefined>((m, n) => n.ping === undefined ? m : m === undefined ? n.ping : Math.min(m, n.ping), undefined) }
-  }).filter(x => x.count), [nodes, cachedOnly])
-  return (
-    <section className={'panel pub' + (compact ? ' compact' : '')} id="public-catalog">
-      <div className="pub-head">
-        <span className="wz-ic"><Icon n="globe" s={20} /></span>
-        <div className="pub-t">
-          <b>{s('pub.title')}</b>
-          <span className="m">{st?.busy ? (st.planned ? s('pub.checking', { n: st.checked, t: st.planned }) : s('pub.fetching')) : st?.total ? s('pub.sum', { n: st.readyCount ?? alive.length, t: st.total, ago: ago(st.updatedAt) }) : s('pub.empty')}</span>
-        </div>
-        <div className="grow" />
-        <Btn kind="ghost" onClick={() => void refresh()} disabled={pending} title={s('pub.refresh.tip')}><span className={st?.busy || action === 'refresh' ? 'spin' : ''}><Icon n="refresh" /></span>{s('pub.refresh')}</Btn>
-        {!!st?.total && <Btn kind="ghost" onClick={() => void verify()} disabled={pending || !probeAllowed} title={s(probeAllowed ? 'pub.verify.tip' : 'pub.refresh.stop')}>{s('pub.verify')}</Btn>}
-        {mode && <Btn kind="primary" onClick={best} disabled={!alive.length || pending}><Icon n="bolt" />{s('pub.best')}</Btn>}
+  const add = async (node: Node) => {
+    if (selectionLock.current || disabled) return
+    selectionLock.current = true; onBusyChange?.(true); setSelecting(node.id); setError('')
+    try {
+      const next = await api.catalogAdd(node.id)
+      if (!mounted.current) return
+      if (!next?.ok) { setError(next?.error ?? s('pub.error')); return }
+      if (!onAdded) toast(s('pub.add.ok', { v: clean(node.name) }))
+      if (next.id) onAdded?.(next.id)
+    } catch { setError(s('pub.error')) }
+    finally { selectionLock.current = false; if (mounted.current) { onBusyChange?.(false); setSelecting(undefined); setRevision(n => n + 1) } }
+  }
+  const best = async () => {
+    if (selectionLock.current || disabled) return
+    selectionLock.current = true; onBusyChange?.(true); setSelecting('best'); setError('')
+    try {
+      const next = await api.catalogBest()
+      if (!mounted.current) return
+      if (!next?.ok) { setError(next?.error ?? s('pub.error')); return }
+      toast(s('pub.best.ok')); if (next.id) onAdded?.(next.id)
+    } catch { setError(s('pub.error')) }
+    finally { selectionLock.current = false; if (mounted.current) { onBusyChange?.(false); setSelecting(undefined) } }
+  }
+  const current = resultKey === queryKey ? result : undefined
+  const readyCount = st?.readyCount ?? st?.alive.length ?? 0
+  const checking = st?.busy || !!operation
+  const checkError = !checking && !readyCount ? st?.sources.find(source => source.url === 'local checker')?.error : undefined
+  const chooseLabel = (node: Node) => {
+    if (selecting === node.id) return s('server.public.checking')
+    if (selectedId === node.id) return s('server.current')
+    if (node.status === 'ready') return onAdded ? s('pick.use') : s('pub.add')
+    if (node.status === 'failed') return s('server.public.recheck')
+    return s(onAdded ? 'server.public.checkuse' : 'server.public.checkadd')
+  }
+
+  return <section className={'panel pub server-catalog' + (compact ? ' compact' : '')} id="public-catalog">
+    <div className="pub-head">
+      <div className="pub-t">
+        <b className={readyCount ? 'server-ready-count' : ''}>{s('server.public.available', { n: readyCount })}</b>
+        <span className="m">{st?.busy ? (st.planned ? s('pub.checking', { n: st.checked, t: st.planned }) : s('pub.fetching')) : s('server.public.stored', { n: st?.total ?? 0, ago: ago(st?.updatedAt) })}</span>
       </div>
-      {error && <p className="ferr" role="alert">{error}</p>}
-      {st?.cacheError && <p className="ferr" role="alert">{st.cacheError}</p>}
-      {!probeAllowed && <p className="hint">{s('pub.refresh.stop')}</p>}
-      {!mode && <div className="pub-modes">
-        <Plain className="pub-mode primary" disabled={!alive.length || pending} onClick={() => void best()}>
-          <span className="wz-ic"><Icon n="bolt" /></span><span><b>{s('pub.auto')}</b><small>{s('pub.auto.hint')}</small></span><Icon n="down" />
-        </Plain>
-        <Plain className="pub-mode" disabled={(!alive.length && !cached.length) || pending} onClick={() => { setCachedOnly(!alive.length); setMode('manual') }}>
-          <span className="wz-ic"><Icon n="globe" /></span><span><b>{s('pub.manual')}</b><small>{s('pub.manual.hint')}</small></span><Icon n="down" />
-        </Plain>
-      </div>}
-      {mode === 'manual' && <div className="pub-foot">
-        <Btn kind={cachedOnly ? 'ghost' : 'primary'} sm onClick={() => { setCachedOnly(false); setRegion(undefined); setAll(false) }}>{s('pub.ready.tab')}</Btn>
-        <Btn kind={cachedOnly ? 'primary' : 'ghost'} sm onClick={() => { setCachedOnly(true); setRegion(undefined); setAll(false) }}>{s('pub.cached.tab')}</Btn>
-      </div>}
-      {mode === 'manual' && cachedOnly && <p className="hint">{s('pub.cached.hint', { n: cached.length, t: st?.cachedCount ?? st?.total ?? 0 })}</p>}
-      {mode === 'manual' && !cachedOnly && !alive.length && <p className="hint">{s('pub.ready.empty')}</p>}
-      {mode === 'manual' && !region && <Plain className="pick-back" onClick={() => setMode(undefined)}><Icon n="back" />{s('pub.mode.back')}</Plain>}
-      {mode === 'manual' && !region && nodes.length > 0 && <div className="pub-regions">
-        {regions.map(r => <Plain key={r.id} className="pub-region" onClick={() => { setRegion(r.id); setAll(false) }}>
-          <span><b>{s(`pub.region.${r.id}`)}</b><small>{sp('pub.region.nodes', r.count)}</small></span>
-          <span className="mono pub-ms">{r.ping === undefined ? '—' : s('meter.ms', { n: r.ping })}</span><Icon n="down" />
-        </Plain>)}
-      </div>}
-      {mode === 'manual' && region && <Plain className="pick-back" onClick={() => setRegion(undefined)}><Icon n="back" />{s('pub.regions.back')}</Plain>}
-      {mode === 'manual' && region && !shown.length && <p className="hint">{s('pub.region.empty')}</p>}
-      {region && shown.length > 0 && (
-        <div className="pub-list pick-table">
-          <div className="pub-row pick-th">
-            <Tooltip tip={s('pick.country.hint')}><span className="pub-th-hint" tabIndex={0} title={s('pick.country.hint')}>{s('pick.country')}</span></Tooltip>
-            <span>{s('pick.name')}</span><span>{s('pick.address')}</span><span>{s('pick.protocol')}</span><span>{s('pick.source')}</span>
-            <Tooltip tip={s('pick.ping.hint')}><span className="pub-th-hint" tabIndex={0} title={s('pick.ping.hint')}>{s('pick.ping')}</span></Tooltip>
-            <span />
-          </div>
-          {shown.map(n => (
-            <div key={n.id} className="pub-row">
-              <span className="pub-cc">{cc(n.country) || <Icon n="globe" s={14} />}</span>
-              <Tooltip tip={n.name}><span className="pub-n ell">{clean(n.name)}</span></Tooltip>
-              <span className="mono ell">{`${n.host}:${n.port}`}</span>
-              <span className="pub-proto">{n.proto.split(' · ')[0]}</span>
-              <span className="m ell">{n.source ?? s('pick.public')}</span>
-              <span className={cachedOnly ? 'm pub-node-state' : 'mono pub-ms'} title={s('pub.checked.at', { ago: ago(n.checkedAt) })}>{cachedOnly ? s(n.status === 'failed' ? 'pub.node.failed' : n.status === 'unverified' ? 'pub.node.unverified' : 'pub.node.cached') : n.ping !== undefined ? s('meter.ms', { n: n.ping }) : '—'}</span>
-              {used(n.id) && !onAdded ? <Tooltip tip={s('pub.in')}><span className="pub-in"><Icon n="check" s={14} /></span></Tooltip> : <Btn kind={onAdded ? 'primary' : 'ghost'} sm className="pub-add" title={onAdded ? s('pick.use') : s('pub.add')} disabled={pending} onClick={() => void add(n)}>{onAdded ? s('pick.use') : <Icon n="plus" />}</Btn>}
+      <div className="grow" />
+      <Btn kind="ghost" onClick={() => void run('refresh', () => api.catalogRefresh())} disabled={disabled || checking} title={s('pub.refresh.tip')}><span className={checking ? 'spin' : ''}><Icon n="refresh" /></span>{s('pub.refresh')}</Btn>
+      <Btn kind="ghost" onClick={() => void run('verify', () => api.catalogVerify())} disabled={disabled || checking || !st?.total} title={s('server.public.verify.hint')}><Icon n="pulse" />{s('server.public.verify')}</Btn>
+    </div>
+    <div className="server-filters">
+      <Field icon="search" type="search" value={query} onChange={event => { initialFilterChosen.current = true; setQuery(event.target.value); setPage(1) }} placeholder={s('server.public.search')} aria-label={s('server.public.search')} />
+      <Select value={region} onChange={event => { initialFilterChosen.current = true; setRegion(event.target.value); setPage(1) }} aria-label={s('server.region.label')}>
+        <option value="">{s('server.region.all')}</option>
+        {(result?.regions ?? []).map(item => <option value={item.id} key={item.id}>{s('pub.region.' + item.id)}{` · ${readyOnly ? item.ready : item.total}`}</option>)}
+      </Select>
+      <Select value={readyOnly ? 'ready' : 'all'} onChange={event => { initialFilterChosen.current = true; setReadyOnly(event.target.value === 'ready'); setPage(1) }} aria-label={s('server.filter.label')}>
+        <option value="all">{s('server.filter.all')}</option><option value="ready">{s('server.filter.ready')}</option>
+      </Select>
+    </div>
+    {error && <p className="ferr" role="alert">{error}</p>}
+    {checkError && checkError !== error && <p className="ferr" role="status">{checkError}</p>}
+    {st?.cacheError && <p className="ferr" role="alert">{st.cacheError}</p>}
+    {!!st?.total && !readyCount && <p className="server-catalog-note" role="status"><Icon n="info" s={14} />{s('server.public.none')}</p>}
+    {!current ? <div className="server-list-empty" role="status">{error || s('server.public.loading')}</div> : !current.items.length ? <div className="server-list-empty">{s(st?.total ? 'server.public.noresults' : 'server.public.empty')}</div> :
+      <div className="server-list public-server-list">
+        <div className="server-list-head"><span>{s('pick.country')}</span><span>{s('pick.name')}</span><Tooltip tip={s('pick.ping.hint')}><span>{s('pick.ping')}</span></Tooltip><span /></div>
+        {current.items.map(node => {
+          const selected = selectedId === node.id
+          const busy = selecting === node.id
+          return <div key={node.id} className={'server-row' + (selected ? ' on' : '') + (busy ? ' applying' : '')}>
+            <span className="pub-cc" title={s('pick.country.hint')}>{cc(node.country) || <Icon n="globe" s={14} />}</span>
+            <div className="server-row-name"><b className="ell" title={node.name}>{clean(node.name)}</b><span className="m ell" title={`${node.host}:${node.port} · ${node.source ?? ''}`}>{node.proto}{' · '}{node.host}:{node.port}</span></div>
+            <div className={'server-row-health' + (node.status === 'ready' ? ' ready' : node.status === 'failed' ? ' failed' : '')} title={s('pub.checked.at', { ago: ago(node.checkedAt) })}>
+              {busy ? <span className="spin"><Icon n="refresh" s={14} /></span> : node.status === 'ready' ? <><span className="mono">{node.ping === undefined ? s('server.public.ready') : s('meter.ms', { n: node.ping })}</span><small>{s('server.public.ready')}</small></> : <span>{s(node.status === 'failed' ? 'pub.node.failed' : node.status === 'unverified' ? 'server.public.unchecked' : 'server.public.stale')}</span>}
             </div>
-          ))}
-        </div>
-      )}
-      <div className="pub-foot">
-        <span className="hint"><Icon n="warn" s={12} />{s('pub.trust')}</span>
-        <div className="grow" />
-        {mode === 'manual' && region && regional.length > 10 && <Btn kind="ghost" onClick={() => setAll(!all)}>{all ? s('pub.less') : sp('pub.more', regional.length - 10)}</Btn>}
-      </div>
-      {st && st.sources.some(x => !x.ok) && <p className="hint">{s('pub.src.fail', { n: st.sources.filter(x => !x.ok).length })}</p>}
-    </section>
-  )
+            {used(node.id) && !onAdded ? <span className="server-row-action saved"><Icon n="check" s={14} />{s('pub.in')}</span> : <Btn kind={selected ? 'ghost' : 'default'} sm className="server-row-action" disabled={disabled || !!selecting || selected} aria-busy={busy} onClick={() => void add(node)}>{selected && <Icon n="check" s={14} />}{chooseLabel(node)}</Btn>}
+          </div>
+        })}
+      </div>}
+    {current && <Pagination page={current.page} total={current.total} pageSize={current.pageSize} onChange={next => { initialFilterChosen.current = true; setPage(next) }} />}
+    <p className="hint server-catalog-trust"><Icon n="info" s={13} />{s('server.public.trust')}</p>
+    <details className="server-catalog-info"><summary>{s('server.public.moreinfo')}</summary>
+      <p className="hint">{s('pub.trust')}</p>
+      <p className="hint">{s('pick.ping.hint')}</p>
+      {st && st.sources.some(source => !source.ok) && <p className="hint">{s('pub.src.fail', { n: st.sources.filter(source => !source.ok).length })}</p>}
+      <Btn kind="ghost" sm disabled={!readyCount || disabled || !!selecting} onClick={() => void best()}><Icon n="bolt" />{s('pub.best')}</Btn>
+    </details>
+  </section>
 }

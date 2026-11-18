@@ -212,7 +212,7 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
       </>}
 
       <div className="sec-head"><h2>{s('pub.sec')}</h2></div>
-      <PublicCatalog toast={toast} used={id => snap.profiles.some(p => p.id === id)} refreshAllowed={refreshAllowed} />
+      <PublicCatalog toast={toast} used={id => snap.profiles.some(p => p.id === id)} />
 
       {adding && <AddTunnel onClose={() => setAdding(false)} onAdded={(r: ImportResult) => toast(importNote(r))}
         onPublic={() => { setAdding(false); requestAnimationFrame(() => document.getElementById('public-catalog')?.scrollIntoView({ behavior: 'smooth' })) }} />}

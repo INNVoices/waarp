@@ -9,7 +9,8 @@
 <p align="center">
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%2F%2011-2374CF?style=flat-square&logo=windows11&logoColor=white">
   <img alt="Android 10+" src="https://img.shields.io/badge/Android-10%2B-267F61?style=flat-square&logo=android&logoColor=white">
-  <img alt="License Apache 2.0" src="https://img.shields.io/badge/Code-Apache%202.0-7148C6?style=flat-square">
+  <a href="LICENSE"><img alt="Desktop code: Apache 2.0" src="https://img.shields.io/badge/Desktop-Apache%202.0-7148C6?style=flat-square"></a>
+  <a href="android/LICENSE"><img alt="Android code: GPL 3.0 or later" src="https://img.shields.io/badge/Android-GPL%203.0%2B-267F61?style=flat-square"></a>
   <img alt="Release channel: preview" src="https://img.shields.io/badge/Channel-preview-F59E0B?style=flat-square">
 </p>
 
@@ -41,7 +42,7 @@
 | :--- | :--- | :--- |
 | Assign a direct or protected path to apps, services, domains and custom targets. | Auto holds a working personal route; explicit failover avoids reflexive ping-based switching. | Compare Direct and protected connections with DNS, TCP, TLS and HTTP observations. |
 | **Bring your own connections** | **Public pool, by choice** | **Desktop + mobile** |
-| WireGuard / AmneziaWG, VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, OpenVPN and supported imports. | Explicitly load, inspect and choose third-party nodes. Public relays are not silently promoted into Auto. | Electron-based Windows client and native Kotlin / Compose Android client in one repository. |
+| WireGuard / AmneziaWG, VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, OpenVPN and supported imports. | Browse verified availability, search the full pool and check a chosen server while the VPN stays on. Public relays never join Auto silently. | Electron-based Windows client and native Kotlin / Compose Android client in one repository. |
 
 No multi-path aggregation, no guaranteed latency improvement, and no anonymity promise. [How routing works](#how-it-works) · [Public node trust and sources](docs/SOURCES.md).
 
@@ -49,14 +50,20 @@ No multi-path aggregation, no guaranteed latency improvement, and no anonymity p
 
 | <img src="https://img.shields.io/badge/Windows-x64-2374CF?style=flat-square&logo=windows11&logoColor=white" alt="Windows"> | <img src="https://img.shields.io/badge/Android-APK-267F61?style=flat-square&logo=android&logoColor=white" alt="Android"> |
 | :--- | :--- |
-| **[Download v0.4.0 portable EXE](../../releases/download/v0.4.0/Waarp-0.4.0-portable.exe)** · [Release notes](../../releases/tag/v0.4.0) | **Android 0.5.0-rc.4** is in source. [Build/install instructions](docs/ANDROID.md#build-and-install) · [Android CI](../../actions/workflows/android.yml) |
-| Published beta, Windows 10/11 x64. The newer **0.4.1-rc.2** desktop source has not been published as a verified binary. | Debug APKs can be installed for testing after a successful build. **Unsigned release APKs are not installable**; production signing and acceptance remain separate. |
+| **[Download v0.4.0 portable EXE](https://github.com/INNVoices/waarp/releases/download/v0.4.0/Waarp-0.4.0-portable.exe)** · [Release notes](https://github.com/INNVoices/waarp/releases/tag/v0.4.0) | **Android 0.5.0-rc.4** is in source. [Build/install instructions](docs/ANDROID.md#build-and-install) · [Android CI](https://github.com/INNVoices/waarp/actions/workflows/android.yml) |
+| Published beta, Windows 10/11 x64. The **0.4.1-rc.3** desktop source and preview notes are ready; its release remains a draft until the build and publication gates pass. | Debug APKs can be installed for testing after a successful build. **Unsigned release APKs are not installable**; production signing and acceptance remain separate. |
 
-**[All releases](../../releases)** · **[Preview publishing workflow](.github/workflows/release-preview.yml)** · **[Release and integrity guide](docs/RELEASES.md)**
+**[All releases](https://github.com/INNVoices/waarp/releases)** · **[Preview publishing workflow](.github/workflows/release-preview.yml)** · **[Release and integrity guide](docs/RELEASES.md)**
 
 The repo is currently private; GitHub download and Actions links may require repository access. Third-party infrastructure can cost money, even though Waarp itself has no subscription.
 
+## New in Windows 0.4.1-rc.3
 
+Choose an application, then choose its server in one screen: **Automatic · Manual · Direct**. Saved connections and public servers use compact rows, search, region filters and numbered pages. The public catalogue shows current availability separately from stored candidates; selecting a candidate checks its connection before use.
+
+Public checks can run while Waarp is on. Changing a card's server updates the route without asking to restart the VPN; a failed live change keeps the previous selection. The initial app chooser stays familiar, with route diagrams and advanced settings tucked under one details section.
+
+[What changed and how it behaves](docs/SERVER-SELECTION-2026-11-18.md) · [Preview notes](release/preview-2026-11-18.md)
 
 ## How it works
 
@@ -98,7 +105,7 @@ Engine: [sing-box-lx](https://github.com/Leadaxe/sing-box-lx) (bundled, with its
 
 Import from file, clipboard, QR code, subscription link, local discovery or manual entry. Subscription refresh is manual. JSON / YAML import extracts supported share links; it does not convert arbitrary native client configurations.
 
-The public connection catalog refreshes and checks its nodes only when you request it, with no startup or periodic catalog probes. It is a separate, low-trust source; public nodes never join Auto silently. Those nodes are run by third parties, not Waarp; their operators may log traffic that is not end-to-end encrypted. Sources: [docs/SOURCES.md](docs/SOURCES.md).
+Public discovery starts when you open the public-server section or explicitly refresh/check it; no catalog probes run just because the app starts or on a periodic schedule. Opening a catalogue with no fresh results starts one bounded search. A chosen candidate receives an individual check before use, including while the main VPN is running. Public nodes remain a separate source and never join Auto silently. Those nodes are run by third parties, not Waarp; their operators may log traffic that is not end-to-end encrypted. Sources: [docs/SOURCES.md](docs/SOURCES.md).
 
 ## Screenshots
 
@@ -177,5 +184,10 @@ ExitLag is a trademark of its respective owner. Waarp is an independent project 
 
 ## License
 
-Waarp's own code is licensed under the [Apache License 2.0](LICENSE), see also [NOTICE](NOTICE).
+| Component | License |
+| --- | --- |
+| Waarp desktop application | [Apache License 2.0](LICENSE), with [NOTICE](NOTICE) |
+| Waarp Android application | [GNU GPL 3.0 or later](android/LICENSE), with [Android notices](android/app/src/main/assets/licenses/NOTICE.txt) |
+
+The desktop license does not apply to the Android application.
 Bundled third-party components keep their own licenses: the sing-box-lx engine ships as a separate program under its own license (GPL-3.0-or-later text plus an upstream naming/association condition, see [`engine/LICENSE`](engine/LICENSE)), see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Engine binaries are not stored in Git: `npm run engine:fetch` downloads and verifies the pinned release, `npm run dist` refuses to package without them.

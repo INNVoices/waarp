@@ -1,6 +1,7 @@
 // WRP-013 local checker: a second sing-box with NO inbound and NO TUN, userspace WireGuard, clash API on
-// 127.0.0.1 only. It measures tunnels while the system tunnel is closed: ping through each tunnel and "where is the
-// site cut" through each one. Proven safe in the WRP-003 run (no adapter, no routes, nothing reaches the system).
+// 127.0.0.1 only. Its caller admits isolated measurements during stable ON or OFF;
+// it never creates an adapter or changes system routes. Outbound interface binding
+// keeps its probe traffic from re-entering the main TUN.
 // Conservatively skip an AWG profile whose address appears on another adapter.
 // Equal addresses are a conflict clue, not proof of key identity; absence is not proof a key is free.
 import { ChildProcess, spawn } from 'node:child_process'
@@ -15,6 +16,7 @@ import { pickPort, untilCancelled, waitReady } from './tun'
 import { waitExit } from './stop'
 import { validLatency } from './health'
 import { DIAGNOSTIC_SELECTOR, type DiagnosticProxy, type DiagnosticTransport } from './diagnostic-proxy'
+import type { ForwardProxy } from './relay-config'
 
 export class Checker {
   private child?: ChildProcess
@@ -33,7 +35,8 @@ export class Checker {
   private requests = new Set<AbortController>()
   private owner?: symbol
   private cancelOwner?: () => void
-  constructor(private exe: string, private dir: string, private allowStart: () => boolean = () => true) { this.journal = new RuntimeJournal(dir, exe, 'check.json') }
+  constructor(private exe: string, private dir: string, private allowStart: () => boolean = () => true,
+    private forward?: ForwardProxy) { this.journal = new RuntimeJournal(dir, exe, 'check.json') }
 
   /** A caller owns the complete ensure → measurement sequence, not just process startup. */
   acquire(onCancel?: () => void): symbol | undefined {
@@ -91,21 +94,24 @@ export class Checker {
     this.ids = use.map(p => p.id)
     if (!existsSync(this.exe)) return false
     mkdirSync(this.dir, { recursive: true })
-    const port = await untilCancelled(pickPort(), signal)
-    if (!port || !allowed()) return false
+    let port = await untilCancelled(pickPort(), signal)
+    if (port === this.forward?.proxy.port) port = await untilCancelled(pickPort(), signal)
+    if (!port || port === this.forward?.proxy.port || !allowed()) return false
     this.api = { port, secret: randomBytes(16).toString('hex') }
-    let proxyPort = await untilCancelled(pickPort(), signal)
+    let proxyPort = this.forward?.proxy.port ?? await untilCancelled(pickPort(), signal)
     if (proxyPort === port) proxyPort = await untilCancelled(pickPort(), signal)
     if (!proxyPort || proxyPort === port || !allowed()) return false
-    this.diagnostic = { port: proxyPort, username: randomBytes(12).toString('hex'), password: randomBytes(24).toString('hex') }
+    this.diagnostic = this.forward?.proxy ?? { port: proxyPort, username: randomBytes(12).toString('hex'), password: randomBytes(24).toString('hex') }
     const file = join(this.dir, 'check.json')
     try {
-      writeFileSync(file, JSON.stringify(checkConfig(use, this.api, this.diagnostic)), { mode: 0o600 })
+      writeFileSync(file, JSON.stringify(checkConfig(use, this.api, this.forward ? undefined : this.diagnostic, this.forward)), { mode: 0o600 })
       protectPrivateFile(file)
     }
     catch { try { rmSync(file, { force: true }) } catch {}; return false }
     const child = spawn(this.exe, ['run', '-c', file, '-D', this.dir, '--disable-color'], { windowsHide: true, cwd: this.dir })
     this.child = child
+    // Long-lived forwarding workers must drain native output without retaining credentials.
+    child.stdout?.resume(); child.stderr?.resume()
     this.key = key
     child.on('exit', () => { if (this.child === child) { this.child = undefined; this.key = ''; this.clearJournal() } })
     child.on('error', () => { if (this.child === child && (!child.pid || child.exitCode !== null || child.signalCode !== null)) { this.child = undefined; this.key = ''; this.clearJournal() } })
@@ -159,10 +165,17 @@ export class Checker {
     return this.child === child && this.stopVersion === version ? out : {}
   }
 
-  /** latency through every checked tunnel to a 204 endpoint */
+  /** Measure HTTPS through the relay, with the same independent fallback as
+   * the main engine. One blocked Google endpoint is not a dead server. */
   async pings(): Promise<Record<string, number | undefined>> {
     if (!this.child) return {}
-    return await this.boundedDelays('https://www.gstatic.com/generate_204', undefined) as Record<string, number | undefined>
+    const child = this.child, version = this.stopVersion
+    const first = await this.boundedDelays('https://www.gstatic.com/generate_204', undefined) as Record<string, number | undefined>
+    if (this.child !== child || this.stopVersion !== version) return {}
+    const retry = Object.keys(first).filter(id => !validLatency(first[id]))
+    if (!retry.length) return first
+    const second = await this.boundedDelays('https://cp.cloudflare.com/generate_204', undefined, retry) as Record<string, number | undefined>
+    return this.child === child && this.stopVersion === version ? { ...first, ...second } : {}
   }
 
   /** site reachability through every checked tunnel (null = failed) */
@@ -216,6 +229,14 @@ export class Checker {
     this.starting?.abort()
     this.abortRequests()
     return this.serialize(() => this.stopNow())
+  }
+
+  /** Last-chance app shutdown still signals only this retained child handle. */
+  stopSync(): void {
+    this.stopVersion++
+    this.starting?.abort()
+    this.abortRequests()
+    try { this.child?.kill() } catch {}
   }
 
   private abortRequests() {

@@ -105,10 +105,11 @@ function rig(o: { owned?: 'same' | 'gone' | 'other' | 'unknown'; onBreak?: 'exit
   {
     const e = new Engine(process.execPath, mkdtempSync(join(tmpdir(), 'waarp-cancel-')), 'C:\\W\\Waarp.exe')
     ;(e as any).recoveryOk = true
-    let release!: (p: Preflight) => void, scans = 0
-    e.preflight = () => { scans++; return new Promise(resolve => { release = resolve }) }
+    let release!: (p: Preflight) => void, entered!: () => void, scans = 0
+    const preflightEntered = new Promise<void>(resolve => { entered = resolve })
+    e.preflight = () => { scans++; return new Promise(resolve => { release = resolve; entered() }) }
     const first = e.start([], DEFAULTS), queued = e.start([], DEFAULTS)
-    await Promise.resolve()
+    await preflightEntered
     const stopped = e.stop()
     const result = await bounded(Promise.all([first, queued, stopped]), 500)
     ok(result !== 'timeout', 'OFF resolves without waiting for the pending preflight')

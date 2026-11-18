@@ -4,6 +4,7 @@
 
 | Area | Document |
 | --- | --- |
+| Current Windows server picker, pagination and live checks | [Windows 0.4.1-rc.3](SERVER-SELECTION-2026-11-18.md) |
 | Android capabilities, build, signing and acceptance | [ANDROID.md](ANDROID.md) |
 | Routing safety and failure behavior | [RELIABILITY.md](RELIABILITY.md) |
 | Public node sources, mirrors and trust model | [SOURCES.md](SOURCES.md) · [2026-11-18 pool update](PUBLIC-POOL-2026-11-18.md) |

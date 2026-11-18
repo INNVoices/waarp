@@ -40,14 +40,33 @@ function fixture(options) {
   const count = key => state.calls[key] = (state.calls[key] ?? 0) + 1
   const snapshot = () => structuredClone({ admin: !options.adminPending, profiles: state.profiles, settings: state.settings, status: state.status, notices: [] })
   const push = () => emit('snapshot', snapshot())
-  const catalog = { busy: false, total: 1, planned: 1, checked: 1, updatedAt: Date.now(), sources: [], alive: [{ id: 'pub-fixture', name: 'DE Example', host: '198.51.100.1', port: 443, country: 'DE', proto: 'Trojan', ping: 42 }] }
+  const catalog = { busy: false, total: 1, readyCount: 1, planned: 1, checked: 1, updatedAt: Date.now(), sources: [], alive: [{ id: 'pub-fixture', name: 'DE Example', host: '198.51.100.1', port: 443, country: 'DE', proto: 'Trojan', status: 'ready', ping: 42, checkedAt: Date.now() }] }
   if (options.staleCatalog) {
     catalog.readyCount = 0; catalog.cachedCount = 4000; catalog.total = 4000
     catalog.cached = [{ ...catalog.alive[0], status: 'cached', checkedAt: Date.now() - 3600_000, lastSuccessAt: Date.now() - 3600_000 }]
     catalog.alive = []
   }
+  const catalogEntries = options.largeCatalog
+    ? Array.from({ length: 257 }, (_, i) => ({ id: 'pool-' + i, name: `Public server ${String(i).padStart(3, '0')}`,
+      host: `node-${i}.example.invalid`, port: 443, country: ['DE', 'JP', 'US'][i % 3], proto: 'Trojan',
+      status: 'ready', ping: 20 + i, checkedAt: Date.now() }))
+    : [...catalog.alive, ...(catalog.cached ?? [])]
+  if (options.largeCatalog) { catalog.total = catalogEntries.length; catalog.readyCount = catalogEntries.length; catalog.alive = catalogEntries.slice(0, 50) }
+  const catalogPage = query => {
+    count('catalogPage')
+    const regionOf = country => country === 'DE' ? 'eu' : country === 'JP' ? 'asia' : country === 'US' ? 'americas' : 'other'
+    const term = (query?.query ?? '').trim().toLocaleLowerCase()
+    const matching = catalogEntries.filter(node => (!query?.readyOnly || node.status === 'ready') &&
+      (!term || [node.name, node.host, node.country, node.proto].join(' ').toLocaleLowerCase().includes(term)))
+    const regions = ['eu', 'asia', 'americas', 'other'].map(id => ({ id, name: id,
+      total: matching.filter(n => regionOf(n.country) === id).length, ready: matching.filter(n => regionOf(n.country) === id && n.status === 'ready').length }))
+    const all = matching.filter(node => !query?.region || regionOf(node.country) === query.region)
+    const pageSize = Math.max(1, Math.min(50, query?.pageSize ?? 12)), pages = Math.max(1, Math.ceil(all.length / pageSize))
+    const page = Math.max(1, Math.min(pages, query?.page ?? 1))
+    return { items: all.slice((page - 1) * pageSize, page * pageSize), total: all.length, page, pageSize, pages, regions }
+  }
   const listenerCounts = () => Object.fromEntries([...listeners].filter(([, group]) => group.size).map(([channel, group]) => [channel, group.size]))
-  window.__waarpTest = { state, push, emit, snapshot, listenerCounts }
+  window.__waarpTest = { state, push, emit, snapshot, listenerCounts, catalog }
   window.api = {
     snapshot: async () => {
       count('snapshot')
@@ -94,9 +113,19 @@ function fixture(options) {
     clipPeek: async () => ({ kind: 'none' }),
     importProfile: () => { count('import'); return new Promise((resolve, reject) => { state.resolveImport = resolve; state.rejectImport = reject }) },
     catalogGet: async () => catalog,
+    catalogPage: async query => catalogPage(query),
     catalogRefresh: async () => { count('catalogRefresh'); return catalog },
     catalogVerify: async () => { count('catalogVerify'); return catalog },
-    catalogBest: async () => ({ ok: true, id: 'g-public' }), catalogAdd: async id => { count('catalogAdd'); return { ok: true, id } },
+    catalogBest: async () => ({ ok: true, id: 'g-public' }), catalogAdd: async id => {
+      count('catalogAdd')
+      state.lastCatalogAdd = id
+      if (options.deferPublicPick) await new Promise(resolve => { state.resolvePublicPick = resolve })
+      if (options.failPublicPick) return { ok: false, error: 'Сервер не отвечает. Выбери другой.' }
+      const candidate = catalogEntries.find(n => n.id === id)
+      if (!candidate) return { ok: false, error: 'Сервер не найден' }
+      if (!state.profiles.some(p => p.id === id)) state.profiles.push({ ...candidate, kind: 'out', source: 'public', version: candidate.proto, address: [] })
+      push(); return { ok: true, id }
+    },
     removeProfile: async id => { count('remove'); state.profiles = state.profiles.filter(profile => profile.id !== id); push(); return { ok: true } },
     renameProfile: async () => ({ ok: true }), replaceProfile: async () => ({ ok: true }), refreshSubscription: async () => ({ ok: true }),
     discoverScan: async () => ({ ok: true, items: [] }), discoverPickFolder: async () => ({ canceled: true }), discoverAdd: async () => ({ ok: false }),
@@ -498,83 +527,137 @@ try {
     await capture(page, 'group-save-error.png')
     await page.keyboard.press('Escape')
   })
-  await check('the public list stays within the minimum supported window', async () => {
+  await check('public server rows fit the minimum window with actions and real latency visible', async () => {
     await page.setViewportSize({ width: 900, height: 600 })
-    await page.locator('#public-catalog').getByText(strings['pub.manual'], { exact: true }).click()
-    await page.locator('#public-catalog').getByText(strings['pub.region.eu'], { exact: true }).click()
+    const panel = page.locator('#public-catalog')
+    await panel.locator('.server-row').first().waitFor()
     const overflow = await page.evaluate(() => {
-      const main = document.querySelector('.main'), table = document.querySelector('.pub-list.pick-table')
+      const main = document.querySelector('.main'), table = document.querySelector('.public-server-list')
       return { main: main.scrollWidth - main.clientWidth, table: table.scrollWidth - table.clientWidth }
     })
-    assert.ok(overflow.main <= 1, JSON.stringify(overflow))
-    assert.ok(overflow.table <= 1, 'public action and ping fit the supported 900px window')
-    await page.evaluate(() => document.fonts.ready)
-    const headingGap = await page.locator('.pub-row.pick-th').evaluate(row => {
-      const country = document.createRange(), name = document.createRange()
-      country.selectNodeContents(row.children[0]); name.selectNodeContents(row.children[1])
-      return name.getBoundingClientRect().left - country.getBoundingClientRect().right
-    })
-    assert.ok(headingGap >= 4, `country and name captions need a visible gap, got ${headingGap}px`)
-    const countryCaption = page.locator('.pub-row.pick-th .pub-th-hint').first()
-    assert.equal(await countryCaption.textContent(), strings['pick.country'])
-    assert.equal(await countryCaption.getAttribute('title'), strings['pick.country.hint'])
-    await page.keyboard.press('Tab') // keyboard modality makes the existing Tooltip expose its focus description
-    await countryCaption.focus()
-    await page.getByRole('tooltip').getByText(strings['pick.country.hint'], { exact: true }).waitFor()
-    await page.keyboard.press('Tab')
-    await page.getByRole('tooltip').getByText(strings['pick.ping.hint'], { exact: true }).waitFor()
-    assert.equal(await page.locator('.pub-row.pick-th .pub-th-hint').last().getAttribute('title'), strings['pick.ping.hint'])
-    await page.keyboard.press('Tab')
-    const visibleColumns = await page.locator('.pub-row:not(.pick-th)').first().evaluate(row => {
-      const table = row.closest('.pick-table').getBoundingClientRect()
-      return [...row.querySelectorAll('.pub-ms, .pub-add')].map(element => {
+    assert.ok(overflow.main <= 1 && overflow.table <= 1, JSON.stringify(overflow))
+    const visibleColumns = await panel.locator('.server-row').first().evaluate(row => {
+      const table = row.closest('.server-list').getBoundingClientRect()
+      return [...row.querySelectorAll('.server-row-health, .server-row-action')].map(element => {
         const box = element.getBoundingClientRect()
         return box.left >= table.left && box.right <= table.right && box.width > 0
       })
     })
-    assert.deepEqual(visibleColumns, [true, true], 'measured ping and action are wholly visible without horizontal scrolling')
-    await page.locator('.pub-row:not(.pick-th) .pub-add').first().click()
-    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.catalogAdd), 1)
-    assert.equal(await page.locator('.pub-list.pick-table').evaluate(table => table.scrollLeft), 0)
+    assert.deepEqual(visibleColumns, [true, true], 'latency and action stay visible without horizontal scrolling')
+    await panel.locator('.server-row-action').first().click()
+    await page.waitForFunction(() => window.__waarpTest.state.calls.catalogAdd === 1)
+    assert.equal(await panel.locator('.server-row-action.saved').count(), 1)
     await capture(page, 'public-min-width.png')
   })
   await page.context().close()
-  await check('cached public candidates never display stale success and remain selectable', async () => {
+  await check('stale candidates offer a real check action without presenting historical latency as current', async () => {
     const page = await pageFor({ staleCatalog: true })
     await ready(page); await clickNav(page, 'servers')
     await page.setViewportSize({ width: 900, height: 600 })
     const panel = page.locator('#public-catalog')
-    assert.equal(await panel.getByRole('button', { name: strings['pub.auto'], exact: false }).isEnabled(), false)
-    await panel.getByText(strings['pub.manual'], { exact: true }).click()
-    await panel.getByText(strings['pub.region.eu'], { exact: true }).click()
-    await panel.getByText(strings['pub.node.cached'], { exact: true }).waitFor()
-    assert.equal(await panel.locator('.pub-row:not(.pick-th) .pub-ms').count(), 0, 'historical latency is not presented as a current result')
-    await panel.locator('.pub-row:not(.pick-th) .pub-add').click()
-    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.catalogAdd), 1)
-    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.toggle ?? 0), 0)
-    const overflow = await panel.evaluate(p => p.scrollWidth - p.clientWidth)
-    assert.ok(overflow <= 1, 'cached status and controls fit at minimum width')
+    await panel.getByText(strings['server.public.stale'], { exact: true }).waitFor()
+    assert.equal(await panel.locator('.server-row-health.ready').count(), 0)
+    assert.equal(await panel.locator('.server-row-health .mono').count(), 0, 'stale ping is never a fresh success')
+    await panel.getByRole('button', { name: strings['server.public.checkadd'], exact: true }).click()
+    await page.waitForFunction(() => window.__waarpTest.state.calls.catalogAdd === 1)
+    assert.deepEqual(await page.evaluate(() => {
+      const c = window.__waarpTest.state.calls; return [c.toggle ?? 0, c.disconnect ?? 0]
+    }), [0, 0])
+    assert.ok(await panel.evaluate(p => p.scrollWidth - p.clientWidth) <= 1)
     await capture(page, 'public-cached-min-width.png')
     await page.context().close()
   })
-  await check('public sources refresh while ON; candidate probing remains an explicit OFF action', async () => {
+  await check('public refresh and verification stay available while ON without any master command', async () => {
     const page = await pageFor({ staleCatalog: true })
-    await ready(page); await clickNav(page, 'servers')
+    await ready(page)
     await page.evaluate(() => { const f = window.__waarpTest; f.state.status = { ...f.state.status, phase: 'on', open: true }; f.push() })
+    await clickNav(page, 'servers')
     const panel = page.locator('#public-catalog')
+    await panel.locator('.server-row').first().waitFor()
     const refresh = panel.getByRole('button', { name: strings['pub.refresh'], exact: true })
-    const verify = panel.getByRole('button', { name: strings['pub.verify'], exact: true })
-    await settle(page)
+    const verify = panel.getByRole('button', { name: strings['server.public.verify'], exact: true })
+    await page.waitForFunction(() => window.__waarpTest.state.calls.catalogVerify === 1)
     assert.equal(await refresh.isEnabled(), true)
-    assert.equal(await verify.isEnabled(), false)
+    assert.equal(await verify.isEnabled(), true)
     await refresh.click()
     await page.waitForFunction(() => window.__waarpTest.state.calls.catalogRefresh === 1)
-    assert.deepEqual(await page.evaluate(() => [window.__waarpTest.state.calls.toggle ?? 0, window.__waarpTest.state.calls.disconnect ?? 0]), [0, 0])
-    await page.evaluate(() => { const f = window.__waarpTest; f.state.status = { ...f.state.status, phase: 'off', open: false }; f.push() })
     await verify.click()
-    await page.waitForFunction(() => window.__waarpTest.state.calls.catalogVerify === 1)
-    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.catalogRefresh), 1, 'rechecking cache does not require a source download')
+    await page.waitForFunction(() => window.__waarpTest.state.calls.catalogVerify === 2)
+    assert.deepEqual(await page.evaluate(() => {
+      const f = window.__waarpTest; return [f.state.status.phase, f.state.status.open, f.state.calls.toggle ?? 0, f.state.calls.disconnect ?? 0]
+    }), ['on', true, 0, 0])
     await capture(page, 'public-pool-controls.png')
+    await page.context().close()
+  })
+  await check('all public servers are searchable and paginated beyond the old 200-node sample', async () => {
+    const page = await pageFor({ largeCatalog: true })
+    await ready(page); await clickNav(page, 'servers')
+    const panel = page.locator('#public-catalog'), rows = panel.locator('.server-row')
+    await rows.first().waitFor()
+    assert.equal(await rows.count(), 12)
+    assert.equal(await panel.getByRole('button', { name: strings['pages.previous'], exact: true }).isEnabled(), false)
+    await panel.getByRole('button', { name: strings['pages.next'], exact: true }).click()
+    await rows.filter({ hasText: 'Public server 012' }).waitFor()
+    assert.equal(await rows.count(), 12)
+    assert.equal(await rows.filter({ hasText: 'Public server 000' }).count(), 0, 'page replaces rows instead of appending them')
+    await panel.getByRole('searchbox', { name: strings['server.public.search'], exact: true }).fill('node-256.')
+    await rows.filter({ hasText: 'Public server 256' }).waitFor()
+    assert.equal(await rows.count(), 1)
+    assert.equal(await panel.getByRole('button', { name: strings['pages.next'], exact: true }).count(), 0)
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.catalogAdd ?? 0), 0)
+    await capture(page, 'public-full-pool-search.png')
+    await page.context().close()
+  })
+  await check('selecting a public server from an app uses one chooser and never toggles the master', async () => {
+    const page = await pageFor()
+    await ready(page)
+    await page.evaluate(() => { const f = window.__waarpTest; f.state.status = { ...f.state.status, phase: 'on', open: true }; f.push() })
+    await page.locator('.rc-open').first().click()
+    const picker = page.locator('.server-picker')
+    await picker.locator('.server-source-tabs').getByRole('button', { name: strings['server.public'], exact: true }).click()
+    const row = picker.locator('.public-server-list .server-row').first()
+    await row.locator('.server-row-action').click()
+    await page.waitForFunction(() => window.__waarpTest.state.settings.routes[0].via === 'pub-fixture')
+    await row.locator('.server-row-action').filter({ hasText: strings['server.current'] }).waitFor()
+    assert.deepEqual(await page.evaluate(() => { const c = window.__waarpTest.state.calls; return [c.catalogAdd, c.selectRoute, c.toggle ?? 0, c.disconnect ?? 0] }), [1, 1, 0, 0])
+    assert.equal(await page.locator('.pub-more').count(), 0, 'public servers are part of the picker, not a collapsed afterthought')
+    assert.equal(await page.locator('.route-details').getAttribute('open'), null)
+    await capture(page, 'app-public-server-picker.png')
+    await page.context().close()
+  })
+  await check('a failed public check stays visible and does not change the selected app route', async () => {
+    const page = await pageFor({ staleCatalog: true, failPublicPick: true })
+    await ready(page)
+    await page.evaluate(() => { const f = window.__waarpTest; f.state.status = { ...f.state.status, phase: 'on', open: true }; f.push() })
+    await page.locator('.rc-open').first().click()
+    const picker = page.locator('.server-picker')
+    await picker.locator('.server-source-tabs').getByRole('button', { name: strings['server.public'], exact: true }).click()
+    await picker.getByRole('button', { name: strings['server.public.checkuse'], exact: true }).click()
+    await picker.getByRole('alert').getByText('Сервер не отвечает. Выбери другой.', { exact: true }).waitFor()
+    assert.deepEqual(await page.evaluate(() => {
+      const f = window.__waarpTest; return [f.state.settings.routes[0].via, f.state.calls.selectRoute ?? 0, f.state.calls.toggle ?? 0, f.state.calls.disconnect ?? 0]
+    }), ['a', 0, 0, 0])
+    await capture(page, 'public-check-failure.png')
+    await page.context().close()
+  })
+  await check('leaving a pending public choice cannot activate the old card or lock the master', async () => {
+    const page = await pageFor({ staleCatalog: true, deferPublicPick: true })
+    await ready(page)
+    await page.evaluate(() => { const f = window.__waarpTest; f.state.status = { ...f.state.status, phase: 'on', open: true }; f.push() })
+    await page.locator('.rc-open').first().click()
+    const picker = page.locator('.server-picker')
+    await picker.locator('.server-source-tabs').getByRole('button', { name: strings['server.public'], exact: true }).click()
+    await picker.getByRole('button', { name: strings['server.public.checkuse'], exact: true }).click()
+    await page.waitForFunction(() => typeof window.__waarpTest.state.resolvePublicPick === 'function')
+    assert.equal(await page.locator('.page-head').getByRole('switch').isEnabled(), false, 'same-card mutation waits for its pending choice')
+    assert.equal(await page.locator('.master').isEnabled(), true, 'master OFF remains immediately available')
+    await picker.locator('.server-source-tabs').getByRole('button', { name: new RegExp('^' + strings['server.saved']) }).click()
+    await page.evaluate(() => window.__waarpTest.state.resolvePublicPick())
+    await page.waitForFunction(() => window.__waarpTest.state.profiles.some(profile => profile.id === 'pub-fixture'))
+    await settle(page)
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.selectRoute ?? 0), 0)
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.settings.routes[0].via), 'a')
+    assert.equal(await page.locator('.page-head').getByRole('switch').isEnabled(), true)
     await page.context().close()
   })
   await check('whole-computer mode cannot silently select an untrusted public path', async () => {
@@ -722,70 +805,49 @@ try {
     assert.deepEqual(pageConsoleErrors.get(page), [], 'technical details and developer actions log no renderer errors')
     await page.context().close()
   })
-  await check('route and backup server pickers remain bounded, searchable and readable with 160 long names', async () => {
+  await check('saved server pages stay bounded and searchable with 160 long names', async () => {
     const page = await pageFor()
     await ready(page)
     await page.evaluate(() => {
       const f = window.__waarpTest, seed = f.state.profiles[0]
-      f.state.profiles = Array.from({ length: 160 }, (_, i) => ({
-        ...seed, id: 'bulk-' + i,
+      f.state.profiles = Array.from({ length: 160 }, (_, i) => ({ ...seed, id: 'bulk-' + i,
         name: 'UnbreakableVeryLongImportedServerNameWithoutSeparators-' + i + '-AcrossEveryRegionAndProtocol',
-        host: '192.0.2.' + (i % 200 + 1),
-      }))
-      f.state.settings.routes[0].via = 'bulk-159'
-      f.state.settings.routes[0].fallback = 'bulk-158'
+        host: '192.0.2.' + (i % 200 + 1) }))
+      f.state.settings.routes[0].via = 'bulk-159'; f.state.settings.routes[0].fallback = 'bulk-158'
       f.state.status = { ...f.state.status, phase: 'on', open: true,
         pings: Object.fromEntries(f.state.profiles.map((p, i) => [p.id, 50 + i])) }
       f.push()
     })
     await page.locator('.rc-open').first().click()
-    await page.locator('.route-choices').first().waitFor()
-    const lists = page.locator('.route-choices')
-    assert.equal(await lists.count(), 2, 'primary and backup options remain available')
-    assert.equal(await lists.first().locator('.vopt').count(), 8, 'default primary choices are bounded')
-    assert.equal(await lists.nth(1).locator('.vopt').count(), 8, 'default backup choices are bounded')
-    assert.ok((await lists.first().locator('.vopt.on .vo-name').textContent()).includes('159'), 'selected path always remains visible')
-    assert.ok((await lists.nth(1).locator('.vopt.on .vo-name').textContent()).includes('158'), 'selected backup outside the first page remains visible')
-    const search = page.getByRole('searchbox', { name: 'Поиск подключений' })
+    const list = page.locator('.saved-server-list'), rows = list.locator('.server-row')
+    await rows.first().waitFor()
+    assert.equal(await rows.count(), 10)
+    assert.ok((await list.locator('.server-row.on .server-row-name b').textContent()).includes('159'))
+    const search = page.getByRole('searchbox', { name: strings['server.search'], exact: true })
     await search.fill('-117-AcrossEvery')
-    assert.equal(await lists.first().locator('.vopt').count(), 1)
+    assert.equal(await rows.count(), 1)
     await search.fill('')
-    await page.getByRole('button', { name: /^Показать ещё/ }).first().click()
-    assert.equal(await lists.first().locator('.vopt').count(), 24)
-    await page.getByRole('button', { name: /^Показать ещё/ }).first().click()
-    assert.equal(await lists.first().locator('.vopt').count(), 40)
-    const backupSearch = page.getByRole('searchbox', { name: 'Поиск резервных подключений' })
-    await backupSearch.fill('-120-AcrossEvery')
-    assert.equal(await lists.nth(1).locator('.vopt').count(), 1)
-    await backupSearch.fill('')
-    assert.ok((await lists.nth(1).locator('.vopt.on .vo-name').textContent()).includes('158'), 'clearing search restores the selected backup')
+    await page.getByRole('button', { name: strings['pages.next'], exact: true }).click()
+    assert.equal(await rows.count(), 10, 'next page replaces the initial bounded set')
+    await page.getByRole('button', { name: strings['pages.number'].replace('{n}', '1'), exact: true }).click()
     for (const width of [1240, 900, 720, 620]) {
-      await page.setViewportSize({ width, height: 780 })
-      await settle(page)
+      await page.setViewportSize({ width, height: 780 }); await settle(page)
       const measures = await page.evaluate(() => {
         const main = document.querySelector('.main')
-        const cards = [...document.querySelectorAll('.route-choices .vopt')].slice(0, 20)
         return { overflow: main.scrollWidth - main.clientWidth,
-          cards: cards.map(card => {
-            const name = card.querySelector('.vo-name'), metric = card.querySelector('.vo-metric')
-            return { width: card.scrollWidth - card.clientWidth,
-              name: name ? name.getBoundingClientRect().right - card.getBoundingClientRect().right : 0,
-              metric: metric ? metric.getBoundingClientRect().right - card.getBoundingClientRect().right : 0 }
+          rows: [...document.querySelectorAll('.saved-server-list .server-row')].map(row => {
+            const name = row.querySelector('.server-row-name'), metric = row.querySelector('.server-row-health')
+            return { width: row.scrollWidth - row.clientWidth,
+              name: name.getBoundingClientRect().right - row.getBoundingClientRect().right,
+              metric: metric.getBoundingClientRect().right - row.getBoundingClientRect().right }
           }) }
       })
-      assert.ok(measures.overflow <= 1, 'route page must not overflow main container at ' + width)
-      assert.ok(measures.cards.every(card => card.width <= 1 && card.name <= 1 && card.metric <= 1),
-        'labels and metrics must remain within their cards at ' + width + ': ' + JSON.stringify(measures.cards))
+      assert.ok(measures.overflow <= 1, 'server picker fits width ' + width)
+      assert.ok(measures.rows.every(row => row.width <= 1 && row.name <= 1 && row.metric <= 1), JSON.stringify(measures))
     }
-    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.selectRoute ?? 0), 0,
-      'search and expansion never change routing or toggle TUN')
-    await page.getByRole('button', { name: strings['route.picker.collapse'], exact: true }).first().click()
-    assert.equal(await lists.first().locator('.vopt').count(), 8)
-    assert.ok((await lists.first().locator('.vopt.on .vo-name').textContent()).includes('159'), 'collapse keeps the current path visible')
-    assert.deepEqual(await page.evaluate(() => {
-      const c = window.__waarpTest.state.calls
-      return [c.settings ?? 0, c.selectRoute ?? 0, c.toggle ?? 0, c.disconnect ?? 0]
-    }), [0, 0, 0, 0], 'browsing primary and backup choices sends no mutation or master command')
+    await page.locator('.route-details > summary').click()
+    assert.equal(await page.getByRole('combobox', { name: strings['route.fb'], exact: true }).inputValue(), 'bulk-158')
+    assert.deepEqual(await page.evaluate(() => { const c = window.__waarpTest.state.calls; return [c.settings ?? 0, c.selectRoute ?? 0, c.toggle ?? 0, c.disconnect ?? 0] }), [0, 0, 0, 0])
     await capture(page, 'route-picker-long-labels.png')
     await page.context().close()
   })

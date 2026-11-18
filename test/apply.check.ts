@@ -17,7 +17,7 @@ const base: Settings = { ...DEFAULTS, rest: 'p1', routes: [
 ] } as Settings
 
 function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?: string; open?: boolean; confirm?: boolean } = {}) {
-  let cur = base, phase = o.phase ?? 'off', starts = 0, stops = 0, saves = 0, changed = 0
+  let cur = base, phase = o.phase ?? 'off', starts = 0, stops = 0, saves = 0, changed = 0, confirmations = 0
   const d: ApplyDeps = {
     get: () => cur, set: s => { cur = s },
     save: () => { saves++; if (o.saveFails) throw new Error('disk') },
@@ -27,10 +27,10 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
     demandsTunnel: requiresCore,
     start: async () => { starts++; phase = o.startTo ?? 'on' },
     stop: async () => { stops++; phase = 'off' },
-    confirmRestart: async () => o.confirm !== false,
+    confirmRestart: async () => { confirmations++; return o.confirm !== false },
     changed: () => { changed++ }
   }
-  return { apply: createApply(d), get: () => cur, counts: () => ({ starts, stops, saves, changed }) }
+  return { apply: createApply(d), get: () => cur, counts: () => ({ starts, stops, saves, changed, confirmations }) }
 }
 
 ;(async () => {
@@ -39,18 +39,18 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
   {
     const r = rig({ open: true, confirm: false })
     const a = await r.apply(dpi)
-    eq([a.applied, r.counts().starts], [false, 0], 'unapproved edit cannot start an idle TUN')
-    eq(a.code, 'restart', 'idle master asks for explicit approval')
+    eq([a.applied, r.counts().starts], [true, 1], 'already-open idle master activates the first selected route')
+    eq(r.counts().confirmations, 0, 'first route does not ask the owner to turn ON twice')
   }
   {
     const r = rig({ open: true, confirm: true })
     const a = await r.apply(dpi)
-    eq([a.applied, r.counts().starts], [true, 1], 'explicit approval may activate idle TUN')
+    eq([a.applied, r.counts().starts], [true, 1], 'owner ON intent activates idle TUN')
   }
   {
     const r = rig({ phase: 'on', open: true })
     const a = await r.apply(dpi)
-    eq([a.applied, r.counts().stops], [true, 0], 'last tunnel card becoming Direct+DPI keeps a required core')
+    eq([a.applied, r.counts().stops, r.counts().starts], [false, 0, 0], 'missing live support preserves the current core without pretending the edit applied')
   }
   ok(!requiresCore({ ...dpi, routes: dpi.routes.map(r => ({ ...r, dpi: false })) }), 'plain Direct can remain idle')
   ok(!requiresCore({ ...dpi, routes: dpi.routes.map(r => ({ ...r, on: false })) }), 'disabled DPI card does not start a core')
@@ -63,19 +63,19 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
 
   // C1: closed stays closed -> saved, not applied, no start
   { const r = rig(); const a = await r.apply(sel); eq(a, { saved: true, applied: false, running: false }, 'closed: saved only'); eq(r.counts().starts, 0, 'closed: no start') }
-  // C2: running + good restart -> saved + applied
-  { const r = rig({ phase: 'on' }); const a = await r.apply(sel); eq(a, { saved: true, applied: true, running: true }, 'running: saved and applied'); eq(r.counts().starts, 1, 'running: one restart') }
-  // C3a: running + failed restart -> saved, not applied, intent kept
-  { const r = rig({ phase: 'on', startTo: 'error' }); const a = await r.apply(sel); eq(a, { saved: true, applied: false, running: true, code: 'start' }, 'failed restart: saved, not applied'); eq(r.get(), sel, 'failed restart keeps the intent') }
+  // C2: no live implementation must not turn an ordinary card choice into a restart
+  { const r = rig({ phase: 'on' }); const a = await r.apply(sel); eq(a, { saved: false, applied: false, running: true, code: 'start' }, 'running: saved but live application unavailable'); eq([r.counts().starts, r.counts().confirmations], [0, 0], 'running card choice never restarts or asks to restart') }
+  // C3a: a structural miss keeps current native routing and reports unapplied intent
+  { const r = rig({ phase: 'on', startTo: 'error' }); const a = await r.apply(sel); eq(a, { saved: false, applied: false, running: true, code: 'start' }, 'failed restart: saved, not applied'); eq(r.get(), base, 'failed live support restores the original selection') }
   // An invalid edit or rejected consent must preserve both the old route and TUN.
   { const r = rig({ phase: 'on', block: true }); const a = await r.apply(sel); eq(a, { saved: false, applied: false, running: true, code: 'block' }, 'blocked edit rejected'); eq(r.get(), base, 'blocked edit rolled back'); eq([r.counts().starts, r.counts().stops], [0, 0], 'blocked edit did not stop TUN') }
-  { const r = rig({ phase: 'on', confirm: false }); const a = await r.apply(sel); eq(a, { saved: false, applied: false, running: true, code: 'restart' }, 'restart requires consent'); eq(r.get(), base, 'denial restored previous route'); eq([r.counts().starts, r.counts().stops], [0, 0], 'denial cannot cycle TUN') }
+  { const r = rig({ phase: 'on', confirm: false }); const a = await r.apply(sel); eq(a, { saved: false, applied: false, running: true, code: 'start' }, 'card edit reports an unapplied change instead of presenting a restart dialog'); eq([r.counts().starts, r.counts().stops, r.counts().confirmations], [0, 0, 0], 'card edit cannot cycle TUN') }
   // C4: save failure -> not saved, previous restored, runtime untouched
   {
     let saved = base, saves = 0, nativeWrites = 0
     const result = await createApply({
       get: () => saved, set: next => { saved = next }, save: () => { if (++saves > 1) throw new Error('disk refused rollback') },
-      phase: () => 'on', open: () => true, blocked: async () => false, demandsTunnel: () => true,
+      phase: () => 'on', open: () => true, blocked: async () => true, demandsTunnel: () => true,
       confirmRestart: async () => false, start: async () => { nativeWrites++ }, stop: async () => { nativeWrites++ }, changed: () => {}
     })(sel)
     eq([result.saved, result.code, saved, nativeWrites], [false, 'rollback', base, 0],
@@ -98,7 +98,7 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
       blocked: async () => false, demandsTunnel: () => true, confirmRestart: async () => true,
       start: async () => { throw new Error('preflight failed while previous core stays on') }, stop: async () => { throw new Error('unexpected OFF') }, changed: () => {}
     })(sel)
-    eq([result.saved, result.applied, result.code], [true, false, 'start'], 'failed start preflight cannot report old running TUN as a successfully applied edit')
+    eq([result.saved, result.applied, result.code], [false, false, 'start'], 'failed start preflight cannot report old running TUN as a successfully applied edit')
   }
   // C: snapshot pushed for every saved write
   { const r = rig({ phase: 'on', startTo: 'error' }); await r.apply(sel); eq(r.counts().changed, 1, 'snapshot sent once') }
