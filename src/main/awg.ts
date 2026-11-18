@@ -1,6 +1,7 @@
 import { inflateSync } from 'node:zlib'
 import { generateKeyPairSync } from 'node:crypto'
 import { isIP } from 'node:net'
+import { EXITLAG_VIA } from '../shared/exitlag'
 import { domainToASCII } from 'node:url'
 import { join } from 'node:path'
 import type { AppPick, AwgParams, AwgProfile, Profile, Route, Settings, Via } from '../shared/types'
@@ -503,7 +504,8 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
   // R5: a fallback pointing at Auto resolves through the same bounded pool
   const knownG = new Set(lg.map(g => g.id))
   // C03: a target that is not direct and not a known tunnel/group is BLOCKED, never silently direct
-  const out = (v: Via) => (v === 'direct' ? 'direct' : knownG.has(v) ? grpTag(v) : known.has(v) ? tagOf(v) : BLOCK)
+  // ExitLag owns capture upstream of TUN. If a packet reaches this core, reject it instead of leaking Direct.
+  const out = (v: Via) => (v === EXITLAG_VIA ? BLOCK : v === 'direct' ? 'direct' : knownG.has(v) ? grpTag(v) : known.has(v) ? tagOf(v) : BLOCK)
   const dnsOf = (v: Via) => (v === 'direct' ? 'local' : knownG.has(v) || known.has(v) ? 'dns-' + v : BLOCK)
   const outR = (r: Route) => { const f = validFb(r, known); return f ? selTag(r.via, f) : out(r.via) }
   const dnsR = (r: Route) => { const f = validFb(r, known); return f ? 'dns-' + selTag(r.via, f) : dnsOf(r.via) }

@@ -1,4 +1,5 @@
 import type { Group, Profile, Route, Settings, Via } from './types'
+import { EXITLAG_VIA } from './exitlag'
 import { AUTO_ID, withAuto, type AutoSource } from './groups'
 
 export type PlanScope = 'cards' | 'computer'
@@ -45,8 +46,9 @@ export function compilePlan(given: Settings, profiles: (Pick<Profile, 'id' | 're
   const blocked = new Set<string>()
   const warnings = new Set<string>()
 
-  const resolve = (via: Via, role: PlanRole): boolean => {
+  const resolve = (via: Via, role: PlanRole, externalApp = false): boolean => {
     if (via === 'direct') return true
+    if (via === EXITLAG_VIA) return externalApp && role === 'primary'
     if (available.has(via)) {
       ;(role === 'primary' ? required : standby).add(via)
       return true
@@ -73,7 +75,7 @@ export function compilePlan(given: Settings, profiles: (Pick<Profile, 'id' | 're
   const scope: PlanScope = settings.rest === 'direct' ? 'cards' : 'computer'
   resolve(settings.rest, 'primary')
   const routes: PlannedRoute[] = settings.routes.filter(r => r.on).map(r => {
-    const resolved = resolve(r.via, 'primary')
+    const resolved = resolve(r.via, 'primary', r.kind === 'app' && r.owner !== 'companion')
     let fallback: Via | undefined
     let fallbackResolved = true
     if (r.fallback && r.fallback !== 'direct' && r.fallback !== r.via) {

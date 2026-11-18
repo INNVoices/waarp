@@ -12,6 +12,7 @@ import { AddTunnel, importNote, type ImportResult } from './addtunnel'
 import { GroupDialog } from './groupdlg'
 import { useDev } from '../lib/dev'
 import { PublicCatalog } from './publiccat'
+import { ExitLagCatalog } from './exitlag'
 
 
 export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status: Status; patch: SettingsPatch; toast: (x: string) => void }) {
@@ -212,6 +213,8 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
 
       <div className="sec-head"><h2>{s('pub.sec')}</h2></div>
       <PublicCatalog toast={toast} used={id => snap.profiles.some(p => p.id === id)} refreshAllowed={refreshAllowed} />
+      <div className="sec-head"><h2>{s('exitlag.title')}</h2></div>
+      <ExitLagCatalog />
 
       {adding && <AddTunnel onClose={() => setAdding(false)} onAdded={(r: ImportResult) => toast(importNote(r))}
         onPublic={() => { setAdding(false); requestAnimationFrame(() => document.getElementById('public-catalog')?.scrollIntoView({ behavior: 'smooth' })) }} />}

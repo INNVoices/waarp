@@ -1,5 +1,6 @@
 import type { Route, Status } from '../../../shared/types'
 import type { RouteEff } from '../../../shared/effective'
+import { EXITLAG_VIA } from '../../../shared/exitlag'
 
 /**
  * Owner-facing route state. Global master intent is separate from the transient core phase:
@@ -8,6 +9,7 @@ import type { RouteEff } from '../../../shared/effective'
  */
 export function routeStateKey(route: Pick<Route, 'on' | 'via'>, status: Pick<Status, 'open' | 'phase'>, eff?: RouteEff, draft = false): string {
   if (!route.on) return draft ? 'route.st.draft' : 'route.st.off'
+  if (route.via === EXITLAG_VIA || eff?.state === 'external') return 'route.st.exitlag'
   if (eff?.state === 'fallback') return 'route.st.fb'
   if (eff?.state === 'blocked' || eff?.state === 'retrying') return 'route.st.' + (eff.reason ?? 'waiting')
   if (route.via === 'direct' || eff?.state === 'direct') return 'route.st.direct'

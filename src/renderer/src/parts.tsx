@@ -8,6 +8,7 @@ import { AUTO_ID, AUTO_LIVE_MAX, autoMembers } from '../../shared/groups'
 import { hueOf } from './lib/routes'
 import { Cat, Eggs, isNight, isWinter, useEggs } from './eggs'
 import { orbPresentation } from './lib/master'
+import { EXITLAG_VIA } from '../../shared/exitlag'
 
 export function Orb({ status, disabled, busy = false, why, onClick }: { status: Status; disabled: boolean; busy?: boolean; why?: string; onClick: () => void }) {
   const view = orbPresentation(status)
@@ -45,6 +46,7 @@ export function Orb({ status, disabled, busy = false, why, onClick }: { status: 
 }
 
 export function Mark({ profiles, via }: { profiles: ProfileView[]; via: Via }) {
+  if (via === EXITLAG_VIA) return <Tooltip tip={s('exitlag.route')}><i className="mark auto" /></Tooltip>
   if (via === AUTO_ID) return <Tooltip tip={viaName(profiles, via)}><i className="mark auto" /></Tooltip>
   const hue = hueOf(profiles, via)
   const group = profiles.find(p => p.id === via)?.kind === 'group'
@@ -60,6 +62,7 @@ export function AutoHint({ profiles, bare }: { profiles: ProfileView[]; bare?: b
 }
 
 export function viaName(profiles: ProfileView[], via: Via) {
+  if (via === EXITLAG_VIA) return s('exitlag.route')
   if (via === 'direct') return s('via.direct')
   if (via === AUTO_ID) return s('via.auto')
   const p = profiles.find(x => x.id === via)
@@ -76,8 +79,8 @@ export function Ping({ ms, live, down }: { ms?: number; live: boolean; down?: bo
 /** second line of a tunnel in lists: protocol and host, or the policy of a group */
 export const subOf = (p?: ProfileView) => (!p ? '' : p.kind === 'group' ? `${s('srv.kind.group')} · ${s('grp.pol.' + p.policy)}` : `${p.version} · ${p.host}`)
 
-export function ViaPicker({ profiles, via, pings, live, onChange, compact, noDirect, disabled, down }: {
-  profiles: ProfileView[]; via: Via; pings: Record<string, number | undefined>; live: boolean; onChange: (v: Via) => void; compact?: boolean; noDirect?: boolean; disabled?: boolean
+export function ViaPicker({ profiles, via, pings, live, onChange, compact, noDirect, disabled, down, allowExitLag }: {
+  profiles: ProfileView[]; via: Via; pings: Record<string, number | undefined>; live: boolean; onChange: (v: Via) => void; compact?: boolean; noDirect?: boolean; disabled?: boolean; allowExitLag?: boolean
   /** paths confirmed down (from tunnel health / effective state) */
   down?: (v: Via) => boolean
 }) {
@@ -93,7 +96,7 @@ export function ViaPicker({ profiles, via, pings, live, onChange, compact, noDir
   }, [open])
   useEffect(() => { if (disabled) setOpen(false) }, [disabled])
   // Auto first when the user has own connections to pick from (W2.3); public nodes never join Auto
-  const opts: Via[] = [...(autoMembers(profiles).length ? [AUTO_ID] : []), ...(noDirect ? [] : ['direct']), ...profiles.map(p => p.id)]
+  const opts: Via[] = [...(autoMembers(profiles).length ? [AUTO_ID] : []), ...(noDirect ? [] : ['direct']), ...(allowExitLag || via === EXITLAG_VIA ? [EXITLAG_VIA] : []), ...profiles.map(p => p.id)]
   return (
     <div className={'via' + (compact ? ' compact' : '')} ref={ref} onClick={e => e.stopPropagation()} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOpen(false) }} onKeyDown={e => {
       if (e.key === 'Escape' && open) { e.preventDefault(); e.stopPropagation(); closeMenu(); return }
@@ -119,7 +122,7 @@ export function ViaPicker({ profiles, via, pings, live, onChange, compact, noDir
             <Plain key={v} role="menuitemradio" aria-checked={v === via} className={'mi' + (v === via ? ' on' : '')} disabled={profiles.some(p => p.id === v && p.revoked)} onClick={() => { onChange(v); closeMenu() }}>
               <Mark profiles={profiles} via={v} />
               <span>{viaName(profiles, v)}</span>
-              {v === 'direct' ? <small>{s('via.direct.hint')}</small> : v === AUTO_ID ? <AutoHint profiles={profiles} /> : <Ping ms={pings[v]} live={live} down={down?.(v)} />}
+              {v === 'direct' ? <small>{s('via.direct.hint')}</small> : v === EXITLAG_VIA ? <small>{s('exitlag.route.hint')}</small> : v === AUTO_ID ? <AutoHint profiles={profiles} /> : <Ping ms={pings[v]} live={live} down={down?.(v)} />}
             </Plain>
           ))}
         </div>

@@ -11,6 +11,7 @@ import { api } from '../bridge'
 import type { SettingsPatch } from '../lib/actions'
 import { AUTO_ID, autoMembers } from '../../../shared/groups'
 import { safeVia } from '../../../shared/companion'
+import { EXITLAG_VIA } from '../../../shared/exitlag'
 import { routeSchemeHintKey, routeStateKey } from '../lib/route-state'
 
 interface P { snap: Snapshot; status: Status; conns: Conn[]; apps: AppInfo[]; id: string; patch: SettingsPatch; toast: (text: string) => void; back: () => void }
@@ -52,7 +53,7 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
   const cs = live ? connsOf(r, conns) : []
   const forCompanion = r.owner === 'companion'
   const safe = (v: Via) => !forCompanion || safeVia(v, st, snap.profiles)
-  const opts: Via[] = [...(autoMembers(snap.profiles).length ? [AUTO_ID] : []), 'direct', ...snap.profiles.filter(p => !p.revoked).map(p => p.id)].filter(safe)
+  const opts: Via[] = [...(autoMembers(snap.profiles).length ? [AUTO_ID] : []), 'direct', ...(r.kind === 'app' && !forCompanion ? [EXITLAG_VIA] : []), ...snap.profiles.filter(p => !p.revoked).map(p => p.id)].filter(safe)
   const e = status.routes?.[r.id]
   const nowText = !e ? '' : e.state === 'ok' ? (e.effective && e.effective !== r.via ? s('route.now.picked', { a: viaName(snap.profiles, r.via), v: viaName(snap.profiles, e.effective) }) : s('route.now.ok', { v: viaName(snap.profiles, r.via) }))
     : e.state === 'fallback' ? s('route.now.fallback', { v: viaName(snap.profiles, e.effective ?? '') })
@@ -90,13 +91,14 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
               <Plain key={v} disabled={locked} aria-busy={applying === v} aria-pressed={on} className={'vopt' + (on ? ' on' : '') + (applying === v ? ' applying' : '')} onClick={() => void select(v)}>
                 <span className="radio" />
                 <span className="vo-t"><span className="vo-n"><Mark profiles={snap.profiles} via={v} />{viaName(snap.profiles, v)}</span>
-                  <small className="m ell">{v === 'direct' ? s('via.direct.hint') : v === AUTO_ID ? <AutoHint profiles={snap.profiles} bare /> : subOf(p)}</small></span>
-                <Ping ms={status.pings[v]} live={live} down={v === r.via ? e?.reason === 'path_down' : status.health?.[v] === 'down'} />
+                  <small className="m ell">{v === 'direct' ? s('via.direct.hint') : v === EXITLAG_VIA ? s('exitlag.route.hint') : v === AUTO_ID ? <AutoHint profiles={snap.profiles} bare /> : subOf(p)}</small></span>
+                {v !== EXITLAG_VIA && <Ping ms={status.pings[v]} live={live} down={v === r.via ? e?.reason === 'path_down' : status.health?.[v] === 'down'} />}
               </Plain>
             )
           })}
         </div>
         {!snap.profiles.length && <p className="hint">{s('route.noservers')}</p>}
+        {r.via === EXITLAG_VIA && <p className="hint">{s('exitlag.route.warning')}</p>}
       </section>
 
       {/* public nodes are a low-trust extra source, never in the main flow (GPT 35816ee C) */}
@@ -104,7 +106,7 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
         <PublicCatalog disabled={locked} refreshAllowed={status.phase === 'off' && status.open !== true} compact toast={toast} used={pid => snap.profiles.some(p => p.id === pid)} onAdded={pid => void select(pid)} />
       </details>}
 
-      {!draft && r.via !== 'direct' && snap.profiles.find(p => p.id === r.via)?.kind !== 'group' && fbOpts.length > 0 && (
+      {!draft && r.via !== 'direct' && r.via !== EXITLAG_VIA && snap.profiles.find(p => p.id === r.via)?.kind !== 'group' && fbOpts.length > 0 && (
         <section className="panel">
           <h3>{s('route.fb')}</h3>
           <p className="hint">{s('route.fb.hint')}</p>

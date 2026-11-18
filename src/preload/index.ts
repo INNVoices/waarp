@@ -60,6 +60,9 @@ const api = {
   companionChoose: (id: string, via: string) => ipcRenderer.invoke('companion:choose', id, via),
   // WRP-015 public catalog
   catalogGet: () => ipcRenderer.invoke('catalog:get'),
+  exitLagGet: () => ipcRenderer.invoke('exitlag:get') as Promise<import('../shared/exitlag').ExitLagSnapshot>,
+  exitLagVisible: () => ipcRenderer.invoke('exitlag:visible') as Promise<import('../shared/exitlag').ExitLagVisibleCatalog>,
+  exitLagOpen: () => ipcRenderer.invoke('exitlag:open') as Promise<{ ok: boolean; error?: string }>,
   catalogRefresh: () => ipcRenderer.invoke('catalog:refresh'),
   catalogAdd: (id: string) => ipcRenderer.invoke('catalog:add', id),
   catalogBest: () => ipcRenderer.invoke('catalog:best'),

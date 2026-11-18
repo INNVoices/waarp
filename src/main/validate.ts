@@ -4,6 +4,7 @@ import type { Group, Route, Settings, Via } from '../shared/types'
 import { validateCustom } from '../shared/route-validation'
 import { PRESETS } from '../shared/presets'
 import { reservedOk } from '../shared/companion'
+import { EXITLAG_VIA } from '../shared/exitlag'
 
 const str = (v: unknown, max = 300): v is string => typeof v === 'string' && v.length <= max
 const via = (v: unknown): v is Via => str(v, 80) && /^[\w:.-]+$/.test(v)
@@ -29,10 +30,12 @@ function route(r: any): Route | null {
   }
   if (r.wholeDir !== undefined) { if (!bool(r.wholeDir)) return null; out.wholeDir = r.wholeDir }
   if (r.dpi !== undefined) { if (!bool(r.dpi)) return null; if (r.dpi) out.dpi = true }
-  if (r.fallback !== undefined) { if (!via(r.fallback)) return null; out.fallback = r.fallback }
+  if (r.fallback !== undefined) { if (!via(r.fallback) || r.fallback === EXITLAG_VIA) return null; out.fallback = r.fallback }
   if (r.owner !== undefined) { if (r.owner !== 'companion') return null; out.owner = r.owner }
   // a reserved ext: id or an owner must be a well-formed companion route; main checks it against the stored one
   if (!reservedOk(out)) return null
+  // External routing is meaningful only for a specific process; no fallback, wildcards, or companion ownership.
+  if (out.via === EXITLAG_VIA && (out.kind !== 'app' || out.owner || out.fallback || out.wholeDir === true)) return null
   if (r.kind === 'custom' && (typeof out.value !== 'string' || validateCustom(out.value))) return null
   if (r.kind === 'preset' && (typeof out.preset !== 'string' || !PRESETS.some(p => p.id === out.preset))) return null
   if (r.kind === 'list' && (typeof out.list !== 'string' || !/^l-[a-z0-9]{8}$/.test(out.list))) return null
@@ -42,7 +45,7 @@ function route(r: any): Route | null {
 
 function group(g: any): Group | null {
   if (!g || typeof g !== 'object' || !via(g.id) || !g.id.startsWith('g-') || g.id === 'g-auto' || !str(g.name, 60) || !['fastest', 'first'].includes(g.policy)) return null
-  if (!Array.isArray(g.members) || !g.members.length || g.members.length > 32 || !g.members.every((x: unknown) => via(x) && x !== 'direct' && !x.startsWith('g-'))) return null
+  if (!Array.isArray(g.members) || !g.members.length || g.members.length > 32 || !g.members.every((x: unknown) => via(x) && x !== 'direct' && !x.startsWith('g-') && x !== EXITLAG_VIA)) return null
   return { id: g.id, name: g.name, policy: g.policy, members: [...new Set(g.members)] } as Group
 }
 
@@ -51,9 +54,9 @@ export function cleanPatch(p: unknown): Partial<Settings> {
   if (!p || typeof p !== 'object' || Array.isArray(p)) return {}
   const x = p as Record<string, unknown>
   const out: Partial<Settings> = {}
-  if ('rest' in x && via(x.rest)) out.rest = x.rest
-  if ('allVia' in x && (x.allVia === undefined || via(x.allVia))) out.allVia = x.allVia as Via | undefined
-  if ('serviceVia' in x && (x.serviceVia === undefined || (via(x.serviceVia) && !x.serviceVia.startsWith('g-')))) out.serviceVia = x.serviceVia as string | undefined
+  if ('rest' in x && via(x.rest) && x.rest !== EXITLAG_VIA) out.rest = x.rest
+  if ('allVia' in x && (x.allVia === undefined || (via(x.allVia) && x.allVia !== EXITLAG_VIA))) out.allVia = x.allVia as Via | undefined
+  if ('serviceVia' in x && (x.serviceVia === undefined || (via(x.serviceVia) && !x.serviceVia.startsWith('g-') && x.serviceVia !== EXITLAG_VIA))) out.serviceVia = x.serviceVia as string | undefined
   for (const k of ['ruDirect', 'dnsAll', 'lanDirect', 'tray', 'autoConnect', 'autostart', 'notify'] as const) if (k in x && bool(x[k])) out[k] = x[k] as boolean
   if ('routes' in x && Array.isArray(x.routes) && x.routes.length <= 500) {
     const r = x.routes.map(route)

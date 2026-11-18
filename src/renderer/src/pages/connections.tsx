@@ -107,7 +107,7 @@ export function Connections({ snap, status, conns, apps, patch, toast, toggle, r
                 </Plain>
                 <Tooltip tip={s(r.on ? 'conn.on.tip' : 'conn.off.tip')}><span><Toggle on={r.on} disabled={routingBusy} onChange={v => void runPatch({ routes: patchRoute(st, r.id, { on: v }) }, r.id)} label={r.name} /></span></Tooltip>
               </div>
-              <ViaPicker compact disabled={routingBusy} profiles={snap.profiles} via={r.via} pings={status.pings} live={live} down={v => v === r.via ? status.routes?.[r.id]?.reason === 'path_down' : status.health?.[v] === 'down'} onChange={v => void selectRoute(r, v)} />
+              <ViaPicker compact allowExitLag={r.kind === 'app' && r.owner !== 'companion'} disabled={routingBusy} profiles={snap.profiles} via={r.via} pings={status.pings} live={live} down={v => v === r.via ? status.routes?.[r.id]?.reason === 'path_down' : status.health?.[v] === 'down'} onChange={v => void selectRoute(r, v)} />
               {busyRoute === r.id && <span className="rc-applying" role="status">{s('route.st.applying')}</span>}
             </div>
           )

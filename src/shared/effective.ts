@@ -1,11 +1,12 @@
 // W2.1: the one effective state per route. Main computes it from the compiled plan + live evidence and ships it in
 // Status; the UI only renders it (Home mood, route rows) and never re-derives meaning from raw pings/health.
 import { compilePlan } from './plan'
+import { EXITLAG_VIA } from './exitlag'
 import type { Profile, Settings, Status, TunnelHealth, Via } from './types'
 import { withAuto, type AutoSource } from './groups'
 import { sameEffectiveRouting } from './routing-edit'
 
-export type RouteState = 'ok' | 'fallback' | 'retrying' | 'blocked' | 'direct' | 'idle' | 'off'
+export type RouteState = 'ok' | 'fallback' | 'retrying' | 'blocked' | 'direct' | 'idle' | 'off' | 'external'
 /** why a route is not plainly ok; codes, the UI owns the words */
 export type RouteReason = 'main_down' | 'path_down' | 'engine_down' | 'missing' | 'busy' | 'waiting'
 export interface RouteEff { desired: Via; effective?: Via; state: RouteState; reason?: RouteReason }
@@ -31,6 +32,8 @@ export function effectiveRoutes(given: Settings, profiles: (Pick<Profile, 'id' |
   const one = (id: string, via: Via, enabled: boolean): RouteEff => {
     if (!enabled) return { desired: via, state: 'off' }
     if (via === 'direct') return { desired: via, effective: 'direct', state: 'direct' }
+    // External interception happens upstream of TUN. We cannot claim network success from Waarp.
+    if (via === EXITLAG_VIA) return { desired: via, state: 'external' }
     // a missing target is rejected (fail closed), never quietly sent Direct
     if (blocked.has(via)) return { desired: via, state: 'blocked', reason: 'missing' }
     if (!on) return { desired: via, state: 'idle', reason: 'waiting' }

@@ -1,6 +1,6 @@
 import { prepareStart } from './connect'
 import { ConnectionControl } from './connection-control'
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, net, Notification, powerMonitor, screen, Tray } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, net, Notification, powerMonitor, screen, shell, Tray } from 'electron'
 import { execFile } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -24,6 +24,8 @@ import { peekClip } from './clip'
 import { adapters, adapterInspectionNotice, conflicts } from './guard'
 import { createAdminCheck, POWERSHELL } from './ps'
 import { Store } from './store'
+import { exitLagSnapshot, exitLagVisibleCatalog, exitLagExe } from './exitlag'
+import { EXITLAG_VIA } from '../shared/exitlag'
 import { dropServer } from './store-core'
 import { startBridge } from './bridge'
 import { createApply, onRoutingPatch, selectVia, type ApplyResult } from './apply'
@@ -389,6 +391,15 @@ function secureIntentHandle(channel: string, handler: IpcHandler): void {
 
 function ipc() {
   secureHandle('snapshot', () => snapshot())
+  secureHandle('exitlag:get', () => exitLagSnapshot())
+  secureHandle('exitlag:visible', () => exitLagVisibleCatalog())
+  // Only an explicit click opens the official client. No hidden networking action on startup.
+  secureHandle('exitlag:open', async () => {
+    const exe = exitLagExe()
+    if (!exe) return { ok: false, error: 'ExitLag не найден' }
+    const error = await shell.openPath(exe)
+    return error ? { ok: false, error } : { ok: true }
+  })
   secureHandle('toggle', () => toggle())
   secureHandle('disconnect', () => disconnect())
   secureHandle('apps:scan', () => scanApps(items => send('apps', items)))
@@ -548,9 +559,10 @@ function ipc() {
   secureIntentHandle('route:select', async (_e, routeId: unknown, via: unknown) => {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     if (typeof routeId !== 'string' || routeId.length > 400 || typeof via !== 'string' || via.length > 80 || !/^[\w:.-]+$/.test(via)) return { ok: false, error: 'Неверный маршрут' }
-    const known = via === 'direct' || (via === AUTO_ID && autoMembers(store.profiles).length > 0) || store.profiles.some(p => !p.revoked && p.id === via) || store.settings.groups.some(g => g.id === via && g.members.some(id => store.profiles.some(p => !p.revoked && p.id === id)))
-    if (!known) return { ok: false, error: 'Подключение больше недоступно. Выбери другое' }
     const at = store.settings.routes.findIndex(r => r.id === routeId)
+    const external = via === EXITLAG_VIA && at >= 0 && store.settings.routes[at].kind === 'app' && store.settings.routes[at].owner !== 'companion'
+    const known = external || via === 'direct' || (via === AUTO_ID && autoMembers(store.profiles).length > 0) || store.profiles.some(p => !p.revoked && p.id === via) || store.settings.groups.some(g => g.id === via && g.members.some(id => store.profiles.some(p => !p.revoked && p.id === id)))
+    if (!known) return { ok: false, error: 'Подключение больше недоступно. Выбери другое' }
     if (at < 0) return { ok: false, error: 'Карточка больше не существует' }
     if (store.settings.routes[at].owner === 'companion' && !safeVia(via, store.settings, store.profiles)) return { ok: false, error: COMPANION_SAFE }
     // RC2 B: one card changes its own path only; the whole-computer intent (rest) is never touched here
