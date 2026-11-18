@@ -1,5 +1,5 @@
 // RC2 B/C/H: route select keeps the whole-computer intent; every routing write reports saved vs applied; bridge ids bounded.
-import { createApply, onRoutingPatch, selectVia, type ApplyDeps } from '../src/main/apply'
+import { createApply, selectVia, type ApplyDeps } from '../src/main/apply'
 import { okId } from '../src/main/bridge'
 import { DEFAULTS } from '../src/main/store-core'
 import type { Settings } from '../src/shared/types'
@@ -71,7 +71,35 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
   { const r = rig({ phase: 'on', block: true }); const a = await r.apply(sel); eq(a, { saved: false, applied: false, running: true, code: 'block' }, 'blocked edit rejected'); eq(r.get(), base, 'blocked edit rolled back'); eq([r.counts().starts, r.counts().stops], [0, 0], 'blocked edit did not stop TUN') }
   { const r = rig({ phase: 'on', confirm: false }); const a = await r.apply(sel); eq(a, { saved: false, applied: false, running: true, code: 'restart' }, 'restart requires consent'); eq(r.get(), base, 'denial restored previous route'); eq([r.counts().starts, r.counts().stops], [0, 0], 'denial cannot cycle TUN') }
   // C4: save failure -> not saved, previous restored, runtime untouched
+  {
+    let saved = base, saves = 0, nativeWrites = 0
+    const result = await createApply({
+      get: () => saved, set: next => { saved = next }, save: () => { if (++saves > 1) throw new Error('disk refused rollback') },
+      phase: () => 'on', open: () => true, blocked: async () => false, demandsTunnel: () => true,
+      confirmRestart: async () => false, start: async () => { nativeWrites++ }, stop: async () => { nativeWrites++ }, changed: () => {}
+    })(sel)
+    eq([result.saved, result.code, saved, nativeWrites], [false, 'rollback', base, 0],
+      'failed cancellation persistence retains previous in-memory intent and reports the disk error without native changes')
+  }
   { const r = rig({ phase: 'on', saveFails: true }); const a = await r.apply(sel); eq(a, { saved: false, applied: false, running: true, code: 'save' }, 'save failure: not saved'); eq(r.get(), base, 'save failure restores previous'); eq([r.counts().starts, r.counts().stops], [0, 0], 'save failure: runtime untouched') }
+  {
+    let saved = base, writes = 0
+    const result = await createApply({
+      get: () => saved, set: next => { saved = next }, save: () => {}, phase: () => 'on', open: () => true,
+      validateLive: async () => false, live: async () => { writes++; return true }, blocked: async () => false,
+      demandsTunnel: () => true, start: async () => { writes++ }, stop: async () => { writes++ }, changed: () => {}
+    })(sel)
+    eq([result.saved, result.code, saved, writes], [false, 'block', base, 0], 'blocked scope change is rolled back before any native write')
+  }
+  {
+    let saved = base
+    const result = await createApply({
+      get: () => saved, set: next => { saved = next }, save: () => {}, phase: () => 'on', open: () => true,
+      blocked: async () => false, demandsTunnel: () => true, confirmRestart: async () => true,
+      start: async () => { throw new Error('preflight failed while previous core stays on') }, stop: async () => { throw new Error('unexpected OFF') }, changed: () => {}
+    })(sel)
+    eq([result.saved, result.applied, result.code], [true, false, 'start'], 'failed start preflight cannot report old running TUN as a successfully applied edit')
+  }
   // C: snapshot pushed for every saved write
   { const r = rig({ phase: 'on', startTo: 'error' }); await r.apply(sel); eq(r.counts().changed, 1, 'snapshot sent once') }
 
@@ -98,8 +126,8 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
     open = false; revision++
     if (reopen) { open = true; revision++ }
     release(false)
-    eq(await result, { saved: true, applied: false, running: true }, `cancelled scan keeps the saved intent (reopen=${reopen})`)
-    eq([starts, current, changed], [0, sel, 1], 'cancelled apply neither starts nor reverts settings')
+    eq(await result, { saved: false, applied: false, running: true, code: 'restart' }, `cancelled scan rejects the unapproved proposal (reopen=${reopen})`)
+    eq([starts, current, changed], [0, base, 1], 'cancelled apply restores the proposal before a newer ON reads it')
   }
   {
     let current = base, open = true, starts = 0
@@ -111,16 +139,8 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
     })(sel)
     open = false; release(false)
     const applied = await result
-    eq([applied.saved, applied.applied, starts], [true, false, 0], 'OFF during a failed live switch does not restart the engine')
+    eq([applied.saved, applied.applied, starts], [false, false, 0], 'OFF during a failed live switch rejects the unapplied proposal without restarting')
   }
-
-  // card toggles never carry the master open/closed intent; only a hard block may stop a running core
-  eq(onRoutingPatch('off', false), 'none', 'routing patch while closed: no-op')
-  eq(onRoutingPatch('off', true), 'none', 'routing patch while closed, even if blocked: no-op')
-  eq(onRoutingPatch('on', false), 'start', 'last card turned off while running: engine remains under master intent')
-  eq(onRoutingPatch('starting', false), 'start', 'routing patch mid-start: reapply, not a master stop')
-  eq(onRoutingPatch('on', true), 'stop', 'hard block while running: fail-closed stop preserved')
-  eq(onRoutingPatch('starting', true), 'stop', 'hard block mid-start: fail-closed stop preserved')
 
   // Routing intent may arrive from renderer and the companion bridge at the same time.
   // The main-process gate, not only UI disabled states, is the correctness boundary.

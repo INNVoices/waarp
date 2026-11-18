@@ -132,10 +132,11 @@
 .ping.bad { color: var(--err); }
 .menu { position: absolute; z-index: 30; left: 0; top: calc(100% + 4px); min-width: 100%; background: var(--raise); border: 1px solid var(--line-2); border-radius: var(--r-md); padding: 4px; box-shadow: 0 12px 32px rgba(0,0,0,.45); animation: pop var(--dur-2) var(--ease-enter); }
 .via-menu { min-width: 256px; max-width: min(360px, 80vw); max-height: min(360px, 55vh); overflow: auto; }
-.menu .mi { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 8px; border-radius: var(--r); }
+.menu .mi { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; min-width: 0; text-align: left; padding: 8px; border-radius: var(--r); }
+.mi-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .menu .mi:hover { background: var(--hi); }
 .menu .mi.on { color: var(--a-text); }
-.menu .mi small { color: var(--d); font-size: 11px; }
+.menu .mi small { color: var(--d); font-size: 11px; max-width: 112px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @keyframes pop { from { opacity: 0; transform: translateY(-4px); } }
 
 /* connections table */
@@ -265,6 +266,11 @@
 .srv-top { display: flex; align-items: center; gap: 8px; }
 .srv-top .mark { width: 12px; height: 12px; border-radius: 3px; }
 .srv-n { font-size: 15px; font-weight: 600; }
+.srv-top .badge { flex-shrink: 0; }
+.srv-members-wrap { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.srv-members .chip { min-width: 0; max-width: 100%; padding-right: 12px; animation: none; }
+.srv-members.expanded { max-height: 144px; overflow-y: auto; overscroll-behavior: contain; }
+.srv-members-toggle { align-self: flex-start; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; font-size: 11.5px; }
 .srv-foot { display: flex; align-items: center; gap: 4px; font-size: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
 .inp { flex: 1; height: 32px; padding: 0 8px; background: var(--field); border: 1px solid var(--a-line); border-radius: var(--r); }
@@ -274,8 +280,10 @@
 .chart .grid { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .chart polyline { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
 .legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
-.lg { display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px; align-items: center; font-size: 12.5px; }
+.lg { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; padding: 4px 0; font-size: 12.5px; }
 .lg b { font-weight: 500; }
+.lg-ms { white-space: nowrap; }
+.lg-loss { grid-column: 2 / -1; font-size: 11px; line-height: 16px; }
 .lg .warn { color: var(--warn); }
 .probe { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
 .pr { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; padding: 12px; border-radius: var(--r-md); background: var(--field); border: 1px solid var(--line); }
@@ -501,7 +509,6 @@
 .srv-top, .srv-foot, .lg, .dg-row, .pr, .rc-top { min-width: 0; }
 .srv-top > .srv-n, .srv-n.ell { display: block; min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .legend { grid-template-columns: repeat(auto-fit, minmax(min(100%, 285px), 1fr)); }
-.lg { grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .lg b, .lg .m { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pr { grid-template-columns: auto minmax(0, 1fr) auto; }
 .pr b { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

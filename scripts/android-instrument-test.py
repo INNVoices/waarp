@@ -102,6 +102,8 @@ class InstrumentationEvidenceTests(unittest.TestCase):
                 self.assertFalse(runner.parse_instrumentation(output, exit_code, timed_out)["passedGate"])
 
     def test_focused_route_gate_requires_every_named_case_once_and_no_skips(self):
+        self.assertIn(("local.waarp.android.core.VpnLifecycleInstrumentedTest",
+                       "nativeLifecycleCommandsCannotReplaceMasterOwnership"), runner.ROUTE_SMOKE_CASES)
         cases = sorted(runner.ROUTE_SMOKE_CASES)
         def transcript(selected, code=0):
             return "".join(status(method, code, count=len(selected)).replace(

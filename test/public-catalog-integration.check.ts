@@ -13,6 +13,7 @@ import { PublicPathCleanupError, withPublicServicePath } from '../src/main/publi
 import { preparePublicCandidate, publicCandidateHasPinnedEndpoints } from '../src/main/catalog-endpoint'
 import { profileSig, tuned } from '../src/main/tune'
 import { untilCancelled } from '../src/main/tun'
+import { DEFAULTS } from '../src/main/store-core'
 import { stub } from './stubs/electron'
 
 // Execute the actual index integration function, selected with the TS parser.
@@ -23,6 +24,17 @@ const sourceFile = ts.createSourceFile('index.ts', readFileSync('src/main/index.
 const declaration = sourceFile.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === 'fetchPublicCatalog')
 assert(declaration && ts.isFunctionDeclaration(declaration), 'production public catalog integration must exist')
 const executable = ts.transpileModule(declaration.getText(sourceFile), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText
+const bestCallbacks: ts.ArrowFunction[] = []
+function findBestCallback(node: ts.Node): void {
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'secureIntentHandle' &&
+      node.arguments[0] && ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text === 'catalog:best' &&
+      node.arguments[1] && ts.isArrowFunction(node.arguments[1])) bestCallbacks.push(node.arguments[1])
+  ts.forEachChild(node, findBestCallback)
+}
+findBestCallback(sourceFile)
+assert.equal(bestCallbacks.length, 1, 'exactly one production catalog:best handler must exist')
+const bestExecutable = ts.transpileModule('const catalogBest = ' + bestCallbacks[0].getText(sourceFile),
+  { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText
 const source = 'https://raw.githubusercontent.com/example/offline-fixture/main/public.txt'
 const body = 'trojan://synthetic-fixture@8.8.8.8:443#Fixture'
 const own: Profile = { kind: 'out', id: 'own-fixture', name: 'Own', version: 'Trojan', host: 'personal.example', port: 443,
@@ -77,6 +89,25 @@ function fixture() {
   return { catalog, control, stats, scope, async seed() { await catalog.refresh([source], { probe: false }); seed = false } }
 }
 
+function bestFixture() {
+  let finish!: () => void
+  const networkRead = new Promise<void>(resolve => { finish = resolve })
+  const stats = { saves: 0, added: 0, readyReads: 0, starts: 0, stops: 0 }
+  const store = { profiles: [] as Profile[], settings: structuredClone(DEFAULTS), save: () => { stats.saves++ } }
+  const master = { open: false, revision: 1, current(revision: number) { return this.open && this.revision === revision } }
+  const engine = { status: { phase: 'off' as Status['phase'] },
+    start: () => { stats.starts++; throw new Error('catalog must not start TUN') },
+    stop: () => { stats.stops++; throw new Error('catalog must not stop TUN') } }
+  const scope = {
+    store, master, engine, writeError: () => undefined, refreshCatalogNetwork: () => networkRead,
+    catalog: { bestReady: (limit: number) => { assert.equal(limit, 5); stats.readyReads++; return [{ id: 'public-fixture' }] } },
+    addPublic: (id: string) => { stats.added++; store.profiles.push({ ...own, id }); return id },
+    randomBytes: () => Buffer.from([1, 2, 3, 4]), refreshNotices: async () => [], send: () => {}, snapshot: () => ({})
+  }
+  const invoke = runInNewContext(bestExecutable + '\ncatalogBest', scope) as () => Promise<{ ok: boolean; id?: string; error?: string }>
+  return { invoke, finish, stats, store, master, engine }
+}
+
 async function main() {
   const original = { ensure: Checker.prototype.ensure, stop: Checker.prototype.stop, secure: stub.secure }
   let catalogChecks = 0
@@ -115,7 +146,30 @@ async function main() {
       assert.equal(f.scope.recentPublicPath, own.id)
       assert.equal(f.scope.serviceTask, undefined)
     }
-    console.log('public-catalog-integration: production index function, typed terminal cleanup across Catalog, runtime recovery gate, ordinary cached verification, no silent Direct and ON without another checker PASS')
+    {
+      const f = bestFixture(), beforeRoutes = JSON.stringify(f.store.settings.routes)
+      const pending = f.invoke(); f.finish()
+      const result = await pending
+      assert.equal(result.ok, true, 'a stable OFF master may save a verified public group')
+      assert.equal(f.stats.saves, 1); assert.equal(f.stats.added, 1)
+      assert.equal(f.store.settings.groups.length, 1)
+      assert.equal(f.store.settings.groups[0].id, result.id)
+      assert.equal(f.store.settings.groups[0].members.join(','), 'public-fixture')
+      assert.equal(JSON.stringify(f.store.settings.routes), beforeRoutes, 'creating a group cannot retarget any card')
+      assert.deepEqual([f.master.open, f.engine.status.phase, f.stats.starts, f.stats.stops], [false, 'off', 0, 0])
+    }
+    for (const changed of ['revision', 'phase'] as const) {
+      const f = bestFixture(), pending = f.invoke()
+      if (changed === 'revision') f.master.revision++
+      else f.engine.status.phase = 'on'
+      f.finish()
+      const result = await pending
+      assert.equal(result.ok, false, changed + ' changing during network refresh invalidates group creation')
+      assert.deepEqual([f.stats.saves, f.stats.added, f.stats.readyReads, f.stats.starts, f.stats.stops], [0, 0, 0, 0, 0],
+        'stale group creation must stop before any profile/settings write or native transition')
+      assert.equal(f.store.settings.groups.length, 0); assert.equal(f.store.profiles.length, 0)
+    }
+    console.log('public-catalog-integration: production function and IPC callback, terminal cleanup, recovery gate, cached verification, ON without another checker, stable OFF group creation and stale revision/phase rejection PASS')
   } finally {
     Checker.prototype.ensure = original.ensure; Checker.prototype.stop = original.stop; stub.secure = original.secure
     for (const directory of directories) rmSync(directory, { recursive: true, force: true })

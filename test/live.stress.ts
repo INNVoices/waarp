@@ -20,7 +20,10 @@ import { ctrlBreak, waitExit } from '../src/main/stop'
 import type { Profile } from '../src/shared/types'
 
 const CYCLES = 50
-const BUDGET_MS = 420_000 // Leave bounded cleanup time inside an eight-minute job step.
+// Includes schema checks and repeated Windows/CIM snapshots, not just core start/stop.
+// Fifty passing cycles took 408s before setup/cleanup on a hosted runner. Keep
+// per-operation deadlines unchanged, with bounded headroom for the whole batch.
+const BUDGET_MS = 600_000
 const args = process.argv.slice(2)
 const reportAt = args.indexOf('--report')
 const reportPath = resolve(reportAt >= 0 ? args[reportAt + 1] || '' : 'out/validation/native-lifecycle.json')
@@ -39,7 +42,7 @@ interface Cycle {
 interface ConfigCheck { protocol: string; production: boolean; checker: boolean }
 const report = {
   schema: 1, scope: 'native-windows-adapter-lifecycle', passed: false,
-  requestedCycles: CYCLES, completedCycles: 0, engineVersion: '', engineGoVersion: null as string | null, engineSha256: '', engineIntegrityVerified: false,
+  requestedCycles: CYCLES, completedCycles: 0, budgetMs: BUDGET_MS, engineVersion: '', engineGoVersion: null as string | null, engineSha256: '', engineIntegrityVerified: false,
   elevated: false, noExternalProbes: true, autoRoute: false, dnsMode: 'disabled',
   protocolChecks: [] as ConfigCheck[], cycles: [] as Cycle[], metrics: {} as Record<string, number | null>,
   cleanup: { childExited: true, adapterAndRoutesRemoved: false, foreignNetworkUnchanged: false, temporaryFilesRemoved: false },
@@ -340,7 +343,7 @@ async function main(): Promise<void> {
     report.passed = !report.errors.length && report.completedCycles === CYCLES && report.cycles.every(c => c.passed) && Object.values(report.cleanup).every(Boolean)
     try { mkdirSync(dirname(reportPath), { recursive: true }); writeFileSync(reportPath, JSON.stringify(report, null, 2) + '\n') }
     catch { report.passed = false; console.error('Unable to write lifecycle report') }
-    console.log(`Native Windows lifecycle: ${report.passed ? 'PASS' : 'FAIL'}; ${report.completedCycles}/${CYCLES} cycles; ${report.errors.join(', ') || 'no errors'}`)
+    console.log(`Native Windows lifecycle: ${report.passed ? 'PASS' : 'FAIL'}; ${report.completedCycles}/${CYCLES} cycles; ${report.errors.join(', ') || 'no errors'}; elapsed ${report.elapsedMs} ms / budget ${BUDGET_MS} ms`)
     process.exitCode = report.passed ? 0 : 1
   }
 }

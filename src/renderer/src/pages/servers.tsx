@@ -11,6 +11,7 @@ import { Mark, Ping } from '../parts'
 import { AddTunnel, importNote, type ImportResult } from './addtunnel'
 import { GroupDialog } from './groupdlg'
 import { useDev } from '../lib/dev'
+import { profileOf } from '../lib/routes'
 import { PublicCatalog } from './publiccat'
 
 
@@ -41,7 +42,7 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
   const available = own.filter(p => !p.revoked)
   const groups = snap.profiles.filter(p => p.kind === 'group')
   const uses = (id: string) => st.routes.filter(r => r.via === id).length + (st.rest === id ? 1 : 0)
-  const nameOf = (id: string) => own.find(p => p.id === id)?.name ?? s('via.gone')
+  const nameOf = (id: string) => profileOf(snap.profiles, id)?.name ?? s('via.gone')
   const rename = async (p: ProfileView) => {
     if (renameCanceled.current) return
     const n = name.trim().slice(0, 40)
@@ -203,7 +204,7 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
                 <div className="grow" />
               </div>
               <div className="kv mono"><span className="m">{s('srv.ping')}</span><span>{ping(p)}</span></div>
-              <div className="chips">{(p.members ?? []).map((m, i) => <span key={m} className="chip">{p.policy === 'first' ? `${i + 1}. ` : ''}{nameOf(m)}</span>)}</div>
+              <GroupMembers profile={p} nameOf={nameOf} />
               {foot(p, () => setGrp({ edit: st.groups.find(g => g.id === p.id) }))}
             </div>
           ))}
@@ -219,6 +220,23 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
         onSave={g => patch({ groups: st.groups.some(x => x.id === g.id) ? st.groups.map(x => (x.id === g.id ? g : x)) : [...st.groups, g] })} />}
     </div>
   )
+}
+
+/** Member previews stay small; expanding a large group never grows the whole page without a bound. */
+function GroupMembers({ profile, nameOf }: { profile: ProfileView; nameOf: (id: string) => string }) {
+  const [expanded, setExpanded] = useState(false)
+  const members = profile.members ?? []
+  return <div className="srv-members-wrap">
+    <div className={'chips srv-members' + (expanded ? ' expanded' : '')}>
+      {members.slice(0, expanded ? undefined : 4).map((id, i) => {
+        const name = (profile.policy === 'first' ? `${i + 1}. ` : '') + nameOf(id)
+        return <span key={id} className="chip" title={name}><span className="ell">{name}</span></span>
+      })}
+    </div>
+    {members.length > 4 && <Btn sm kind="ghost" className="srv-members-toggle" aria-expanded={expanded} onClick={() => setExpanded(v => !v)}>
+      {expanded ? s('route.picker.collapse') : sp('srv.members.more', members.length - 4)}
+    </Btn>}
+  </div>
 }
 
 /** developer mode: the engine config of one connection, secrets replaced, read-only */

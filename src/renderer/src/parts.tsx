@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ProfileView, Route, Status, Via } from '../../shared/types'
 import { PRESETS } from '../../shared/presets'
 import { fmtDur, Icon, Plain, Tooltip } from './ui/kit'
 import { Brand } from './ui/brand'
 import { s } from './lib/i18n'
 import { AUTO_ID, AUTO_LIVE_MAX, autoMembers } from '../../shared/groups'
-import { hueOf } from './lib/routes'
+import { hueOf, profileOf } from './lib/routes'
 import { Cat, Eggs, isNight, isWinter, useEggs } from './eggs'
 import { orbPresentation } from './lib/master'
 
@@ -47,7 +47,7 @@ export function Orb({ status, disabled, busy = false, why, onClick }: { status: 
 export function Mark({ profiles, via }: { profiles: ProfileView[]; via: Via }) {
   if (via === AUTO_ID) return <Tooltip tip={viaName(profiles, via)}><i className="mark auto" /></Tooltip>
   const hue = hueOf(profiles, via)
-  const group = profiles.find(p => p.id === via)?.kind === 'group'
+  const group = profileOf(profiles, via)?.kind === 'group'
   return <Tooltip tip={viaName(profiles, via)}>{hue ? <i className={'mark' + (group ? ' grp' : '')} style={group ? { color: hue } : { background: hue }} /> : <i className="mark direct" />}</Tooltip>
 }
 
@@ -62,7 +62,7 @@ export function AutoHint({ profiles, bare }: { profiles: ProfileView[]; bare?: b
 export function viaName(profiles: ProfileView[], via: Via) {
   if (via === 'direct') return s('via.direct')
   if (via === AUTO_ID) return s('via.auto')
-  const p = profiles.find(x => x.id === via)
+  const p = profileOf(profiles, via)
   return !p ? s('via.gone') : p.revoked ? `${p.name} · ${s('via.revoked')}` : p.name
 }
 
@@ -93,7 +93,8 @@ export function ViaPicker({ profiles, via, pings, live, onChange, compact, noDir
   }, [open])
   useEffect(() => { if (disabled) setOpen(false) }, [disabled])
   // Auto first when the user has own connections to pick from (W2.3); public nodes never join Auto
-  const opts: Via[] = [...(autoMembers(profiles).length ? [AUTO_ID] : []), ...(noDirect ? [] : ['direct']), ...profiles.map(p => p.id)]
+  const opts: Via[] = useMemo(() => [...(autoMembers(profiles).length ? [AUTO_ID] : []), ...(noDirect ? [] : ['direct']), ...profiles.map(p => p.id)], [profiles, noDirect])
+  const selected = profileOf(profiles, via)
   return (
     <div className={'via' + (compact ? ' compact' : '')} ref={ref} onClick={e => e.stopPropagation()} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOpen(false) }} onKeyDown={e => {
       if (e.key === 'Escape' && open) { e.preventDefault(); e.stopPropagation(); closeMenu(); return }
@@ -108,17 +109,17 @@ export function ViaPicker({ profiles, via, pings, live, onChange, compact, noDir
     }}>
       <Plain className="via-btn" disabled={disabled} onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="menu" tip={s('via.tip')}>
         <Mark profiles={profiles} via={via} />
-        <span className="via-name">{viaName(profiles, via)}</span>
+        <span className="via-name" title={viaName(profiles, via)}>{viaName(profiles, via)}</span>
         {/* a deleted / revoked path has no evidence to show, only its blocked name */}
-        {via !== 'direct' && (via === AUTO_ID || profiles.some(p => p.id === via && !p.revoked)) && <Ping ms={pings[via]} live={live} down={down?.(via)} />}
+        {via !== 'direct' && (via === AUTO_ID || (selected && !selected.revoked)) && <Ping ms={pings[via]} live={live} down={down?.(via)} />}
         <Icon n="chev" s={14} />
       </Plain>
       {open && !disabled && (
         <div className="menu via-menu" role="menu" aria-label={s('via.tip')}>
           {opts.map(v => (
-            <Plain key={v} role="menuitemradio" aria-checked={v === via} className={'mi' + (v === via ? ' on' : '')} disabled={profiles.some(p => p.id === v && p.revoked)} onClick={() => { onChange(v); closeMenu() }}>
+            <Plain key={v} role="menuitemradio" aria-checked={v === via} className={'mi' + (v === via ? ' on' : '')} disabled={profileOf(profiles, v)?.revoked} onClick={() => { onChange(v); closeMenu() }}>
               <Mark profiles={profiles} via={v} />
-              <span>{viaName(profiles, v)}</span>
+              <span className="mi-name" title={viaName(profiles, v)}>{viaName(profiles, v)}</span>
               {v === 'direct' ? <small>{s('via.direct.hint')}</small> : v === AUTO_ID ? <AutoHint profiles={profiles} /> : <Ping ms={pings[v]} live={live} down={down?.(v)} />}
             </Plain>
           ))}

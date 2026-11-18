@@ -1,6 +1,9 @@
 // Owner-intent races against real FIFO scheduling. Fake engine hooks only: no processes or network changes.
 import { ConnectionControl } from '../src/main/connection-control'
 import { SerialGate } from '../src/main/serial'
+import { confirmRuntimeChange } from '../src/main/restart-consent'
+import { createApply } from '../src/main/apply'
+import { DEFAULTS } from '../src/main/store-core'
 import type { Prepared } from '../src/main/connect'
 import type { Phase } from '../src/shared/types'
 
@@ -17,13 +20,20 @@ const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve() 
 function rig() {
   const gate = new SerialGate()
   const state = { phase: 'off' as Phase, error: undefined as string | undefined, needed: true, prepares: 0, starts: 0, stops: 0, changes: 0 }
-  const hooks: { prepare?: () => Promise<Prepared>; start?: () => Promise<void>; stop?: () => Promise<boolean> } = {}
+  const hooks: { prepare?: (current: () => boolean) => Promise<Prepared>; read?: () => Promise<void>; start?: (current: () => boolean) => Promise<void>; stop?: () => Promise<boolean> } = {}
   const control = new ConnectionControl({
     phase: () => state.phase,
     error: () => state.error,
     demandsTunnel: () => state.needed,
-    prepare: async () => { state.prepares++; return hooks.prepare ? hooks.prepare() : { ok: true } },
-    start: async () => { state.starts++; if (hooks.start) await hooks.start(); else { state.phase = 'on'; state.error = undefined } },
+    prepare: async current => { state.prepares++; return hooks.prepare ? hooks.prepare(current) : { ok: true } },
+    start: async (current, began) => {
+      state.starts++
+      if (hooks.read) await hooks.read()
+      if (!current()) return
+      began()
+      if (hooks.start) await hooks.start(current)
+      else { state.phase = 'on'; state.error = undefined }
+    },
     stop: async () => { state.stops++; if (hooks.stop) return hooks.stop(); state.phase = 'off'; return true },
     serial: job => gate.run(job),
     changed: () => { state.changes++ }
@@ -242,6 +252,97 @@ function rig() {
     eq(await newest, { ok: true }, 'new owner ON works after stale idle result')
     eq([control.open, control.revision, state.phase, state.starts, state.stops], [true, 3, 'on', 1, 1],
       'only the manual OFF stops and only the manual ON starts TUN')
+  }
+
+  // A proposed edit failing read-only preflight must not turn off the old TUN.
+  for (const throws of [false, true]) {
+    const { control, state, hooks } = rig()
+    state.phase = 'on'; control.set(true)
+    hooks.prepare = async () => { if (throws) throw new Error('scan failed'); return { ok: false, error: 'candidate blocked' } }
+    const result = await control.reconnect(control.revision, { restart: true, retainCore: true, preserveIntent: true })
+    ok(!result.ok, 'edit preflight failure is reported')
+    eq([control.open, state.phase, state.starts, state.stops], [true, 'on', 0, 0], 'failed edit preflight preserves the old native session')
+  }
+
+  // Async profile/tuning work must re-check the old owner before calling Engine.start.
+  {
+    const { control, state, hooks } = rig()
+    state.phase = 'on'; control.set(true)
+    hooks.read = async () => { throw new Error('runtime profile/tuning read failed') }
+    const result = await control.reconnect(control.revision, { restart: true, preserveIntent: true })
+    eq([result.ok, control.open, state.phase, state.stops], [false, true, 'on', 0],
+      'failed runtime profile read before native start preserves the old TUN')
+  }
+  {
+    const { control, state, hooks } = rig()
+    const reading = deferred<void>()
+    let nativeStarts = 0
+    hooks.start = async current => {
+      if (state.starts === 1) await reading.promise
+      if (!current()) return
+      nativeStarts++; state.phase = 'on'
+    }
+    const old = control.connect()
+    await flush()
+    await control.disconnect()
+    const newer = control.connect()
+    reading.resolve()
+    eq([(await old).ok, (await newer).ok, nativeStarts, state.stops], [false, true, 1, 1],
+      'late runtime profile read cannot start a core after OFF or steal the newer ON')
+  }
+
+  // The dialog is bound to the native session as well as the master revision.
+  for (const stage of ['preflight', 'runtime-read']) {
+    const { control, state, hooks } = rig()
+    state.phase = 'on'; control.set(true)
+    let session = 1, nativeStarts = 0
+    const held = deferred<void>()
+    if (stage === 'preflight') hooks.prepare = async () => { await held.promise; return { ok: true } }
+    else hooks.read = () => held.promise
+    hooks.start = async () => { nativeStarts++; state.phase = 'on' }
+    const restarting = control.reconnect(control.revision, { restart: true, preserveIntent: true, beforeStart: () => session === 1 })
+    await flush()
+    session = 2 // Native session changed after consent without changing master intent.
+    held.resolve()
+    eq([(await restarting).ok, control.open, state.phase, nativeStarts, state.stops], [false, true, 'on', 0, 0],
+      'stale session during ' + stage + ' neither starts/stops nor falsely reports apply')
+  }
+  for (const change of ['none', 'decline', 'off-on', 'session', 'phase', 'failed-dialog']) {
+    let state = { open: true, revision: 1, phase: 'on', session: {} as object | number }
+    const answer = deferred<boolean>()
+    const consent = confirmRuntimeChange(() => state, () => change === 'failed-dialog' ? Promise.reject(new Error('window gone')) : answer.promise)
+    if (change === 'off-on') state = { ...state, revision: 3 }
+    if (change === 'session') state = { ...state, session: {} }
+    if (change === 'phase') state = { ...state, phase: 'off' }
+    answer.resolve(change !== 'decline')
+    eq(await consent, change === 'none', 'restart consent invalidates ' + change)
+  }
+
+  // Reopening during a pending dialog cannot consume its unapproved candidate.
+  {
+    const { control, state, hooks, gate } = rig()
+    state.phase = 'on'; control.set(true)
+    const previous = { ...DEFAULTS, rest: 'old-path' }, next = { ...DEFAULTS, rest: 'new-path' }
+    let saved = previous, startedWith = ''
+    const entered = deferred<void>(), answer = deferred<boolean>()
+    hooks.start = async current => { if (current()) { startedWith = saved.rest; state.phase = 'on' } }
+    const apply = createApply({
+      get: () => saved, set: value => { saved = value }, save: () => {}, phase: () => state.phase,
+      open: () => control.open, revision: () => control.revision,
+      blocked: async () => false, live: async () => false, demandsTunnel: () => true,
+      confirmRestart: () => confirmRuntimeChange(
+        () => ({ open: control.open, revision: control.revision, phase: state.phase, session: 1 }),
+        () => { entered.resolve(); return answer.promise }),
+      start: async () => { throw new Error('obsolete edit attempted a start') }, stop: async () => { throw new Error('edit attempted OFF') }, changed: () => {}
+    })
+    const edit = gate.run(() => apply(next))
+    await entered.promise
+    await control.disconnect()
+    const reopening = control.connect()
+    answer.resolve(true)
+    eq((await edit).saved, false, 'stale approval rejects the proposed setting')
+    eq((await reopening).ok, true, 'manual reopening still completes')
+    eq([saved.rest, startedWith], ['old-path', 'old-path'], 'new ON sees the previous settings after stale dialog rollback')
   }
 
   console.log(`control.check: ${checks} checks`)

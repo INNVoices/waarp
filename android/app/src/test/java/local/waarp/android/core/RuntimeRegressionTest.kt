@@ -76,15 +76,12 @@ class RuntimeRegressionTest {
         assertFalse(cancelledNewBackend)
     }
 
-    @Test fun staleNativeStopAndReloadCannotReplaceNewUserIntent() {
+    @Test fun staleNativeStopCannotReplaceNewUserIntent() {
         val old = RuntimeState.requestStart("old")
         val next = RuntimeState.requestStart("next")
         assertNull(RuntimeState.cancelIfCurrent(old.generation))
-        assertNull(RuntimeState.reloadIfCurrent(old.generation))
         assertTrue(RuntimeState.isCurrent(next.generation))
-        val reloaded = RuntimeState.reloadIfCurrent(next.generation)!!
-        assertTrue(RuntimeState.isCurrent(reloaded.generation))
-        assertNull(reloaded.config) // Reload must ask the current repository, never replay old config.
+        assertEquals("next", RuntimeState.request(next.generation)!!.config)
     }
 
     @Test fun offInvalidatesAnIdleProbeEvenWhenItHasNotEnteredTheNativeLane() {
@@ -100,11 +97,14 @@ class RuntimeRegressionTest {
         assertFalse(RuntimeState.isIdleGeneration(nextProbe))
     }
 
-    @Test fun queuedCommandCannotCrossAnOnToOnNativeReloadWithTheSameUiState() {
+    @Test fun queuedCommandCannotCrossAnApprovedRestartWithTheSameUiState() {
         val initial = RuntimeState.requestStart("first")
         RuntimeState.status.value = RuntimeStatus(phase = RuntimePhase.ON, startedAt = 1000)
         val queued = RuntimeState.sessionGeneration()
-        val reloaded = RuntimeState.reloadIfCurrent(initial.generation)!!
+        val paused = RuntimeState.stopAndApply(initial.generation, true, true) { }!!
+        assertTrue(RuntimeState.finishStop(paused))
+        val reloaded = RuntimeState.resumeUpdateIfIdle(paused, "approved replacement")!!
+        RuntimeState.status.value = RuntimeStatus(phase = RuntimePhase.ON, startedAt = 1000)
         // The phase and clock value deliberately remain equal; neither is an epoch.
         assertEquals(RuntimePhase.ON, RuntimeState.status.value.phase)
         assertEquals(1000L, RuntimeState.status.value.startedAt)

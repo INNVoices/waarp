@@ -60,9 +60,9 @@ class MobileViewModel(application: Application, private val savedState: SavedSta
     private val eventsChannel = Channel<MobileEvent>(Channel.BUFFERED)
     val events = eventsChannel.receiveAsFlow()
     private val restartApprovalRequest: suspend () -> Boolean = {
-        val response = CompletableDeferred<Boolean>()
-        eventsChannel.send(MobileEvent.RestartApproval(response))
-        response.await()
+        StructuralRestartApproval.awaitResponse { response ->
+            eventsChannel.send(MobileEvent.RestartApproval(response))
+        }
     }
     private val updates = Channel<Unit>(Channel.CONFLATED)
     private val mapper = MobileStateMapper()

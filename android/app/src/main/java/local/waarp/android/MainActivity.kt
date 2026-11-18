@@ -120,8 +120,14 @@ class MainActivity : ComponentActivity() {
                             MobileEvent.SystemVpnSettings -> startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
                             MobileEvent.ShareDiagnostics -> shareDiagnostics()
                             is MobileEvent.RestartApproval -> {
+                                if (!event.response.isActive) return@collect
                                 pendingRestart?.response?.complete(false)
                                 pendingRestart = event
+                                event.response.invokeOnCompletion {
+                                    lifecycleScope.launch {
+                                        if (pendingRestart === event) pendingRestart = null
+                                    }
+                                }
                             }
                         }
                     } catch (cancelled: CancellationException) { throw cancelled }
@@ -140,6 +146,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); model.imports.receive(intent) }
 
     override fun onResume() { super.onResume(); model.onForeground() }
+    override fun onStop() { answerRestart(false); super.onStop() }
     override fun onDestroy() { answerRestart(false); super.onDestroy() }
 
     private fun needsNotificationPermission() = Build.VERSION.SDK_INT >= 33 &&

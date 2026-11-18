@@ -19,6 +19,7 @@ import time
 
 ROUTE_SMOKE_CASES = frozenset({
     ("local.waarp.android.core.VpnLifecycleInstrumentedTest", "watchedRouteMutationsKeepOneRealTunAndAcknowledgeInsideTheNativeCore"),
+    ("local.waarp.android.core.VpnLifecycleInstrumentedTest", "nativeLifecycleCommandsCannotReplaceMasterOwnership"),
     ("local.waarp.android.ui.OperationFeedbackInstrumentedTest", "repeatedSuccessDoesNotMoveFollowingControlAndRemainsAnnounced"),
     ("local.waarp.android.ui.OperationFeedbackInstrumentedTest", "blockingFailureStillAppearsNextToAction"),
     ("local.waarp.android.ui.OperationFeedbackInstrumentedTest", "successInOpenSheetDoesNotMoveFormControls"),
@@ -191,7 +192,7 @@ def main():
     parser.add_argument("--output", type=Path, default=Path("out/android/device-tests"))
     parser.add_argument("--timeout", type=int, default=900)
     parser.add_argument("--route-smoke", action="store_true",
-                        help="Run the exact real-TUN route mutations and feedback regressions before artifact uploads; the full API matrix remains separate")
+                        help="Run the exact real-TUN route, lifecycle ownership and feedback regressions before artifact uploads; the full API matrix remains separate")
     parser.add_argument("--disposable-emulator", action="store_true",
                         help="Read-only verification of the explicitly selected owned CI emulator image")
     options = parser.parse_args()
@@ -242,7 +243,7 @@ def main():
     if not success:
         capture_test_failure_logs(prefix, options.output)
     report = {"schemaVersion": 1, "checkedAtUtc": datetime.now(timezone.utc).isoformat(), "device": device, "preflight": preflight, "wallSeconds": elapsed, **parsed}
-    report["scope"] = "focused real-TUN route mutations and feedback UI; no external tunnel reachability claim" if options.route_smoke else "full debug instrumentation suite"
+    report["scope"] = "focused real-TUN route mutations, lifecycle ownership and feedback UI; no external tunnel reachability claim" if options.route_smoke else "full debug instrumentation suite"
     if image_proof is not None:
         report["emulatorImage"] = image_proof
     native = capture_logs(prefix, options.output, failed=not success)

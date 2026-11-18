@@ -6,8 +6,8 @@ interface ControlDeps {
   phase: () => Phase
   error: () => string | undefined
   demandsTunnel: () => boolean
-  prepare: () => Promise<Prepared>
-  start: () => Promise<void>
+  prepare: (current: () => boolean) => Promise<Prepared>
+  start: (current: () => boolean, began: () => void) => Promise<void>
   stop: () => Promise<boolean>
   /** Shared with profile and routing mutations; OFF deliberately does not wait for this queue. */
   serial: <T>(work: () => Promise<T>) => Promise<T>
@@ -36,9 +36,12 @@ export class ConnectionControl {
   }
 
   /** Called from inside the shared mutation queue. It never reopens a user-closed master. */
-  async reconnect(revision = this.revision, options: { restart?: boolean; preserveIntent?: boolean; retainCore?: boolean } = {}): Promise<ConnectionResult> {
+  async reconnect(revision = this.revision, options: { restart?: boolean; preserveIntent?: boolean; retainCore?: boolean; beforeStart?: () => boolean } = {}): Promise<ConnectionResult> {
     const canceled = (): ConnectionResult => ({ ok: false, error: 'Подключение отменено' })
-    if (!this.current(revision)) return canceled()
+    const current = () => this.current(revision) && (!options.beforeStart || options.beforeStart())
+    if (!current()) return canceled()
+    const keepPreparedSession = options.preserveIntent && this.d.phase() === 'on'
+    let starting = false
     const idle = async (): Promise<ConnectionResult> => {
       // Direct-only routing cannot implicitly close an open TUN.
       if (!this.current(revision)) return canceled()
@@ -51,17 +54,18 @@ export class ConnectionControl {
       // Open but idle is valid only after the previous core has actually stopped.
       if (!this.d.demandsTunnel() && !options.retainCore) return await idle()
       if (!options.restart && this.d.phase() === 'on') return { ok: true }
-      const ready = await this.d.prepare()
-      if (!this.current(revision)) return canceled()
+      const ready = await this.d.prepare(current)
+      if (!current()) return canceled()
       if (!ready.ok) {
         if (!options.preserveIntent) this.set(false)
-        await this.d.stop().catch(() => false)
+        if (!keepPreparedSession) await this.d.stop().catch(() => false)
         return ready
       }
       if (!this.d.demandsTunnel() && !options.retainCore) return await idle()
-      await this.d.start()
+      await this.d.start(current, () => { starting = true })
       // OFF has already requested engine.stop. Do not stop a newer ON from an obsolete completion.
       if (!this.current(revision)) return canceled()
+      if (!starting && !current()) return canceled()
       if (this.d.phase() === 'on') return { ok: true }
       const error = this.d.error() ?? 'Туннель не запустился. Проверь подключение и попробуй снова'
       if (!options.preserveIntent) this.set(false)
@@ -69,7 +73,7 @@ export class ConnectionControl {
     } catch {
       if (!this.current(revision)) return canceled()
       if (!options.preserveIntent) this.set(false)
-      await this.d.stop().catch(() => false)
+      if (starting || !keepPreparedSession) await this.d.stop().catch(() => false)
       return { ok: false, error: 'Не удалось подключиться. Проверь сеть и повтори попытку' }
     }
   }
