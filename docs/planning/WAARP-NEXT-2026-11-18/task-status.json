@@ -32,7 +32,7 @@
         "WN-01"
       ],
       "additionalScopeDecision": null,
-      "result": "Bounded, cancellable context checks, fresh proof and exact in-flight sharing verified. Different Android scopes retain the existing busy-owner lifecycle."
+      "result": "Context checks, bounded/cancellable probes, stale proofs and shared in-flight work verified. Windows includes the loaded current public route only while ON; revoked/subMissing alternatives are excluded. Android retains one Save route owner."
     },
     {
       "id": "WN-03",
@@ -43,7 +43,7 @@
         "WN-02"
       ],
       "additionalScopeDecision": null,
-      "result": "Local maps integrated on both platforms; renderer/emulator screenshots reviewed, including Android fontScale1.5. Reference-device performance and full accessibility matrix remain unverified."
+      "result": "Both local maps accepted on source928c9a8. Windows selection/readiness and diagnostic wrapping fixed; Android manual region persists across views/forms and navigation labels pass at fontScale1.5. Actual screenshots reviewed. Reference-device performance/full accessibility matrix remain separate."
     },
     {
       "id": "WN-04",
@@ -69,14 +69,14 @@
     {
       "id": "WN-06",
       "title": "Пройти сквозную UI/UX и native-приёмку",
-      "status": "PARTIAL_RELEASE_GATES_BLOCKED",
+      "status": "SCOPED_PREVIEW_ACCEPTANCE_COMPLETE",
       "dependsOn": [
         "WN-03",
         "WN-04",
         "WN-05"
       ],
       "additionalScopeDecision": null,
-      "result": "Scoped Windows UI/native/50TUN/package and Android build/204JVM/native5/gallery4 passed. First Windows lifecycle timeout is retained separately; full Android matrix/optimized release/soak are blocked by artifact delivery."
+      "result": "Preview44316534164 passed all five jobs and published nine exact-source assets. Windows renderer/native/50TUN/package and Android build/204JVM/native5/gallery4 passed. Earlier failures remain in the journal. Full stable matrix is separately limited by artifact delivery and acceptance requirements."
     },
     {
       "id": "WN-07",
@@ -105,24 +105,31 @@
   "authorizedOn": "2026-11-18",
   "authorization": "Explicit owner instruction: Иди работай",
   "execution": "08-IMPLEMENTATION.md",
-  "implementationStatus": "SCOPED_IMPLEMENTATION_VERIFIED_RELEASE_BLOCKED",
-  "verifiedSourceCommit": "230578139014639be497d10c30bd9da4d631cb28",
+  "implementationStatus": "CURRENT_VARIANT_ACCEPTED_PREVIEW_PUBLISHED",
+  "verifiedSourceCommit": "928c9a8e3cd0a83a41ebfa15c2628ddb610ea157",
   "acceptance": "09-ACCEPTANCE.md",
   "fullPlanComplete": false,
-  "releasePublished": false,
+  "releasePublished": true,
   "acceptanceRuns": {
-    "windows": 44300906714,
-    "windowsFinalAttempt": 2,
-    "android": 44300906671
+    "preview": 44316534164,
+    "windowsGeneral": 44316534397,
+    "androidGeneral": 44316534124
   },
-  "releaseBlockers": [
-    "GitHub Actions artifact storage quota prevents delivery and dependent Android matrix/release/soak gates.",
-    "Existing full build-toolchain audit has the documented picomatch advisory; runtime JavaScript audit is separate."
-  ],
+  "releaseBlockers": [],
   "planStatus": "PARTIAL_IMPLEMENTATION",
   "notRunAcceptance": [
     "Reference-device input/frame latency and map memory delta/ceiling.",
-    "Full Android fontScale1.0/1.3/2.0, TalkBack and landscape matrix.",
+    "Remaining Android fontScale1.3/2.0, TalkBack and landscape matrix.",
     "Physical network handover, application-level UDP/QoE and measured flow-gap/reserve-recovery targets."
+  ],
+  "releaseTag": "preview-2026-11-18-r5",
+  "releaseUrl": "https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r5",
+  "currentTaskStatus": "COMPLETE",
+  "completionScope": "Finish the existing UI, local map, contextual HTTP(S) checks and conservative route holding; no new transport stack, QoE platform or Community Atlas service.",
+  "stableReleaseLimitations": [
+    "On the final928c9a8 source the general Windows run44316534397 exceeded the100-cycle90s budget; the required preview run passed the same gate. Exact cause remains unresolved; no performance-fix claim.",
+    "The full Android API 29/35/36, optimized-release and two-hour soak pipeline still depends on the quota-blocked Actions artifact delivery.",
+    "The full build-toolchain audit still reports the disclosed picomatch advisory; runtime JavaScript audit reports zero.",
+    "Physical-device and network-handover acceptance and production signing remain separate stable requirements."
   ]
 }

@@ -1,0 +1,16 @@
+2026-11-18T13:20:56.5407484Z ROUTE_NATIVE HTTPS endpoints resolved before TUN {"pins":{"www.gstatic.com":"142.251.152.120","cp.cloudflare.com":"104.16.133.229"},"unavailable":[]}
+2026-11-18T13:20:59.0437596Z ROUTE_NATIVE authenticated diagnostic CONNECT: selected B; card A preserved PASS
+2026-11-18T13:20:59.7803291Z ROUTE_NATIVE switch b same PID; neighbor alive; selected tunnel verified where applicable
+2026-11-18T13:21:00.1262678Z ROUTE_NATIVE switch a same PID; neighbor alive; selected tunnel verified where applicable
+2026-11-18T13:21:00.7427224Z ROUTE_NATIVE switch direct same PID; neighbor alive; selected tunnel verified where applicable
+2026-11-18T13:21:01.3095412Z ROUTE_NATIVE switch b same PID; neighbor alive; selected tunnel verified where applicable
+2026-11-18T13:21:02.1234189Z ROUTE_NATIVE readiness evidence {"ids":["late-public"],"result":{"late-public":263},"responses":[{"status":200,"body":"{\"delay\":263}\n"}],"received":{"udp":0,"dns":0,"head":0,"httpsHead":0,"publicHttps":1,"publicHttpsBytes":4089},"requests":[{"host":"www.gstatic.com","port":443,"command":1}],"relayErrors":[],"workerLogs":""}
+2026-11-18T13:21:02.5113347Z ROUTE_NATIVE late C selected TCP and authenticated diagnostic payload PASS
+2026-11-18T13:21:02.5167482Z ROUTE_NATIVE late C main-TUN UDP round trip and selected-only receiver PASS
+2026-11-18T13:21:02.5168649Z ROUTE_NATIVE starting generated no-TUN UoT DNS request
+2026-11-18T13:21:02.8651917Z ROUTE_NATIVE generated no-TUN UoT DNS answer and worker cleanup PASS
+2026-11-18T13:21:02.8658641Z ROUTE_NATIVE newly imported public server: same main PID/TUN; selected TCP and UDP payload C; neighbor alive PASS
+2026-11-18T13:21:03.7988907Z ROUTE_NATIVE delete active selected route: same PID and neighbor alive PASS
+2026-11-18T13:21:03.8067311Z ROUTE_NATIVE inactive addition/deletion: same PID and neighbor alive PASS
+2026-11-18T13:21:04.9584415Z ROUTE_NATIVE last-route removal and re-addition: same PID and new selected path verified PASS
+2026-11-18T13:28:02.2924154Z Native Windows lifecycle: PASS; 50/50 cycles; no errors; elapsed 414813 ms / budget 600000 ms

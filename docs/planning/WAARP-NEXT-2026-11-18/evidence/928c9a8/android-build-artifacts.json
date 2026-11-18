@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 2,
+  "engine": "1.14.4-lx.35-waarp.2",
+  "artifacts": [
+    {
+      "file": "waarp-android-0.5.0-rc.5-armeabi-v7a-debug.apk",
+      "abi": "armeabi-v7a",
+      "variant": "debug",
+      "packageId": "local.waarp.android.debug",
+      "versionName": "0.5.0-rc.5-debug",
+      "versionCode": 6
+    },
+    {
+      "file": "waarp-android-0.5.0-rc.5-x86_64-debug.apk",
+      "abi": "x86_64",
+      "variant": "debug",
+      "packageId": "local.waarp.android.debug",
+      "versionName": "0.5.0-rc.5-debug",
+      "versionCode": 6
+    },
+    {
+      "file": "waarp-android-0.5.0-rc.5-arm64-v8a-debug.apk",
+      "abi": "arm64-v8a",
+      "variant": "debug",
+      "packageId": "local.waarp.android.debug",
+      "versionName": "0.5.0-rc.5-debug",
+      "versionCode": 6
+    },
+    {
+      "file": "waarp-android-0.5.0-rc.5-armeabi-v7a-release-unsigned.apk",
+      "abi": "armeabi-v7a",
+      "variant": "release-unsigned",
+      "packageId": "local.waarp.android",
+      "versionName": "0.5.0-rc.5",
+      "versionCode": 6
+    },
+    {
+      "file": "waarp-android-0.5.0-rc.5-x86_64-release-unsigned.apk",
+      "abi": "x86_64",
+      "variant": "release-unsigned",
+      "packageId": "local.waarp.android",
+      "versionName": "0.5.0-rc.5",
+      "versionCode": 6
+    },
+    {
+      "file": "waarp-android-0.5.0-rc.5-arm64-v8a-release-unsigned.apk",
+      "abi": "arm64-v8a",
+      "variant": "release-unsigned",
+      "packageId": "local.waarp.android",
+      "versionName": "0.5.0-rc.5",
+      "versionCode": 6
+    }
+  ],
+  "instrumentation": "waarp-android-debug-instrumentation.apk",
+  "releaseAcceptance": "waarp-android-release-acceptance.apk"
+}

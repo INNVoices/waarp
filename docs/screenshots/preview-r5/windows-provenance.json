@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "platform": "windows",
+  "sourceCommit": "928c9a8e3cd0a83a41ebfa15c2628ddb610ea157",
+  "version": "0.4.1-rc.4",
+  "runId": 44316534164,
+  "jobId": 134844904516,
+  "jobUrl": "https://github.com/INNVoices/waarp/actions/runs/44316534164/job/134844904516",
+  "uiResult": "PASS",
+  "overallJobResult": "SUCCESS",
+  "scope": "Actual compiled Windows renderer in Chromium with MapLibre WebGL and local worker. Profiles, path state and measurements use synthetic IPC fixtures. These images establish layout, not external server availability.",
+  "visualReview": "Root and Windows reviewer viewed all four original final-source frames. Device FR dot and JP selection match visible filters; the diagnostic response counter stays together at1240px. At900px the primary action and visible blocks do not overlap; lower diagnostic rows are reached by ordinary scrolling.",
+  "screenshots": [
+    {
+      "file": "windows-atlas-picker-1240.png",
+      "bytes": 150832,
+      "sha256": "0ec7ed548b259dc1148b495b84b1a1ad406ea6ca97263386b7d68bacb42b1c70",
+      "width": 1240,
+      "height": 900,
+      "originalFile": "atlas-picker-active-preview-1240.png"
+    },
+    {
+      "file": "windows-atlas-picker-900.png",
+      "bytes": 152550,
+      "sha256": "3892dfcb5d9c054351fb03e779004f89a526dc7c931852ea8e70d8f49e50f31c",
+      "width": 900,
+      "height": 1200,
+      "originalFile": "atlas-picker-900.png"
+    },
+    {
+      "file": "windows-quality-1240.png",
+      "bytes": 120223,
+      "sha256": "a86b38b3d0424c139e6a59b7f2a0b65dacdbb6fbebef7bc3ac96cabf15118975",
+      "width": 1240,
+      "height": 900,
+      "originalFile": "quality-context-1240.png"
+    },
+    {
+      "file": "windows-quality-900.png",
+      "bytes": 108894,
+      "sha256": "404253b8dfa3a424307c6a957b27cbd9e9aca6f3bb4becdbad273d6f8e90192a",
+      "width": 900,
+      "height": 900,
+      "originalFile": "quality-context-900.png"
+    }
+  ]
+}

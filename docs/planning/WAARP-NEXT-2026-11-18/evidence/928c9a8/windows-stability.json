@@ -1,0 +1,60 @@
+{
+  "scope": "Production renderer in Chromium with injected in-memory IPC; no native engine, VPN, TUN or system routing.",
+  "sourceRevision": "928c9a8e3cd0a83a41ebfa15c2628ddb610ea157",
+  "chromium": "159.0.8154.6",
+  "startedAt": "2026-11-18T13:47:27.579Z",
+  "limits": {
+    "warmupCycles": 10,
+    "measuredCycles": 100,
+    "elapsedMs": 90000,
+    "heapGrowthBytes": 8388608,
+    "heapGrowthRatio": 0.25,
+    "domNodeGrowth": 200,
+    "domListenerGrowth": 8,
+    "documentGrowth": 1
+  },
+  "completedCycles": 100,
+  "result": "passed",
+  "baseline": {
+    "heapUsedBytes": 4917444,
+    "documents": 1,
+    "nodes": 163,
+    "jsEventListeners": 192,
+    "ipcListeners": {
+      "snapshot": 1,
+      "status": 1,
+      "conns": 1,
+      "apps": 1,
+      "toast": 1,
+      "nav": 1
+    }
+  },
+  "elapsedMs": 80293.98000000001,
+  "final": {
+    "heapUsedBytes": 5511136,
+    "documents": 1,
+    "nodes": 163,
+    "jsEventListeners": 192,
+    "ipcListeners": {
+      "snapshot": 1,
+      "status": 1,
+      "conns": 1,
+      "apps": 1,
+      "toast": 1,
+      "nav": 1
+    }
+  },
+  "cycleMs": {
+    "p50": 798.8208000000013,
+    "p95": 871.6292000000103,
+    "max": 898.6751999999979
+  },
+  "growth": {
+    "heapUsedBytes": 593692,
+    "nodes": 0,
+    "jsEventListeners": 0,
+    "documents": 0
+  },
+  "consoleErrors": [],
+  "pageErrors": []
+}

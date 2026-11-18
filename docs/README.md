@@ -7,8 +7,8 @@
 | Current Windows server picker, pagination and live checks | [Windows 0.4.1-rc.3](SERVER-SELECTION-2026-11-18.md) |
 | Android capabilities, build, signing and acceptance | [ANDROID.md](ANDROID.md) |
 | Android Chameleon / Sticky entry feasibility (concept only) | [Chameleon research, 2026-11-18](ANDROID-CHAMELEON-2026-11-18.md) |
-| Local map, per-card checks and contribution guide (new main; scoped functional acceptance passed) | [Using connection tools](CONNECTION-TOOLS.md) · [Contributing profiles](CONNECTION-PROFILES.md) · [Map data](ATLAS-DATA.md) |
-| Atlas, application-aware routing and continuity (partial plan; release gates blocked) | [Plan](planning/WAARP-NEXT-2026-11-18/README.md) · [Results and remaining work](planning/WAARP-NEXT-2026-11-18/09-ACCEPTANCE.md) · [Actual screenshots](screenshots/atlas-2026-11-18/README.md) |
+| Local map, per-card checks and contribution guide (published r5 preview) | [Using connection tools](CONNECTION-TOOLS.md) · [Contributing profiles](CONNECTION-PROFILES.md) · [Map data](ATLAS-DATA.md) |
+| Atlas, contextual checks and continuity (current preview accepted; wider plan tracked separately) | [Plan](planning/WAARP-NEXT-2026-11-18/README.md) · [Results and remaining work](planning/WAARP-NEXT-2026-11-18/09-ACCEPTANCE.md) · [Actual screenshots](screenshots/preview-r5/README.md) |
 | Routing safety and failure behavior | [RELIABILITY.md](RELIABILITY.md) |
 | Public node sources, mirrors and trust model | [SOURCES.md](SOURCES.md) · [2026-11-18 pool update](PUBLIC-POOL-2026-11-18.md) |
 | Diagnosing connections and compatible modes | [MASQUE / connection helper](MASQUE-AND-CONNECTION-HELPER.md) |

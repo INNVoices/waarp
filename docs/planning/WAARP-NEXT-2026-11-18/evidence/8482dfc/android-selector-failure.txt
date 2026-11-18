@@ -1,0 +1,33 @@
+INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: Failed to inject touch input.
+Reason: Expected exactly '1' node but found '2' nodes that satisfy: (((Text + InputText + EditableText contains 'France' (ignoreCase: false)) && (OnClick is defined)) && (hasAnyAncestorThat(IsDialog is defined)))
+Nodes found:
+1) Node #1639 at (l=63.0, t=189.0, r=777.0, b=357.0)px
+ContentDataType = 'AndroidContentDataType(androidAutofillType=1)'
+EditableText = 'France'
+Focused = 'true'
+ImeAction = 'Default'
+InputText = 'France'
+IsEditable = 'true'
+Text = '[Поиск]'
+TextSelectionRange = 'TextRange(6, 6)'
+Actions = [ClearTextSubstitution, GetTextLayoutResult, InsertTextAtCursor, MagnifierPositionInRoot, OnAutofillText, OnClick, OnLongClick, PasteText, PerformImeAction, RequestFocus, SetSelection, SetText, SetTextSubstitution, ShowTextSubstitution]
+MergeDescendants = 'true'
+Has 3 siblings
+2) Node #1687 at (l=63.0, t=389.0, r=777.0, b=536.0)px
+Focused = 'false'
+Text = '[France]'
+Actions = [ClearTextSubstitution, GetTextLayoutResult, OnClick, RequestFocus, SetTextSubstitution, ShowTextSubstitution]
+MergeDescendants = 'true'
+
+	at androidx.compose.ui.test.SemanticsNodeInteraction.fetchOneOrThrow(SemanticsNodeInteraction.kt:178)
+	at androidx.compose.ui.test.SemanticsNodeInteraction.fetchOneOrThrow$default(SemanticsNodeInteraction.kt:150)
+	at androidx.compose.ui.test.SemanticsNodeInteraction.fetchSemanticsNode(SemanticsNodeInteraction.kt:84)
+	at androidx.compose.ui.test.ActionsKt.performTouchInput(Actions.kt:402)
+	at androidx.compose.ui.test.AndroidActions.performClickImpl(Actions.android.kt:23)
+	at androidx.compose.ui.test.ActionsKt.performClick(Actions.kt:60)
+	at local.waarp.android.ui.MobileUiInstrumentedTest.atlasAndConnectionCheckKeepTheDraftUntilTheSingleSave$lambda$0(MobileUiInstrumentedTest.kt:343)
+	at local.waarp.android.ui.MobileUiInstrumentedTest.$r8$lambda$PrX2c0OLsEEBSG07re5d7swHkyg(Unknown Source:0)
+	at local.waarp.android.ui.MobileUiInstrumentedTest$$ExternalSyntheticLambda30.invoke(D8$$SyntheticClass:0)
+	at local.waarp.android.ui.MobileUiInstrumentedTest.withFailureCapture(MobileUiInstrumentedTest.kt:487)
+	at local.waarp.android.ui.MobileUiInstrumentedTest.atlasAndConnectionCheckKeepTheDraftUntilTheSingleSave(MobileUiInstrumentedTest.kt:265)
+

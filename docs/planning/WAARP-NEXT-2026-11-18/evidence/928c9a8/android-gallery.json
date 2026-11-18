@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "checkedAtUtc": "2026-11-18T14:06:14.766237+00:00",
+  "device": {
+    "sdk": "35",
+    "release": "15",
+    "abi": "x86_64",
+    "pageSize": 4096
+  },
+  "preflight": {
+    "hostCpuCount": 2,
+    "commands": {
+      "broadcast-idle.txt": {
+        "exitCode": 0,
+        "timedOut": false,
+        "seconds": 0.115
+      },
+      "device-meminfo-before.txt": {
+        "exitCode": 0,
+        "timedOut": false,
+        "seconds": 0.076
+      },
+      "device-process-memory-before.txt": {
+        "exitCode": 0,
+        "timedOut": false,
+        "seconds": 10.142
+      }
+    },
+    "broadcastQueuesIdle": true,
+    "scope": "Observational framework broadcast-queue idle and memory snapshots; global background work is not app readiness. No dialogs dismissed, crash records cleared, or tests skipped."
+  },
+  "wallSeconds": 143.91167715300003,
+  "tests": 4,
+  "expectedTests": 4,
+  "passed": 4,
+  "failed": 0,
+  "skipped": 0,
+  "timedOut": false,
+  "passedGate": true,
+  "cases": [
+    {
+      "class": "local.waarp.android.ui.MobileUiInstrumentedTest",
+      "name": "rejectedImportAndRouteSaveKeepDraftsUntilCorrectedThenPersist",
+      "status": "passed",
+      "statusCode": 0
+    },
+    {
+      "class": "local.waarp.android.ui.MobileUiInstrumentedTest",
+      "name": "atlasAndConnectionCheckKeepTheDraftUntilTheSingleSave",
+      "status": "passed",
+      "statusCode": 0
+    },
+    {
+      "class": "local.waarp.android.ui.MobileUiInstrumentedTest",
+      "name": "everyDestinationAndAndroidSettingsScreenOpensWithoutStartingVpn",
+      "status": "passed",
+      "statusCode": 0
+    },
+    {
+      "class": "local.waarp.android.ui.MobileUiInstrumentedTest",
+      "name": "groupMemberOrderAndExplicitDeletionReassignmentPersistThroughTheRealUi",
+      "status": "passed",
+      "statusCode": 0
+    }
+  ],
+  "scope": "six actual UI screenshots from four offline scenarios with synthetic fixtures; no VPN connection or external reachability claim",
+  "emulatorImage": {
+    "passed": true,
+    "reportSha256": "d80ef1840793e4e48ed3d850ee0c307f9d824f5d9376ff1dd04815685642f8a4",
+    "device": {
+      "qemu": "1",
+      "buildType": "userdebug",
+      "observerUid": 2000,
+      "pageSize": 4096,
+      "sdk": 35,
+      "sdkFull": "",
+      "abi": "x86_64",
+      "kernel": "6.6.50-android15-8-g8adecb593e9b-ab12525588",
+      "fingerprint": "google/sdk_gphone64_x86_64/emu64xa:15/AE3A.240806.043/12960925:userdebug/dev-keys",
+      "buildId": "AE3A.240806.043",
+      "incremental": "12960925"
+    },
+    "serial": "emulator-5554",
+    "maintenanceImageRequired": false,
+    "package": null,
+    "revision": null,
+    "installedSourcePropertiesSha256": null,
+    "deviceModified": false
+  },
+  "nativeCrashEvidence": {
+    "schemaVersion": 1,
+    "package": "local.waarp.android.debug",
+    "currentFileAvailable": true,
+    "archiveEnumerationAvailable": true,
+    "archiveCount": 0,
+    "files": [
+      {
+        "path": "CrashReport-waarp-android.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "panicObserved": false
+      }
+    ],
+    "errors": [],
+    "bytes": 0,
+    "panicObserved": false,
+    "available": true,
+    "passed": true
+  },
+  "uiScreenshotCount": 10,
+  "coldActivityLaunchMs": [
+    3918,
+    4745,
+    5184
+  ],
+  "performanceScope": "Three measured am force-stop/start Activity launches on this emulator; this is a baseline, not a device-independent speed guarantee."
+}

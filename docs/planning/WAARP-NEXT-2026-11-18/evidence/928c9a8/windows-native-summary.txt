@@ -1,0 +1,97 @@
+2026-11-18T13:49:02.0010503Z   WAARP_CONTINUITY_NATIVE_TEST: 1
+2026-11-18T13:49:02.5932085Z CONTINUITY_NATIVE soft prepare-fixtures
+2026-11-18T13:49:02.6166682Z CONTINUITY_NATIVE soft core-ready
+2026-11-18T13:49:02.7265645Z CONTINUITY_NATIVE soft initial-http/socks/connect
+2026-11-18T13:49:02.7276588Z CONTINUITY_NATIVE soft initial-http/socks/auth
+2026-11-18T13:49:02.7291108Z CONTINUITY_NATIVE soft initial-http/socks/request-reply
+2026-11-18T13:49:02.7318696Z CONTINUITY_NATIVE soft initial-http/socks/bound-address
+2026-11-18T13:49:02.7320857Z CONTINUITY_NATIVE soft initial-http/request-body
+2026-11-18T13:49:02.7340804Z CONTINUITY_NATIVE soft tcp-open/connect
+2026-11-18T13:49:02.7369471Z CONTINUITY_NATIVE soft tcp-open/auth
+2026-11-18T13:49:02.7371720Z CONTINUITY_NATIVE soft tcp-open/request-reply
+2026-11-18T13:49:02.7378964Z CONTINUITY_NATIVE soft tcp-open/bound-address
+2026-11-18T13:49:02.7381498Z CONTINUITY_NATIVE soft udp-open/bind
+2026-11-18T13:49:02.7391900Z CONTINUITY_NATIVE soft udp-open/socks/connect
+2026-11-18T13:49:02.7399499Z CONTINUITY_NATIVE soft udp-open/socks/auth
+2026-11-18T13:49:02.7403002Z CONTINUITY_NATIVE soft udp-open/socks/request-reply
+2026-11-18T13:49:02.7409011Z CONTINUITY_NATIVE soft udp-open/socks/bound-address
+2026-11-18T13:49:02.7410832Z CONTINUITY_NATIVE soft tcp-echo-before
+2026-11-18T13:49:02.7416053Z CONTINUITY_NATIVE soft udp-open/exchange-before
+2026-11-18T13:49:02.7445020Z CONTINUITY_NATIVE soft selector-put
+2026-11-18T13:49:02.7494536Z CONTINUITY_NATIVE soft selector-get-ack
+2026-11-18T13:49:02.7525252Z CONTINUITY_NATIVE soft selector-acknowledged-b
+2026-11-18T13:49:02.7526165Z CONTINUITY_NATIVE soft tcp-echo-after-0
+2026-11-18T13:49:02.7531357Z CONTINUITY_NATIVE soft udp-open/exchange-after-0
+2026-11-18T13:49:02.7537388Z CONTINUITY_NATIVE soft tcp-echo-after-1
+2026-11-18T13:49:02.7540847Z CONTINUITY_NATIVE soft udp-open/exchange-after-1
+2026-11-18T13:49:02.7547106Z CONTINUITY_NATIVE soft tcp-echo-after-2
+2026-11-18T13:49:02.7552629Z CONTINUITY_NATIVE soft udp-open/exchange-after-2
+2026-11-18T13:49:02.7557498Z CONTINUITY_NATIVE soft tcp-echo-after-3
+2026-11-18T13:49:02.7561593Z CONTINUITY_NATIVE soft udp-open/exchange-after-3
+2026-11-18T13:49:02.7567935Z CONTINUITY_NATIVE soft tcp-echo-after-4
+2026-11-18T13:49:02.7572688Z CONTINUITY_NATIVE soft udp-open/exchange-after-4
+2026-11-18T13:49:02.7577491Z CONTINUITY_NATIVE soft tcp-echo-after-5
+2026-11-18T13:49:02.7582455Z CONTINUITY_NATIVE soft udp-open/exchange-after-5
+2026-11-18T13:49:02.7586047Z CONTINUITY_NATIVE soft new-udp-association/bind
+2026-11-18T13:49:02.7588114Z CONTINUITY_NATIVE soft new-udp-association/socks/connect
+2026-11-18T13:49:02.7594462Z CONTINUITY_NATIVE soft new-udp-association/socks/auth
+2026-11-18T13:49:02.7596378Z CONTINUITY_NATIVE soft new-udp-association/socks/request-reply
+2026-11-18T13:49:02.7600538Z CONTINUITY_NATIVE soft new-udp-association/socks/bound-address
+2026-11-18T13:49:02.7601479Z CONTINUITY_NATIVE soft new-udp-association/exchange-new-flow
+2026-11-18T13:49:02.7618815Z CONTINUITY_NATIVE soft new-http/socks/connect
+2026-11-18T13:49:02.7625137Z CONTINUITY_NATIVE soft new-http/socks/auth
+2026-11-18T13:49:02.7627035Z CONTINUITY_NATIVE soft new-http/socks/request-reply
+2026-11-18T13:49:02.7637796Z CONTINUITY_NATIVE soft new-http/socks/bound-address
+2026-11-18T13:49:02.7638638Z CONTINUITY_NATIVE soft new-http/request-body
+2026-11-18T13:49:02.7645088Z CONTINUITY_NATIVE soft passed
+2026-11-18T13:49:02.7764544Z CONTINUITY_NATIVE strict prepare-fixtures
+2026-11-18T13:49:02.7854364Z CONTINUITY_NATIVE strict core-ready
+2026-11-18T13:49:02.9076651Z CONTINUITY_NATIVE strict initial-http/socks/connect
+2026-11-18T13:49:02.9156075Z CONTINUITY_NATIVE strict initial-http/socks/auth
+2026-11-18T13:49:02.9157678Z CONTINUITY_NATIVE strict initial-http/socks/request-reply
+2026-11-18T13:49:02.9282924Z CONTINUITY_NATIVE strict initial-http/socks/bound-address
+2026-11-18T13:49:02.9285033Z CONTINUITY_NATIVE strict initial-http/request-body
+2026-11-18T13:49:02.9393270Z CONTINUITY_NATIVE strict tcp-open/connect
+2026-11-18T13:49:02.9483777Z CONTINUITY_NATIVE strict tcp-open/auth
+2026-11-18T13:49:02.9490048Z CONTINUITY_NATIVE strict tcp-open/request-reply
+2026-11-18T13:49:02.9529079Z CONTINUITY_NATIVE strict tcp-open/bound-address
+2026-11-18T13:49:02.9530820Z CONTINUITY_NATIVE strict udp-open/bind
+2026-11-18T13:49:02.9531692Z CONTINUITY_NATIVE strict udp-open/socks/connect
+2026-11-18T13:49:02.9532489Z CONTINUITY_NATIVE strict udp-open/socks/auth
+2026-11-18T13:49:02.9533328Z CONTINUITY_NATIVE strict udp-open/socks/request-reply
+2026-11-18T13:49:02.9534328Z CONTINUITY_NATIVE strict udp-open/socks/bound-address
+2026-11-18T13:49:02.9535165Z CONTINUITY_NATIVE strict tcp-echo-before
+2026-11-18T13:49:02.9535774Z CONTINUITY_NATIVE strict udp-open/exchange-before
+2026-11-18T13:49:02.9536409Z CONTINUITY_NATIVE strict selector-put
+2026-11-18T13:49:02.9536971Z CONTINUITY_NATIVE strict selector-get-ack
+2026-11-18T13:49:02.9537619Z CONTINUITY_NATIVE strict selector-acknowledged-b
+2026-11-18T13:49:02.9538457Z CONTINUITY_NATIVE strict strict-close-old-tcp
+2026-11-18T13:49:02.9539301Z CONTINUITY_NATIVE strict strict-close-old-udp-association
+2026-11-18T13:49:02.9540465Z CONTINUITY_NATIVE strict new-udp-association/bind
+2026-11-18T13:49:02.9541268Z CONTINUITY_NATIVE strict new-udp-association/socks/connect
+2026-11-18T13:49:02.9542071Z CONTINUITY_NATIVE strict new-udp-association/socks/auth
+2026-11-18T13:49:02.9542912Z CONTINUITY_NATIVE strict new-udp-association/socks/request-reply
+2026-11-18T13:49:02.9543816Z CONTINUITY_NATIVE strict new-udp-association/socks/bound-address
+2026-11-18T13:49:02.9544692Z CONTINUITY_NATIVE strict new-udp-association/exchange-new-flow
+2026-11-18T13:49:02.9545450Z CONTINUITY_NATIVE strict new-http/socks/connect
+2026-11-18T13:49:02.9546178Z CONTINUITY_NATIVE strict new-http/socks/auth
+2026-11-18T13:49:02.9546892Z CONTINUITY_NATIVE strict new-http/socks/request-reply
+2026-11-18T13:49:02.9547655Z CONTINUITY_NATIVE strict new-http/socks/bound-address
+2026-11-18T13:49:02.9548366Z CONTINUITY_NATIVE strict new-http/request-body
+2026-11-18T13:49:02.9549008Z CONTINUITY_NATIVE strict passed
+2026-11-18T13:49:10.7988213Z ROUTE_NATIVE HTTPS endpoints resolved before TUN {"pins":{"www.gstatic.com":"142.251.155.120","cp.cloudflare.com":"104.16.132.229"},"unavailable":[]}
+2026-11-18T13:49:12.8302271Z ROUTE_NATIVE authenticated diagnostic CONNECT: selected B; card A preserved PASS
+2026-11-18T13:49:13.5086316Z ROUTE_NATIVE switch b same PID; neighbor alive; selected tunnel verified where applicable
+2026-11-18T13:49:13.8674598Z ROUTE_NATIVE switch a same PID; neighbor alive; selected tunnel verified where applicable
+2026-11-18T13:49:14.4091394Z ROUTE_NATIVE switch direct same PID; neighbor alive; selected tunnel verified where applicable
+2026-11-18T13:49:14.9728654Z ROUTE_NATIVE switch b same PID; neighbor alive; selected tunnel verified where applicable
+2026-11-18T13:49:15.5243411Z ROUTE_NATIVE readiness evidence {"ids":["late-public"],"result":{"late-public":77},"responses":[{"status":200,"body":"{\"delay\":77}\n"}],"received":{"udp":0,"dns":0,"head":0,"httpsHead":0,"publicHttps":1,"publicHttpsBytes":4088},"requests":[{"host":"www.gstatic.com","port":443,"command":1}],"relayErrors":[],"workerLogs":""}
+2026-11-18T13:49:15.9514523Z ROUTE_NATIVE late C selected TCP and authenticated diagnostic payload PASS
+2026-11-18T13:49:15.9575230Z ROUTE_NATIVE late C main-TUN UDP round trip and selected-only receiver PASS
+2026-11-18T13:49:15.9576416Z ROUTE_NATIVE starting generated no-TUN UoT DNS request
+2026-11-18T13:49:16.3201636Z ROUTE_NATIVE generated no-TUN UoT DNS answer and worker cleanup PASS
+2026-11-18T13:49:16.3208807Z ROUTE_NATIVE newly imported public server: same main PID/TUN; selected TCP and UDP payload C; neighbor alive PASS
+2026-11-18T13:49:17.2367229Z ROUTE_NATIVE delete active selected route: same PID and neighbor alive PASS
+2026-11-18T13:49:17.2487156Z ROUTE_NATIVE inactive addition/deletion: same PID and neighbor alive PASS
+2026-11-18T13:49:18.5185767Z ROUTE_NATIVE last-route removal and re-addition: same PID and new selected path verified PASS
+2026-11-18T13:55:24.7340574Z Native Windows lifecycle: PASS; 50/50 cycles; no errors; elapsed 364040 ms / budget 600000 ms

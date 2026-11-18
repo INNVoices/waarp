@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "platform": "android",
+  "sourceCommit": "928c9a8e3cd0a83a41ebfa15c2628ddb610ea157",
+  "version": "0.5.0-rc.5-debug",
+  "versionCode": 6,
+  "runId": 44316534164,
+  "jobId": 134844904814,
+  "jobUrl": "https://github.com/INNVoices/waarp/actions/runs/44316534164/job/134844904814",
+  "overallJobResult": "SUCCESS",
+  "device": {
+    "sdk": "35",
+    "release": "15",
+    "abi": "x86_64",
+    "pageSize": 4096
+  },
+  "scope": "Actual Compose/MapLibre application on API35 emulator with synthetic offline fixtures. Screenshots establish native UI layout; native TUN and package checks are separate. No external tunnel availability or physical16KB-device claim.",
+  "gallery": {
+    "tests": 4,
+    "passed": 4,
+    "failed": 0,
+    "skipped": 0,
+    "wallSeconds": 143.91167715300003
+  },
+  "visualReview": "Root and Android reviewer viewed both unchanged final-source frames. Map and fixture pins render; Check and FAB occupy separate areas. At150% the labels use Марш-/руты and Диагно-/стика, with no orphan letter, clipping or overlap. Normal navigation remains unchanged and readable.",
+  "screenshots": [
+    {
+      "file": "android-atlas-normal.png",
+      "originalFile": "05-atlas-local.png",
+      "fontScale": 1.0,
+      "bytes": 192642,
+      "width": 1080,
+      "height": 2400,
+      "sha256": "27225cac611aa2b176618ca0f4b1f5a982ebeb6ed235359f95aac20bcfb7c5ee"
+    },
+    {
+      "file": "android-atlas-150.png",
+      "originalFile": "06-atlas-large-font.png",
+      "fontScale": 1.5,
+      "bytes": 206701,
+      "width": 1080,
+      "height": 2400,
+      "sha256": "e605ad00c826453dd138c18e3ea8ca0d3f1835d0390194f038ba91564885a99e"
+    }
+  ]
+}

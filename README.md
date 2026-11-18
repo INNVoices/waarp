@@ -29,12 +29,12 @@
 </p>
 
 > [!IMPORTANT]
-> **Windows EXE and Android APK previews are available.** The [18 November preview](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r3) includes Windows `0.4.1-rc.3` and Android `0.5.0-rc.4` from the same verified source commit. The EXE is unsigned; the APKs are debug-signed. This is a prerelease, not an approved stable build. [Versions, checksums and release criteria](docs/RELEASES.md).
+> **Windows EXE and Android APK previews are available.** The [18 November preview](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r5) includes Windows `0.4.1-rc.4` and Android `0.5.0-rc.5` from the same verified source commit. The EXE is unsigned; the APKs are debug-signed. This is a prerelease, not an approved stable build. [Versions, checksums and release criteria](docs/RELEASES.md).
 
 <p align="center">
-  <a href="docs/screenshots/server-picker.png"><img src="docs/screenshots/server-picker.png" alt="Waarp desktop — choose an app's server with Automatic, Manual and Direct modes" width="860"></a>
+  <a href="docs/screenshots/preview-r5/windows-atlas-picker-1240.png"><img src="docs/screenshots/preview-r5/windows-atlas-picker-1240.png" alt="Waarp desktop — local map inside the existing app server picker" width="860"></a>
 </p>
-<p align="center"><sub>Windows 0.4.1-rc.3 production renderer in Chromium with synthetic test profiles. Shown availability and latency are fixture data.</sub></p>
+<p align="center"><sub>Windows 0.4.1-rc.4 production renderer in Chromium with synthetic test profiles. Shown availability and latency are fixture data.</sub></p>
 
 ## Why Waarp
 
@@ -50,16 +50,16 @@ No multi-path aggregation, no guaranteed latency improvement, and no anonymity p
 
 | <img src="https://img.shields.io/badge/Windows-x64-2374CF?style=flat-square&logo=windows11&logoColor=white" alt="Windows"> | <img src="https://img.shields.io/badge/Android-APK-267F61?style=flat-square&logo=android&logoColor=white" alt="Android"> |
 | :--- | :--- |
-| **[Download 0.4.1-rc.3 portable EXE](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r3/Waarp-0.4.1-rc.3-portable.exe)** | **[Download 0.5.0-rc.4 APK · ARM64](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r3/waarp-android-0.5.0-rc.4-arm64-v8a-debug.apk)** |
-| Windows 10/11 x64. Portable, unsigned preview with the new server picker and live card changes. [SHA-256](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r3/SHA256SUMS-windows.txt). | Android 10+. Installable **debug-signed** preview; ARM64 suits most current phones. Separate from the production app and cannot update it. [SHA-256](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r3/SHA256SUMS-android-debug.txt). |
+| **[Download 0.4.1-rc.4 portable EXE](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/Waarp-0.4.1-rc.4-portable.exe)** | **[Download 0.5.0-rc.5 APK · ARM64](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-arm64-v8a-debug.apk)** |
+| Windows 10/11 x64. Portable, unsigned preview with the new server picker and live card changes. [SHA-256](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/SHA256SUMS-windows.txt). | Android 10+. Installable **debug-signed** preview; ARM64 suits most current phones. Separate from the production app and cannot update it. [SHA-256](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/SHA256SUMS-android-debug.txt). |
 
-Other Android builds: **[ARM32](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r3/waarp-android-0.5.0-rc.4-armeabi-v7a-debug.apk)** · **[x86_64](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r3/waarp-android-0.5.0-rc.4-x86_64-debug.apk)**. [Release notes and all assets](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r3) · [Passing preview checks](https://github.com/INNVoices/waarp/actions/runs/44276974976).
+Other Android builds: **[ARM32](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-armeabi-v7a-debug.apk)** · **[x86_64](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-x86_64-debug.apk)**. [Release notes and all assets](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r5) · [Passing preview checks](https://github.com/INNVoices/waarp/actions/runs/44316534164).
 
 **[All releases](https://github.com/INNVoices/waarp/releases)** · **[Preview publishing workflow](.github/workflows/release-preview.yml)** · **[Release and integrity guide](docs/RELEASES.md)**
 
 The repo is currently private; GitHub download and Actions links may require repository access. Third-party infrastructure can cost money, even though Waarp itself has no subscription.
 
-## New in Windows 0.4.1-rc.3
+## Choosing a server on Windows
 
 Choose an application, then choose its server in one screen: **Automatic · Manual · Direct**. Saved connections and public servers use compact rows, search and numbered pages. The public catalogue adds region and availability filters and shows current availability separately from stored candidates; selecting a candidate checks its connection before use.
 
@@ -67,11 +67,11 @@ Public checks can run while Waarp is on. Changing a card's server updates the ro
 
 [What changed and how it behaves](docs/SERVER-SELECTION-2026-11-18.md) · [Preview notes](release/preview-2026-11-18.md)
 
-## New connection tools in main
+## Map and contextual connection checks
 
-The current source embeds a local map in the existing Windows and Android connection pickers. Search and filters stay in place; choosing a region filters the selectable rows. A check opened from a card compares responses from its target through eligible connections, explains the result and applies a chosen path to that card. On Android, the result stays in the draft until the single Save route action.
+The r5 preview embeds a local map in the existing Windows and Android connection pickers. Search and filters stay in place; choosing a region filters the selectable rows. A check opened from a card compares responses from its target through eligible connections, explains the result and applies a chosen path to that card. On Android, the result stays in the draft until the single Save route action.
 
-Windows also holds active paths during optional changes and gives explicit user actions priority. These changes are being prepared for the next release; the download links above refer to the published `r3` preview. [Usage](docs/CONNECTION-TOOLS.md) · [Actual checks and limits](docs/planning/WAARP-NEXT-2026-11-18/09-ACCEPTANCE.md) · [Actual screenshots](docs/screenshots/atlas-2026-11-18/README.md) · [Contribute a profile](docs/CONNECTION-PROFILES.md).
+Windows also holds active paths during optional changes and gives explicit user actions priority. These tools are included in the downloads above. Map selection updates with the visible data, and Android keeps the manually chosen region across List/Map and route forms. [Usage](docs/CONNECTION-TOOLS.md) · [Actual checks and limits](docs/planning/WAARP-NEXT-2026-11-18/09-ACCEPTANCE.md) · [Actual screenshots](docs/screenshots/preview-r5/README.md) · [Contribute a profile](docs/CONNECTION-PROFILES.md).
 
 ## How it works
 
@@ -113,9 +113,11 @@ Engine: [sing-box-lx](https://github.com/Leadaxe/sing-box-lx) (bundled, with its
 
 Import from file, clipboard, QR code, subscription link, local discovery or manual entry. Subscription refresh is manual. JSON / YAML import extracts supported share links; it does not convert arbitrary native client configurations.
 
-On Windows `0.4.1-rc.3`, public discovery starts when you open the public-server section or explicitly refresh/check it; no catalog probes run just because the app starts or on a periodic schedule. Opening a catalogue with no fresh results starts one bounded search. An unverified or stale candidate receives an individual check before use, including while the main VPN is running. Android `0.5.0-rc.4` has a separate catalogue flow: new public-node probes still require VPN OFF. On both platforms, public nodes remain a separate source and never join Auto silently. Those nodes are run by third parties, not Waarp; their operators may log traffic that is not end-to-end encrypted. Sources: [docs/SOURCES.md](docs/SOURCES.md).
+On Windows `0.4.1-rc.4`, public discovery starts when you open the public-server section or explicitly refresh/check it; no catalog probes run just because the app starts or on a periodic schedule. Opening a catalogue with no fresh results starts one bounded search. An unverified or stale candidate receives an individual check before use, including while the main VPN is running. Android `0.5.0-rc.5` has a separate catalogue flow: new public-node probes still require VPN OFF. On both platforms, public nodes remain a separate source and never join Auto silently. Those nodes are run by third parties, not Waarp; their operators may log traffic that is not end-to-end encrypted. Sources: [docs/SOURCES.md](docs/SOURCES.md).
 
 ## Screenshots
+
+[Current r5 gallery: Windows map and diagnostics, Android map at normal and 150% text](docs/screenshots/preview-r5/README.md). Every image has its source commit and capture provenance.
 
 ### Windows · server selection
 

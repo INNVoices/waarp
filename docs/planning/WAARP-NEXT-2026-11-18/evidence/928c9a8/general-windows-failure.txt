@@ -1,0 +1,7 @@
+2026-11-18T13:47:54.3372427Z AssertionError [ERR_ASSERTION]: 100 renderer cycles exceed the predeclared 90 s budget
+2026-11-18T13:47:54.3375458Z     at rendererStability (file:///D:/a/waarp/waarp/test/ui.browser.mjs:357:14)
+2026-11-18T13:47:54.4423346Z ##[error]Process completed with exit code 1.
+2026-11-18T13:47:59.8494574Z CONTINUITY_NATIVE soft passed
+2026-11-18T13:47:59.9706075Z CONTINUITY_NATIVE strict passed
+2026-11-18T13:48:06.1592481Z ##[error]Failed to CreateArtifact: Artifact storage quota has been hit. Unable to upload any new artifacts. Usage is recalculated every 6-12 hours.
+2026-11-18T13:48:06.9041489Z ##[error]Failed to CreateArtifact: Artifact storage quota has been hit. Unable to upload any new artifacts. Usage is recalculated every 6-12 hours.

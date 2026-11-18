@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "928c9a8e3cd0a83a41ebfa15c2628ddb610ea157",
+  "runId": 44316534397,
+  "jobId": 134844018930,
+  "url": "https://github.com/INNVoices/waarp/actions/runs/44316534397/job/134844018930",
+  "overall": "failure",
+  "scope": "Derived status from the Actions API plus exact selected job-log lines. The separate preview run is reported independently.",
+  "uiFailure": "100 renderer cycles exceeded the unchanged 90 s wall-clock budget. Exact failure timing/memory report is absent; root cause not established.",
+  "steps": [
+    {
+      "number": 1,
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 2,
+      "name": "Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 3,
+      "name": "Check local APK builder with Windows PowerShell",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 4,
+      "name": "Run actions/setup-node@v4",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 5,
+      "name": "Run npm ci --no-audit --no-fund",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 6,
+      "name": "Run npm run typecheck",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 7,
+      "name": "Run npm test",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 8,
+      "name": "Run npm run check",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 9,
+      "name": "Check configuration compiler performance",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 10,
+      "name": "Run npm run build",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 11,
+      "name": "Install browser for UI regressions",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 12,
+      "name": "Verify production UI and recovery controls",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "number": 13,
+      "name": "Fetch and verify pinned Windows engine",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 14,
+      "name": "Verify actual TCP and UDP selector continuity on the pinned core",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 15,
+      "name": "Validate live card slot configs with the pinned engine",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 16,
+      "name": "Validate Hysteria2 import with the pinned engine",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 17,
+      "name": "Validate AmneziaWG 3 import with the pinned engine",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 18,
+      "name": "Validate MASQUE modes with the pinned engine",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 19,
+      "name": "Verify route changes preserve the native process and unrelated TCP stream",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 20,
+      "name": "Verify 50 native TUN lifecycle cycles",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 21,
+      "name": "Build portable Windows package",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 22,
+      "name": "Verify packaged runtime and engine checksums",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 23,
+      "name": "Retain feature previews and native evidence in the job log",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 24,
+      "name": "Retain UI evidence",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "number": 25,
+      "name": "Retain native and performance evidence",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "number": 26,
+      "name": "Retain portable build",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 51,
+      "name": "Post Run actions/setup-node@v4",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "number": 52,
+      "name": "Post Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "number": 53,
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ]
+}

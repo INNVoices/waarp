@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "928c9a8e3cd0a83a41ebfa15c2628ddb610ea157",
+  "release": {
+    "id": 450043418,
+    "tag_name": "preview-2026-11-18-r5",
+    "target_commitish": "928c9a8e3cd0a83a41ebfa15c2628ddb610ea157",
+    "draft": false,
+    "prerelease": true,
+    "html_url": "https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r5",
+    "published_at": "2026-11-18T14:07:39Z",
+    "assets": [
+      {
+        "id": 763637911,
+        "name": "android-artifacts.json",
+        "size": 1731,
+        "state": "uploaded",
+        "digest": "sha256:e2ba013fddf9f9dcd52887b871e481d71c50cf61b498cf3e5e7f3ade52edf76b",
+        "browser_download_url": "https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/android-artifacts.json"
+      },
+      {
+        "id": 763616114,
+        "name": "package-integrity-windows.json",
+        "size": 411,
+        "state": "uploaded",
+        "digest": "sha256:2512ec15cbbba3587a9595c979f201a97329431648ec2e40dd24e75606c46e2e",
+        "browser_download_url": "https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/package-integrity-windows.json"
+      },
+      {
+        "id": 763637917,
+        "name": "SHA256SUMS-android-debug.txt",
+        "size": 332,
+        "state": "uploaded",
+        "digest": "sha256:462c5a22d2d42b89892d8fd161b502807f77bff76c7134a4b7f3ef97e4c7f339",
+        "browser_download_url": "https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/SHA256SUMS-android-debug.txt"
+      },
+      {
+        "id": 763616120,
+        "name": "SHA256SUMS-windows.txt",
+        "size": 96,
+        "state": "uploaded",
+        "digest": "sha256:80b093952ffe10b03485845d93d15d40fe05b59fd2aebae96d20377bd27fa46a",
+        "browser_download_url": "https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/SHA256SUMS-windows.txt"
+      },
+      {
+        "id": 763616115,
+        "name": "sing-box-lx-1.14.2-lx.11-src.tar.gz",
+        "size": 8889848,
+        "state": "uploaded",
+        "digest": "sha256:cfe0234e422a61d5ace36798e76b2466e6773565745c493925fd14aafbfb615c",
+        "browser_download_url": "https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/sing-box-lx-1.14.2-lx.11-src.tar.gz"
+      },
+      {
+        "id": 763616117,
+        "name": "Waarp-0.4.1-rc.4-portable.exe",
+        "size": 130519805,
+        "state": "uploaded",
+        "digest": "sha256:bbf2f88208f45ae0cd4503588006e75ae0f40ce1c7b1c292bb74229e3fb7dd96",
+        "browser_download_url": "https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/Waarp-0.4.1-rc.4-portable.exe"
+      },
+      {
+        "id": 763637913,
+        "name": "waarp-android-0.5.0-rc.5-arm64-v8a-debug.apk",
+        "size": 162590779,
+        "state": "uploaded",
+        "digest": "sha256:f8584c314e72c2510974abcd2b977a82532d8717203970d974255318877c0a93",
+        "browser_download_url": "https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-arm64-v8a-debug.apk"
+      },
+      {
+        "id": 763637918,
+        "name": "waarp-android-0.5.0-rc.5-armeabi-v7a-debug.apk",
+        "size": 151149177,
+        "state": "uploaded",
+        "digest": "sha256:ca5ef46b87c2e5f53b329018a0280763256ec07d57501cc05d556535ab97f981",
+        "browser_download_url": "https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-armeabi-v7a-debug.apk"
+      },
+      {
+        "id": 763637908,
+        "name": "waarp-android-0.5.0-rc.5-x86_64-debug.apk",
+        "size": 167755970,
+        "state": "uploaded",
+        "digest": "sha256:1907d4242bf01543327a30926ac4c375a662ab871284d52e5381c1d8431dff31",
+        "browser_download_url": "https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-x86_64-debug.apk"
+      }
+    ]
+  },
+  "tagCommit": "928c9a8e3cd0a83a41ebfa15c2628ddb610ea157",
+  "run": {
+    "id": 44316534164,
+    "head_sha": "928c9a8e3cd0a83a41ebfa15c2628ddb610ea157",
+    "status": "completed",
+    "conclusion": "success",
+    "html_url": "https://github.com/INNVoices/waarp/actions/runs/44316534164",
+    "created_at": "2026-11-18T13:43:00Z",
+    "updated_at": "2026-11-18T14:07:43Z"
+  },
+  "jobs": [
+    {
+      "id": 134844084052,
+      "name": "Native route preflight on Windows",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 134844797736,
+      "name": "prepare",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 134844904516,
+      "name": "Validate + upload Windows portable",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 134844904814,
+      "name": "Validate + upload Android debug APKs",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 134858954526,
+      "name": "Publish preview only after both platform gates pass",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "android": {
+    "jvmTests": 204,
+    "nativeTests": 5,
+    "galleryTests": 4
+  },
+  "generalRuns": {
+    "windows": 44316534397,
+    "android": 44316534124
+  },
+  "audit": {
+    "jobId": 134844018010,
+    "runId": 44316534397,
+    "sourceCommit": "928c9a8e3cd0a83a41ebfa15c2628ddb610ea157",
+    "conclusion": "failure"
+  },
+  "visualReview": {
+    "sourceCommit": "928c9a8e3cd0a83a41ebfa15c2628ddb610ea157",
+    "windows": true,
+    "androidNormal": true,
+    "android150": true
+  }
+}
