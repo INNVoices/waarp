@@ -9,6 +9,7 @@ import { basename, join } from 'node:path'
 import { networkInterfaces } from 'node:os'
 import type { Notice, Profile, Snapshot, Status } from '../shared/types'
 import { compilePlan, requiresCore } from '../shared/plan'
+import { profileCountry } from '../shared/atlas'
 import { sameEffectiveRouting } from '../shared/routing-edit'
 import { ConfError, createWireGuardProfile, parseConf, usedProfiles, validateCustom, withoutAuto } from './awg'
 import { fetchSubscription, isSubscriptionUrl, looksLikeVless, type PinnedHttpGet } from './vless'
@@ -57,6 +58,7 @@ import { activeIds, diagnosisSet, learn, type NetMemory } from '../shared/netmem
 import { loadMem, saveMem } from './netmem-store'
 import { networkFingerprint } from './netid'
 import { DiagnosisRequests, diagnosisCurrent, diagnosisPaths, diagnosisProof, diagnosisRequestScope, diagnosisSettings, type DiagnosisProof } from './diagnosis'
+import { diagnosisTarget } from './diagnosis-target'
 import { assessConnection, connectionUse, summarizeChecks, summarizedPaths, type DiagnosisResult, type DiagnosisScope } from '../shared/connection-quality'
 import { checkPayload, verifyDownload } from './payload-check'
 import { proxyRequest, transferUrl } from './proxy-http'
@@ -80,6 +82,7 @@ let win: BrowserWindow | undefined
 let showPending = false
 let checker: Checker | undefined
 let catalog: Catalog | undefined
+const catalogAutoRequests = new Map<string, symbol>()
 let discovery: Discovery | undefined
 let discoveryBusy = false
 let tray: Tray | undefined
@@ -470,7 +473,7 @@ function ipc() {
     // A legacy catalog id can survive a lost cache or reordered source. Never retarget its saved profile.
     const copyId = store.profiles.some(x => x.id === p.id) ? 'pub-' + createHash('sha256').update(key).digest('hex').slice(0, 20) : p.id
     if (store.profiles.some(x => x.id === copyId)) return undefined
-    const copy = { ...p, id: copyId, source: 'public' } as Profile
+    const copy = { ...p, id: copyId, source: 'public', country: profileCountry(p) } as Profile
     store.profiles.push(copy); return copy.id
   }
   const addProfiles = (fresh: Profile[]): boolean => {
@@ -482,6 +485,21 @@ function ipc() {
   }
   secureHandle('catalog:get', () => { checkCatalogLink(); return catalog?.state })
   secureHandle('catalog:page', (_e, query: unknown) => { checkCatalogLink(); return catalog?.page(query) })
+  secureHandle('catalog:auto', async (_e, raw: unknown) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return catalog?.state
+    const input = raw as Record<string, unknown>
+    if (typeof input.owner !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(input.owner) || typeof input.active !== 'boolean') return catalog?.state
+    if (!input.active) { catalogAutoRequests.delete(input.owner); return catalog?.automatic(input.owner, false) }
+    if (!Array.isArray(input.ids) || input.ids.length > 100 || !input.ids.every(id => typeof id === 'string' && /^pub-[0-9a-f]{20}$/.test(id))) return catalog?.state
+    if (!engineIntegrity || !runtimeRecovery.ready) return { ...catalog?.state, error: 'Проверка станет доступна после восстановления движка Waarp.' }
+    if (!['on', 'off'].includes(engine.status.phase)) return catalog?.state
+    const request = Symbol('catalog surface')
+    catalogAutoRequests.set(input.owner, request)
+    if (catalogAutoRequests.size > 100) catalogAutoRequests.delete(catalogAutoRequests.keys().next().value!)
+    await refreshCatalogNetwork()
+    if (catalogAutoRequests.get(input.owner) !== request || quitting) return catalog?.state
+    return catalog?.automatic(input.owner, true, input.ids as string[])
+  })
   secureHandle('discover:scan', async () => {
     if (!discovery || discoveryBusy) return { ok: false, error: 'Поиск уже идёт' }
     discoveryBusy = true
@@ -570,7 +588,7 @@ function ipc() {
     if (master.revision !== revision || engine.status.phase !== phase) return { ok: false, error: 'Состояние подключения изменилось. Повтори подбор группы.' }
     const previousProfiles = store.profiles.slice(), previousSettings = store.settings
     const top = [...new Set((catalog?.bestReady(5) ?? []).map(n => addPublic(n.id)).filter((x): x is string => !!x))]
-    if (!top.length) return { ok: false, error: 'Рабочие серверы пока не найдены. Нажми «Проверить пул» или выбери сервер для проверки.' }
+    if (!top.length) return { ok: false, error: 'Рабочие серверы пока не найдены. Открой публичные серверы — проверка продолжится автоматически.' }
     const existing = store.settings.groups.find(g => g.id.startsWith('g-public') && g.policy === 'fastest' && g.members.length === top.length && g.members.every((id, i) => id === top[i]))
     if (existing) return { ok: true, id: existing.id }
     if (store.settings.groups.length >= 50) { store.profiles = previousProfiles; return { ok: false, error: 'Достигнут предел в 50 групп. Удали ненужную группу перед добавлением.' } }
@@ -943,7 +961,8 @@ function ipc() {
     const parsed = target ? parseProbe(target) : undefined
     if (!target || !parsed) return null
     if (routeId !== undefined && (typeof routeId !== 'string' || routeId.length > 400)) return null
-    const route = routeId === undefined ? undefined : store.settings.routes.find(r => r.id === routeId)
+    const targetPath = diagnosisTarget(parsed.host, store.settings)
+    const route = routeId === undefined ? targetPath.route : store.settings.routes.find(r => r.id === routeId)
     if (routeId !== undefined && !route) return null
     const context = diagnosisContext(route?.id), deadline = Date.now() + DIAGNOSE_MS
     const requestScope = diagnosisRequestScope(parsed.url, context, store.profiles, route)
@@ -966,7 +985,8 @@ function ipc() {
       try {
         const st = withRoutes(engine.status)
         const selected = route?.via
-        const effective = route ? st.routes?.[route.id]?.effective ?? st.picked?.[route.via] ?? (!route.via.startsWith('g-') ? route.via : undefined) : undefined
+        const effective = route ? st.routes?.[route.id]?.effective ?? st.picked?.[route.via] ?? (!route.via.startsWith('g-') ? route.via : undefined)
+          : targetPath.via === 'direct' ? 'direct' : st.routes?.['*rest']?.effective ?? st.picked?.[targetPath.via] ?? (!targetPath.via.startsWith('g-') ? targetPath.via : undefined)
         const scope: DiagnosisScope | undefined = route ? { routeId: route.id, routeName: route.name, connectionUse: connectionUse(route.connectionUse), selectedVia: selected!, effectiveVia: effective } : undefined
         const used = activeIds(compilePlan(store.settings, store.profiles).requiredProfiles, st.picked, Object.values(st.routes ?? {}).map(e => e.effective), new Set(store.profiles.map(p => p.id)))
         const host = parsed.host
@@ -1005,18 +1025,18 @@ function ipc() {
         const samples = summarizeChecks(observations)
         const paths = Object.fromEntries(Object.entries(summarizedPaths(samples)).filter(([id]) => id !== 'direct'))
         const finding = classify(direct, paths)
-        const assessment = scope ? assessConnection(scope.connectionUse, effective, samples, eligible.filter(id => id !== 'direct')) : undefined
+        const assessment = scope || effective !== undefined ? assessConnection(scope?.connectionUse ?? 'general', effective, samples, eligible.filter(id => id !== 'direct')) : undefined
         const latestNet = await networkFingerprint(netMem.salt, ac.signal)
         const stale = !current() || latestNet !== net || checked.some(p => signatures.get(p.id) !== profileSig(store.profiles.find(x => x.id === p.id) ?? p) || !store.profiles.some(x => x.id === p.id && !x.revoked))
         const at = Date.now()
         // The layer trace uses system sockets. With our TUN up it cannot independently prove Direct restrictions.
         if (net && !stale && engine.status.phase === 'off' && !master.open) { netMem.data = learn(netMem.data, net, host, finding, autoMembers(store.profiles), at); saveNetMem() }
         const stable = Object.fromEntries(Object.entries(paths).filter(([id]) => samples[id]?.attempted >= 2 && samples[id].responded === samples[id].attempted))
-        const allowed = scope ? (assessment?.recommendedVia ? { [assessment.recommendedVia]: stable[assessment.recommendedVia] } : {}) : stable
-        const proof = !stale && (scope ? !!assessment?.recommendedVia : finding.kind === 'restricted_direct' || finding.kind === 'path_only')
+        const allowed = assessment ? (assessment.recommendedVia ? { [assessment.recommendedVia]: stable[assessment.recommendedVia] } : {}) : stable
+        const proof = !stale && (assessment ? !!assessment.recommendedVia : finding.kind === 'restricted_direct' || finding.kind === 'path_only')
           ? diagnosisProof(host, allowed, checked, net, at, context, route) : undefined
         if (run === diagnoseRun) lastDiagnosis = proof
-        return { target: parsed.shown, host, direct, paths, finding, at, stale, token: proof?.token, samples, scope, assessment, systemPath: true }
+        return { target: parsed.shown, host, direct, paths, finding, at, stale, token: proof?.token, samples, scope, assessment, currentVia: effective, systemPath: true }
       } finally {
         clearTimeout(timer)
         stopOwned()
@@ -1368,7 +1388,7 @@ app.whenReady().then(async () => {
   catalog = new Catalog(join(app.getPath('userData'), 'catalog'), engineExe, s => send('catalog', s),
     () => engineIntegrity && runtimeRecovery.ready && !quitting && ['on', 'off'].includes(engine.status.phase) && catalogLinkCurrent(), fetchPublicCatalog)
   discovery = new Discovery()
-  // The public server picker explicitly starts a bounded verification round.
+  // An open public-server surface renews a bounded automatic-check lease.
   // Its checker owns no TUN and cannot change application routing.
   // Showing the shell must not wait for PowerShell, orphan recovery, or network-related cleanup.
   // Those checks finish immediately after first paint and update the same snapshot.
@@ -1463,7 +1483,7 @@ app.whenReady().then(async () => {
   powerMonitor.on('suspend', () => { resetCatalogNetwork(); sleepWake.suspend() })
   powerMonitor.on('resume', () => { resetCatalogNetwork(); sleepWake.resume() })
   const watchTimer = setInterval(watch, 15000); watchTimer.unref()
-  // Read-only network context checks. No background public-node traffic.
+  // Read-only network context checks; public probing requires a live UI lease.
   const catalogNetworkTimer = setInterval(() => void refreshCatalogNetwork().catch(() => undefined), 15000); catalogNetworkTimer.unref()
   // tunnel off: bounded rotating checks plus a public resolver, so the analyzer stays useful without a probe storm
   const offHealth = new Health()
@@ -1645,8 +1665,9 @@ async function withServiceTransport<T>(work: (transport: PinnedHttpGet | undefin
 }
 const diagnosisContext = (routeId?: string) => {
   const route = routeId ? store.settings.routes.find(r => r.id === routeId) : undefined
-  const st = route ? withRoutes(engine.status) : undefined
-  const effective = route ? st?.routes?.[route.id]?.effective ?? st?.picked?.[route.via] ?? (!route.via.startsWith('g-') ? route.via : undefined) : undefined
+  const st = withRoutes(engine.status)
+  const via = route?.via ?? store.settings.rest
+  const effective = st.routes?.[route?.id ?? '*rest']?.effective ?? st.picked?.[via] ?? (!via.startsWith('g-') ? via : undefined)
   return JSON.stringify([master.revision, diagnosisRequests.sessionKey(engine.sessionToken), engine.status.phase, engine.status.since, tunes, effective])
 }
 function cancelDiagnosis(): Promise<boolean> { return diagnosisRequests.cancel() }

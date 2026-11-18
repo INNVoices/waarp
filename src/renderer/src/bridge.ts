@@ -166,12 +166,13 @@ function mock(): Api {
     },
     catalogRefresh: async () => catalogState(),
     catalogVerify: async () => catalogState(),
+    catalogAuto: async (_request: { owner: string; active: boolean; ids: string[] }) => catalogState(),
     catalogAdd: async (id: string) => {
       const node = publicNodes.find(item => item.id === id)
       if (!node) return { ok: false }
       await new Promise(resolve => setTimeout(resolve, 500))
       node.status = 'ready'; node.ping = 61; node.checkedAt = Date.now()
-      if (!profiles.some(profile => profile.id === id)) profiles = [...profiles, { id, kind: 'vless', name: node.name, host: node.host, port: node.port, address: [], version: node.proto, source: 'public' }]
+      if (!profiles.some(profile => profile.id === id)) profiles = [...profiles, { id, kind: 'vless', name: node.name, country: node.country, host: node.host, port: node.port, address: [], version: node.proto, source: 'public' }]
       emit('catalog', catalogState()); emit('snapshot', snap())
       return { ok: true, id }
     },

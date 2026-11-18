@@ -1,6 +1,6 @@
 // Endpoint admission/pinning only; resolvers are fixtures and no native core runs.
 import type { OpenVpnProfile, Profile } from '../src/shared/types'
-import { preparePublicCandidate, publicCandidateEndpointsAllowed, publicCandidateHasPinnedEndpoints, publicCandidateHostAllowed } from '../src/main/catalog-endpoint'
+import { preparePublicCandidate, preparePublicCandidateResult, publicCandidateEndpointsAllowed, publicCandidateHasPinnedEndpoints, publicCandidateHostAllowed } from '../src/main/catalog-endpoint'
 import { CatalogPool } from '../src/main/catalog-pool'
 import { parseLink } from '../src/main/links'
 import { credentialKey } from '../src/main/discovery'
@@ -62,9 +62,21 @@ const vpn = (hosts: string[], identity = true): OpenVpnProfile => ({
     let lookedUp = false
     for (const type of ['ws', 'grpc', 'h2', 'httpupgrade']) {
       const implicit = parseLink(`trojan://fixture@relay.example:443?type=${type}`)!
-      eq(await preparePublicCandidate(implicit, signal(), async () => { lookedUp = true; return [{ address: '8.8.8.8', family: 4 }] }), undefined, `implicit ${type} authority is skipped instead of guessed`)
+      const prepared = await preparePublicCandidate(implicit, signal(), async () => { lookedUp = true; return [{ address: '8.8.8.8', family: 4 }] })
+      ok(prepared?.kind === 'out', `supported ${type} hostname is checked instead of silently skipped`)
+      if (prepared?.kind === 'out') {
+        const transport = prepared.outbound.transport as any
+        const authority = type === 'ws' ? transport.headers.Host : type === 'h2' ? transport.host[0] : type === 'httpupgrade' ? transport.host : (prepared.outbound.tls as any).server_name
+        eq(authority, type === 'ws' ? 'relay.example:443' : type === 'h2' ? 'www.example.com' : 'relay.example', `${type} retains the pinned engine's original request authority`)
+      }
     }
-    eq(lookedUp, false, 'unsupported implicit identity causes no resolver request or native probe')
+    eq(lookedUp, true, 'supported transport defaults now allow safe DNS and probing')
+    const xhttp = parseLink('vless://00000000-0000-4000-8000-000000000001@relay.example:443?security=tls&type=xhttp&sni=tls.example')!
+    const pinnedXhttp = await preparePublicCandidate(xhttp, signal(), async () => [{ address: '2606:4700:4700::1111', family: 6 }, { address: '8.8.8.8', family: 4 }])
+    ok(pinnedXhttp?.kind === 'vless' && pinnedXhttp.vless.server === '8.8.8.8' && pinnedXhttp.vless.host === 'tls.example', 'XHTTP keeps TLS authority and prefers checked IPv4 over an unusable first AAAA')
+    const plainGrpc = parseLink('vless://00000000-0000-4000-8000-000000000001@relay.example:443?security=none&type=grpc')!
+    eq((await preparePublicCandidateResult(plainGrpc, signal(), async () => [{ address: '8.8.8.8', family: 4 }])).problem, 'unsupported', 'unsupported plaintext gRPC authority remains explicit, never silently changed')
+    eq((await preparePublicCandidateResult(xhttp, signal(), async () => { throw new Error('fixture DNS unavailable') })).problem, 'dns', 'a DNS preparation failure is distinct from an unreachable relay')
   }
   {
     const input = vpn(['first.example', 'second.example'])

@@ -59,6 +59,7 @@ export interface OpenVpnProfile {
   endpoint: Record<string, unknown>
   addedAt: number
   source?: 'personal' | 'public' | 'managed'
+  country?: string
   revoked?: boolean
 }
 

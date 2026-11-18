@@ -160,12 +160,14 @@ export class CatalogPool {
 
   /** Reserve part of each round for useful history; the persisted cursor walks
    * the rest even when the first hundreds of upstream entries all fail. */
-  plan(limit = 64): PublicProfile[] {
+  plan(limit = 64, options: { exclude?: ReadonlySet<string>; staleOnly?: boolean } = {}): PublicProfile[] {
     const budget = cap(limit, 64), now = this.now(), entries = this.all()
     if (!budget || !entries.length) return []
     const selected: CatalogEntry[] = []
     const selectedIds = new Set<string>()
-    const known = entries.filter(entry => entry.lastSuccessAt !== undefined && this.eligible(entry, now))
+    const eligible = (entry: CatalogEntry) => !options.exclude?.has(entry.profile.id) && this.eligible(entry, now) &&
+      (!options.staleOnly || !this.ready(entry, now))
+    const known = entries.filter(entry => entry.lastSuccessAt !== undefined && eligible(entry))
       .sort((a, b) => (latest(a)?.at ?? 0) - (latest(b)?.at ?? 0))
       .slice(0, Math.min(24, Math.floor(budget * 3 / 8)))
     for (const entry of known) { selected.push(entry); selectedIds.add(entry.profile.id) }
@@ -175,7 +177,7 @@ export class CatalogPool {
       const entry = entries[this.cursor]
       this.cursor = (this.cursor + 1) % entries.length
       scanned++
-      if (selectedIds.has(entry.profile.id) || !this.eligible(entry, now)) continue
+      if (selectedIds.has(entry.profile.id) || !eligible(entry)) continue
       selected.push(entry); selectedIds.add(entry.profile.id)
     }
     return selected.map(entry => structuredClone(entry.profile))

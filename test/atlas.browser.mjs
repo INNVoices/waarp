@@ -12,12 +12,15 @@ const actionCalls = page => page.evaluate(() => {
 const mapReady = page => page.locator('.atlas-canvas[data-map-ready="true"]').waitFor()
 const worldPoint = (anchor, size) => {
   const mercatorY = latitude => (1 - Math.log(Math.tan(Math.PI / 4 + latitude * Math.PI / 360)) / Math.PI) / 2
-  // With renderWorldCopies=false, MapLibre constrains the camera to one world:
-  // a wider viewport raises the zoom and clamps the requested [15, 25] center.
-  const world = Math.max(512 * 2 ** .65, size.width, size.height)
+  // The application fits the local world bounds with 24px padding. MapLibre's
+  // one-world constraint can raise the resulting zoom to fill the viewport.
+  const minX = (-170 + 180) / 360, maxX = 1
+  const minY = mercatorY(76), maxY = mercatorY(-55)
+  const fittedWorld = Math.min((size.width - 48) / (maxX - minX), (size.height - 48) / (maxY - minY))
+  const world = Math.max(512, fittedWorld, size.width, size.height)
   const clamp = (value, half) => Math.max(half, Math.min(1 - half, value))
-  const centerX = clamp((15 + 180) / 360, size.width / world / 2)
-  const centerY = clamp(mercatorY(25), size.height / world / 2)
+  const centerX = clamp((minX + maxX) / 2, size.width / world / 2)
+  const centerY = clamp((minY + maxY) / 2, size.height / world / 2)
   return { x: size.width / 2 + ((anchor.longitude + 180) / 360 - centerX) * world,
     y: size.height / 2 + (mercatorY(anchor.latitude) - centerY) * world }
 }
@@ -160,7 +163,8 @@ export async function runAtlasChecks({ browser, url, fileUrl, screenshotDir, fix
     await page.getByRole('combobox', { name: strings['atlas.region.filter'], exact: true }).selectOption('??')
     await rows.filter({ hasText: 'Public server 256' }).waitFor()
     assert.equal(await rows.count(), 1, 'unknown-country rows beyond the old preview remain available')
-    assert.deepEqual(await actionCalls(page), before, 'list/map/filter changes add no scans, route calls or toggle calls')
+    assert.deepEqual(await actionCalls(page), before, 'list/map/filter changes do not import, save routes or toggle the VPN')
+    await page.waitForFunction(() => window.__waarpTest.state.lastPublicAutoIds.includes('pool-256'))
     assert.deepEqual(external, [])
     await capture(page, 'atlas-public-full-pool-unknown.png')
     await page.context().close()
@@ -181,6 +185,37 @@ export async function runAtlasChecks({ browser, url, fileUrl, screenshotDir, fix
     await capture(page, 'atlas-fallback-list.png')
     await page.context().close()
     console.log('PASS  Atlas unavailable WebGL preserves the selectable list and filters')
+  }
+  {
+    const { page } = await make()
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.evaluate(() => {
+      const f = window.__waarpTest
+      f.state.profiles = [
+        { ...f.state.profiles[0], name: 'DE Germany, Frankfurt am Main', country: undefined, source: 'public' },
+        { ...f.state.profiles[1], name: 'MY Malaysia, Kuala Lumpur', country: undefined, source: 'public' },
+        f.state.profiles[2]
+      ]
+      f.state.status.pings = { a: 83 }; f.push()
+    })
+    await page.getByRole('button', { name: strings['nav.servers'], exact: true }).click()
+    await page.locator('.atlas-connections-toolbar').getByRole('button', { name: strings['atlas.view.map'], exact: true }).click()
+    await mapReady(page)
+    const map = await page.locator('.atlas-map-frame').boundingBox()
+    assert.ok(map && map.height >= 540 && map.width / map.height < 3, 'desktop map uses the available height instead of a 340px strip')
+    const regions = page.getByRole('combobox', { name: strings['atlas.region.filter'], exact: true })
+    assert.equal(await regions.locator('option[value="DE"]').count(), 1, 'legacy public Germany name restores its region without editing')
+    assert.equal(await regions.locator('option[value="MY"]').count(), 1, 'Malaysia source name restores its valid region')
+    assert.ok((await regions.locator('option[value="??"]').innerText()).includes('1'), 'unlabelled private profile keeps an honest unknown region')
+    await page.getByRole('combobox', { name: strings['atlas.device.region'], exact: true }).selectOption('FR')
+    await capture(page, 'atlas-saved-desktop-1920.png')
+    await page.locator('.atlas-connections-toolbar').getByRole('button', { name: strings['server.public'], exact: true }).click()
+    await mapReady(page)
+    await page.locator('.atlas-summary').getByText(strings['atlas.summary.ready'], { exact: true }).waitFor()
+    assert.ok((await page.locator('.atlas-total').innerText()).includes('257'))
+    await capture(page, 'atlas-public-desktop-1920.png')
+    await page.context().close()
+    console.log('PASS  Atlas 1920px height, legacy DE/MY source names, unknown truth and live region summary')
   }
   assert.deepEqual(errors, [], 'Atlas has no unhandled renderer errors')
 }

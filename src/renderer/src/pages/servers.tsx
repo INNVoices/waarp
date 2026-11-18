@@ -13,7 +13,7 @@ import { GroupDialog } from './groupdlg'
 import { useDev } from '../lib/dev'
 import { profileOf } from '../lib/routes'
 import { PublicCatalog } from './publiccat'
-import { atlasCountry, profileAtlas } from '../../../shared/atlas'
+import { profileAtlas, profileCountry } from '../../../shared/atlas'
 import { Atlas, atlasCountryName } from '../ui/atlas'
 import { AtlasViewSwitch, useAtlasView } from '../ui/atlas-view'
 
@@ -45,11 +45,14 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
   const st = snap.settings
   const own = snap.profiles.filter(p => p.kind !== 'group')
   const matchedOwn = query.trim() ? own.filter(p => `${p.name} ${p.host} ${p.version}`.toLowerCase().includes(query.trim().toLowerCase())) : own
-  const filteredOwn = matchedOwn.filter(profile => !country || atlasCountry(profile.country) === country)
+  const filteredOwn = matchedOwn.filter(profile => !country || profileCountry(profile) === country)
   const showOwn = view === 'list' || mapSource === 'saved'
   const showPublic = view === 'list' || mapSource === 'public'
   const available = own.filter(p => !p.revoked)
   const groups = snap.profiles.filter(p => p.kind === 'group')
+  const activePaths = live ? [...new Set(Object.values(status.routes ?? {}).map(route => route.effective))] : []
+  const activeProfiles = own.filter(profile => activePaths.includes(profile.id))
+  const mapRoute = activeProfiles.length === 1 ? { active: { name: activeProfiles[0].name, country: profileCountry(activeProfiles[0]) } } : undefined
   const uses = (id: string) => st.routes.filter(r => r.via === id).length + (st.rest === id ? 1 : 0)
   const nameOf = (id: string) => profileOf(snap.profiles, id)?.name ?? s('via.gone')
   const rename = async (p: ProfileView) => {
@@ -171,7 +174,7 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
 
       <div className="atlas-connection-section" hidden={!showOwn}>
       <div className="sec-head"><h2>{s('srv.mine')}</h2><span className="m">{own.length}</span><div className="grow" />{(own.length > 24 || view === 'map') && <Input className="inp srv-search" value={query} placeholder={s('srv.search')} onChange={e => { setQuery(e.target.value); setVisibleOwn(24) }} />}</div>
-      {view === 'map' && showOwn && <Atlas projection={profileAtlas(matchedOwn, status)} country={country} onCountry={next => { setCountry(next); setVisibleOwn(24) }} onList={() => setView('list')} />}
+      {view === 'map' && showOwn && <Atlas projection={profileAtlas(matchedOwn, status)} country={country} onCountry={next => { setCountry(next); setVisibleOwn(24) }} onList={() => setView('list')} route={mapRoute} />}
       {view === 'list' && country && <div className="atlas-list-filter"><span>{s('atlas.filtered', { country: atlasCountryName(country) })}</span><Btn sm kind="ghost" onClick={() => { setCountry(''); setVisibleOwn(24) }}><Icon n="x" s={13} />{s('atlas.region.reset')}</Btn></div>}
       {!own.length && (
         <div className="panel emptyst"><Icon n="server" s={24} /><span>{s('srv.empty')}</span><Btn kind="primary" onClick={() => setAdding(true)}><Icon n="plus" />{s('srv.add')}</Btn></div>
@@ -188,7 +191,7 @@ export function Servers({ snap, status, patch, toast }: { snap: Snapshot; status
               <div className="grow" />
             </div>
             {/* name -> protocol -> live state; raw endpoint fields only under Подробнее (GPT 440a5c3) */}
-            <div className="srv-proto">{p.version || s('srv.kind.' + p.kind)}</div>
+            <div className="srv-proto">{p.version || s('srv.kind.' + p.kind)}{profileCountry(p) !== '??' && <span className="srv-region">{atlasCountryName(profileCountry(p))}</span>}</div>
             <div className="srv-state">{ping(p)}</div>
             <details className="srv-adv"><summary>{s('srv.adv')}</summary><div className="kv mono">
               <span className="m">{s('srv.host')}</span><span className="selectable ell">{`${p.host}:${p.port}`}</span>

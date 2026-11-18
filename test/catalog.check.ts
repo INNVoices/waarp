@@ -28,7 +28,7 @@ const original = { ensure: Checker.prototype.ensure, pings: Checker.prototype.pi
 const profiles = new WeakMap<Checker, Profile[]>()
 let fetched = 0, ensured = 0, stopped = 0, clock = 0
 let read: (sources: string[], signal: AbortSignal) => Promise<CatalogSourceText[]>
-let ensure: () => Promise<boolean>
+let ensure: (profiles: Profile[]) => Promise<boolean>
 let ping: (profiles: Profile[]) => Promise<Record<string, number | undefined>>
 let stop: () => Promise<boolean>
 const reset = () => {
@@ -50,7 +50,7 @@ const make = (allowed: () => boolean = () => true, existing?: string) => {
 }
 
 ;(async () => {
-  Checker.prototype.ensure = async function (current) { ensured++; profiles.set(this, current); return ensure() }
+  Checker.prototype.ensure = async function (current) { ensured++; profiles.set(this, current); return ensure(current) }
   Checker.prototype.pings = async function () { return ping(profiles.get(this) ?? []) }
   Checker.prototype.stop = async function () { stopped++; return stop() }
   try {
@@ -359,6 +359,47 @@ const make = (allowed: () => boolean = () => true, existing?: string) => {
       ok(updates.some(state => state.busy && state.checked === 8 && state.readyCount === 8), 'working first batch is visible before the whole pool round finishes')
       await catalog.pause(); await checking
       eq(catalog.state.readyCount, 8, 'cancelling the remaining round retains already cleaned-up real observations')
+    }
+    {
+      reset()
+      const { catalog, updates } = make()
+      read = async sources => sources.map(url => ({ url, body: Array.from({ length: 180 }, (_, index) =>
+        `trojan://fixture-${index}@node-${index}.example:443#Node-${index}`).join('\n') }))
+      await catalog.refresh([source], { probe: false })
+      const target = catalog.page({ query: 'node-179.example' }).items[0]
+      const measured = new Map<string, number>()
+      ping = async current => {
+        current.forEach(profile => measured.set(profile.id, (measured.get(profile.id) ?? 0) + 1))
+        return Object.fromEntries(current.map(profile => [profile.id, 13]))
+      }
+      catalog.automatic('connections', true, [target.id])
+      catalog.automatic('picker', true, [])
+      const until = Date.now() + 3000
+      while (catalog.state.checkedCount < 16 && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 20))
+      ok(catalog.state.checkedCount >= 16, 'automatic scanning progresses beyond its first batch without another user click')
+      eq(measured.get(target.id), 1, 'visible candidate beyond the old preview is prioritized and fresh success is not repeatedly checked')
+      ok(updates.some(state => state.checkingIds.includes(target.id)), 'preparation and native work expose the exact checking row')
+      eq(catalog.state.total, 180, 'automatic verification changes no stored candidate identities or membership')
+      catalog.automatic('connections', false)
+      eq(catalog.state.automatic, true, 'closing one view does not stop the other active view')
+      catalog.automatic('picker', false)
+      await catalog.pause()
+      eq(catalog.state.automatic, false, 'closing the last surface releases its automatic lease')
+    }
+    {
+      reset()
+      const { catalog } = make()
+      read = async sources => sources.map(url => ({ url, body: Array.from({ length: 8 }, (_, index) =>
+        `trojan://fixture-${index}@node-${index}.example:443#Node-${index}`).join('\n') }))
+      const descriptor = Object.getOwnPropertyDescriptor(Checker.prototype, 'lastFailure')!
+      Object.defineProperty(Checker.prototype, 'lastFailure', { configurable: true, get: () => ({ kind: 'configuration', message: 'Fixture configuration rejected' }) })
+      ensure = async current => !current.some(profile => profile.name === 'Node-0')
+      try {
+        await catalog.refresh([source])
+        eq([catalog.state.readyCount, catalog.state.checkedCount, catalog.state.skippedCount, catalog.state.failedCount], [7, 7, 1, 0],
+          'one invalid native outbound is isolated without discarding its seven valid batch neighbours')
+        eq(catalog.page({ query: 'node-0.example' }).items[0]?.status, 'unsupported', 'rejected configuration is distinct from an attempted but unreachable relay')
+      } finally { Object.defineProperty(Checker.prototype, 'lastFailure', descriptor) }
     }
   } finally {
     Checker.prototype.ensure = original.ensure

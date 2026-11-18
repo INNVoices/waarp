@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Route, Snapshot, Status, Via } from '../../../shared/types'
 import { provenPath } from '../../../shared/evidence'
 import { connectionUse, routeEvidenceSignature, suggestedProbeTarget, type DiagnosisResult } from '../../../shared/connection-quality'
+import { diagnosticGuidance } from '../../../shared/diagnostic-guidance'
 import { Btn, Field, Icon, Plain } from '../ui/kit'
 import { s } from '../lib/i18n'
 import { api } from '../bridge'
@@ -12,17 +13,24 @@ import './connection-quality.css'
 
 export function Analyzer({ snap, status, hist, routeId, back }: { snap: Snapshot; status: Status; hist: Record<string, (number | undefined)[]>; routeId?: string; back?: () => void }) {
   const live = status.phase === 'on'
-  const route = routeId ? snap.settings.routes.find(r => r.id === routeId) : undefined
+  const [inspectedId, setInspectedId] = useState<string | undefined>(() => snap.settings.routes.find(item => item.on &&
+    ['blocked', 'retrying', 'fallback'].includes(status.routes?.[item.id]?.state ?? '') && suggestedProbeTarget(item))?.id)
+  const [extras, setExtras] = useState(false)
+  const route = snap.settings.routes.find(r => r.id === (routeId ?? inspectedId))
   const ids: Via[] = ['direct', ...snap.profiles.map(p => p.id)].filter(id => hist[id]?.length)
   return (
-    <div className="page">
+    <div className="page diagnostic-page">
       <div className="page-head">
         {routeId && <Plain className="back" aria-label={s('quality.back')} onClick={back}><Icon n="back" s={20} /></Plain>}
-        <div className="ph-t"><h1>{route ? s('quality.for', { name: route.name }) : s('an.title')}</h1>{route && <span className="m">{s('quality.use.' + connectionUse(route.connectionUse))}</span>}</div>
+        <div className="ph-t"><h1>{routeId && route ? s('quality.for', { name: route.name }) : s('an.title')}</h1><span className="m">{routeId && route ? s('quality.use.' + connectionUse(route.connectionUse)) : s('diag.auto.hint')}</span></div>
       </div>
-      {routeId && !route ? <p className="lead">{s('route.removed')}</p> : <Probe snap={snap} live={live} route={route} />}
-      {!routeId && <PayloadCheck snap={snap} />}
-      {!routeId && <section className="panel">
+      {!routeId && <NetworkContext snap={snap} status={status} inspect={setInspectedId} />}
+      {!routeId && route && <div className="diagnostic-context-choice"><span>{s('quality.for', { name: route.name })}</span><Btn sm kind="ghost" onClick={() => setInspectedId(undefined)}><Icon n="x" s={13} />{s('diag.any.target')}</Btn></div>}
+      {routeId && !route ? <p className="lead">{s('route.removed')}</p> : <Probe key={route?.id ?? 'general'} snap={snap} live={live} route={route} auto={!routeId} runtime={`${status.phase}:${status.since ?? ''}`} />}
+      {!routeId && <details className="diagnostic-extras" onToggle={event => setExtras(event.currentTarget.open)}>
+        <summary><Icon n="pulse" />{s('diag.extra')}<Icon n="chev" s={14} /></summary>
+        <p className="hint">{s('diag.extra.hint')}</p>
+        {extras && <><PayloadCheck snap={snap} /><section className="panel">
         <div className="ph-row"><h3>{s('an.live')}</h3><span className="m">{s('an.live.hint')}</span></div>
         {!live && ids.length > 0 && <p className="hint">{s('an.off_icmp')}</p>}
         {!ids.length ? <div className="emptyst"><Icon n="pulse" s={24} /><span>{s('an.wait')}</span></div> : <>
@@ -42,9 +50,24 @@ export function Analyzer({ snap, status, hist, routeId, back }: { snap: Snapshot
             })}
           </div>
         </>}
-      </section>}
+        </section></>}
+      </details>}
     </div>
   )
+}
+
+function NetworkContext({ snap, status, inspect }: { snap: Snapshot; status: Status; inspect: (id: string) => void }) {
+  const issues = Object.entries(status.routes ?? {}).filter(([, state]) => ['blocked', 'retrying', 'fallback'].includes(state.state))
+  const state = status.phase === 'error' || status.engine === 'down' ? 'error' : status.phase === 'on' ? 'on' : status.phase === 'off' ? 'off' : 'changing'
+  const notices = snap.notices.filter(notice => notice.level === 'block')
+  return <section className={'panel diagnostic-context ' + state} aria-label={s('diag.network')}>
+    <div className="diagnostic-context-head"><Icon n={state === 'error' ? 'warn' : state === 'on' ? 'check' : 'info'} s={18} /><div className="grow"><b>{s('diag.engine.' + state)}</b><p className="hint">{status.error || s('diag.engine.' + state + '.hint')}</p></div><span className="m">{s('diag.routes', { n: snap.settings.routes.filter(route => route.on).length })}</span></div>
+    {!!notices.length && <div className="diagnostic-issues">{notices.map(notice => <p key={notice.title}><b>{notice.title}</b><span>{notice.text}</span></p>)}</div>}
+    {!!issues.length && state === 'on' && <div className="diagnostic-issues">{issues.slice(0, 4).map(([id, effective]) => {
+      const route = snap.settings.routes.find(item => item.id === id)
+      return <div className="diagnostic-issue" key={id}><Icon n={effective.state === 'blocked' ? 'warn' : 'info'} s={15} /><div className="grow"><b>{route?.name ?? s('diag.rest')}</b><span>{s('diag.reason.' + (effective.reason ?? 'waiting'), { v: viaName(snap.profiles, effective.effective ?? effective.desired) })}</span></div>{route && <Btn sm kind="ghost" onClick={() => inspect(id)}>{s('diag.inspect')}</Btn>}</div>
+    })}{issues.length > 4 && <p className="hint">{s('diag.more.issues', { n: issues.length - 4 })}</p>}</div>}
+  </section>
 }
 
 function Chart({ snap, ids, hist }: { snap: Snapshot; ids: Via[]; hist: Record<string, (number | undefined)[]> }) {
@@ -67,7 +90,7 @@ function Chart({ snap, ids, hist }: { snap: Snapshot; ids: Via[]; hist: Record<s
 const FRESH_MS = 5 * 60_000
 
 /** W3.2 "Почему не открывается?": Direct layer by layer, own paths, then one observation line; never a fake cause */
-function Probe({ snap, live, route }: { snap: Snapshot; live: boolean; route?: Route }) {
+function Probe({ snap, live, route, auto = false, runtime }: { snap: Snapshot; live: boolean; route?: Route; auto?: boolean; runtime: string }) {
   const [t, setT] = useState(route ? suggestedProbeTarget(route) : 'youtube.com')
   const [busy, setBusy] = useState(false)
   const [applying, setApplying] = useState(false)
@@ -78,6 +101,8 @@ function Probe({ snap, live, route }: { snap: Snapshot; live: boolean; route?: R
   const runId = useRef(0)
   const signature = route ? routeEvidenceSignature(route) : ''
   const lastSignature = useRef(signature)
+  const lastAuto = useRef('')
+  const lastRuntime = useRef(runtime)
   useEffect(() => {
     if (lastSignature.current === signature) return
     lastSignature.current = signature
@@ -85,9 +110,17 @@ function Probe({ snap, live, route }: { snap: Snapshot; live: boolean; route?: R
     runId.current++; checking.current = false; setBusy(false); setRes(undefined); setNotice('stale')
     void api.diagnoseCancel().catch(() => undefined)
   }, [signature])
+  useEffect(() => {
+    if (lastRuntime.current === runtime) return
+    lastRuntime.current = runtime
+    if (applyingRef.current) return
+    runId.current++; checking.current = false; setBusy(false); setRes(undefined); setNotice(undefined)
+    void api.diagnoseCancel().catch(() => undefined)
+  }, [runtime])
   useEffect(() => () => { runId.current++; checking.current = false; void api.diagnoseCancel().catch(() => undefined) }, [])
   const run = async () => {
     if (!t.trim() || checking.current) return
+    lastAuto.current = `${runtime}:${t.trim()}`
     const id = ++runId.current
     checking.current = true; setBusy(true); setRes(undefined); setNotice(undefined)
     try {
@@ -102,6 +135,13 @@ function Probe({ snap, live, route }: { snap: Snapshot; live: boolean; route?: R
     catch { if (id === runId.current) setRes(null) }
     finally { if (id === runId.current) { checking.current = false; setBusy(false) } }
   }
+  useEffect(() => {
+    if (!auto || !t.trim() || runtime.startsWith('starting:') || runtime.startsWith('stopping:')) return
+    const key = `${runtime}:${t.trim()}`
+    if (lastAuto.current === key) return
+    const timer = setTimeout(() => { if (lastAuto.current !== key && !checking.current && !applyingRef.current) void run() }, 600)
+    return () => clearTimeout(timer)
+  }, [auto, t, runtime, busy])
   const cancel = () => {
     if (applyingRef.current) return
     runId.current++; checking.current = false; setBusy(false); setRes(undefined); setNotice('cancelled')
@@ -109,9 +149,10 @@ function Probe({ snap, live, route }: { snap: Snapshot; live: boolean; route?: R
   }
   const f = res?.finding
   const host = res?.host
-  const card = route ?? (host ? snap.settings.routes.find(r => r.kind === 'custom' && r.value === host) : undefined)
+  const inspectedRoute = route ?? snap.settings.routes.find(item => item.id === res?.scope?.routeId)
+  const card = inspectedRoute ?? (host ? snap.settings.routes.find(r => r.kind === 'custom' && r.value === host) : undefined)
   const stableProfiles = res?.samples ? snap.profiles.filter(p => res.samples![p.id]?.attempted >= 2 && res.samples![p.id].responded === res.samples![p.id].attempted) : snap.profiles
-  const proposed = route ? res?.assessment?.recommendedVia : provenPath(f, stableProfiles)
+  const proposed = res?.assessment ? res.assessment.recommendedVia : provenPath(f, stableProfiles)
   const best = proposed && stableProfiles.some(p => p.id === proposed && !p.revoked && p.source !== 'public' && p.kind !== 'group') ? proposed : undefined
   const apply = async () => {
     if (!res || !host || !best || !res.token || checking.current) return
@@ -139,14 +180,18 @@ function Probe({ snap, live, route }: { snap: Snapshot; live: boolean; route?: R
   const verdict = !f ? '' : f.kind === 'restricted_direct' ? s('dg.v.layer.' + f.layer, { v: words(f.via) }) : f.kind === 'path_only' ? s('dg.v.path_only', { v: words(f.via) }) : f.kind === 'unclear' ? s('dg.v.unclear.' + f.why) : s('dg.v.' + f.kind)
   const layers: [string, { result: string; code?: string; status?: number; to?: string }][] = res ? [['dns', res.direct.dnsSystem], ['doh', res.direct.dnsDoh], ['tcp', res.direct.tcp], ['tls', res.direct.tls], ['http', res.direct.http]] : []
   const assess = res?.assessment
-  const currentVia = res?.scope?.effectiveVia ?? route?.via
+  const currentVia = res?.currentVia ?? res?.scope?.effectiveVia ?? route?.via
+  const currentSample = currentVia ? res?.samples?.[currentVia] : undefined
+  const keepCurrent = assess?.current === 'responded'
+  const assessmentHeadline = assess && (assess.reason !== 'incomplete' || route)
+  const guidance = res ? diagnosticGuidance(res.direct) : undefined
   const entries = res?.samples ? Object.entries(res.samples).map(([id, sample]) => [id, sample.responded ? sample.medianMs ?? null : null] as const) : Object.entries(res?.paths ?? {})
   return (
-    <section className="panel">
-      <div className="ph-row"><h3>{route ? s('quality.open') : s('an.probe')}</h3><span className="m">{s('quality.bound')}</span></div>
+    <section className="panel diagnostic-investigation">
+      <div className="ph-row"><h3>{route ? s('quality.open') : s('an.probe')}</h3><span className="m">{auto ? s('diag.auto') : s('quality.bound')}</span></div>
       {route && <p className="hint">{s('quality.target.hint')}</p>}
       <div className="addrow">
-        <Field disabled={busy} icon="globe" aria-label={s('quality.target')} placeholder={s('an.probe.ph')} value={t} onChange={e => { setT(e.target.value); setRes(undefined); setNotice(undefined) }} onKeyDown={e => { if (e.key === 'Enter') void run() }} />
+        <Field disabled={applying || (!auto && busy)} icon="globe" aria-label={s('quality.target')} placeholder={s('an.probe.ph')} value={t} onChange={e => { if (checking.current) cancel(); setT(e.target.value); setRes(undefined); setNotice(undefined) }} onKeyDown={e => { if (e.key === 'Enter') void run() }} />
         <Btn kind="primary" onClick={run} disabled={busy || !t.trim()}><span className={busy ? 'spin' : ''}><Icon n={busy ? 'refresh' : 'bolt'} /></span>{s('an.probe.go')}</Btn>
         {busy && !applying && <Btn kind="ghost" onClick={cancel}>{s('quality.cancel')}</Btn>}
       </div>
@@ -154,21 +199,33 @@ function Probe({ snap, live, route }: { snap: Snapshot; live: boolean; route?: R
       {!live && <p className="hint">{s('an.probe.off')}</p>}
       {notice && <p className={'quality-notice ' + notice} role="status">{s('quality.notice.' + notice)}</p>}
       {res === null && <div className="ferr">{s('dg.error')}</div>}
-      {res && <>
+      {res && guidance && <>
         <div className="quality-result" role="status">
           <div className="quality-summary"><Icon n={assess?.current === 'responded' ? 'check' : 'info'} s={18} />
-            <div className="grow"><b>{route && assess ? s('quality.result.' + assess.reason, { v: viaName(snap.profiles, best ?? currentVia ?? '') }) : verdict}</b>
-              <p>{s('quality.coverage.' + connectionUse(route?.connectionUse))}</p>
+            <div className="grow"><b>{assessmentHeadline && assess ? s('quality.result.' + assess.reason, { v: viaName(snap.profiles, best ?? currentVia ?? '') }) : s('diag.result.' + guidance.explanation, { n: res.direct.http.status ?? '', to: res.direct.http.to ?? '' })}</b>
+              <p>{keepCurrent && currentSample ? s('diag.current.responded', { v: viaName(snap.profiles, currentVia ?? ''), n: currentSample.responded, total: currentSample.attempted }) : s('diag.detail.' + guidance.explanation, { n: res.direct.http.status ?? '', to: res.direct.http.to ?? s('diag.redirect.unknown') })}</p>
             </div>
           </div>
+          <div className="diagnostic-next"><b>{s('diag.next')}</b><p>{s(keepCurrent ? 'diag.next.keep' : 'diag.next.' + guidance.explanation)}</p></div>
+          {currentVia && <p className="hint diagnostic-current"><Mark profiles={snap.profiles} via={currentVia} />{s('diag.current', { v: viaName(snap.profiles, currentVia) })}{res.scope && <span>{s('diag.for.route', { name: res.scope.routeName })}</span>}</p>}
           {host && best && res.token && (!card || card.via !== best || !card.on) && <Btn kind="primary" disabled={busy} onClick={() => void apply()}>
-            {route ? s('quality.apply', { v: viaName(snap.profiles, best), name: route.name }) : card ? s('dg.route.card', { v: viaName(snap.profiles, best) }) : s('dg.route', { h: host, v: viaName(snap.profiles, best) })}
+            {inspectedRoute ? s('quality.apply', { v: viaName(snap.profiles, best), name: inspectedRoute.name }) : card ? s('dg.route.card', { v: viaName(snap.profiles, best) }) : s('dg.route', { h: host, v: viaName(snap.profiles, best) })}
           </Btn>}
           <div className="quality-meta"><span>{res.target}</span><time dateTime={new Date(res.at).toISOString()}>{new Date(res.at).toLocaleTimeString('ru-RU')}</time></div>
         </div>
-        <details className="quality-proof" open={!route || undefined}>
+        <div className="diagnostic-stage-heading"><b>{s('diag.stages')}</b><span className="hint">{s('diag.stages.hint')}</span></div>
+        <div className="diagnostic-stages" aria-label={s('diag.stages')}>
+          {layers.filter(([key]) => key !== 'doh').map(([key, value], index) => <div key={key} className={'diagnostic-stage ' + value.result}>
+            <span className="diagnostic-stage-label"><span>{index + 1}</span>{s('dg.l.' + key)}</span>
+            <b>{key === 'http' && value.status ? s('dg.r.status', { n: value.status }) : s(value.result === 'ok' ? 'diag.stage.ok' : value.result === 'skipped' ? 'diag.stage.skipped' : value.result === 'na' ? 'dg.r.na' : value.result === 'timeout' ? 'dg.r.timeout' : 'diag.stage.failed')}</b>
+          </div>)}
+        </div>
+        <p className="hint">{s('quality.coverage.' + connectionUse(inspectedRoute?.connectionUse))}</p>
+        <details className="quality-proof" open={auto || !route || undefined}>
           <summary>{s('quality.why')}<Icon n="chev" s={14} /></summary>
-          {route && verdict && <p className="hint">{verdict}</p>}
+          {verdict && <p className="hint">{keepCurrent && currentSample
+            ? s('diag.current.responded', { v: viaName(snap.profiles, currentVia ?? ''), n: currentSample.responded, total: currentSample.attempted })
+            : guidance.destinationResponded && res.direct.http.status ? s('dg.r.status', { n: res.direct.http.status }) : verdict}</p>}
         <div className="dg">
           <div className="dg-col">
             <b className="dg-h">{s('quality.system')}</b>

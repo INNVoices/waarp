@@ -18,6 +18,16 @@ import { validLatency } from './health'
 import { DIAGNOSTIC_SELECTOR, type DiagnosticProxy, type DiagnosticTransport } from './diagnostic-proxy'
 import type { ForwardProxy } from './relay-config'
 
+export type CheckerFailureKind = 'missing-engine' | 'configuration' | 'launch' | 'controller' | 'cleanup'
+export interface CheckerFailure { kind: CheckerFailureKind; message: string }
+const CHECKER_FAILURES: Record<CheckerFailureKind, string> = {
+  'missing-engine': 'Не найден проверочный движок. Установи актуальную сборку Waarp.',
+  configuration: 'Движок не принимает конфигурацию этого сервера.',
+  launch: 'Проверочный движок не запустился. Проверь блокировку Waarp антивирусом или защитой Windows.',
+  controller: 'Локальный проверочный движок не ответил. Это ошибка проверки, а не доказательство недоступности сервера.',
+  cleanup: 'Предыдущий проверочный движок не подтвердил остановку.'
+}
+
 export class Checker {
   private child?: ChildProcess
   private api = { port: 0, secret: '' }
@@ -35,6 +45,7 @@ export class Checker {
   private requests = new Set<AbortController>()
   private owner?: symbol
   private cancelOwner?: () => void
+  private failure?: CheckerFailure
   constructor(private exe: string, private dir: string, private allowStart: () => boolean = () => true,
     private forward?: ForwardProxy) { this.journal = new RuntimeJournal(dir, exe, 'check.json') }
 
@@ -55,6 +66,9 @@ export class Checker {
   }
 
   get recoveryError(): string | undefined { return this.journal.lastError }
+  /** Fixed, credential-free classification. Native stderr never reaches IPC. */
+  get lastFailure(): CheckerFailure | undefined { return this.failure && { ...this.failure } }
+  private fail(kind: CheckerFailureKind): void { this.failure = { kind, message: CHECKER_FAILURES[kind] } }
 
   private clearJournal(): boolean {
     this.cleanupOk = this.journal.clear() !== false
@@ -82,17 +96,19 @@ export class Checker {
 
   private async ensureNow(profiles: Profile[], list: Adapter[], signal: AbortSignal): Promise<boolean> {
     const allowed = () => !signal.aborted && this.allowStart()
+    this.failure = undefined
     if (!this.recovered) {
-      if (!(await this.recover())) return false
+      if (!(await this.recover())) { this.fail('cleanup'); return false }
     }
     if (!allowed()) return false
     this.busy = Checker.busyOf(profiles, list)
     const use = profiles.filter(p => !p.revoked && !this.busy.has(p.id))
     const key = createHash('sha256').update(JSON.stringify(use.map(p => p.id + ':' + JSON.stringify(p)))).digest('hex')
     if (this.child && key === this.key) return true
-    if (!(await this.stopNow()) || !allowed() || !use.length) return false
+    if (!(await this.stopNow())) { this.fail('cleanup'); return false }
+    if (!allowed() || !use.length) return false
     this.ids = use.map(p => p.id)
-    if (!existsSync(this.exe)) return false
+    if (!existsSync(this.exe)) { this.fail('missing-engine'); return false }
     mkdirSync(this.dir, { recursive: true })
     let port = await untilCancelled(pickPort(), signal)
     if (port === this.forward?.proxy.port) port = await untilCancelled(pickPort(), signal)
@@ -107,25 +123,43 @@ export class Checker {
       writeFileSync(file, JSON.stringify(checkConfig(use, this.api, this.forward ? undefined : this.diagnostic, this.forward)), { mode: 0o600 })
       protectPrivateFile(file)
     }
-    catch { try { rmSync(file, { force: true }) } catch {}; return false }
+    catch { this.fail('configuration'); try { rmSync(file, { force: true }) } catch {}; return false }
     const child = spawn(this.exe, ['run', '-c', file, '-D', this.dir, '--disable-color'], { windowsHide: true, cwd: this.dir })
     this.child = child
-    // Long-lived forwarding workers must drain native output without retaining credentials.
-    child.stdout?.resume(); child.stderr?.resume()
+    // Keep only a bounded startup tail for classification, then immediately
+    // discard it. Never expose native lines (which can contain credentials).
+    let startup = true, startupTail = ''
+    child.stdout?.resume()
+    child.stderr?.on('data', chunk => { if (startup) startupTail = (startupTail + String(chunk)).slice(-8192) })
     this.key = key
-    child.on('exit', () => { if (this.child === child) { this.child = undefined; this.key = ''; this.clearJournal() } })
-    child.on('error', () => { if (this.child === child && (!child.pid || child.exitCode !== null || child.signalCode !== null)) { this.child = undefined; this.key = ''; this.clearJournal() } })
+    child.on('exit', () => {
+      if (startup && allowed()) this.fail(/(?:decode|parse) config|(?:initialize|create) (?:outbound|endpoint)|unknown (?:field|transport|outbound)|(?:outbound|endpoint)\[/i.test(startupTail) ? 'configuration' : 'launch')
+      startupTail = ''
+      if (this.child === child) { this.child = undefined; this.key = ''; this.clearJournal() }
+    })
+    child.on('error', () => {
+      if (startup && allowed()) this.fail('launch')
+      startupTail = ''
+      if (this.child === child && (!child.pid || child.exitCode !== null || child.signalCode !== null)) { this.child = undefined; this.key = ''; this.clearJournal() }
+    })
     if (!(await this.journal.record(child.pid)) || this.child !== child) {
       const stopped = await this.stopNow()
       if (stopped) this.clearJournal()
       try { rmSync(file, { force: true }) } catch {}
       if (!stopped) this.recovered = false
+      if (allowed() && !this.failure) this.fail(stopped ? 'launch' : 'cleanup')
+      startup = false; startupTail = ''
       return false
     }
     const ready = await waitReady({ probe: async () => !!(await this.req('/version', 600)), alive: () => this.child === child && allowed(), signal, budget: 12_000, every: 200 })
+    startup = false; startupTail = ''
     try { rmSync(file, { force: true }) } catch { /* keys never stay on disk */ }
     // A cancelled or superseded checker must stop before the system tunnel is allowed to start.
-    if (ready !== 'ready' || !allowed() || this.child !== child) { await this.stopNow(); return false }
+    if (ready !== 'ready' || !allowed() || this.child !== child) {
+      if (allowed() && !this.failure) this.fail('controller')
+      if (!(await this.stopNow()) && allowed()) this.fail('cleanup')
+      return false
+    }
     return true
   }
 

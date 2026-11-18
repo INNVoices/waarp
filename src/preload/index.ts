@@ -63,6 +63,7 @@ const api = {
   catalogPage: (query?: { query?: string; region?: string; country?: string; page?: number; pageSize?: number; readyOnly?: boolean }) => ipcRenderer.invoke('catalog:page', query),
   catalogRefresh: () => ipcRenderer.invoke('catalog:refresh'),
   catalogVerify: () => ipcRenderer.invoke('catalog:verify'),
+  catalogAuto: (request: { owner: string; active: boolean; ids: string[] }) => ipcRenderer.invoke('catalog:auto', request),
   catalogAdd: (id: string) => ipcRenderer.invoke('catalog:add', id),
   catalogBest: () => ipcRenderer.invoke('catalog:best'),
   onCatalog: on('catalog')

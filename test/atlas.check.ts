@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ATLAS_UNKNOWN, atlasCountry, countryAnchor, countryCodes, profileAtlas, projectAtlas } from '../src/shared/atlas'
+import { ATLAS_UNKNOWN, atlasCountry, countryAnchor, countryCodes, countryFromName, profileAtlas, profileCountry, projectAtlas } from '../src/shared/atlas'
 import type { ProfileView, Status } from '../src/shared/types'
 import { Catalog } from '../src/main/catalog'
 import { stub } from './stubs/electron'
@@ -33,6 +33,20 @@ const status: Status = { phase: 'off', open: false, pings: { a: 10 }, fallback: 
   down: 0, up: 0, downTotal: 0, upTotal: 0 }
 assert.equal(profileAtlas(profiles, status).countries.some(item => item.ready || item.failed), false, 'stopped-engine observations do not turn markers healthy')
 assert.equal(profileAtlas(profiles, { ...status, phase: 'on' }).countries.find(item => item.country === 'DE')?.ready, 1)
+
+assert.equal(countryFromName('DE Germany, Frankfurt am Main'), 'DE')
+assert.equal(countryFromName('MY Malaysia, Kuala Lumpur | public'), 'MY')
+assert.equal(countryFromName('🇲🇾 Kuala Lumpur'), 'MY')
+assert.equal(countryFromName('[DE] Frankfurt'), 'DE')
+assert.equal(countryFromName('Нидерланды · сервер'), 'NL')
+assert.equal(countryFromName('Bridge-PC-Only'), ATLAS_UNKNOWN, 'unknown names do not get invented locations')
+assert.equal(profileCountry({ kind: 'group', name: 'Germany group', country: 'DE' }), ATLAS_UNKNOWN, 'groups still have no endpoint location')
+const legacy = profileAtlas([
+  { ...profiles[0], name: 'DE Germany, Frankfurt am Main', country: undefined },
+  { ...profiles[1], name: 'MY Malaysia, Kuala Lumpur', country: undefined }
+], { ...status, phase: 'on' })
+assert.equal(legacy.unknown, 0, 'already saved source-labelled public profiles recover their region')
+assert.equal(legacy.countries.find(item => item.country === 'DE')?.bestPing, 10, 'map summary uses only a current measured HTTP response')
 
 async function catalogueProjection() {
   const dir = mkdtempSync(join(tmpdir(), 'waarp-atlas-check-'))

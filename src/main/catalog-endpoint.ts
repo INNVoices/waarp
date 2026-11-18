@@ -80,14 +80,14 @@ export function publicCandidateHasPinnedEndpoints(profile: Profile): boolean {
   })
 }
 
-/** Hostname-dependent HTTP authority must already be explicit. Guessing what
- * a transport used as its default after replacing server can break routing.
- * Such candidates stay cached but are not auto-probed/recovered here. */
+/** The pinned engine's transport defaults are made explicit before replacing
+ * the dial hostname. This preserves virtual hosting instead of excluding most
+ * hostname-based WS/XHTTP/gRPC candidates from automatic verification.
+ * Source: Leadaxe/sing-box-lx@3d3d3db, transport/v2ray{websocket,xhttp,grpc,http,httpupgrade}/client.go. */
 function canPinIdentity(profile: PublicProfile, hosts: string[]): boolean {
   if (hosts.every(host => !!isIP(hostOf(hostUrl(host)!)))) return true
   if (profile.kind === 'vless') {
-    if (profile.vless.network === 'tcp') return true
-    return profile.vless.network === 'ws' && !!profile.vless.host
+    return profile.vless.network !== 'grpc' || profile.vless.security !== 'none'
   }
   if (profile.kind === 'openvpn') {
     const tls = profile.endpoint.tls
@@ -96,23 +96,28 @@ function canPinIdentity(profile: PublicProfile, hosts: string[]): boolean {
   const transport = profile.outbound.transport
   if (transport === undefined) return true
   if (!record(transport)) return false
-  if (transport.type === 'ws') {
-    const headers = transport.headers
-    return record(headers) && Object.keys(headers).some(key => key.toLowerCase() === 'host' && !!headers[key])
-  }
-  if (transport.type === 'http') return Array.isArray(transport.host) && transport.host.length > 0
-  if (transport.type === 'httpupgrade') return typeof transport.host === 'string' && !!transport.host
-  return false // gRPC/unknown implicit authorities are deliberately not guessed
+  if (['ws', 'http', 'httpupgrade'].includes(String(transport.type))) return true
+  if (transport.type === 'grpc') return record(profile.outbound.tls) && profile.outbound.tls.enabled === true
+  return false // No gRPC authority option exists for plaintext hostname targets.
 }
+
+export type PublicCandidatePreparation = { profile: PublicProfile; problem?: never } |
+  { profile?: never; problem: 'unsafe' | 'unsupported' | 'dns' }
 
 /** Resolve every remote once, reject the entire DNS set if any answer is
  * private, and pin only this temporary native config to the checked addresses.
  * The stored hostname, credentials and stable ID remain untouched. A preflight
  * followed by the original hostname would still permit DNS rebinding. */
 export async function preparePublicCandidate(profile: Profile, signal: AbortSignal, resolver?: PublicResolver): Promise<PublicProfile | undefined> {
-  if (profile.kind === 'awg' || !publicCandidateEndpointsAllowed(profile)) return undefined
+  return (await preparePublicCandidateResult(profile, signal, resolver)).profile
+}
+
+/** A skipped DNS/transport preparation is not a failed relay measurement. */
+export async function preparePublicCandidateResult(profile: Profile, signal: AbortSignal, resolver?: PublicResolver): Promise<PublicCandidatePreparation> {
+  signal.throwIfAborted()
+  if (profile.kind === 'awg' || !publicCandidateEndpointsAllowed(profile)) return { problem: 'unsafe' }
   const hosts = targets(profile)!
-  if (!canPinIdentity(profile, hosts)) return undefined
+  if (!canPinIdentity(profile, hosts)) return { problem: 'unsupported' }
   const bounded = AbortSignal.any([signal, AbortSignal.timeout(4000)])
   try {
     bounded.throwIfAborted()
@@ -123,16 +128,35 @@ export async function preparePublicCandidate(profile: Profile, signal: AbortSign
       // Apply the same literal guard to all responses, including IPv4-mapped
       // IPv6 and IPv4-compatible forms, before picking one checked dial IP.
       if (!resolved.length || resolved.some(answer => !literalPublic(answer.address))) throw new Error('non-public endpoint')
-      addresses.set(host, resolved[0].address)
+      // The checker uses ipv4_only DNS for target names. Pinning a first AAAA
+      // response here used to bypass that policy and break dual-stack relays
+      // on networks with no working IPv6 underlay.
+      addresses.set(host, (resolved.find(answer => answer.family === 4) ?? resolved[0]).address)
     }))
     bounded.throwIfAborted()
     const copy = structuredClone(profile)
+    const originalHost = hostOf(hostUrl(hosts[0])!)
+    const authority = `${originalHost.includes(':') ? '[' + originalHost + ']' : originalHost}:${copy.kind === 'vless' ? copy.vless.port : copy.port}`
     if (copy.kind === 'vless') {
-      if (copy.vless.security !== 'none' && !copy.vless.sni) copy.vless.sni = hostOf(hostUrl(hosts[0])!)
+      if (copy.vless.security !== 'none' && !copy.vless.sni) copy.vless.sni = originalHost
+      if (copy.vless.network === 'ws' && !copy.vless.host) copy.vless.host = authority
+      if (copy.vless.network === 'xhttp' && !copy.vless.host) copy.vless.host = copy.vless.sni || authority
       copy.vless.server = addresses.get(hosts[0])!
     } else if (copy.kind === 'out') {
       const tls = copy.outbound.tls
-      if (record(tls) && tls.enabled && !tls.server_name) tls.server_name = hostOf(hostUrl(hosts[0])!)
+      if (record(tls) && tls.enabled && !tls.server_name) tls.server_name = originalHost
+      const transport = copy.outbound.transport
+      if (record(transport)) {
+        if (transport.type === 'ws') {
+          const headers = record(transport.headers) ? transport.headers : {}
+          if (!Object.keys(headers).some(key => key.toLowerCase() === 'host' && !!headers[key])) headers.Host = authority
+          transport.headers = headers
+        } else if (transport.type === 'http' && (!Array.isArray(transport.host) || !transport.host.length)) {
+          transport.host = [record(tls) && tls.enabled ? 'www.example.com' : originalHost]
+        } else if (transport.type === 'httpupgrade' && !transport.host) {
+          transport.host = record(tls) && tls.enabled && typeof tls.server_name === 'string' ? tls.server_name : authority
+        }
+      }
       copy.host = addresses.get(hosts[0])!
       copy.outbound.server = copy.host
     } else {
@@ -141,9 +165,9 @@ export async function preparePublicCandidate(profile: Profile, signal: AbortSign
         copy.endpoint.servers = copy.endpoint.servers.map(remote => ({ ...remote, server: addresses.get(remote.server)! }))
       } else copy.endpoint.server = copy.host
     }
-    return copy
+    return { profile: copy }
   } catch {
     if (signal.aborted) signal.throwIfAborted()
-    return undefined // a rejected DNS/path is not evidence of a working relay
+    return { problem: 'dns' } // a rejected DNS/path is not evidence of a working relay
   }
 }

@@ -26,18 +26,19 @@ function fixture(options) {
   const snapshot = () => structuredClone({ admin: true, settings: state.settings, profiles: state.profiles, status: state.status, notices: [] })
   const push = () => { for (const callback of listeners.get('snapshot') ?? []) callback(snapshot()) }
   const result = (target, routeId) => {
-    const route = state.settings.routes.find(r => r.id === routeId)
+    const route = state.settings.routes.find(r => r.id === routeId || !routeId && r.kind === 'custom' && target.includes(r.value))
     const healthy = state.mode === 'healthy'
     const ok = { result: 'ok' }, skipped = { result: 'skipped' }
     const failed = { attempted: 2, responded: 0, noResponse: 2 }
     const answered = ms => ({ attempted: 2, responded: 2, noResponse: 0, medianMs: ms, spreadMs: 2 })
     state.proof = { routeId, token: 'fixture-' + state.calls.diagnose }
     return {
-      target, host: 'control.example', at: Date.now(), token: state.proof.token, systemPath: true,
+      target, host: new URL(target.includes('://') ? target : 'https://' + target).hostname, at: Date.now(), token: state.proof.token, systemPath: true,
+      currentVia: 'a',
       direct: { dnsSystem: ok, dnsDoh: ok, tcp: { result: 'fail', code: 'reset' }, tls: skipped, http: skipped },
       paths: { a: healthy ? 180 : null, b: 40 }, samples: { a: healthy ? answered(180) : failed, b: answered(40) },
       finding: { kind: 'restricted_direct', layer: 'tcp', via: ['b'] },
-      scope: route ? { routeId, routeName: route.name, selectedVia: route.via, effectiveVia: route.via, connectionUse: route.connectionUse ?? 'general' } : undefined,
+      scope: route ? { routeId: route.id, routeName: route.name, selectedVia: route.via, effectiveVia: route.via, connectionUse: route.connectionUse ?? 'general' } : undefined,
       assessment: { current: healthy ? 'responded' : 'failed', reason: healthy ? 'current-responded' : 'alternative-responded', ...(healthy ? {} : { recommendedVia: 'b' }), coverage: 'http-response', applicationVerified: false, missing: ['udp-response', 'packet-loss', 'jitter', 'application-session'] }
     }
   }
@@ -86,7 +87,8 @@ export async function runConnectionQualityChecks({ browser, url, screenshotDir }
     await page.addInitScript(fixture, options)
     try {
       await page.goto(url)
-      await page.locator('.rc-open').first().click()
+      if (options.main) await page.getByRole('button', { name: strings['nav.an'], exact: true }).click()
+      else await page.locator('.rc-open').first().click()
       await work(page)
       assert.deepEqual(errors, [])
       const calls = await page.evaluate(() => window.__quality.state.calls)
@@ -129,6 +131,7 @@ export async function runConnectionQualityChecks({ browser, url, screenshotDir }
   await run('responding current path is retained even when another HTTP timing is lower', { mode: 'healthy' }, async page => {
     await open(page); await probe(page)
     await page.getByText(strings['quality.result.current-responded'], { exact: true }).waitFor()
+    await page.getByText(strings['diag.next.keep'], { exact: true }).waitFor()
     assert.equal(await page.locator('.quality-result .btn').count(), 0)
     await page.locator('.quality-proof > summary').click()
     await page.getByText(strings['quality.system.hint'], { exact: true }).waitFor()
@@ -158,6 +161,31 @@ export async function runConnectionQualityChecks({ browser, url, screenshotDir }
     })
     assert.deepEqual(overflow, { root: false, main: false, bad: 0 })
     if (screenshotDir) { mkdirSync(screenshotDir, { recursive: true }); await page.screenshot({ path: resolve(screenshotDir, `quality-context-${width}.png`), fullPage: true }) }
+  })
+  for (const width of [900, 1240]) await run('main diagnostics investigates automatically and explains the next step at ' + width + ' px', { width, main: true, on: true }, async page => {
+    await page.locator('.quality-result').waitFor()
+    assert.deepEqual(await page.evaluate(() => window.__quality.state.requests), [{ target: 'youtube.com', routeId: undefined }])
+    assert.equal(await page.locator('.diagnostic-stages .diagnostic-stage').count(), 4)
+    await page.getByText(strings['diag.detail.tcp-refused'], { exact: true }).waitFor()
+    await page.getByText(strings['diag.next.tcp-refused'], { exact: true }).waitFor()
+    assert.equal(await page.locator('.payload-check').count(), 0, 'unrequested transfer tools do not dominate the investigation')
+    await page.getByRole('textbox', { name: strings['quality.target'] }).fill('https://control.example/')
+    await page.waitForFunction(() => window.__quality.state.calls.diagnose === 2)
+    await page.getByRole('button', { name: 'Использовать Резервный для «Отдельный сайт»', exact: true }).waitFor()
+    assert.equal(await page.evaluate(() => window.__quality.state.calls.apply ?? 0), 0, 'a diagnosis never applies its suggestion automatically')
+    await page.waitForTimeout(750)
+    assert.equal(await page.evaluate(() => window.__quality.state.calls.diagnose), 2, 'a completed target is not probed in a render loop')
+    const overflow = await page.evaluate(() => ({ root: document.documentElement.scrollWidth > innerWidth + 1,
+      main: document.querySelector('.main').scrollWidth > document.querySelector('.main').clientWidth + 1 }))
+    assert.deepEqual(overflow, { root: false, main: false })
+    if (screenshotDir) { mkdirSync(screenshotDir, { recursive: true }); await page.screenshot({ path: resolve(screenshotDir, `diagnostics-main-${width}.png`), fullPage: true }) }
+    if (width === 1240) {
+      await page.evaluate(() => { window.__quality.state.mode = 'healthy' })
+      await page.getByRole('textbox', { name: strings['quality.target'] }).fill('https://another.example/')
+      await page.getByText(strings['quality.result.current-responded'], { exact: true }).waitFor()
+      await page.getByText(strings['diag.next.keep'], { exact: true }).waitFor()
+      assert.equal(await page.locator('.quality-result .btn').count(), 0, 'a responding default path is retained even without a matching route scope and despite system TCP failure')
+    }
   })
   if (failures.length) throw new Error('Connection quality browser regressions:\n' + failures.join('\n'))
   console.log(`Connection quality browser checks: ${passed} passed`)

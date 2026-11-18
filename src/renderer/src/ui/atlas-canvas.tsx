@@ -1,12 +1,12 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import { Map as LibreMap, setWorkerUrl, type GeoJSONSource, type MapMouseEvent, type StyleSpecification } from 'maplibre-gl'
+import { Map as LibreMap, Popup, setWorkerUrl, type GeoJSONSource, type MapMouseEvent, type StyleSpecification } from 'maplibre-gl'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import type { FeatureCollection, LineString, Point } from 'geojson'
 import world from '../../../shared/atlas-world.json'
 import { countryAnchor, type AtlasProjection } from '../../../shared/atlas'
 import { Btn, Icon } from './kit'
 import { s } from '../lib/i18n'
-import type { AtlasRouteView } from './atlas'
+import { atlasCountryName, type AtlasRouteView } from './atlas'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
 setWorkerUrl(workerUrl)
@@ -18,7 +18,8 @@ const empty = { type: 'FeatureCollection' as const, features: [] }
 function points(props: AtlasCanvasProps): FeatureCollection<Point> {
   return { type: 'FeatureCollection', features: props.projection.countries.flatMap(item => {
     const anchor = countryAnchor(item.country)
-    return anchor ? [{ type: 'Feature' as const, properties: { country: item.country, total: item.total, preview: item.country === props.country },
+    return anchor ? [{ type: 'Feature' as const, properties: { country: item.country, total: item.total, ready: item.ready, failed: item.failed,
+      bestPing: item.bestPing ?? -1, preview: item.country === props.country },
       geometry: { type: 'Point' as const, coordinates: [anchor.longitude, anchor.latitude] } }] : []
   }) }
 }
@@ -48,15 +49,15 @@ export function AtlasCanvas(props: AtlasCanvasProps) {
   const mapRef = useRef<LibreMap | undefined>(undefined)
   const loaded = useRef(false)
   const latest = useRef(props); latest.current = props
-  // Health-only events do not change these layers. Compare their actual inputs
-  // so a manual selection is immediate and cannot wait behind a busy catalogue.
-  const frameKey = JSON.stringify([props.projection.countries.map(({ country, total }) => [country, total]),
+  // Only aggregated country state reaches the map, not all endpoint records.
+  const frameKey = JSON.stringify([props.projection.countries.map(({ country, total, ready, failed, bestPing }) => [country, total, ready, failed, bestPing]),
     props.country, props.device, props.route?.active?.country, props.route?.pending?.country])
   useEffect(() => {
     if (!container.current) return
     let map: LibreMap | undefined
     let disposed = false
     let resize: ResizeObserver | undefined
+    let popup: Popup | undefined
     try {
       const style: StyleSpecification = {
         version: 8,
@@ -70,13 +71,18 @@ export function AtlasCanvas(props: AtlasCanvasProps) {
           { id: 'active-route', type: 'line', source: 'routes', filter: ['==', ['get', 'kind'], 'active'], paint: { 'line-color': '#9bb06e', 'line-width': 2, 'line-opacity': 0.85 } },
           { id: 'pending-route', type: 'line', source: 'routes', filter: ['==', ['get', 'kind'], 'pending'], paint: { 'line-color': '#e3b040', 'line-width': 2, 'line-dasharray': [3, 3] } },
           { id: 'region-dots', type: 'circle', source: 'regions', paint: {
-            'circle-radius': ['interpolate', ['linear'], ['get', 'total'], 1, 11, 100, 17, 1000, 23, 10000, 28],
-            'circle-color': ['case', ['get', 'preview'], '#d97757', '#37332f'], 'circle-opacity': 0.95,
-            'circle-stroke-color': ['case', ['get', 'preview'], '#f0a98d', '#b09a89'], 'circle-stroke-width': 1.3 } },
-          { id: 'region-labels', type: 'symbol', source: 'regions', layout: { 'text-field': ['to-string', ['get', 'total']],
-            'text-font': ['Inter', 'sans-serif'], 'text-size': 11, 'text-allow-overlap': true, 'text-ignore-placement': true },
+            'circle-radius': ['interpolate', ['linear'], ['get', 'total'], 1, 17, 100, 21, 1000, 26, 10000, 31],
+            'circle-color': ['case', ['get', 'preview'], '#a9553b', ['>', ['get', 'ready'], 0], '#435238',
+              ['==', ['get', 'failed'], ['get', 'total']], '#493a36', '#37332f'], 'circle-opacity': 0.95,
+            'circle-stroke-color': ['case', ['get', 'preview'], '#f0a98d', ['>', ['get', 'ready'], 0], '#a4bd7b',
+              ['==', ['get', 'failed'], ['get', 'total']], '#ab766b', '#b09a89'], 'circle-stroke-width': 1.3 } },
+          { id: 'region-labels', type: 'symbol', source: 'regions', layout: { 'text-field': ['concat', ['get', 'country'], '\n', ['to-string', ['get', 'total']]],
+            'text-font': ['Inter', 'sans-serif'], 'text-size': 10, 'text-line-height': 1.1, 'text-allow-overlap': true, 'text-ignore-placement': true },
             paint: { 'text-color': '#e6e3de' } },
-          { id: 'device-dot', type: 'circle', source: 'device', paint: { 'circle-radius': 6, 'circle-color': '#e6e3de', 'circle-stroke-color': '#141312', 'circle-stroke-width': 2 } }
+          { id: 'device-dot', type: 'circle', source: 'device', paint: { 'circle-radius': 6, 'circle-color': '#e6e3de', 'circle-stroke-color': '#141312', 'circle-stroke-width': 2 } },
+          { id: 'device-label', type: 'symbol', source: 'device', layout: { 'text-field': s('atlas.device.region'),
+            'text-font': ['Inter', 'sans-serif'], 'text-size': 11, 'text-offset': [0, 1.1], 'text-anchor': 'top' },
+            paint: { 'text-color': '#e6e3de', 'text-halo-color': '#141312', 'text-halo-width': 1.5 } }
         ]
       }
       map = new LibreMap({ container: container.current, style, center: [15, 25], zoom: 0.65, minZoom: 0, maxZoom: 5,
@@ -88,6 +94,7 @@ export function AtlasCanvas(props: AtlasCanvasProps) {
           return { url }
         } })
       mapRef.current = map
+      map.fitBounds([[-170, -55], [180, 76]], { padding: { top: 24, right: 24, bottom: 24, left: 24 }, duration: 0 })
       map.touchZoomRotate.disableRotation()
       map.getCanvas().setAttribute('aria-label', s('atlas.canvas.label'))
       map.once('load', () => {
@@ -104,11 +111,23 @@ export function AtlasCanvas(props: AtlasCanvasProps) {
         if (typeof hit?.properties?.country === 'string') latest.current.onCountry(hit.properties.country)
       }
       map.on('click', choose)
-      map.on('mousemove', event => { if (map && loaded.current) map.getCanvas().style.cursor = map.queryRenderedFeatures(event.point, { layers: ['region-dots'] }).length ? 'pointer' : '' })
+      map.on('mousemove', event => {
+        if (!map || !loaded.current) return
+        const hit = map.queryRenderedFeatures(event.point, { layers: ['region-dots'] })[0]
+        map.getCanvas().style.cursor = hit ? 'pointer' : ''
+        const p = hit?.properties
+        if (!p || hit.geometry.type !== 'Point') { popup?.remove(); return }
+        popup ??= new Popup({ closeButton: false, closeOnClick: false, className: 'atlas-popup', offset: 24 })
+        const content = [atlasCountryName(String(p.country)),
+          s('atlas.hover.count', { total: Number(p.total), ready: Number(p.ready), failed: Number(p.failed) })]
+        if (Number(p.bestPing) >= 0) content.push(s('atlas.hover.response', { n: Math.round(Number(p.bestPing)) }))
+        popup.setLngLat(hit.geometry.coordinates as [number, number]).setText(content.join('\n')).addTo(map)
+      })
+      map.getCanvas().addEventListener('mouseleave', () => popup?.remove())
       resize = new ResizeObserver(() => { if (!disposed) map?.resize() })
       resize.observe(container.current)
     } catch { latest.current.onFailed() }
-    return () => { disposed = true; loaded.current = false; resize?.disconnect(); mapRef.current = undefined; map?.remove() }
+    return () => { disposed = true; loaded.current = false; resize?.disconnect(); popup?.remove(); mapRef.current = undefined; map?.remove() }
   }, [])
   useLayoutEffect(() => {
     const map = mapRef.current
@@ -121,7 +140,7 @@ export function AtlasCanvas(props: AtlasCanvasProps) {
     <div className="atlas-map-controls">
       <Btn kind="ghost" sm title={s('atlas.zoom.in')} aria-label={s('atlas.zoom.in')} onClick={() => mapRef.current?.zoomIn({ duration: 0 })}><Icon n="plus" s={14} /></Btn>
       <Btn kind="ghost" sm title={s('atlas.zoom.out')} aria-label={s('atlas.zoom.out')} onClick={() => mapRef.current?.zoomOut({ duration: 0 })}><Icon n="min" s={14} /></Btn>
-      <Btn kind="ghost" sm onClick={() => mapRef.current?.jumpTo({ center: [15, 25], zoom: 0.65 })}><Icon n="globe" s={14} />{s('atlas.world')}</Btn>
+      <Btn kind="ghost" sm onClick={() => mapRef.current?.fitBounds([[-170, -55], [180, 76]], { padding: 24, duration: 0 })}><Icon n="globe" s={14} />{s('atlas.world')}</Btn>
     </div>
   </>
 }

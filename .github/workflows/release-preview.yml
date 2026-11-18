@@ -1,4 +1,4 @@
-name: Publish Waarp preview (Windows + Android)
+name: Publish Waarp preview
 # One-off preview intent on main, or an explicit manual retry. Never marks a build stable.
 on:
   push:
@@ -11,7 +11,7 @@ on:
         description: 'Preview tag (must target this exact commit)'
         required: true
         type: string
-        default: 'preview-2026-11-18-r5'
+        default: 'preview-2026-11-18-r6'
 permissions:
   contents: write
 concurrency:
@@ -39,7 +39,7 @@ jobs:
       - run: npm run engine:fetch
       - name: Compile the actual native route gate
         run: node --input-type=module -e "import { build } from 'esbuild'; await build({entryPoints:['test/route-native.check.ts'],bundle:true,platform:'node',outfile:'out/test/route-native.check.js',sourcemap:true,alias:{electron:'./test/stubs/electron.ts'}})"
-      - name: Require same-session TCP, UDP and DNS before starting both platform builds
+      - name: Require same-session TCP, UDP and DNS before preparing the release
         env:
           WAARP_NATIVE_SWITCH_TEST: '1'
         run: node --enable-source-maps out/test/route-native.check.js
@@ -50,6 +50,7 @@ jobs:
       tag: ${{ steps.intent.outputs.tag }}
       windows: ${{ steps.intent.outputs.windows }}
       android: ${{ steps.intent.outputs.android }}
+      android_enabled: ${{ steps.intent.outputs.android_enabled }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -88,7 +89,7 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          foreach ($waarpPreview in @('app-public-server-picker.png', 'app-public-server-picker-pages.png', 'saved-server-picker-pages.png', 'public-check-failure.png', 'stability-failed.png', 'failure-1.png', 'atlas-picker-active-preview-1240.png', 'atlas-picker-900.png', 'atlas-public-full-pool-unknown.png', 'atlas-fallback-list.png', 'atlas-file-origin.png', 'quality-context-1240.png', 'quality-context-900.png')) {
+          foreach ($waarpPreview in @('app-public-server-picker.png', 'app-public-server-picker-pages.png', 'saved-server-picker-pages.png', 'public-check-failure.png', 'stability-failed.png', 'failure-1.png', 'atlas-picker-active-preview-1240.png', 'atlas-picker-900.png', 'atlas-public-full-pool-unknown.png', 'atlas-fallback-list.png', 'atlas-file-origin.png', 'atlas-saved-desktop-1920.png', 'atlas-public-desktop-1920.png', 'quality-context-1240.png', 'quality-context-900.png', 'diagnostics-main-900.png', 'diagnostics-main-1240.png')) {
             $waarpPreviewPath = Join-Path 'out/ui' $waarpPreview
             if (Test-Path $waarpPreviewPath) { Write-Output ('WAARP_UI_PREVIEW ' + $waarpPreview + ' ' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($waarpPreviewPath))) }
           }
@@ -109,6 +110,18 @@ jobs:
       - run: npm run test:live -- --disposable-windows
       - run: npm run dist
       - run: npm run package:verify
+      - name: Accept actual packaged UI, automatic public checks and live VPN session
+        env:
+          WAARP_DESKTOP_ACCEPTANCE: '1'
+        run: node scripts/accept-desktop.mjs
+      - name: Retain actual packaged desktop evidence
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path 'out/desktop-acceptance/public-catalog-windows.json') { Get-Content 'out/desktop-acceptance/public-catalog-windows.json' }
+          foreach ($waarpPreview in @(Get-ChildItem 'out/desktop-acceptance' -Filter '*.png' -ErrorAction SilentlyContinue)) {
+            Write-Output ('WAARP_DESKTOP_PREVIEW ' + $waarpPreview.Name + ' ' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($waarpPreview.FullName)))
+          }
       - name: Check and attach Windows EXE + SHA-256 directly to draft release
         shell: pwsh
         env:
@@ -128,11 +141,12 @@ jobs:
           $waarpSourceHash = (Get-FileHash 'dist/sing-box-lx-1.14.2-lx.11-src.tar.gz' -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($waarpSourceHash -ne 'cfe0234e422a61d5ace36798e76b2466e6773565745c493925fd14aafbfb615c') { throw 'Engine source digest differs' }
           Copy-Item 'out/validation/package-integrity.json' 'dist/package-integrity-windows.json'
-          gh release upload "$env:RELEASE_TAG" "$($exe.FullName)" 'dist/SHA256SUMS-windows.txt' 'dist/sing-box-lx-1.14.2-lx.11-src.tar.gz' 'dist/package-integrity-windows.json' --clobber
+          gh release upload "$env:RELEASE_TAG" "$($exe.FullName)" 'dist/SHA256SUMS-windows.txt' 'dist/sing-box-lx-1.14.2-lx.11-src.tar.gz' 'dist/package-integrity-windows.json' 'out/desktop-acceptance/public-catalog-windows.json' --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Windows draft upload failed' }
   android:
     name: Validate + upload Android debug APKs
     needs: prepare
+    if: needs.prepare.outputs.android_enabled == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 110
     steps:
@@ -309,8 +323,9 @@ jobs:
           PYREPORT
           gh release upload "$RELEASE_TAG" "${apks[@]}" out/android/SHA256SUMS-android-debug.txt out/android/android-artifacts.json --clobber
   publish:
-    name: Publish preview only after both platform gates pass
+    name: Publish preview after the declared platform gates pass
     needs: [prepare, windows, android]
+    if: ${{ always() && !cancelled() && needs.prepare.result == 'success' && needs.windows.result == 'success' && (needs.prepare.outputs.android_enabled != 'true' || needs.android.result == 'success') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

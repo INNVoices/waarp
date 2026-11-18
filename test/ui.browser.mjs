@@ -83,6 +83,32 @@ function fixture(options) {
     const page = Math.max(1, Math.min(pages, query?.page ?? 1))
     return { items: all.slice((page - 1) * pageSize, page * pageSize), total: all.length, page, pageSize, pages, regions, atlas }
   }
+  const automaticOwners = new Set()
+  const catalogAuto = ({ owner, active, ids = [] }) => {
+    count('catalogAuto')
+    if (active) automaticOwners.add(owner); else automaticOwners.delete(owner)
+    catalog.automatic = automaticOwners.size > 0
+    state.publicAutoOwners = automaticOwners.size
+    state.lastPublicAutoIds = ids
+    if (active && ids.length && options.staleCatalog && !state.publicAutoStarted) {
+      state.publicAutoStarted = true
+      catalog.busy = true; catalog.checkingIds = [...ids]
+      for (const node of catalogEntries.filter(node => ids.includes(node.id))) node.status = 'checking'
+      state.finishPublicAuto = () => {
+        catalog.busy = false; catalog.checkingIds = []; catalog.checkedCount = ids.length
+        for (const node of catalogEntries.filter(node => ids.includes(node.id))) {
+          node.status = options.failPublicAuto ? 'failed' : 'ready'
+          node.checkedAt = Date.now(); node.ping = options.failPublicAuto ? undefined : 64
+        }
+        catalog.alive = catalogEntries.filter(node => node.status === 'ready'); catalog.readyCount = catalog.alive.length
+        catalog.failedCount = options.failPublicAuto ? ids.length : 0
+        emit('catalog', structuredClone(catalog))
+      }
+      emit('catalog', structuredClone(catalog))
+      if (!options.deferPublicAuto) setTimeout(() => state.finishPublicAuto(), 30)
+    }
+    return structuredClone(catalog)
+  }
   const listenerCounts = () => Object.fromEntries([...listeners].filter(([, group]) => group.size).map(([channel, group]) => [channel, group.size]))
   window.__waarpTest = { state, push, emit, snapshot, listenerCounts, catalog }
   window.api = {
@@ -131,6 +157,7 @@ function fixture(options) {
     clipPeek: async () => ({ kind: 'none' }),
     importProfile: () => { count('import'); return new Promise((resolve, reject) => { state.resolveImport = resolve; state.rejectImport = reject }) },
     catalogGet: async () => catalog,
+    catalogAuto: async input => catalogAuto(input),
     catalogPage: async query => catalogPage(query),
     catalogRefresh: async () => { count('catalogRefresh'); return catalog },
     catalogVerify: async () => { count('catalogVerify'); return catalog },
@@ -315,6 +342,9 @@ async function rendererStability() {
       await route.click()
       await page.waitForFunction(name => { const button = [...document.querySelectorAll('[role="switch"]')].find(el => el.getAttribute('aria-label') === name); return button && !button.disabled && button.getAttribute('aria-checked') === 'true' }, name)
       await clickNav(page, 'an')
+      // The cycle checks history retention, not the expander interaction
+      // (covered separately). Use the native details state to expose history.
+      await page.locator('.diagnostic-extras').evaluate(element => { element.open = true })
       await page.locator('.legend').getByText(tempName, { exact: true }).waitFor()
       // A temporary empty startup view is not an authoritative profile deletion.
       await page.evaluate(() => {
@@ -582,15 +612,21 @@ try {
     await capture(page, 'public-min-width.png')
   })
   await page.context().close()
-  await check('stale candidates offer a real check action without presenting historical latency as current', async () => {
-    const page = await pageFor({ staleCatalog: true })
+  await check('stale visible candidates check automatically before import and retain truthful latency', async () => {
+    const page = await pageFor({ staleCatalog: true, deferPublicAuto: true })
     await ready(page); await clickNav(page, 'servers')
     await page.setViewportSize({ width: 900, height: 600 })
     const panel = page.locator('#public-catalog')
-    await panel.getByText(strings['server.public.stale'], { exact: true }).waitFor()
+    await panel.getByText(strings['server.public.auto.checking'], { exact: true }).waitFor()
     assert.equal(await panel.locator('.server-row-health.ready').count(), 0)
     assert.equal(await panel.locator('.server-row-health .mono').count(), 0, 'stale ping is never a fresh success')
-    await panel.getByRole('button', { name: strings['server.public.checkadd'], exact: true }).click()
+    assert.equal(await panel.locator('.server-row-action').isEnabled(), false, 'candidate is not imported to make a measurement')
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.catalogAdd ?? 0), 0)
+    await page.evaluate(() => window.__waarpTest.state.finishPublicAuto())
+    await panel.locator('.server-row-health.ready').waitFor()
+    assert.equal(await panel.locator('.server-row-action').isEnabled(), true)
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.catalogAdd ?? 0), 0, 'completion still does not save a candidate')
+    await panel.getByRole('button', { name: strings['pub.add'], exact: true }).click()
     await page.waitForFunction(() => window.__waarpTest.state.calls.catalogAdd === 1)
     assert.deepEqual(await page.evaluate(() => {
       const c = window.__waarpTest.state.calls; return [c.toggle ?? 0, c.disconnect ?? 0]
@@ -599,26 +635,26 @@ try {
     await capture(page, 'public-cached-min-width.png')
     await page.context().close()
   })
-  await check('public refresh and verification stay available while ON without any master command', async () => {
+  await check('automatic public checks run while ON and release their lease without a master command', async () => {
     const page = await pageFor({ staleCatalog: true })
     await ready(page)
     await page.evaluate(() => { const f = window.__waarpTest; f.state.status = { ...f.state.status, phase: 'on', open: true }; f.push() })
     await clickNav(page, 'servers')
     const panel = page.locator('#public-catalog')
-    await panel.locator('.server-row').first().waitFor()
+    await panel.locator('.server-row-health.ready').waitFor()
+    await page.waitForFunction(() => window.__waarpTest.state.lastPublicAutoIds.includes('pub-fixture'))
+    assert.equal(await panel.getByRole('button', { name: strings['server.public.verify'], exact: true }).count(), 0, 'no manual find-working step')
+    assert.equal(await panel.getByRole('button', { name: strings['server.public.checkadd'], exact: true }).count(), 0, 'no check-and-import step')
     const refresh = panel.getByRole('button', { name: strings['pub.refresh'], exact: true })
-    const verify = panel.getByRole('button', { name: strings['server.public.verify'], exact: true })
-    await page.waitForFunction(() => window.__waarpTest.state.calls.catalogVerify === 1)
     assert.equal(await refresh.isEnabled(), true)
-    assert.equal(await verify.isEnabled(), true)
     await refresh.click()
     await page.waitForFunction(() => window.__waarpTest.state.calls.catalogRefresh === 1)
-    await verify.click()
-    await page.waitForFunction(() => window.__waarpTest.state.calls.catalogVerify === 2)
     assert.deepEqual(await page.evaluate(() => {
-      const f = window.__waarpTest; return [f.state.status.phase, f.state.status.open, f.state.calls.toggle ?? 0, f.state.calls.disconnect ?? 0]
-    }), ['on', true, 0, 0])
+      const f = window.__waarpTest; return [f.state.status.phase, f.state.status.open, f.state.calls.toggle ?? 0, f.state.calls.disconnect ?? 0, f.state.calls.catalogAdd ?? 0]
+    }), ['on', true, 0, 0, 0])
     await capture(page, 'public-pool-controls.png')
+    await clickNav(page, 'home')
+    await page.waitForFunction(() => window.__waarpTest.state.publicAutoOwners === 0)
     await page.context().close()
   })
   await check('all public servers are searchable and paginated beyond the old 200-node sample', async () => {
@@ -668,14 +704,15 @@ try {
     await page.context().close()
   })
   await check('a failed public check stays visible and does not change the selected app route', async () => {
-    const page = await pageFor({ staleCatalog: true, failPublicPick: true })
+    const page = await pageFor({ staleCatalog: true, failPublicAuto: true })
     await ready(page)
     await page.evaluate(() => { const f = window.__waarpTest; f.state.status = { ...f.state.status, phase: 'on', open: true }; f.push() })
     await page.locator('.rc-open').first().click()
     const picker = page.locator('.server-picker')
     await picker.locator('.server-source-tabs').getByRole('button', { name: strings['server.public'], exact: true }).click()
-    await picker.getByRole('button', { name: strings['server.public.checkuse'], exact: true }).click()
-    await picker.getByRole('alert').getByText('Сервер не отвечает. Выбери другой.', { exact: true }).waitFor()
+    await picker.getByText(strings['pub.node.failed'], { exact: true }).waitFor()
+    assert.equal(await picker.locator('.server-row-action').isEnabled(), false)
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.catalogAdd ?? 0), 0)
     assert.deepEqual(await page.evaluate(() => {
       const f = window.__waarpTest; return [f.state.settings.routes[0].via, f.state.calls.selectRoute ?? 0, f.state.calls.toggle ?? 0, f.state.calls.disconnect ?? 0]
     }), ['a', 0, 0, 0])
@@ -689,7 +726,7 @@ try {
     await page.locator('.rc-open').first().click()
     const picker = page.locator('.server-picker')
     await picker.locator('.server-source-tabs').getByRole('button', { name: strings['server.public'], exact: true }).click()
-    await picker.getByRole('button', { name: strings['server.public.checkuse'], exact: true }).click()
+    await picker.getByRole('button', { name: strings['pick.use'], exact: true }).click()
     await page.waitForFunction(() => typeof window.__waarpTest.state.resolvePublicPick === 'function')
     assert.equal(await page.locator('.page-head').getByRole('switch').isEnabled(), false, 'same-card mutation waits for its pending choice')
     assert.equal(await page.locator('.master').isEnabled(), true, 'master OFF remains immediately available')
@@ -717,6 +754,7 @@ try {
   await check('history records real rounds once, including equal values and OFF measurements', async () => {
     const page = await pageFor()
     await ready(page); await clickNav(page, 'an')
+    await page.locator('.diagnostic-extras > summary').click()
     await page.evaluate(() => {
       const f = window.__waarpTest
       f.state.status = { ...f.state.status, phase: 'on', open: true, since: Date.now(), pings: { a: 42 }, pingRound: 1, pingAt: Date.now() }
@@ -746,6 +784,7 @@ try {
   await check('payload diagnostics stay idle until requested and distinguish unmeasured upload', async () => {
     const page = await pageFor()
     await ready(page); await clickNav(page, 'an')
+    await page.locator('.diagnostic-extras > summary').click()
     const panel = page.locator('.payload-check')
     await panel.getByText(strings['payload.no_result'], { exact: true }).waitFor()
     assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.payloadLast), 1)
@@ -761,6 +800,7 @@ try {
   await check('cancelled payload checks ignore a late response and restore the action', async () => {
     const page = await pageFor({ deferPayload: true })
     await ready(page); await clickNav(page, 'an')
+    await page.locator('.diagnostic-extras > summary').click()
     const panel = page.locator('.payload-check')
     await panel.getByRole('button', { name: strings['payload.run'], exact: true }).click()
     await page.waitForFunction(() => typeof window.__waarpTest.state.resolvePayload === 'function')
@@ -776,36 +816,37 @@ try {
   await check('diagnosis applies the proven profile through its token and refuses a stale result', async () => {
     const page = await pageFor()
     await ready(page); await clickNav(page, 'an')
+    await page.locator('.quality-result').waitFor()
+    const initialProbes = await page.evaluate(() => window.__waarpTest.state.calls.diagnose)
     await page.getByPlaceholder(strings['an.probe.ph']).fill('https://example.com:8443/path?query=sample')
     await page.getByRole('button', { name: strings['an.probe.go'], exact: true }).click()
     const applyName = strings['dg.route.card'].replace('{v}', 'Personal B')
     await page.getByRole('button', { name: applyName, exact: true }).click()
     await page.waitForFunction(() => window.__waarpTest.state.settings.routes[0].via === 'b')
-    assert.deepEqual(await page.evaluate(() => window.__waarpTest.state.lastDiagnosisApply), { token: 'diagnosis-1', via: 'b' })
+    assert.deepEqual(await page.evaluate(() => window.__waarpTest.state.lastDiagnosisApply), { token: `diagnosis-${initialProbes + 1}`, via: 'b' })
     assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.settings ?? 0), 0, 'UI cannot bypass the main diagnosis guard with a generic settings patch')
     await page.getByRole('button', { name: applyName, exact: true }).waitFor({ state: 'hidden' })
     // The first apply already selected B. Restore a different current path before
     // checking again; a redundant recommendation for the current path has no Apply action.
     await page.evaluate(() => { const f = window.__waarpTest; f.state.settings.routes[0].via = 'a'; f.push() })
     await page.getByRole('button', { name: strings['an.probe.go'], exact: true }).click()
-    await page.waitForFunction(() => window.__waarpTest.state.calls.diagnose === 2)
+    await page.waitForFunction(n => window.__waarpTest.state.calls.diagnose === n, initialProbes + 2)
     await page.getByRole('button', { name: applyName, exact: true }).waitFor()
     await page.evaluate(() => { window.__waarpTest.state.rejectDiagnosisApply = true })
     await page.getByRole('button', { name: applyName, exact: true }).click()
     await page.getByText(strings['quality.notice.stale'], { exact: true }).waitFor()
-    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.diagnose), 2, 'stale evidence starts no hidden check')
+    assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.diagnose), initialProbes + 2, 'stale evidence starts no hidden check')
     assert.equal(await page.getByRole('button', { name: applyName, exact: true }).count(), 0)
     assert.equal(await page.evaluate(() => window.__waarpTest.state.settings.routes[0].via), 'a', 'stale apply never changes the route')
     assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.diagnoseApply), 2)
     await page.getByRole('button', { name: strings['an.probe.go'], exact: true }).click()
-    await page.waitForFunction(() => window.__waarpTest.state.calls.diagnose === 3)
+    await page.waitForFunction(n => window.__waarpTest.state.calls.diagnose === n, initialProbes + 3)
     await page.getByRole('button', { name: applyName, exact: true }).waitFor()
     await page.context().close()
   })
   await check('leaving diagnostics cancels the operation and ignores a late result', async () => {
     const page = await pageFor({ deferDiagnose: true })
     await ready(page); await clickNav(page, 'an')
-    await page.getByRole('button', { name: strings['an.probe.go'], exact: true }).click()
     await page.waitForFunction(() => typeof window.__waarpTest.state.resolveDiagnose === 'function')
     const before = await page.evaluate(() => window.__waarpTest.state.calls.diagnoseCancel)
     await clickNav(page, 'servers')

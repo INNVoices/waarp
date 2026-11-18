@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "tag": "preview-2026-11-18-r5",
+  "tag": "preview-2026-11-18-r6",
   "date": "2026-11-18",
   "channel": "prerelease",
   "windows": {
-    "version": "0.4.1-rc.4",
+    "version": "0.4.1-rc.5",
     "architecture": "x64",
     "artifact": "portable-exe",
     "signing": "unsigned"
@@ -20,6 +20,9 @@
     "artifact": "installable-debug-apks-only",
     "productionSigned": false
   },
-  "notes": "Local map and contextual connection checks; finish existing UI and route continuity, publish both platforms only after their preview gates pass.",
-  "revision": 11
+  "notes": "Desktop correction: automatic public checks, actual packaged Windows acceptance, useful diagnostics, taller map and bundled taskbar icon. Android remains at r5.",
+  "revision": 12,
+  "platforms": [
+    "windows"
+  ]
 }

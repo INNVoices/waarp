@@ -280,8 +280,8 @@ export function splitCustom(items: string[]) {
   return { domains, cidrs }
 }
 
-const PRIVATE = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', '127.0.0.0/8', '224.0.0.0/4', '255.255.255.255/32', 'fc00::/7', 'fe80::/10']
-const RU_DIRECT = ['ru', 'xn--p1ai', 'su', 'yandex.net', 'yastatic.net', 'vk.com', 'userapi.com', 'mail.ru', 'gosuslugi.ru', 'sberbank.ru', 'tinkoff.ru', 'tbank.ru', 'ozon.ru', 'wildberries.ru', 'avito.ru']
+export const PRIVATE = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', '127.0.0.0/8', '224.0.0.0/4', '255.255.255.255/32', 'fc00::/7', 'fe80::/10']
+export const RU_DIRECT = ['ru', 'xn--p1ai', 'su', 'yandex.net', 'yastatic.net', 'vk.com', 'userapi.com', 'mail.ru', 'gosuslugi.ru', 'sberbank.ru', 'tinkoff.ru', 'tbank.ru', 'ozon.ru', 'wildberries.ru', 'avito.ru']
 
 export interface BuildOpts {
   api: { port: number; secret: string }; selfExe?: string; /** R5 runtime Auto live pool */ autoLive?: readonly string[]

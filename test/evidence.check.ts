@@ -2,6 +2,7 @@
 import { classify, failingLayer, provenPath, type DirectObs } from '../src/shared/evidence'
 import { cancellable, parseProbe, probeLayers, type Net } from '../src/main/layered'
 import { probeTarget } from '../src/main/validate'
+import { diagnosticGuidance } from '../src/shared/diagnostic-guidance'
 
 let fails = 0, n = 0
 const ok = (c: unknown, msg: string) => { n++; if (!c) { fails++; console.error('FAIL', msg) } }
@@ -23,12 +24,25 @@ const net = (o: Partial<Net>): Net => ({
 
   const sysNx = await probeLayers('x.org', net({ dnsSystem: async () => { throw err('ENOTFOUND') } }), 50)
   eq([sysNx.dnsSystem, sysNx.dnsDoh.result, sysNx.tcp.result], [{ result: 'fail', code: 'nxdomain' }, 'ok', 'ok'], 'system NX, DoH answers, TCP continues on the DoH address')
+  const bothNx = await probeLayers('x.org', net({ dnsSystem: async () => { throw err('ENOTFOUND') }, dnsDoh: async () => { throw new AggregateError([err('ENOTFOUND'), err('ENOTFOUND')]) } }), 50)
+  eq([bothNx.dnsDoh.code, diagnosticGuidance(bothNx).explanation], ['nxdomain', 'dns-missing'], 'matching DoH failures preserve the actual NXDOMAIN result')
 
   const rst = await probeLayers('x.org', net({ tls: async () => { throw err('ECONNRESET') } }), 50)
   eq([rst.tcp.result, rst.tls, rst.http.result], ['ok', { result: 'fail', code: 'reset' }, 'skipped'], 'TLS reset stops before HTTP')
 
   const slow = await probeLayers('x.org', net({ tcp: () => never<void>() }), 30)
   eq([slow.tcp.result, slow.tls.result], ['timeout', 'skipped'], 'a hanging layer becomes timeout, later layers skipped')
+
+  const addressCalls: string[] = []
+  let losingTcpAborted = false, losingTlsAborted = false
+  const dualStack = await probeLayers('x.org', net({
+    dnsSystem: async () => ['2001:db8::1', '2001:db8::2', '2001:db8::3', '2001:db8::4', '192.0.2.1'],
+    tcp: async (ip, _port, signal) => { addressCalls.push(ip); if (ip.includes(':')) { signal.addEventListener('abort', () => { losingTcpAborted = true }); return never<void>() } },
+    tls: async (ip, host, _port, signal) => { eq(host, 'x.org', 'fallback keeps the original TLS server name'); if (ip.includes(':')) { signal.addEventListener('abort', () => { losingTlsAborted = true }); return never<void>() } }
+  }), 50)
+  eq([dualStack.tcp.result, dualStack.tls.result, dualStack.http.result], ['ok', 'ok', 'ok'], 'unreachable first IPv6 does not hide the working IPv4 answer')
+  ok(addressCalls.includes('192.0.2.1') && addressCalls.length <= 4, 'both address families participate in a bounded set')
+  ok(losingTcpAborted && losingTlsAborted, 'successful address fallback closes losing TCP and TLS attempts')
 
   const both = await probeLayers('x.org', net({ dnsSystem: async () => [], dnsDoh: async () => [] }), 50)
   eq([both.dnsSystem.code, both.tcp.result], ['empty', 'skipped'], 'no address anywhere: nothing else is tried')
@@ -63,6 +77,13 @@ const net = (o: Partial<Net>): Net => ({
   eq([diff.dnsDiffer, classify(diff, { a: 50 }).kind], [true, 'direct_ok'], 'different valid DNS answers are a note; the site still opens')
   const certFail = await probeLayers('x.org', net({ tls: async () => { throw err('CERT_HAS_EXPIRED') } }), 50)
   eq(certFail.tls, { result: 'fail', code: 'cert' }, 'certificate error is its own result')
+
+  eq(diagnosticGuidance(certFail).explanation, 'tls-certificate', 'certificate failure gets a concrete next step, not a generic blocked-site claim')
+  eq(diagnosticGuidance(sysNx).explanation, 'dns-system', 'successful later fallback does not erase the system DNS failure')
+  eq(diagnosticGuidance(await st([403])), { explanation: 'http-denied', stage: 'http', destinationResponded: true }, '403 is explained as an HTTP response with access denied')
+  eq(diagnosticGuidance(await st([302], 'https://login.example/')).explanation, 'http-redirect', 'redirect prompts checking the final URL, not swapping servers')
+  eq(diagnosticGuidance(dualStack).explanation, 'http-ok', 'working alternate IP gives a successful explanation')
+  eq(diagnosticGuidance({ ...allOk, tcp: { result: 'skipped' }, tls: { result: 'skipped' }, http: { result: 'skipped' } }).explanation, 'incomplete', 'a skipped stage is not a network failure')
 
   // ---- the button offers the path that was proven, never untested Auto
   eq(provenPath({ kind: 'restricted_direct', layer: 'tls', via: ['a', 'b'] }, [{ id: 'a', revoked: true }, { id: 'b' }]), 'b', 'the fastest proven own path that still exists')

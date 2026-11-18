@@ -7,7 +7,7 @@ import { Pagination } from '../ui/pagination'
 import { AutoHint, Mark, Ping, subOf, viaName } from '../parts'
 import { s } from '../lib/i18n'
 import { PublicCatalog } from './publiccat'
-import { atlasCountry, profileAtlas } from '../../../shared/atlas'
+import { profileAtlas, profileCountry } from '../../../shared/atlas'
 import { Atlas, atlasCountryName, type AtlasRouteView } from '../ui/atlas'
 import { AtlasViewSwitch, useAtlasView } from '../ui/atlas-view'
 
@@ -32,7 +32,7 @@ export function ServerPicker({ snap, status, route, applying, disabled, onSelect
   const saved = snap.profiles.filter(profile => !profile.revoked && profile.id !== AUTO_ID && (!isCompanion || safeVia(profile.id, snap.settings, snap.profiles)))
   const term = query.trim().toLocaleLowerCase()
   const matches = saved.filter(profile => !term || `${profile.name} ${subOf(profile)}`.toLocaleLowerCase().includes(term))
-  const filtered = matches.filter(profile => !country || atlasCountry(profile.kind === 'group' ? undefined : profile.country) === country)
+  const filtered = matches.filter(profile => !country || profileCountry(profile) === country)
   const sorted = [...filtered.filter(profile => profile.id === route.via), ...filtered.filter(profile => profile.id !== route.via)]
   const currentPage = Math.min(page, Math.max(1, Math.ceil(sorted.length / PAGE_SIZE)))
   const visible = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
@@ -48,7 +48,7 @@ export function ServerPicker({ snap, status, route, applying, disabled, onSelect
   const select = async (id: Via) => { await onSelect(id) }
   const active = live ? snap.profiles.find(profile => profile.id === status.routes?.[route.id]?.effective) : undefined
   const pending = applying ? snap.profiles.find(profile => profile.id === applying) : undefined
-  const mapRoute: AtlasRouteView = { active: active && { name: active.name, country: active.country }, pending: pending && { name: pending.name, country: pending.country } }
+  const mapRoute: AtlasRouteView = { active: active && { name: active.name, country: profileCountry(active) }, pending: pending && { name: pending.name, country: profileCountry(pending) } }
   const health = (profile: ProfileView) => {
     const measured = status.pings[profile.id]
     if (measured !== undefined || live && status.health?.[profile.id] === 'down') return <Ping ms={measured} live down={status.health?.[profile.id] === 'down'} />

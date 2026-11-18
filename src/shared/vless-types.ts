@@ -44,5 +44,6 @@ export interface VlessProfile {
   /** last successful subscription response did not contain this entry; kept as last-good pending user action */
   subMissing?: boolean
   source?: 'personal' | 'public' | 'managed'
+  country?: string
   revoked?: boolean
 }

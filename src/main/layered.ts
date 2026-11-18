@@ -58,14 +58,35 @@ export function cancellable<T>(fn: (signal: AbortSignal) => Promise<T>, ms: numb
 }
 const codeOf = (e: unknown): string => String((e as { code?: string })?.code ?? '')
 const isTimeout = (e: unknown) => codeOf(e) === 'ETIMEDOUT'
+function agreedFailure(error: unknown): unknown {
+  if (error instanceof AggregateError && error.errors.length) {
+    const first = error.errors[0]
+    if (codeOf(first) && error.errors.every(item => codeOf(item) === codeOf(first))) return first
+  }
+  return error
+}
+
+/** Give both address families a chance within the same stage deadline. A broken
+ * first IPv6 address must not become a false site failure when IPv4 responds. */
+function probeAddresses(addresses: readonly string[]): string[] {
+  const unique = [...new Set(addresses)].filter(address => isIP(address) !== 0)
+  const first = unique[0], other = unique.find(address => isIP(address) !== isIP(first ?? ''))
+  return [...new Set([first, other, ...unique].filter((address): address is string => !!address))].slice(0, 4)
+}
+async function anyAddress(addresses: readonly string[], check: (ip: string) => Promise<void>): Promise<string> {
+  try { return await Promise.any(addresses.map(async ip => { await check(ip); return ip })) }
+  // Preserve a specific refusal/certificate verdict only when all attempts agree.
+  catch (error) { throw agreedFailure(error) }
+}
 
 async function dnsObs(fn: (s: AbortSignal) => Promise<string[]>, ms: number, signal?: AbortSignal): Promise<DnsObs & { first?: string; all?: string[] }> {
   try {
     const a = await cancellable(fn, ms, signal)
     return a.length ? { result: 'ok', addrs: a.length, first: a[0], all: a } : { result: 'fail', code: 'empty' }
   } catch (e) {
-    if (isTimeout(e)) return { result: 'timeout' }
-    const c = codeOf(e)
+    const reason = agreedFailure(e)
+    if (isTimeout(reason)) return { result: 'timeout' }
+    const c = codeOf(reason)
     return { result: 'fail', code: c === 'ENOTFOUND' ? 'nxdomain' : c === 'ECONNREFUSED' || c === 'EREFUSED' ? 'refused' : 'error' }
   }
 }
@@ -79,13 +100,15 @@ export async function probeLayers(target: string, net: Net = realNet, ms = LAYER
     : await Promise.all([dnsObs(s => net.dnsSystem(t.host, s), ms, signal), dnsObs(s => net.dnsDoh(t.host, s), ms, signal)])
   const out: DirectObs = { dnsSystem: strip(sys), dnsDoh: strip(doh), tcp: skip, tls: t.scheme === 'http' ? na : skip, http: skip }
   if ('all' in sys && 'all' in doh && sys.all && doh.all && !sys.all.some(a => doh.all!.includes(a))) out.dnsDiffer = true
-  // TCP/TLS use the system answer when it exists (that is what the browser would use), else the DoH answer
-  const ip = sys.first ?? ('first' in doh ? doh.first : undefined)
-  if (!ip) return out
-  try { await cancellable(s => net.tcp(ip, t.port, s), ms, signal); out.tcp = { result: 'ok' } }
+  // Use the system answer when it exists (as the browser does), otherwise DoH.
+  // All attempts share one bounded deadline and the winning stage cancels losers.
+  const addresses = probeAddresses('all' in sys && sys.all?.length ? sys.all : sys.first ? [sys.first] : 'all' in doh ? doh.all ?? [] : [])
+  if (!addresses.length) return out
+  let connected: string
+  try { connected = await cancellable(s => anyAddress(addresses, ip => net.tcp(ip, t.port, s)), ms, signal); out.tcp = { result: 'ok' } }
   catch (e) { out.tcp = isTimeout(e) ? { result: 'timeout' } : { result: 'fail', code: codeOf(e) === 'ECONNRESET' ? 'reset' : codeOf(e) === 'ECONNREFUSED' ? 'refused' : codeOf(e) === 'EHOSTUNREACH' || codeOf(e) === 'ENETUNREACH' ? 'unreachable' : 'error' }; return out }
   if (t.scheme === 'https') {
-    try { await cancellable(s => net.tls(ip, t.ip ? '' : t.host, t.port, s), ms, signal); out.tls = { result: 'ok' } }
+    try { await cancellable(s => anyAddress([connected, ...addresses.filter(ip => ip !== connected)], ip => net.tls(ip, t.ip ? '' : t.host, t.port, s)), ms, signal); out.tls = { result: 'ok' } }
     catch (e) {
       const c = codeOf(e)
       out.tls = isTimeout(e) ? { result: 'timeout' } : { result: 'fail', code: c === 'ECONNRESET' ? 'reset' : /CERT|ALTNAME|SELF_SIGNED/.test(c) ? 'cert' : /ALERT|SSL/.test(c) ? 'alert' : 'error' }

@@ -6,8 +6,9 @@
 .atlas-device { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--m); font-size: 12px; }
 .atlas-device > span { white-space: nowrap; }
 .atlas-device .select-field { min-width: 120px; max-width: 210px; height: 28px; padding: 0 7px; font-size: 12px; }
-.atlas-total { margin-left: auto; font-size: 12px; }
-.atlas-map-frame { height: clamp(240px, 33vh, 340px); position: relative; overflow: hidden; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--bg); isolation: isolate; }
+.atlas-total { margin-left: auto; font-size: 12px; display: flex; gap: 14px; flex-wrap: wrap; }
+.atlas-map-frame { height: clamp(340px, 56vh, 720px); position: relative; overflow: hidden; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--bg); isolation: isolate; }
+.server-picker .atlas-map-frame { height: clamp(290px, 43vh, 440px); }
 .atlas-canvas { width: 100%; height: 100%; }
 .atlas-canvas canvas:focus-visible { outline: 2px solid var(--a); outline-offset: -3px; }
 .atlas-unavailable { height: 100%; padding: 28px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; color: var(--m); }
@@ -21,6 +22,18 @@
 .atlas-region-filter .btn { font-size: 11px; padding: 0 8px; }
 .atlas-caption { display: flex; align-items: flex-start; gap: 6px; font-size: 10px; line-height: 15px; color: var(--m); }
 .atlas-caption .ic { flex-shrink: 0; margin-top: 1px; }
+.atlas-summary { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--field); align-items: center; }
+.atlas-summary-title { display: flex; flex-direction: column; gap: 3px; margin-right: auto; min-width: 180px; }
+.atlas-summary-title b { font-size: 12px; font-weight: 600; }
+.atlas-summary-title > span { color: var(--m); font-size: 10.5px; }
+.atlas-stat { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--m); white-space: nowrap; }
+.atlas-stat b { font-size: 12px; color: var(--t2); }
+.atlas-stat i { width: 7px; height: 7px; border: 1px solid #b09a89; border-radius: 50%; background: #37332f; }
+.atlas-stat.ready i { border-color: var(--ok); background: #435238; }
+.atlas-stat.failed i { border-color: #ab766b; background: #493a36; }
+.atlas-popup { pointer-events: none; }
+.atlas-popup .maplibregl-popup-content { color: var(--t); background: var(--win); border: 1px solid var(--line); border-radius: var(--r); box-shadow: 0 4px 18px #0006; padding: 9px 12px; font: inherit; font-size: 11px; line-height: 18px; white-space: pre-line; }
+.atlas-popup .maplibregl-popup-tip { border-top-color: var(--win); }
 .atlas-attribution { margin-left: auto; flex-shrink: 0; opacity: .8; }
 .atlas-route-status { display: flex; gap: 8px 16px; flex-wrap: wrap; font-size: 11px; color: var(--m); }
 .atlas-route-status > span { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
@@ -35,9 +48,21 @@
 .atlas-connection-section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .atlas-connection-section[hidden] { display: none; }
 .atlas-connections .srv-grid { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+.srv-region { margin-left: 10px; color: var(--m); font-size: 11px; }
+.server-catalog-progress { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 18px; font-size: 11px; line-height: 17px; color: var(--m); }
+.server-catalog-progress > span { display: inline-flex; align-items: center; gap: 6px; }
+.server-catalog-progress .server-auto-state { color: var(--a-text); }
+.server-catalog .public-server-list .server-list-head,
+.server-catalog .public-server-list .server-row { grid-template-columns: 36px minmax(0, 1fr) 120px 100px; }
+.server-catalog .server-health-label { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.server-picker .server-catalog .public-server-list .server-list-head,
+.server-picker .server-catalog .public-server-list .server-row { grid-template-columns: 28px minmax(0, 1fr) 112px 88px; gap: 8px; }
 @media (max-width: 760px) {
   .atlas-caption { flex-wrap: wrap; }
   .atlas-attribution { margin-left: 19px; }
   .atlas-device { flex: 1; }
   .atlas-total { width: 100%; margin-left: 0; }
+  .atlas-map-frame, .server-picker .atlas-map-frame { height: clamp(300px, 48vh, 460px); }
+  .atlas-summary { gap: 8px 14px; }
+  .atlas-summary-title { width: 100%; }
 }

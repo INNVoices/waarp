@@ -16,8 +16,9 @@ const archive = resolve(resources, 'app.asar')
 const portable = resolve(root, `dist/Waarp-${metadata.version}-portable.exe`)
 const sha256 = file => createHash('sha256').update(readFileSync(file)).digest('hex')
 const entries = new Set(asar.listPackage(archive).map(name => name.replaceAll('\\', '/').replace(/^\/+/, '')))
-const required = ['package.json', 'out/main/index.js', 'out/preload/index.js', 'out/renderer/index.html', 'node_modules/jsqr/dist/jsQR.js']
+const required = ['package.json', 'out/main/index.js', 'out/preload/index.js', 'out/renderer/index.html', 'build/icon.png', 'node_modules/jsqr/dist/jsQR.js']
 for (const path of required) assert.ok(entries.has(path), `Missing application runtime file: ${path}`)
+assert.deepEqual(asar.extractFile(archive, join('build', 'icon.png')), readFileSync(resolve(root, 'build/icon.png')), 'The taskbar window icon must be present in the packaged runtime')
 const forbidden = [...entries].filter(name => /^(test|docs|src|scripts)(\/|$)/.test(name) || /^out\/(?!main(?:\/|$)|preload(?:\/|$)|renderer(?:\/|$))/.test(name))
 assert.deepEqual(forbidden, [], 'Test bundles, source, screenshots and validation reports must not ship in app.asar')
 const packagedMetadata = JSON.parse(asar.extractFile(archive, 'package.json').toString('utf8'))
@@ -34,7 +35,7 @@ for (const name of ['LICENSE.txt', 'NOTICE.txt', 'THIRD_PARTY_NOTICES.md', 'engi
 }
 const report = {
   version: metadata.version, commit: process.env.GITHUB_SHA ?? null, passed: true,
-  noTestBundlesOrReports: true, runtimeEntriesPresent: true, packagedEngineMatchesPin: true,
+  noTestBundlesOrReports: true, runtimeEntriesPresent: true, windowIconPresent: true, packagedEngineMatchesPin: true,
   asarBytes: statSync(archive).size, asarEntryCount: entries.size,
   portableBytes: statSync(portable).size, portableSha256: sha256(portable), engineVersion: manifest.version
 }

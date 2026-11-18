@@ -52,6 +52,8 @@ export interface DiagnosisResult {
   scope?: DiagnosisScope
   samples?: Record<string, PathCheckSummary>
   assessment?: ConnectionAssessment
+  /** Main resolves this from the target's actual domain rule or default path. */
+  currentVia?: string
   /** Layered system sockets can follow an existing OS VPN; they are not proof of a native Direct outbound. */
   systemPath?: true
 }

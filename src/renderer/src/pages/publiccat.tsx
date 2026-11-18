@@ -1,5 +1,5 @@
-// The catalogue is a server browser. Every candidate can be checked and selected
-// from the same row; a running VPN never turns browsing into an OFF-only action.
+// Visible candidates are checked automatically before import. Main owns the
+// bounded queue and its leases; changing a filter never changes network routes.
 import { useEffect, useRef, useState } from 'react'
 import { Btn, Field, Icon, Select, Tooltip } from '../ui/kit'
 import { Pagination } from '../ui/pagination'
@@ -9,8 +9,8 @@ import { projectAtlas, type AtlasProjection } from '../../../shared/atlas'
 import { Atlas, atlasCountryName, type AtlasRouteView } from '../ui/atlas'
 import { AtlasViewSwitch, useAtlasView, type AtlasView } from '../ui/atlas-view'
 
-interface Node { id: string; name: string; proto: string; host: string; port: number; country: string; source?: string; ping?: number; status?: 'ready' | 'cached' | 'failed' | 'unverified'; checkedAt?: number; lastSuccessAt?: number }
-interface State { updatedAt?: number; sources: { url: string; ok: boolean; count: number; error?: string }[]; total: number; readyCount?: number; cachedCount?: number; planned?: number; checked: number; alive: Node[]; cached?: Node[]; busy: boolean; cacheError?: string }
+interface Node { id: string; name: string; proto: string; host: string; port: number; country: string; source?: string; ping?: number; status?: 'ready' | 'cached' | 'failed' | 'unverified' | 'checking' | 'queued' | 'unsupported' | 'dns-failed'; checkedAt?: number; lastSuccessAt?: number; checkError?: string }
+interface State { updatedAt?: number; sources: { url: string; ok: boolean; count: number; error?: string }[]; total: number; readyCount?: number; cachedCount?: number; planned?: number; checked: number; alive: Node[]; cached?: Node[]; busy: boolean; cacheError?: string; automatic?: boolean; checkingIds?: string[]; queuedIds?: string[]; checkedCount?: number; failedCount?: number; skippedCount?: number; uncheckedCount?: number; checkIssue?: { kind: string; message: string } }
 interface Page { items: Node[]; total: number; page: number; pageSize: number; pages: number; regions: { id: string; name: string; total: number; ready: number }[]; atlas?: AtlasProjection }
 const PAGE_SIZE = 12
 const cc = (country: string) => /^[A-Z]{2}$/.test(country) ? country : ''
@@ -40,26 +40,22 @@ export function PublicCatalog({ toast, used, onAdded, selectedId, onBusyChange, 
   const [readyOnly, setReadyOnly] = useState(false)
   const [page, setPage] = useState(1)
   const [error, setError] = useState('')
+  const [autoError, setAutoError] = useState('')
   const [operation, setOperation] = useState<string>()
   const [selecting, setSelecting] = useState<string>()
   const mounted = useRef(true)
   const selectionLock = useRef(false)
   const toolbarLock = useRef(false)
-  const autoStarted = useRef(false)
-  const initialFilterChosen = useRef(false)
+  const [autoOwner] = useState(() => 'catalog-' + crypto.randomUUID())
   const request = useRef(0)
   const queryKey = JSON.stringify([query.trim(), region, country, readyOnly, page])
-  const chooseCountry = (next: string) => { initialFilterChosen.current = true; setCountry(next); setPage(1) }
+  const chooseCountry = (next: string) => { setCountry(next); setPage(1) }
 
   useEffect(() => {
     let active = true, pushed = false
     mounted.current = true
     const accept = (next: State) => {
       if (!active || !next) return
-      if (!initialFilterChosen.current) {
-        initialFilterChosen.current = true
-        setReadyOnly((next.readyCount ?? next.alive.length) > 0)
-      }
       setSt(next); setRevision(n => n + 1)
     }
     const unsubscribe = api.onCatalog((next: State) => { pushed = true; accept(next) })
@@ -82,17 +78,27 @@ export function PublicCatalog({ toast, used, onAdded, selectedId, onBusyChange, 
     return () => { clearTimeout(timer); if (request.current === sequence) request.current++ }
   }, [query, region, country, readyOnly, page, revision])
 
-  // Entering this explicit public-server surface starts one bounded search.
-  // It never loops on failure, and selecting a row can preempt the pool round.
+  const visibleKey = resultKey === queryKey ? (result?.items.map(node => node.id).join('\0') ?? '') : ''
+  // A short lease makes checks follow the screen without attaching candidates
+  // to the user's saved connections. Only this surface's lease is released.
   useEffect(() => {
-    if (!active || !st || autoStarted.current || disabled) return
-    autoStarted.current = true
-    if (st.busy || (st.readyCount ?? st.alive.length) > 0) return
-    void (st.total ? api.catalogVerify() : api.catalogRefresh()).then((next: State & { error?: string }) => {
-      if (next?.error) setError(next.error)
-      else if (next) { setSt(next); setRevision(n => n + 1) }
-    }).catch(() => setError(s('pub.error')))
-  }, [st, disabled, active])
+    if (!active || disabled) return
+    let alive = true
+    const renew = () => {
+      void api.catalogAuto({ owner: autoOwner, active: true, ids: visibleKey ? visibleKey.split('\0') : [] }).then((next: State & { error?: string }) => {
+        if (!alive) return
+        if (next?.error) setAutoError(next.error)
+        else if (next) { setAutoError(''); setSt(next); setRevision(n => n + 1) }
+      }).catch(() => { if (alive) setAutoError(s('pub.error')) })
+    }
+    renew()
+    const timer = setInterval(renew, 20000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [active, disabled, autoOwner, visibleKey])
+  useEffect(() => {
+    if (!active || disabled) return
+    return () => { void api.catalogAuto({ owner: autoOwner, active: false, ids: [] }).catch(() => undefined) }
+  }, [active, disabled, autoOwner])
 
   const run = async (key: string, work: () => Promise<State | undefined>) => {
     if (toolbarLock.current || disabled) return
@@ -130,14 +136,12 @@ export function PublicCatalog({ toast, used, onAdded, selectedId, onBusyChange, 
   const current = resultKey === queryKey ? result : undefined
   const readyCount = st?.readyCount ?? st?.alive.length ?? 0
   const checking = st?.busy || !!operation
-  const checkError = !checking && !readyCount ? st?.sources.find(source => source.url === 'local checker')?.error : undefined
-  const chooseLabel = (node: Node) => {
-    if (selecting === node.id) return s('server.public.checking')
-    if (selectedId === node.id) return s('server.current')
-    if (node.status === 'ready') return onAdded ? s('pick.use') : s('pub.add')
-    if (node.status === 'failed') return s('server.public.recheck')
-    return s(onAdded ? 'server.public.checkuse' : 'server.public.checkadd')
-  }
+  const checkError = st?.checkIssue?.message ?? (!checking && !readyCount ? st?.sources.find(source => source.url === 'local checker')?.error : undefined)
+  const chooseLabel = (node: Node) => selecting === node.id ? s('server.applying')
+    : selectedId === node.id ? s('server.current') : onAdded ? s('pick.use') : s('pub.add')
+  const nodeStatus = (node: Node) => st?.checkingIds?.includes(node.id) ? 'checking'
+    : st?.queuedIds?.includes(node.id) ? 'queued' : node.status ?? 'unverified'
+
 
   return <section className={'panel pub server-catalog' + (compact ? ' compact' : '')} id="public-catalog">
     <div className="pub-head">
@@ -148,41 +152,49 @@ export function PublicCatalog({ toast, used, onAdded, selectedId, onBusyChange, 
       <div className="grow" />
       {!onViewChange && <AtlasViewSwitch value={view} onChange={setView} />}
       <Btn kind="ghost" onClick={() => void run('refresh', () => api.catalogRefresh())} disabled={disabled || checking} title={s('pub.refresh.tip')}><span className={checking ? 'spin' : ''}><Icon n="refresh" /></span>{s('pub.refresh')}</Btn>
-      <Btn kind="ghost" onClick={() => void run('verify', () => api.catalogVerify())} disabled={disabled || checking || !st?.total} title={s('server.public.verify.hint')}><Icon n="pulse" />{s('server.public.verify')}</Btn>
     </div>
     <div className="server-filters">
-      <Field icon="search" type="search" value={query} onChange={event => { initialFilterChosen.current = true; setQuery(event.target.value); setPage(1) }} placeholder={s('server.public.search')} aria-label={s('server.public.search')} />
-      <Select value={region} onChange={event => { initialFilterChosen.current = true; setRegion(event.target.value); setCountry(''); setPage(1) }} aria-label={s('server.region.label')}>
+      <Field icon="search" type="search" value={query} onChange={event => { setQuery(event.target.value); setPage(1) }} placeholder={s('server.public.search')} aria-label={s('server.public.search')} />
+      <Select value={region} onChange={event => { setRegion(event.target.value); setCountry(''); setPage(1) }} aria-label={s('server.region.label')}>
         <option value="">{s('server.region.all')}</option>
         {(result?.regions ?? []).map(item => <option value={item.id} key={item.id}>{s('pub.region.' + item.id)}{` · ${readyOnly ? item.ready : item.total}`}</option>)}
       </Select>
-      <Select value={readyOnly ? 'ready' : 'all'} onChange={event => { initialFilterChosen.current = true; setReadyOnly(event.target.value === 'ready'); setPage(1) }} aria-label={s('server.filter.label')}>
+      <Select value={readyOnly ? 'ready' : 'all'} onChange={event => { setReadyOnly(event.target.value === 'ready'); setPage(1) }} aria-label={s('server.filter.label')}>
         <option value="all">{s('server.filter.all')}</option><option value="ready">{s('server.filter.ready')}</option>
       </Select>
     </div>
     {active && view === 'map' && <Atlas projection={result?.atlas ?? projectAtlas(result?.items ?? [])} country={country} onCountry={chooseCountry} onList={() => setView('list')} route={route} />}
     {view === 'list' && country && <div className="atlas-list-filter"><span>{s('atlas.filtered', { country: atlasCountryName(country) })}</span><Btn sm kind="ghost" onClick={() => chooseCountry('')}><Icon n="x" s={13} />{s('atlas.region.reset')}</Btn></div>}
     {error && <p className="ferr" role="alert">{error}</p>}
+    {autoError && autoError !== error && <p className="ferr" role="status">{autoError}</p>}
     {checkError && checkError !== error && <p className="ferr" role="status">{checkError}</p>}
     {st?.cacheError && <p className="ferr" role="alert">{st.cacheError}</p>}
-    {!!st?.total && !readyCount && <p className="server-catalog-note" role="status"><Icon n="info" s={14} />{s('server.public.none')}</p>}
-    {!current ? <div className="server-list-empty" role="status">{error || s('server.public.loading')}</div> : !current.items.length ? <div className="server-list-empty">{s(st?.total ? 'server.public.noresults' : 'server.public.empty')}</div> :
+    {!!st?.total && <div className="server-catalog-progress" role="status">
+      <span className={st.automatic ? 'server-auto-state' : ''}><Icon n={checking ? 'refresh' : 'pulse'} s={14} />{s(st.automatic ? 'server.public.auto.active' : 'server.public.auto.idle')}</span>
+      <span>{s('server.public.auto.measured', { n: st.checkedCount ?? st.checked, total: st.total })}</span>
+      {!!st.failedCount && <span>{s('server.public.auto.failed', { n: st.failedCount })}</span>}
+      {!!st.skippedCount && <span>{s('server.public.auto.skipped', { n: st.skippedCount })}</span>}
+    </div>}
+    {!!st?.total && !readyCount && !checkError && <p className="server-catalog-note" role="status"><Icon n="info" s={14} />{s(checking || st.automatic ? 'server.public.auto.searching' : 'server.public.auto.pending')}</p>}
+    {!current ? <div className="server-list-empty" role="status">{error || s('server.public.loading')}</div> : !current.items.length ? <div className="server-list-empty"><span>{s(st?.total ? 'server.public.noresults' : 'server.public.empty')}</span>{readyOnly && !!st?.total && <Btn kind="ghost" onClick={() => { setReadyOnly(false); setPage(1) }}>{s('server.public.auto.showall')}</Btn>}</div> :
       <div className="server-list public-server-list">
         <div className="server-list-head"><span>{s('pick.country')}</span><span>{s('pick.name')}</span><Tooltip tip={s('pick.ping.hint')}><span>{s('pick.ping')}</span></Tooltip><span /></div>
         {current.items.map(node => {
           const selected = selectedId === node.id
           const busy = selecting === node.id
+          const health = nodeStatus(node)
           return <div key={node.id} className={'server-row' + (selected ? ' on' : '') + (busy ? ' applying' : '')}>
             <span className="pub-cc" title={s('pick.country.hint')}>{cc(node.country) || <Icon n="globe" s={14} />}</span>
             <div className="server-row-name"><b className="ell" title={node.name}>{clean(node.name)}</b><span className="m ell" title={`${node.host}:${node.port} · ${node.source ?? ''}`}>{node.proto}{' · '}{node.host}:{node.port}</span></div>
-            <div className={'server-row-health' + (node.status === 'ready' ? ' ready' : node.status === 'failed' ? ' failed' : '')} title={s('pub.checked.at', { ago: ago(node.checkedAt) })}>
-              {busy ? <span className="spin"><Icon n="refresh" s={14} /></span> : node.status === 'ready' ? <><span className="mono">{node.ping === undefined ? s('server.public.ready') : s('meter.ms', { n: node.ping })}</span><small>{s('server.public.ready')}</small></> : <span>{s(node.status === 'failed' ? 'pub.node.failed' : node.status === 'unverified' ? 'server.public.unchecked' : 'server.public.stale')}</span>}
+            <div className={'server-row-health' + (health === 'ready' ? ' ready' : health === 'failed' ? ' failed' : '')} title={node.checkError ?? s('pub.checked.at', { ago: ago(node.checkedAt) })}>
+              {health === 'ready' ? <><span className="mono">{node.ping === undefined ? s('server.public.ready') : s('meter.ms', { n: node.ping })}</span><small>{s('server.public.ready')}</small></>
+                : <span className="server-health-label">{health === 'checking' && <span className="spin"><Icon n="refresh" s={12} /></span>}{s(health === 'failed' ? 'pub.node.failed' : health === 'unsupported' ? 'server.public.auto.unsupported' : health === 'dns-failed' ? 'server.public.auto.dns' : health === 'checking' ? 'server.public.auto.checking' : 'server.public.auto.queued')}</span>}
             </div>
-            {used(node.id) && !onAdded ? <span className="server-row-action saved"><Icon n="check" s={14} />{s('pub.in')}</span> : <Btn kind={selected ? 'ghost' : 'default'} sm className="server-row-action" disabled={disabled || !!selecting || selected} aria-busy={busy} onClick={() => void add(node)}>{selected && <Icon n="check" s={14} />}{chooseLabel(node)}</Btn>}
+            {used(node.id) && !onAdded ? <span className="server-row-action saved"><Icon n="check" s={14} />{s('pub.in')}</span> : <Btn kind={selected ? 'ghost' : 'default'} sm className="server-row-action" disabled={disabled || !!selecting || selected || health !== 'ready'} aria-busy={busy} onClick={() => void add(node)}>{selected && <Icon n="check" s={14} />}{chooseLabel(node)}</Btn>}
           </div>
         })}
       </div>}
-    {current && <Pagination page={current.page} total={current.total} pageSize={current.pageSize} onChange={next => { initialFilterChosen.current = true; setPage(next) }} />}
+    {current && <Pagination page={current.page} total={current.total} pageSize={current.pageSize} onChange={next => { setPage(next) }} />}
     <p className="hint server-catalog-trust"><Icon n="info" s={13} />{s('server.public.trust')}</p>
     <details className="server-catalog-info"><summary>{s('server.public.moreinfo')}</summary>
       <p className="hint">{s('pub.trust')}</p>

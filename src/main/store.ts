@@ -2,6 +2,7 @@ import { safeStorage } from 'electron'
 import { copyFileSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Profile, ProfileView, Settings } from '../shared/types'
+import { profileCountry } from '../shared/atlas'
 import { Bounds, DEFAULTS, Disk, readDisk } from './store-core'
 import { protectPrivateFile } from './private-file'
 import { techOf } from './techview'
@@ -105,6 +106,6 @@ export class Store {
           ? { kind: 'openvpn', id: p.id, name: p.name, host: p.host, port: p.port, address: [], version: p.version, source: p.source, revoked: p.revoked }
         : { kind: 'awg', id: p.id, name: p.name, host: p.peer.host, port: p.peer.port, address: p.address, clientPublicKey: p.clientPublicKey, version: p.version, source: p.source, revoked: p.revoked })
     const groups = (this.settings.groups ?? []).filter(g => g.members.some(m => have.has(m))).map((g): ProfileView => ({ kind: 'group', id: g.id, name: g.name, host: '', port: 0, address: [], version: g.policy, policy: g.policy, members: g.members.filter(m => have.has(m)) }))
-    return [...own.map((v, i) => ({ ...v, ...techOf(this.profiles[i]), tuneOptions: tuneOptions(this.profiles[i]) })), ...groups]
+    return [...own.map((v, i) => ({ ...v, country: profileCountry(this.profiles[i]), ...techOf(this.profiles[i]), tuneOptions: tuneOptions(this.profiles[i]) })), ...groups]
   }
 }
