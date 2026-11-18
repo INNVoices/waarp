@@ -20,9 +20,32 @@ class CheckFailed(Exception):
         self.stage, self.code = stage, code
 
 
-def wait_for_hold(child):
-    deadline = time.monotonic() + 45
-    pending = b""
+SELF_TEST_STAGES = frozenset({
+    "loopback_udp", "start_devices", "initial_encrypted_dns", "down", "up", "down_up_dns",
+    "remove_peer", "removed_peer_dns", "restore_peer", "restored_peer_dns",
+    "close_before_recreate", "recreate_same_ports", "recreated_dns", "holding_after_success", "close_devices",
+})
+
+
+def observe_progress(line, result):
+    """Retain only the harness's fixed stage codes, never arbitrary child logs."""
+    try:
+        value = json.loads(line)
+    except (ValueError, UnicodeError):
+        return
+    if not isinstance(value, dict) or set(value) != {"mode", "stage", "elapsed_ms"}:
+        return
+    if value["mode"] != "local_awg_self_test_progress" or type(value["stage"]) is not str or value["stage"] not in SELF_TEST_STAGES:
+        return
+    elapsed = value["elapsed_ms"]
+    if type(elapsed) is not int or not 0 <= elapsed <= 45000:
+        return
+    result["child_stage"], result["child_stage_ms"] = value["stage"], elapsed
+
+
+def wait_for_hold(child, result, timeout_seconds=45):
+    deadline = time.monotonic() + timeout_seconds
+    pending = {"stdout": b"", "stderr": b""}
     output_bytes = 0
     with selectors.DefaultSelector() as selector:
         selector.register(child.stdout, selectors.EVENT_READ, "stdout")
@@ -37,11 +60,12 @@ def wait_for_hold(child):
                 output_bytes += len(chunk)
                 if output_bytes > 65536:
                     raise CheckFailed("holding_marker", "output_limit")
-                if key.data != "stdout":
-                    continue  # Never forward child logs or exception text.
-                pending += chunk
-                while b"\n" in pending:
-                    line, pending = pending.split(b"\n", 1)
+                pending[key.data] += chunk
+                while b"\n" in pending[key.data]:
+                    line, pending[key.data] = pending[key.data].split(b"\n", 1)
+                    if key.data == "stderr":
+                        observe_progress(line, result)
+                        continue
                     try:
                         value = json.loads(line)
                     except (ValueError, UnicodeError):
@@ -116,7 +140,7 @@ def check(binary):
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0,
         )
         children.append(child)
-        ports = wait_for_hold(child)
+        ports = wait_for_hold(child, result)
         result["holding_reached"] = True
         require_ports_busy(child, ports)
         result["both_ports_busy_while_child_alive"] = True

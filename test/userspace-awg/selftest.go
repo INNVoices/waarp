@@ -48,6 +48,7 @@ type selfTestReport struct {
 	SentDatagrams         uint64 `json:"outer_datagrams_sent"`
 	ReceivedDatagrams     uint64 `json:"outer_datagrams_received"`
 	DeviceErrorEvents     uint64 `json:"device_error_events"`
+	ReplyMailboxDrops     uint64 `json:"synthetic_reply_mailbox_drops"`
 	Stopped               bool   `json:"stopped"`
 	Passed                bool   `json:"passed"`
 	DurationMs            int64  `json:"duration_ms"`
@@ -94,6 +95,8 @@ type localPair struct {
 	cancel                                      context.CancelFunc
 	closeOnce                                   sync.Once
 	closed                                      chan struct{}
+	replies                                     chan []byte
+	replyDrops                                  atomic.Uint64
 	errors                                      atomic.Uint64
 	wireHandshake, wireTransport, wirePlaintext atomic.Bool
 }
@@ -136,7 +139,7 @@ func (p *localPair) clientPeer() string {
 }
 
 func startLocalPair(ports [2]uint16) (*localPair, error) {
-	p := &localPair{closed: make(chan struct{})}
+	p := &localPair{closed: make(chan struct{}), replies: make(chan []byte, 16)}
 	ctx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
 	keyA, err := ecdh.X25519().GenerateKey(rand.Reader)
@@ -152,6 +155,26 @@ func startLocalPair(ports [2]uint16) (*localPair, error) {
 	p.pubA, p.pubB = hex.EncodeToString(keyA.PublicKey().Bytes()), hex.EncodeToString(keyB.PublicKey().Bytes())
 	logger := &device.Logger{Verbosef: device.DiscardLogf, Errorf: func(string, ...any) { p.errors.Add(1) }}
 	p.ta, p.tb = newMemoryTUN(1280), newMemoryTUN(1280)
+	// Keep consuming decrypted packets between probes. Otherwise delayed duplicate
+	// DNS replies fill memoryTUN.inbound and block the native receiver in Write;
+	// Down/remove-peer then waits for that same receiver inside Peer.Stop. A bounded
+	// mailbox can drop unused UDP replies, but can never hold a native worker.
+	// Its lifetime follows TUN.Close, not cancel(), so shutdown can still drain a
+	// receiver if a control operation already holds the Device state lock.
+	go func() {
+		for {
+			select {
+			case <-p.ta.closed:
+				return
+			case packet := <-p.ta.inbound:
+				select {
+				case p.replies <- packet:
+				default:
+					p.replyDrops.Add(1)
+				}
+			}
+		}
+	}()
 	p.ba = &udpBind{family: "udp4", listenIP: net.IPv4(127, 0, 0, 1), observe: p.observe}
 	p.bb = &udpBind{family: "udp4", listenIP: net.IPv4(127, 0, 0, 1), observe: p.observe}
 	p.a = device.NewDevice(ctx, p.ta, p.ba, logger, 1)
@@ -268,14 +291,22 @@ func (p *localPair) probe(timeout time.Duration) bool {
 	if err != nil {
 		return false
 	}
-	p.ta.outbound <- packet
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
+	select {
+	case p.ta.outbound <- packet:
+	case <-p.ta.closed:
+		return false
+	case <-deadline.C:
+		return false
+	}
 	retry := time.NewTicker(300 * time.Millisecond)
 	defer retry.Stop()
 	for {
 		select {
-		case incoming := <-p.ta.inbound:
+		case <-p.ta.closed:
+			return false
+		case incoming := <-p.replies:
 			if match, rcode, answers := dnsResponse(incoming, c, id, port); match && rcode == 0 && answers == 1 {
 				return true
 			}
@@ -306,13 +337,21 @@ func peerCount(dev *device.Device) int {
 
 func executeSelfTest(hold time.Duration) (result selfTestReport) {
 	started := time.Now()
+	progress := func(stage string) {
+		if hold > 0 {
+			// Only fixed lifecycle codes, never device logs, keys or packet bytes.
+			json.NewEncoder(os.Stderr).Encode(map[string]any{"mode": "local_awg_self_test_progress", "stage": stage, "elapsed_ms": time.Since(started).Milliseconds()})
+		}
+	}
 	result = selfTestReport{Mode: "local_awg_self_test", Revision: revision, Stopped: true}
 	defer func() { result.DurationMs = time.Since(started).Milliseconds() }()
+	progress("loopback_udp")
 	if err := verifyLoopbackUDP(); err != nil {
 		result.ErrorStage, result.ErrorCategory = "loopback_udp", category(err)
 		return
 	}
 	result.LoopbackUDP = true
+	progress("start_devices")
 	pair, err := startLocalPair([2]uint16{})
 	if err != nil {
 		result.ErrorStage, result.ErrorCategory = "start_devices", category(err)
@@ -323,6 +362,7 @@ func executeSelfTest(hold time.Duration) (result selfTestReport) {
 		result.SentDatagrams += p.ba.sent.Load() + p.bb.sent.Load()
 		result.ReceivedDatagrams += p.ba.received.Load() + p.bb.received.Load()
 		result.DeviceErrorEvents += p.errors.Load()
+		result.ReplyMailboxDrops += p.replyDrops.Load()
 		result.AWGHandshakeOnWire = result.AWGHandshakeOnWire || p.wireHandshake.Load()
 		result.AWGTransportOnWire = result.AWGTransportOnWire || p.wireTransport.Load()
 		if p.wirePlaintext.Load() {
@@ -332,6 +372,7 @@ func executeSelfTest(hold time.Duration) (result selfTestReport) {
 	result.PlaintextAbsentOnWire = true
 	defer func() {
 		if pair != nil {
+			progress("close_devices")
 			result.Stopped = pair.close()
 			collect(pair)
 			if !result.Stopped {
@@ -340,45 +381,54 @@ func executeSelfTest(hold time.Duration) (result selfTestReport) {
 		}
 		result.Passed = result.ErrorStage == "" && result.LoopbackUDP && result.InitialHandshake && result.InitialDNS && result.DownUpDNS && result.PeerRemoved && result.RemovedPeerBlocked && result.PeerRestoredDNS && result.RecreatedDNS && result.AWGHandshakeOnWire && result.AWGTransportOnWire && result.PlaintextAbsentOnWire && result.Stopped
 	}()
+	progress("initial_encrypted_dns")
 	result.InitialDNS = pair.probe(8 * time.Second)
 	result.InitialHandshake = handshakeComplete(pair.a) && handshakeComplete(pair.b)
 	if !result.InitialDNS || !result.InitialHandshake {
 		result.ErrorStage, result.ErrorCategory = "initial_encrypted_dns", "failed"
 		return
 	}
+	progress("down")
 	if err = pair.a.Down(); err != nil {
 		result.ErrorStage, result.ErrorCategory = "down", category(err)
 		return
 	}
+	progress("up")
 	if err = pair.a.Up(); err != nil {
 		result.ErrorStage, result.ErrorCategory = "up", category(err)
 		return
 	}
+	progress("down_up_dns")
 	result.DownUpDNS = pair.probe(8 * time.Second)
 	if !result.DownUpDNS {
 		result.ErrorStage, result.ErrorCategory = "down_up_dns", "failed"
 		return
 	}
+	progress("remove_peer")
 	if err = pair.a.IpcSet("replace_peers=true\n"); err != nil {
 		result.ErrorStage, result.ErrorCategory = "remove_peer", "uapi_rejected"
 		return
 	}
 	result.PeerRemoved = peerCount(pair.a) == 0
+	progress("removed_peer_dns")
 	result.RemovedPeerBlocked = !pair.probe(1500 * time.Millisecond)
 	if !result.PeerRemoved || !result.RemovedPeerBlocked {
 		result.ErrorStage, result.ErrorCategory = "removed_peer_dns", "unexpected_response"
 		return
 	}
+	progress("restore_peer")
 	if err = pair.a.IpcSet(pair.clientPeer()); err != nil {
 		result.ErrorStage, result.ErrorCategory = "restore_peer", "uapi_rejected"
 		return
 	}
+	progress("restored_peer_dns")
 	result.PeerRestoredDNS = pair.probe(8 * time.Second)
 	if !result.PeerRestoredDNS {
 		result.ErrorStage, result.ErrorCategory = "restored_peer_dns", "failed"
 		return
 	}
 	ports := pair.ports
+	progress("close_before_recreate")
 	if !pair.close() {
 		result.ErrorStage, result.ErrorCategory = "close_before_recreate", "timeout"
 		return
@@ -386,18 +436,21 @@ func executeSelfTest(hold time.Duration) (result selfTestReport) {
 	collect(pair)
 	pair = nil
 	result.Stopped = true
+	progress("recreate_same_ports")
 	pair, err = startLocalPair(ports)
 	if err != nil {
 		result.ErrorStage, result.ErrorCategory = "recreate_same_ports", category(err)
 		return
 	}
 	result.Stopped = false
+	progress("recreated_dns")
 	result.RecreatedDNS = pair.probe(8*time.Second) && handshakeComplete(pair.a) && handshakeComplete(pair.b)
 	if !result.RecreatedDNS {
 		result.ErrorStage, result.ErrorCategory = "recreated_dns", "failed"
 		return
 	}
 	if hold > 0 {
+		progress("holding_after_success")
 		json.NewEncoder(os.Stdout).Encode(map[string]any{"mode": "local_awg_self_test", "stage": "holding_after_success", "hold_ms": hold.Milliseconds(), "client_loopback_port": pair.ports[0], "server_loopback_port": pair.ports[1]})
 		time.Sleep(hold)
 	}

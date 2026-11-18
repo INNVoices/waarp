@@ -57,7 +57,7 @@ Upload запускается только на введённом пользо�
 
 ## 4. Приёмка и границы доказательств
 
-Перед публикацией production-кода выполнены проверки ниже. Адресные регрессии покрывают изменение маршрутов, отказ отдельных стадий и повтор после отката, приоритет DNS, импорт MASQUE/HY2, неизменность исходного профиля, сроки доказательства, отмену, ограничение и очистку диагностики, реальный локальный TLS/CONNECT и подтверждение upload. Android instrumentation содержит проверку восьми изменений через один настоящий TUN и проверку координат соседней кнопки после success. Последующие результаты обычного CI относятся к SHA опубликованного коммита и доступны в Actions; локальные ограничения не выдаются за PASS.
+Приёмка выполнена локально и затем обычным CI опубликованного кода. Адресные регрессии покрывают изменение маршрутов, отказ отдельных стадий и повтор после отката, приоритет DNS, импорт MASQUE/HY2, неизменность исходного профиля, сроки доказательства, отмену, ограничение и очистку диагностики, реальный локальный TLS/CONNECT и подтверждение upload. Результаты CI привязаны к коммитам ниже; локальные ограничения не выдаются за PASS.
 
 | Уровень | Статус этого прохода |
 | --- | --- |
@@ -66,13 +66,19 @@ Upload запускается только на введённом пользо�
 | TypeScript typecheck / static checks / production build | **PASS**; main/preload/renderer собраны, 98 production modules, raw UI/icons/strings без замечаний |
 | Производительность компилятора | **PASS** на синтетических данных: 1000 профилей / 201 маршрут, p95 7,46 мс; отдельная проверка 50k доменов / 200 карточек около 175 мс, 2,31 МБ правил |
 | Parser Android instrumentation и workflow syntax | **7/7 PASS**, YAML и `git diff --check` PASS |
-| Android APK / lint | Финальная сборка выполняется с точным проверенным AAR; APK и lint имеют собственный результат, не выводятся из JVM PASS |
-| Windows native config/TUN и portable | Штатная упаковка и ordinary CI по production `main`; native TUN локально NOT_RUN |
-| Production UI в Chromium | Локально BLOCKED средой: Chromium не может создать системный socket (`EPERM`); проверяется Windows CI |
-| Android emulator / реальный телефон | Локально нет KVM и телефона. Focused API 35 gate стоит **до artifact uploads**, требует один TUN / восемь изменений и три feedback case; полная API matrix сохранена |
+| Android APK / lint | **PASS**: debug/release для трёх ABI, два test APK, lintDebug/lintRelease. Шесть production APK отдельно проверены по версии, native pin, подписи/отсутствию release-подписи и выравниванию 16 КБ |
+| Windows native config/TUN и portable | **PASS в Windows CI**: четыре группы native config checks, смена маршрутов при живом соседнем TCP, 50/50 циклов TUN, сборка portable и package integrity. Локальная portable-сборка и её integrity также PASS |
+| Production UI в Chromium | **23/23 PASS в Windows CI**, включая 100 циклов renderer. Локальный Chromium BLOCKED системным socket `EPERM`; это не использовалось как доказательство UI |
+| Android emulator / реальный телефон | **4/4 PASS на API 35 / Android 15 / x86_64 / 4096 B**, 0 skipped: восемь изменений в одной native VPN-сессии и три feedback case. Реальный телефон NOT_RUN; полная API matrix не подменяется этим focused gate |
 | Мобильные операторы, MASQUE/WARP с личной регистрацией, страны | NOT_RUN: действующие личные серверы/регистрации и физические сети не предоставлены этому исполнению |
 
-Результаты прежних candidate workflows не перенесены как успешные проверки нового дерева. Открытый upstream advisory в build-зависимости и возможная квота доставки артефактов отделены от функциональных результатов: [BUILD-AUDIT-2026-11-18.md](BUILD-AUDIT-2026-11-18.md). Оба выпуска остаются RC.
+Основной код приложений опубликован в `9d4214dbcee82ee61ad7d706dcc66c384260832a`. [Android build и focused TUN/UI gate](https://github.com/INNVoices/waarp/actions/runs/44205793877/job/134471248175) проверили этот коммит: `nativeSession=2` оставался одним для Direct → profile, profile → profile, disable, delete disabled, add, delete last active, change default и restore Direct. Все четыре обязательных теста завершились без пропусков; native crash report доступен и не содержит panic. Это проверка применения правил, а не доступности внешнего VPN-сервера.
+
+[Windows CI на `8acde840fc39518ca43f0027fb5e052c1ef50f4b`](https://github.com/INNVoices/waarp/actions/runs/44206452364/job/134473510421) использует тот же production-код; этот дополнительный коммит исправляет browser IPC fixture. Проверены A → B → A → Direct → B, удаление активного/неактивного/последнего маршрута и повторное добавление, сохранение PID и соседнего TCP, изоляция authenticated diagnostic CONNECT. Затем завершились все 50 циклов остановки/аварийного завершения TUN и проверка собранного EXE.
+
+В процессе приёмки исправлены и дефекты проверок: отсутствующие новые IPC-методы в browser fixture, backpressure и первая неограниченная отправка в synthetic AWG self-test, Windows-разделители путей в module scanner. AWG-регрессии воспроизводили прежние зависания; после исправления прошли 4 Go-теста, 5 Python-тестов и настоящий encrypted loopback/SIGKILL/restart. Scanner теперь требует все три production entry и проверяет 98 модулей локально. Эти изменения не заменяют движки и не изменяют содержимое приложений.
+
+Результаты прежних candidate workflows не перенесены как успешные проверки нового дерева. Оба обычных CI-run дошли до реальных функциональных проверок и упаковки, после чего выгрузка артефактов упёрлась в GitHub storage quota. Зависимые полная Android API matrix и release journeys этим запуском не выполнены. Открытый upstream advisory в build-зависимости также остаётся отдельным красным заданием: [BUILD-AUDIT-2026-11-18.md](BUILD-AUDIT-2026-11-18.md). Поэтому общий CI не объявляется зелёным. Оба выпуска остаются RC.
 
 ## 5. Следующему исполнителю
 

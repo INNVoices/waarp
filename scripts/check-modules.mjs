@@ -11,7 +11,9 @@ if (loaded.error) throw new Error('Could not read tsconfig.json')
 const parsed = ts.parseJsonConfigFileContent(loaded.config, ts.sys, root)
 if (parsed.errors.length) throw new Error('Could not resolve tsconfig.json')
 const graph = new Map()
-for (const file of parsed.fileNames.filter(file => file.startsWith(join(root, 'src') + sep) && !file.endsWith('.d.ts'))) {
+// TypeScript emits forward slashes on Windows; normalize before comparing with
+// platform paths, otherwise the check silently accepts an empty source graph.
+for (const file of parsed.fileNames.map(file => resolve(file)).filter(file => file.startsWith(join(root, 'src') + sep) && !file.endsWith('.d.ts'))) {
   const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true)
   const dependencies = []
   function visit(node) {
@@ -29,6 +31,7 @@ for (const file of parsed.fileNames.filter(file => file.startsWith(join(root, 's
 }
 const reached = new Set()
 const queue = ['src/main/index.ts', 'src/preload/index.ts', 'src/renderer/src/main.tsx'].map(file => join(root, file))
+for (const entry of queue) if (!graph.has(entry)) throw new Error(`Production entry is missing from the module graph: ${relative(root, entry)}`)
 while (queue.length) {
   const file = queue.pop()
   if (reached.has(file)) continue

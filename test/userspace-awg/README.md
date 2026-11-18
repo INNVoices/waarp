@@ -94,6 +94,8 @@ For an independently controlled crash/restart experiment:
 
 After the lifecycle exchanges succeed this prints a JSON `holding_after_success` marker with only the two loopback port numbers, then holds the current devices open. A supervising process can SIGKILL this child and run a fresh self-test. `--hold` is limited to 60 seconds and is accepted only with `--self-test`. Interrupted runs do not print a completed success result. The Go code does not signal any other process.
 
+The self-test continuously drains decrypted client packets into a bounded probe mailbox, including between lifecycle assertions. An absent test consumer must not block the native receiver in `memoryTUN.Write` and consequently stall `Down` or peer removal. Unused duplicate replies may be dropped at that mailbox; `synthetic_reply_mailbox_drops` exposes that count. Every probe still requires its own DNS transaction ID, UDP source port and authenticated response, and its deadline includes the first outbound enqueue. The pinned AWG library and Android server implementation are unchanged.
+
 The repeatable POSIX crash/restart supervisor is:
 
 ```sh
@@ -103,6 +105,10 @@ python3 crash-check.py --binary ./awg-userspace-audit --report crash-result.json
 It launches exactly one owned `--self-test --hold 30s` child, waits up to 45 seconds for its holding marker, and verifies that binding **both** reported loopback UDP ports fails with `EADDRINUSE` while that child is alive. It sends SIGKILL only to that child, requires the `-SIGKILL` exit status, and verifies that binding both ports now succeeds. It then launches one fresh `--self-test` and requires `passed=true` and `stopped=true`.
 
 All subprocesses and probe sockets are cleaned up in `finally`/context managers. Individual waits are limited to 45 seconds for self-tests and 5 seconds for exit/cleanup. The JSON report contains booleans, duration and fixed error codes, with no PID, port numbers, keys or private endpoint. The supervisor never accepts a private configuration or launches `--run`.
+
+With `--hold`, fixed lifecycle progress codes are written to stderr. The supervisor retains only an allowlisted `child_stage` and bounded integer `child_stage_ms`; arbitrary logs and unknown JSON fields are discarded. This identifies the last operation on a timeout without forwarding private data. The original holding-marker timeout did not contain this evidence, so its exact stalled stage cannot be inferred from that old report.
+
+`go test -count=1 -timeout=90s ./...` includes an authenticated 64-reply burst while the test consumer is idle, requires native Down/Up and a new encrypted DNS exchange to succeed, and checks that a full outbound queue cannot bypass the probe deadline. Both regressions failed on the previous harness. `python3 -m unittest discover -s test/userspace-awg -p test_crash_check.py -v` (from the repository root) checks strict progress sanitization and holding-marker parsing; it does not replace the real encrypted/SIGKILL checks.
 
 ### Optional private-server check
 
