@@ -37,9 +37,15 @@ function rig(o: { phase?: string; saveFails?: boolean; block?: boolean; startTo?
   const dpi: Settings = { ...DEFAULTS, rest: 'direct', routes: [{ id: 'custom:example.org', kind: 'custom', name: 'example.org', value: 'example.org', via: 'direct', on: true, dpi: true }] }
   ok(compilePlan(dpi, []).canStart, 'Direct+DPI needs the core even with no personal tunnels')
   {
-    const r = rig({ open: true })
+    const r = rig({ open: true, confirm: false })
     const a = await r.apply(dpi)
-    eq([a.applied, r.counts().starts], [false, 0], 'an edit cannot start an idle TUN')
+    eq([a.applied, r.counts().starts], [false, 0], 'unapproved edit cannot start an idle TUN')
+    eq(a.code, 'restart', 'idle master asks for explicit approval')
+  }
+  {
+    const r = rig({ open: true, confirm: true })
+    const a = await r.apply(dpi)
+    eq([a.applied, r.counts().starts], [true, 1], 'explicit approval may activate idle TUN')
   }
   {
     const r = rig({ phase: 'on', open: true })

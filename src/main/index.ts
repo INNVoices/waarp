@@ -160,19 +160,24 @@ const setMaster = (open: boolean) => master.set(open)
 /** Native, explicit confirmation for edits that would recreate TUN. Invisible
  * automation and external companions cannot approve a restart. */
 async function confirmTunRestart(reason: string): Promise<boolean> {
-  if (!win || win.isDestroyed() || !win.isVisible() || !master.open || engine.status.phase !== 'on') return false
+  if (!win || win.isDestroyed() || !win.isVisible() || !master.open) return false
+  const phase = engine.status.phase
+  if (phase !== 'on' && phase !== 'off') return false
+  const restarting = phase === 'on'
   const revision = master.revision
   const result = await dialog.showMessageBox(win, {
     type: 'warning',
-    title: 'Waarp — перезапуск VPN',
-    message: 'Для этого изменения нужно перезапустить VPN.',
-    detail: reason + '\n\nРаботающие соединения временно прервутся. При отмене действующий TUN останется без изменений.',
-    buttons: ['Отмена', 'Перезапустить VPN'],
+    title: restarting ? 'Waarp — перезапуск VPN' : 'Waarp — включение VPN',
+    message: restarting ? 'Для этого изменения нужно перезапустить VPN.' : 'Чтобы применить этот маршрут, нужно включить VPN.',
+    detail: reason + (restarting
+      ? '\n\nРаботающие соединения временно прервутся. При отмене действующий TUN останется без изменений.'
+      : '\n\nСейчас TUN не запущен. Отмена сохранит прежние настройки и состояние.'),
+    buttons: ['Отмена', restarting ? 'Перезапустить VPN' : 'Включить VPN'],
     defaultId: 0,
     cancelId: 0,
     noLink: true
   })
-  return result.response === 1 && master.current(revision) && engine.status.phase === 'on'
+  return result.response === 1 && master.current(revision) && engine.status.phase === phase
 }
 const statusView = (s: Status) => ({ ...withRoutes(s), open: master.open, startup: runtimeRecovery.state })
 async function pauseMeasurements(): Promise<boolean> {
@@ -548,7 +553,18 @@ function ipc() {
     if ('serviceVia' in patch && previous.serviceVia !== store.settings.serviceVia) cancelServiceDownload()
     if (routing) {
       const revision = master.revision
+      const rollback = () => {
+        store.settings = previous
+        try { store.save() } catch { store.settings = { ...previous, ...patch } }
+      }
       if (!master.open || engine.status.phase !== 'on') {
+        if (master.open && engine.status.phase === 'off' && demandsTunnel(store.settings)) {
+          if (!await confirmTunRestart('Выбранный маршрут требует запустить нативный туннель.')) {
+            if (master.current(revision)) rollback()
+            updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: false }
+          }
+          if (master.current(revision)) await engine.start(await runtimeProfiles(), store.settings)
+        }
         updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true }
       }
       if (await engine.applyLive(await runtimeProfiles(false), store.settings)) {
@@ -557,10 +573,6 @@ function ipc() {
       if (engine.liveApplyFailure) {
         send('toast', engine.liveApplyFailure)
         updateTray(); send('snapshot', snapshot()); return { ...snapshot(), saved: true }
-      }
-      const rollback = () => {
-        store.settings = previous
-        try { store.save() } catch { store.settings = { ...previous, ...patch } }
       }
       if (!await confirmTunRestart('Изменённые маршруты или группы требуют нового нативного определения.')) {
         if (master.current(revision)) rollback()

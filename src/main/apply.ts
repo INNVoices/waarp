@@ -55,8 +55,18 @@ export function createApply(d: ApplyDeps): (next: Settings) => Promise<ApplyResu
       if (!current()) return { saved: true, applied: false, running }
       if (blocked) return { saved: !revert(), applied: false, running, code: 'block' }
       if (!running) {
-        // Only the master ON is allowed to create a TUN. A route edit saves intent,
-        // but never starts a previously idle VPN on its own.
+        // An open-but-idle master may acquire a TUN only after a second explicit
+        // decision: route changes never silently turn the adapter on.
+        if (d.phase() === 'off' && d.open?.() && d.demandsTunnel(next)) {
+          if (!(await d.confirmRestart?.())) {
+            if (!current()) return { saved: true, applied: false, running }
+            return { saved: !revert(), applied: false, running, code: 'restart' }
+          }
+          if (!current()) return { saved: true, applied: false, running }
+          await d.start(next)
+          return !current() ? { saved: true, applied: false, running } :
+            d.phase() === 'on' ? { saved: true, applied: true, running } : { saved: true, applied: false, running, code: 'start' }
+        }
         return { saved: true, applied: false, running }
       }
       if (!(await d.confirmRestart?.())) {
