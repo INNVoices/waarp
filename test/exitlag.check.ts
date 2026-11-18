@@ -4,6 +4,7 @@ import { compilePlan, requiresCore } from '../src/shared/plan'
 import { effectiveRoutes } from '../src/shared/effective'
 import { checkedPatch } from '../src/main/validate'
 import { parseExitLagSelections } from '../src/main/exitlag'
+import { buildRuntime, planSlots } from '../src/main/awg'
 import type { Settings } from '../src/shared/types'
 
 const app = { id: 'app:telegram', kind: 'app' as const, name: 'Telegram', exe: 'C:\\Telegram\\Telegram.exe', via: EXITLAG_VIA, on: true }
@@ -13,6 +14,12 @@ assert.equal(requiresCore(s), true)
 assert.deepEqual(plan.blockedTargets, [])
 assert.equal(plan.routes[0]?.resolved, true)
 assert.deepEqual(plan.requiredProfiles, [])
+const runtime = buildRuntime([], s, { api: { port: 12345, secret: 'test-secret' }, selectors: true, slots: planSlots(s)! })
+const rejection = runtime.cfg.route.rules.findIndex((r: any) => r.action === 'reject' && Array.isArray(r.process_path) && r.process_path.includes(app.exe))
+const lanBypass = runtime.cfg.route.rules.findIndex((r: any) => r.ip_is_private === true)
+assert.ok(rejection >= 0 && lanBypass > rejection, 'external app must reject before LAN bypass')
+const blockedSlot = JSON.parse(runtime.files.xa0)
+assert.equal(blockedSlot.rules[0].process_path?.[0], app.exe, 'external app slot must reject TUN traffic')
 assert.equal(effectiveRoutes(s, [], { phase: 'on', engine: 'up', health: {}, fallback: {} })[app.id]?.state, 'external')
 
 assert.equal(checkedPatch({ routes: [app] }).ok, true)

@@ -12,7 +12,7 @@ This integrates the already-installed official ExitLag client as an **external m
 ## Routing contract
 - Only a real **application** card may select "ExitLag (external)" as its path. No global rest/default, domain/preset/list cards, groups, companion routes or fallback may use it.
 - ExitLag is expected to capture supported application's packets *before* they enter Waarp TUN. The application must first be configured/enabled in ExitLag itself; Waarp cannot enroll arbitrary EXEs.
-- Any unmatched traffic that reaches Waarp's TUN from the card is **rejected** by the normal unknown-outbound BLOCK rule, not sent Direct. This minimizes accidental fallback; it is NOT a standalone OS firewall kill switch and does not prove that all traffic is captured by the TUN.
+- A process-attributed match for an external application is **rejected** inside Waarp TUN before LAN/RU Direct bypasses; its ordinary card slot also rejects. Unattributed OS DNS/traffic or traffic that never enters TUN may escape this rule. This is NOT a standalone OS firewall kill switch or a guarantee of universal leak prevention.
 - ExitLag's own process egress uses existing VPN-client Direct exception rules, so its connections do not recurse into an ExitLag card.
 - No external path is included in Auto, normal group selectors, health-ping or game latency tests. UI says "controlled externally, not verified", never green/working.
 - ExitLag and Waarp are independent processes. Disabling Waarp does not stop ExitLag. If strict containment is required even when Waarp is OFF/crashes, a separate Windows firewall policy and native acceptance are necessary; none is installed by this feature.

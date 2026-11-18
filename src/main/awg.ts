@@ -557,6 +557,16 @@ export function buildRuntime(profiles: Profile[], given: Settings, o: BuildOpts)
     // R1.1: Waarp's own TUN service pair never goes direct (direct -> TUN recursion); before the private/LAN rule
     serviceGuardRule()
   ]
+  // A matching external app must not become Direct through LAN/RU global
+  // bypasses if ExitLag's upstream capture did not take the socket.
+  // TUN-local rule only: does not replace a persistent Windows kill switch.
+  for (const card of act.filter(r => r.kind === 'app' && r.via === EXITLAG_VIA && !!r.exe)) {
+    const pattern = appPatterns({ ...card, wholeDir: false })
+    const match: Record<string, unknown> = {}
+    if (pattern.exact.length) match.process_path = pattern.exact
+    if (pattern.regex.length) match.process_path_regex = pattern.regex.map(x => '(?i)' + x)
+    if (Object.keys(match).length) rules.push({ ...match, action: 'reject' })
+  }
   if (s.lanDirect) rules.push({ ip_is_private: true, outbound: DIRECT })
   if (o.selfExe) rules.push({ process_path: [o.selfExe], outbound: DIRECT })
   const dnsRules: Record<string, unknown>[] = []
