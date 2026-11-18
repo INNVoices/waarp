@@ -1182,6 +1182,7 @@ function ipc() {
     if (!net) return { ok: false, error: 'net' }
     const v = tuneResult?.revision === master.revision ? provenTune(tuneResult, p, net, label, Date.now()) : undefined
     if (!v || !store.profiles.includes(p)) return { ok: false, error: 'stale' }
+    if (engine.status.phase === 'on' && !await confirmTunRestart('Применение новых параметров протокола меняет работающее нативное определение.')) return { ok: false, error: 'Перезапуск VPN отменён; прежние параметры сохранены' }
     if (!saveTunes({ ...tunes, [p.id]: { net, sig: profileSig(p), label: v.label, patch: v.patch, at: Date.now() } })) return { ok: false, error: 'save' }
     tuneResult = undefined
     let applied = true
@@ -1193,6 +1194,7 @@ function ipc() {
     if (typeof id !== 'string' || !tunes[id]) return { ok: false, error: 'gone' }
     const p = store.profiles.find(x => x.id === id)
     const wasActive = runtimeTuneIds.has(id) || (!!p && !!activeTune(p, tunes[id], await currentNet(), Date.now()))
+    if (wasActive && engine.status.phase === 'on' && !await confirmTunRestart('Сброс настроек активного протокола требует пересоздать VPN.')) return { ok: false, error: 'Сброс отменён; работающий VPN сохранён' }
     const { [id]: _gone, ...rest } = tunes
     if (!saveTunes(rest)) return { ok: false, error: 'save' }
     let applied = true
