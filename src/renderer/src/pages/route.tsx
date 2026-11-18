@@ -146,7 +146,7 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
                   <span className="radio" />
                   <span className="vo-t"><span className="vo-n">{v && <Mark profiles={snap.profiles} via={v} />}<span className="vo-name" title={v ? viaName(snap.profiles, v) : s('route.fb.none')}>{v ? viaName(snap.profiles, v) : s('route.fb.none')}</span></span>
                     <span className="vo-meta"><small className="m ell" title={v ? subOf(p) : s('route.fb.none.hint')}>{v ? subOf(p) : s('route.fb.none.hint')}</small>
-                      {v && <span className="vo-metric"><Ping ms={status.pings[v]} live={live} down={status.health?.[v] === 'down'} /></span>}</span></span>}
+                      {v && <span className="vo-metric"><Ping ms={status.pings[v]} live={live} down={status.health?.[v] === 'down'} /></span>}</span></span>
                 </Plain>
               )
             })}
