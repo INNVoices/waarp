@@ -99,10 +99,14 @@ const [cmd, ...args] = process.argv.slice(2)
 if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
   try {
     if (cmd === 'verify') { verify(); console.log(`engine ${VERSION}: ${FILES.join(', ')} match engine/integrity.json`) }
+    else if (cmd === 'ensure') {
+      if (FILES.every(name => existsSync(join(engineDir, name)))) verify()
+      else await fetchEngine()
+    }
     else if (cmd === 'fetch') {
       const i = args.indexOf('--archive')
       if (i >= 0 && !args[i + 1]) throw new Error('--archive needs a path to the zip')
       await fetchEngine(i >= 0 ? args[i + 1] : undefined)
-    } else { console.error('usage: node scripts/engine.mjs <fetch [--archive <local zip>] | verify>'); process.exit(2) }
+    } else { console.error('usage: node scripts/engine.mjs <fetch [--archive <local zip>] | ensure | verify>'); process.exit(2) }
   } catch (e) { console.error(`engine: ${e.message}`); process.exit(1) }
 }

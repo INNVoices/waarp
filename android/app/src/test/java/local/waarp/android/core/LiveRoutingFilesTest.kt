@@ -69,6 +69,12 @@ class LiveRoutingFilesTest {
         val directory = Files.createTempDirectory("waarp-rules-").toFile()
         try {
             val plan = plans().first.copy(directory = directory.absolutePath)
+            if (!Files.getFileStore(directory.toPath()).supportsFileAttributeView("posix")) {
+                // Windows JVMs cannot set Android's owner-only UNIX permissions.
+                assertThrows(IllegalStateException::class.java) { LiveRoutingFiles.initialize(plan) }
+                assertTrue(directory.listFiles()!!.isEmpty())
+                return
+            }
             LiveRoutingFiles.initialize(plan)
             assertEquals(plan.files.size, directory.listFiles()!!.size)
             val witnesses = directory.listFiles()!!.map { file ->

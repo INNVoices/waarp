@@ -160,12 +160,12 @@ class CompromisedCaGuardTest {
                 .body("must not be exposed").build())
             server.start(InetAddress.getByName("127.0.0.1"), 0)
             withClient(fixture, CompromisedCaGuard(), negotiatedProtocol = negotiated) { client ->
-                client.newCall(Request.Builder().url(server.url("/control")).build()).execute().use {
+                client.newCall(Request.Builder().url(server.url("/control").newBuilder().host("localhost").build()).build()).execute().use {
                     assertEquals(Protocol.HTTP_2, it.protocol)
                     assertEquals("normal response", it.body.string())
                 }
                 val failure = assertThrows(IOException::class.java) {
-                    client.newCall(Request.Builder().url(server.url("/oversized")).build()).execute().close()
+                    client.newCall(Request.Builder().url(server.url("/oversized").newBuilder().host("localhost").build()).build()).execute().close()
                 }
                 assertTrue("Expected the actual HTTP/2 header budget failure, got $failure",
                     generateSequence(failure as Throwable?) { it.cause }
@@ -186,7 +186,7 @@ class CompromisedCaGuardTest {
             val guard = CompromisedCaGuard(setOf(spkiSha256(fixture.root.certificate)))
             withClient(fixture, guard, negotiatedProtocol = negotiated) { client ->
                 val failure = assertThrows(SSLPeerUnverifiedException::class.java) {
-                    client.newCall(Request.Builder().url(server.url("/private-request")).build()).execute().close()
+                    client.newCall(Request.Builder().url(server.url("/private-request").newBuilder().host("localhost").build()).build()).execute().close()
                 }
                 assertEquals("HTTPS certificate chain contains a compromised key", failure.message)
                 assertEquals(Protocol.HTTP_2, negotiated.get())
@@ -278,7 +278,8 @@ class CompromisedCaGuardTest {
             } catch (error: Throwable) {
                 // A rejected TLS peer may close during the server's handshake. Timeouts
                 // and non-TLS failures still fail the fixture, never count as rejection.
-                if (!closing && !(expectNoRequest && error is SSLException)) failure.set(error)
+                val peerClosed = error is SSLException || error is java.net.SocketException
+                if (!closing && !(expectNoRequest && requestBytes.get() == 0 && peerClosed)) failure.set(error)
             } finally { finished.countDown() }
         }
         fun awaitFinished() {

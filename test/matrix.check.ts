@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { Engine } from '../src/main/engine'
-import { verifyEngine } from '../src/main/integrity'
+import { stableEngine, verifyEngine } from '../src/main/integrity'
 import { Store } from '../src/main/store'
 import { parseConf } from '../src/main/awg'
 import { DEFAULTS } from '../src/main/store-core'
@@ -56,6 +56,13 @@ const ready = (e: Engine) => { (e as any).recoveryOk = true; e.preflightGap = 1;
     const h = (s: string) => createHash('sha256').update(s).digest('hex')
     writeFileSync(join(dir, 'integrity.json'), JSON.stringify({ 'sing-box.exe': h('engine'), 'libcronet.dll': h('lib') }))
     eq(verifyEngine(join(dir, 'sing-box.exe')), true, 'matching hashes -> engine ok')
+    const source = join(dir, 'sing-box.exe')
+    const cache = tmp('waarp-cache-')
+    const cached = stableEngine(source, cache)
+    ok(cached !== source, 'portable engine staged in cache')
+    writeFileSync(cached, 'previous engine')
+    stableEngine(source, cache)
+    eq(readFileSync(cached, 'utf8'), 'engine', 'stale cached engine restored using bundled manifest')
     writeFileSync(join(dir, 'sing-box.exe'), 'engine-tampered')
     eq(verifyEngine(join(dir, 'sing-box.exe')), false, 'changed engine -> integrity fails')
     writeFileSync(join(dir, 'integrity.json'), '{broken')

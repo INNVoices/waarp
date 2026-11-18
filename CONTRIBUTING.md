@@ -23,8 +23,8 @@ npm run check
 npm run build
 ```
 
-Packaging (`npm run dist`, `npm run pack`, `build.bat`) needs the engine binaries, which are not stored in Git:
-run `npm run engine:fetch` once (pinned download, checksum-verified), see `engine/SOURCE.md`. The checks above never download anything.
+Desktop packaging (`npm run dist`, `npm run pack`) needs the engine binaries, which are not stored in Git:
+run `npm run engine:fetch` once (pinned download, checksum-verified), see `engine/SOURCE.md`. The Windows batch builder prepares a missing desktop engine automatically. Android uses the verified native archive in the source tree.
 
 Do not run `npm run test:live` on a machine you care about. It changes the network
 configuration and is only meant for a disposable machine. Please do not change

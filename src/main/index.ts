@@ -1370,8 +1370,9 @@ app.whenReady().then(async () => {
   setListResolver(id => lists?.domains(id) ?? [])
   const logFile = new LogFile(join(app.getPath('userData'), 'logs'))
   const portable = process.env.PORTABLE_EXECUTABLE_FILE && process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Waarp', 'engine') : undefined
-  engineExe = stableEngine(engineExe, portable)
-  engineIntegrity = verifyEngine(engineExe)
+  const bundledEngine = engineExe
+  engineExe = stableEngine(bundledEngine, portable)
+  engineIntegrity = verifyEngine(engineExe, bundledEngine)
   logFile.write([`[app] Waarp ${app.getVersion()} started; engine ${engineExe}; integrity ${engineIntegrity ? 'ok' : 'failed'}`])
   engine = new Engine(engineExe, join(app.getPath('userData'), 'engine'), process.execPath)
   engine.sink = lines => logFile.write(lines)
