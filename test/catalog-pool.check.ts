@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { CatalogPool, CATALOG_POOL_LIMIT, CATALOG_READY_TTL, catalogHost } from '../src/main/catalog-pool'
 import { parseLink } from '../src/main/links'
 import { credentialKey } from '../src/main/discovery'
+import { publicServicePaths } from '../src/main/public-recovery'
 import type { Profile } from '../src/shared/types'
 
 let checks = 0, failures = 0
@@ -52,15 +53,39 @@ const inputs = (count: number) => Array.from({ length: count }, (_, index) => ({
   pool.ingest(inputs(24))
   for (const entry of pool.all().slice(0, 3)) pool.observe(entry.profile.id, 20, pool.context)
   const first = pool.recoveryCandidates(8), second = pool.recoveryCandidates(8)
-  eq(first.slice(0, 3).map(candidate => candidate.name), ['Node-0', 'Node-1', 'Node-2'], 'bootstrap keeps a small known-success preference')
-  eq(second.slice(0, 3).map(candidate => candidate.name), first.slice(0, 3).map(candidate => candidate.name), 'preferred historical head stays available on the next recovery attempt')
-  ok(second.slice(3).every(candidate => !first.some(previous => previous.id === candidate.id)), 'all-failed list recovery progresses beyond the previous top eight without inventing node failures')
+  eq(first.slice(0, 2).map(candidate => candidate.name), ['Node-0', 'Node-1'], 'bootstrap keeps a small known-success preference')
+  eq(second.slice(0, 2).map(candidate => candidate.name), first.slice(0, 2).map(candidate => candidate.name), 'preferred historical head stays available on the next recovery attempt')
+  ok(second.slice(2).every(candidate => !first.some(previous => previous.id === candidate.id)), 'all-failed list recovery progresses beyond the previous top eight without inventing node failures')
   const restored = new CatalogPool(() => 600_000)
   restored.restore(JSON.parse(JSON.stringify(pool.data())))
   const third = restored.recoveryCandidates(8)
-  eq(third.slice(3).map(candidate => candidate.name), ['Node-13', 'Node-14', 'Node-15', 'Node-16', 'Node-17'], 'recovery cursor resumes after serialization and restart')
+  eq(third.slice(2).map(candidate => candidate.name), ['Node-14', 'Node-15', 'Node-16', 'Node-17', 'Node-18', 'Node-19'], 'recovery cursor resumes after serialization and restart')
   eq(pool.plan(8).map(candidate => candidate.name), Array.from({ length: 8 }, (_, index) => `Node-${index}`), 'bootstrap rotation does not consume or alter the native probe cursor')
   eq(pool.bestReady().length, 3, 'choosing recovery candidates neither adds failures nor promotes untested nodes')
+}
+
+{
+  const pool = new CatalogPool(() => 700_000)
+  pool.ingest(inputs(24))
+  const known = pool.all().slice(0, 3)
+  for (const entry of known) pool.observe(entry.profile.id, 20, pool.context)
+  const knownIds = new Set(known.map(entry => entry.profile.id))
+  const saved = Array.from({ length: 100 }, (_, index) => profile(index + 1_000))
+  const nextPaths = () => publicServicePaths({
+    profiles: saved, cached: pool.recoveryCandidates(8), preferred: saved[0].id, recent: saved[1].id
+  })
+  const first = nextPaths()
+  eq(first.length, 8, 'composed recovery keeps the final eight-path bound beside a large saved library')
+  eq(first.slice(0, 2).map(path => path.id), [saved[0].id, saved[1].id], 'composed rotation preserves the explicit preferred and recent saved paths')
+  eq(first.filter(path => path.cached).length, 3, 'final builder admits only three cached candidates in this scenario')
+  ok(first.filter(path => path.cached).every(path => knownIds.has(path.id)), 'first final batch uses the three historically successful candidates')
+  // Suppose all eight list-download attempts failed. That does not constitute
+  // a native node-health measurement, so no new observe() call is appropriate.
+  const second = nextPaths()
+  const tried = new Set(first.map(path => path.id))
+  ok(second.some(path => path.cached && !knownIds.has(path.id) && !tried.has(path.id)),
+    'a new untried candidate reaches the final bounded paths after all three historical cache paths fail')
+  eq(pool.bestReady().length, 3, 'failed list attempts and composed selection do not rewrite node-health observations')
 }
 
 {

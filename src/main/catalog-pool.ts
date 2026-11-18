@@ -218,7 +218,9 @@ export class CatalogPool {
     // Keep a small, useful head, then rotate even if those historical candidates
     // all fail to fetch a list. Download failure is not a health observation,
     // and a repeatedly returned "best eight" would trap bootstrap indefinitely.
-    const preferred = Math.min(3, Math.floor(budget / 2))
+    // The final service-path builder may only admit three cached candidates
+    // beside saved profiles. Leave one of those slots rotating at budget=8.
+    const preferred = Math.min(3, Math.floor(budget / 4))
     const out: CatalogEntry[] = []
     for (const rank of [0, 1]) {
       out.push(...this.diverse(candidates.filter(entry => this.recoveryRank(entry, now) === rank), preferred - out.length))
