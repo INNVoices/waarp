@@ -19,9 +19,9 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
   const [applying, setApplying] = useState<Via>()
   const [saving, setSaving] = useState(false)
   const [serverQuery, setServerQuery] = useState('')
-  const [serverExpanded, setServerExpanded] = useState(false)
+  const [serverLimit, setServerLimit] = useState(8)
   const [backupQuery, setBackupQuery] = useState('')
-  const [backupExpanded, setBackupExpanded] = useState(false)
+  const [backupLimit, setBackupLimit] = useState(8)
   const changing = useRef(false)
   const st = snap.settings
   const r = st.routes.find(x => x.id === id)
@@ -77,11 +77,11 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
   const pinned = new Set<Via>([r.via, AUTO_ID, 'direct'])
   const filtered = opts.filter(v => matches(v, serverQuery))
   const sorted = [...filtered.filter(v => pinned.has(v)), ...filtered.filter(v => !pinned.has(v))]
-  const visible = sorted.slice(0, serverExpanded ? 100 : 8)
+  const visible = sorted.slice(0, serverLimit)
   const filteredBackup = [undefined, ...fbOpts].filter(v => v === undefined ? !backupQuery.trim() || 'без запасного'.includes(backupQuery.trim().toLocaleLowerCase()) : matches(v, backupQuery))
   const selectedBackup = filteredBackup.filter(v => v === r.fallback)
   const orderedBackup = [...selectedBackup, ...filteredBackup.filter(v => v !== r.fallback)]
-  const visibleBackup = orderedBackup.slice(0, backupExpanded ? 100 : 8)
+  const visibleBackup = orderedBackup.slice(0, backupLimit)
   return (
     <div className="page">
       <div className="page-head">
@@ -101,10 +101,10 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
       <section className="panel">
         <h3>{s('route.server')}</h3>
         {opts.length > 8 && <div className="route-choice-tools">
-          <input className="inp" type="search" value={serverQuery} onChange={e => { setServerQuery(e.target.value); setServerExpanded(false) }} placeholder="Найти подключение по имени, протоколу или адресу" aria-label="Поиск подключений" />
+          <input className="inp" type="search" value={serverQuery} onChange={e => { setServerQuery(e.target.value); setServerLimit(8) }} placeholder="Найти подключение по имени, протоколу или адресу" aria-label="Поиск подключений" />
           <span className="hint">{sorted.length} из {opts.length}</span>
         </div>}
-        <div className={'vgrid route-choices' + (serverExpanded ? ' expanded' : '')}>
+        <div className={'vgrid route-choices' + (serverLimit > 8 ? ' expanded' : '')}>
           {visible.map(v => {
             const on = !draft && r.via === v
             const p = snap.profiles.find(x => x.id === v)
@@ -118,8 +118,8 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
             )
           })}
         </div>
-        {sorted.length > visible.length && <Btn kind="ghost" onClick={() => setServerExpanded(true)}>Показать ещё ({sorted.length - visible.length})</Btn>}
-        {serverExpanded && sorted.length > 8 && <Btn kind="ghost" onClick={() => setServerExpanded(false)}>Свернуть список</Btn>}
+        {sorted.length > visible.length && <Btn kind="ghost" onClick={() => setServerLimit(n => n + 16)}>Показать ещё ({sorted.length - visible.length})</Btn>}
+        {serverLimit > 8 && sorted.length > 8 && <Btn kind="ghost" onClick={() => setServerLimit(8)}>Свернуть список</Btn>}
         {serverQuery && sorted.length === 0 && <p className="hint">Ничего не найдено. Попробуй другой запрос.</p>}
         {!snap.profiles.length && <p className="hint">{s('route.noservers')}</p>}
       </section>
@@ -134,10 +134,10 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
           <h3>{s('route.fb')}</h3>
           <p className="hint">{s('route.fb.hint')}</p>
           {fbOpts.length > 7 && <div className="route-choice-tools">
-            <input className="inp" type="search" value={backupQuery} onChange={e => { setBackupQuery(e.target.value); setBackupExpanded(false) }} placeholder="Найти резервное подключение" aria-label="Поиск резервных подключений" />
+            <input className="inp" type="search" value={backupQuery} onChange={e => { setBackupQuery(e.target.value); setBackupLimit(8) }} placeholder="Найти резервное подключение" aria-label="Поиск резервных подключений" />
             <span className="hint">{orderedBackup.length} из {fbOpts.length + 1}</span>
           </div>}
-          <div className={'vgrid route-choices' + (backupExpanded ? ' expanded' : '')}>
+          <div className={'vgrid route-choices' + (backupLimit > 8 ? ' expanded' : '')}>
             {visibleBackup.map(v => {
               const on = r.fallback === v
               const p = snap.profiles.find(x => x.id === v)
@@ -151,8 +151,8 @@ export function RoutePage({ snap, status, conns, apps, id, patch, toast, back }:
               )
             })}
           </div>
-          {orderedBackup.length > visibleBackup.length && <Btn kind="ghost" onClick={() => setBackupExpanded(true)}>Показать ещё ({orderedBackup.length - visibleBackup.length})</Btn>}
-          {backupExpanded && orderedBackup.length > 8 && <Btn kind="ghost" onClick={() => setBackupExpanded(false)}>Свернуть список</Btn>}
+          {orderedBackup.length > visibleBackup.length && <Btn kind="ghost" onClick={() => setBackupLimit(n => n + 16)}>Показать ещё ({orderedBackup.length - visibleBackup.length})</Btn>}
+          {backupLimit > 8 && orderedBackup.length > 8 && <Btn kind="ghost" onClick={() => setBackupLimit(8)}>Свернуть список</Btn>}
           {backupQuery && orderedBackup.length === 0 && <p className="hint">Резервных подключений по запросу нет.</p>}
         </section>
       )}
