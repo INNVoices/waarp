@@ -231,8 +231,8 @@ function fixture(options) {
   }
 }
 
-async function pageFor(options = {}) {
-  const context = await browser.newContext({ viewport: { width: 1240, height: 780 } })
+async function pageFor(options = {}, locale = 'ru-RU') {
+  const context = await browser.newContext({ locale, viewport: { width: 1240, height: 780 } })
   const page = await context.newPage()
   page.on('pageerror', error => errors.push(error.message))
   const consoleErrors = []
@@ -336,11 +336,11 @@ async function rendererStability() {
         f.state.status.pingRound = (f.state.status.pingRound ?? 0) + 1
         f.emit('status', { ...f.state.status, pingAt: Date.now(), pings: { direct: 10, a: 20, [tempId]: 30 } })
       }, { name, tempName, tempId })
-      const route = page.getByRole('switch', { name, exact: true })
+      const route = page.getByRole('checkbox', { name, exact: true })
       await route.click()
-      await page.waitForFunction(name => { const button = [...document.querySelectorAll('[role="switch"]')].find(el => el.getAttribute('aria-label') === name); return button && !button.disabled && button.getAttribute('aria-checked') === 'false' }, name)
+      await page.waitForFunction(name => { const button = [...document.querySelectorAll('input[type="checkbox"]')].find(el => el.getAttribute('aria-label') === name); return button && !button.disabled && !button.checked }, name)
       await route.click()
-      await page.waitForFunction(name => { const button = [...document.querySelectorAll('[role="switch"]')].find(el => el.getAttribute('aria-label') === name); return button && !button.disabled && button.getAttribute('aria-checked') === 'true' }, name)
+      await page.waitForFunction(name => { const button = [...document.querySelectorAll('input[type="checkbox"]')].find(el => el.getAttribute('aria-label') === name); return button && !button.disabled && button.checked }, name)
       await clickNav(page, 'an')
       // The cycle checks history retention, not the expander interaction
       // (covered separately). Use the native details state to expose history.
@@ -374,7 +374,7 @@ async function rendererStability() {
       await clickNav(page, 'home')
       await page.locator('.hero').waitFor()
       await settle(page)
-      assert.equal(await page.getByRole('switch', { name, exact: true }).getAttribute('aria-checked'), 'true')
+      assert.equal(await page.getByRole('checkbox', { name, exact: true }).isChecked(), true)
       return performance.now() - started
     }
     for (let i = 0; i < STABILITY_LIMITS.warmupCycles; i++) await cycle(i)
@@ -416,6 +416,18 @@ async function rendererStability() {
 }
 
 try {
+  await check('translated navigation follows system locale, regional fallback and RTL', async () => {
+    for (const [requested, expected] of [['en-US', 'en'], ['zh-TW', 'zh-Hant'], ['ar-EG', 'ar'], ['fa-IR', 'fa']]) {
+      const page = await pageFor({}, requested)
+      await ready(page)
+      const labels = JSON.parse(readFileSync(new URL(`../src/shared/strings/locales/${expected}.json`, import.meta.url), 'utf8'))
+      await page.getByRole('button', { name: labels['nav.settings'], exact: true }).click()
+      await page.getByRole('heading', { name: labels['set.title'], exact: true }).waitFor()
+      assert.deepEqual(await page.evaluate(() => [document.documentElement.lang, document.documentElement.dir]),
+        [expected, ['ar', 'fa'].includes(expected) ? 'rtl' : 'ltr'])
+      await page.context().close()
+    }
+  })
   await check('initial IPC failure is recoverable instead of an endless splash', async () => {
     const page = await pageFor({ failInitial: true })
     await page.getByRole('button', { name: strings['app.load.retry'], exact: true }).click()
@@ -494,6 +506,20 @@ try {
     assert.equal(await page.locator('.master').isEnabled(), true)
     assert.equal(await page.locator('.master').getAttribute('aria-pressed'), 'false')
     assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.toggle), 1)
+    await page.context().close()
+  })
+  await check('address dialog has one visible keyboard focus indicator', async () => {
+    const page = await pageFor()
+    await ready(page)
+    await page.getByRole('button', { name: strings['conn.add'], exact: true }).click()
+    await page.getByRole('button', { name: strings['pick.addr.add'], exact: true }).click()
+    const address = page.getByRole('textbox', { name: strings['pick.addr.title'], exact: true })
+    assert.ok(await address.evaluate(el => el === document.activeElement && el.parentElement.matches(':focus-within')))
+    assert.equal(await address.evaluate(el => getComputedStyle(el).boxShadow), 'none')
+    assert.ok(await address.evaluate(el => getComputedStyle(el.parentElement).boxShadow !== 'none'))
+    await capture(page, 'address-focus.png')
+    await page.keyboard.press('Escape')
+    assert.equal(await page.getByRole('dialog').count(), 0)
     await page.context().close()
   })
   await check('finishing the EXE picker preserves routes added or edited while it was open', async () => {
@@ -585,7 +611,7 @@ try {
     await modal.getByRole('button', { name: strings['grp.create'], exact: true }).click()
     await page.getByText('fixture: save refused', { exact: true }).waitFor()
     assert.equal(await modal.count(), 1)
-    assert.equal(await modal.locator('.vopt[aria-pressed="true"]').count(), 2)
+    assert.equal(await modal.locator('.vopt input:checked').count(), 2)
     await capture(page, 'group-save-error.png')
     await page.keyboard.press('Escape')
   })
@@ -728,7 +754,7 @@ try {
     await picker.locator('.server-source-tabs').getByRole('button', { name: strings['server.public'], exact: true }).click()
     await picker.getByRole('button', { name: strings['pick.use'], exact: true }).click()
     await page.waitForFunction(() => typeof window.__waarpTest.state.resolvePublicPick === 'function')
-    assert.equal(await page.locator('.page-head').getByRole('switch').isEnabled(), false, 'same-card mutation waits for its pending choice')
+    assert.equal(await page.locator('.page-head').getByRole('checkbox').isEnabled(), false, 'same-card mutation waits for its pending choice')
     assert.equal(await page.locator('.master').isEnabled(), true, 'master OFF remains immediately available')
     await picker.locator('.server-source-tabs').getByRole('button', { name: new RegExp('^' + strings['server.saved']) }).click()
     await page.evaluate(() => window.__waarpTest.state.resolvePublicPick())
@@ -736,7 +762,7 @@ try {
     await settle(page)
     assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.selectRoute ?? 0), 0)
     assert.equal(await page.evaluate(() => window.__waarpTest.state.settings.routes[0].via), 'a')
-    assert.equal(await page.locator('.page-head').getByRole('switch').isEnabled(), true)
+    assert.equal(await page.locator('.page-head').getByRole('checkbox').isEnabled(), true)
     await page.context().close()
   })
   await check('whole-computer mode cannot silently select an untrusted public path', async () => {
@@ -870,8 +896,8 @@ try {
     assert.ok(await page.evaluate(() => document.querySelector('.main').scrollWidth - document.querySelector('.main').clientWidth) <= 1)
     await capture(page, 'technical-details-min-width.png')
     await clickNav(page, 'settings')
-    const dev = page.getByRole('switch', { name: strings['set.dev'], exact: true })
-    assert.equal(await dev.getAttribute('aria-checked'), 'false')
+    const dev = page.getByRole('checkbox', { name: strings['set.dev'], exact: true })
+    assert.equal(await dev.isChecked(), false)
     const exportButton = page.getByRole('button', { name: strings['set.diag.go'], exact: true })
     await page.evaluate(() => { window.__waarpTest.state.exportCanceled = true })
     await exportButton.click()
@@ -882,6 +908,9 @@ try {
     await exportButton.focus(); await page.keyboard.press('Enter')
     await page.getByText(strings['set.diag.done'], { exact: true }).waitFor()
     assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.exportDiag), 2)
+    assert.equal(await page.getByRole('button', { name: strings['set.log.show'] }).count(), 0)
+    assert.equal(await page.getByRole('button', { name: strings['set.history.show'] }).count(), 0)
+    await dev.focus(); await page.keyboard.press('Space')
     await page.getByRole('button', { name: strings['set.history.show'], exact: true }).click()
     await page.locator('pre.log').filter({ hasText: 'lastSession' }).waitFor()
     assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.diagnosticHistory), 1)
@@ -889,7 +918,6 @@ try {
     await page.getByText(strings['set.history.cleared'], { exact: true }).waitFor()
     assert.equal(await page.locator('pre.log').count(), 0)
     assert.equal(await page.evaluate(() => window.__waarpTest.state.calls.clearDiagnosticHistory), 1)
-    await dev.focus(); await page.keyboard.press('Space')
     await clickNav(page, 'servers')
     await page.locator('.srv-adv').first().locator('summary').click()
     await page.getByRole('button', { name: strings['tech.config'], exact: true }).first().click()
@@ -1028,7 +1056,7 @@ try {
   })
   // This specifically uses the production bundle. Do not run this check against the browser-only dev demo.
   await check('production without preload cannot pretend the VPN is working', async () => {
-    const context = await browser.newContext()
+    const context = await browser.newContext({ locale: 'ru-RU' })
     const page = await context.newPage()
     page.on('pageerror', error => errors.push(error.message))
     await page.goto(url)

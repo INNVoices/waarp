@@ -30,24 +30,21 @@ export async function fetchCore() {
     console.log(`Android core ${pin.version}: verified cached AAR.`);
     return pin;
   } catch (error) {
-    if (error.code !== 'ENOENT') throw error; // Never replace an unexpected binary silently.
+    if (error.code && error.code !== 'ENOENT') throw error;
   }
-  const pin = await readEnginePin();
-  if (!pin.sourceBuild) throw new Error('Engine pin must identify the locked native source build.');
-  console.log(`Building pinned Android core ${pin.version} from source.`);
+  console.log('Restoring Android core from the bundled archive.');
   await new Promise((resolveBuild, rejectBuild) => {
-    const child = spawn('python3', [
-      resolve(repositoryRoot, 'scripts/android-core-build.py'),
-      '--output', resolve(repositoryRoot, 'out/android-core'),
-    ], { cwd: repositoryRoot, stdio: 'inherit' });
+    const python = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
+    const child = spawn(python, [resolve(repositoryRoot, 'scripts/android-core-restore.py')],
+      { cwd: repositoryRoot, stdio: 'inherit' });
     child.once('error', rejectBuild);
     child.once('close', (code, signal) => {
       if (code === 0) resolveBuild();
-      else rejectBuild(new Error(`Native core source build failed (${signal ? `signal ${signal}` : `exit ${code}`}).`));
+      else rejectBuild(new Error(`Core restoration failed (${signal ? `signal ${signal}` : `exit ${code}`}).`));
     });
   });
   const verified = await verifyCore();
-  console.log(`Android core ${verified.version}: source build SHA-256 and size verified.`);
+  console.log(`Android core ${verified.version}: bundled SHA-256 and size verified.`);
   return verified;
 }
 

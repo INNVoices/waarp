@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.core
 
+import local.waarp.android.i18n.localized
+
 import android.content.Context
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.SetupOptions
@@ -33,7 +35,7 @@ internal object LibboxRuntime {
             appVersion = BuildConfig.VERSION_NAME
             appMarketingVersion = BuildConfig.VERSION_NAME
         })
-        check(Libbox.version() == BuildConfig.ENGINE_VERSION) { "Версия VPN-ядра не совпадает с проверенной сборкой" }
+        check(Libbox.version() == BuildConfig.ENGINE_VERSION) { localized("LibboxRuntime.9d798bc191ae", "Версия VPN-ядра не совпадает с проверенной сборкой") }
         ready = true
     }
 
@@ -43,7 +45,7 @@ internal object LibboxRuntime {
         val snapshot = File(base, "configuration.json")
         val removed = runCatching { !snapshot.exists() || snapshot.delete() }.getOrDefault(false)
         if (!removed) {
-            val message = "Не удалось удалить диагностическую копию конфигурации ядра"
+            val message = localized("LibboxRuntime.ad384d48c8f0", "Не удалось удалить диагностическую копию конфигурации ядра")
             if (strict) throw IOException(message)
             RuntimeState.appendLog(3, message)
         }
@@ -90,13 +92,13 @@ internal object RuntimeRedaction {
 
     fun forConfiguration(config: String, message: String): String {
         var clean = redact(message)
-        for (secret in configSecrets(config)) clean = clean.replace(secret, "[скрыто]")
+        for (secret in configSecrets(config)) clean = clean.replace(secret, localized("LibboxRuntime.7f63c2ee669d", "[скрыто]"))
         return clean
     }
 
     fun redact(message: String): String {
         var clean = message.take(16_384)
-        for (secret in secrets) clean = clean.replace(secret, "[скрыто]")
-        return assignment.replace(uri.replace(clean, "[ссылка скрыта]")) { "${it.groupValues[1]}[скрыто]" }
+        for (secret in secrets) clean = clean.replace(secret, localized("LibboxRuntime.f96a86798a59", "[скрыто]"))
+        return assignment.replace(uri.replace(clean, localized("LibboxRuntime.e1090333288b", "[ссылка скрыта]"))) { localized("LibboxRuntime.e6ddce1324c7", "{arg1}[скрыто]", it.groupValues[1]) }
     }
 }

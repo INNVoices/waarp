@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 import http from 'node:http'
 import https from 'node:https'
 import tls from 'node:tls'
@@ -33,7 +34,7 @@ export async function proxyRequest(proxy: DiagnosticTransport, url: URL,
     const request = http.request({ host: proxy.host, port: proxy.port, method: 'CONNECT', path: authority,
       headers: { Host: authority, 'Proxy-Authorization': 'Basic ' + Buffer.from(proxy.username + ':' + proxy.password).toString('base64') },
       agent: false, maxHeaderSize: 8192, signal: proxy.signal })
-    request.setTimeout(10000, () => request.destroy(new Error('connect timeout')))
+    request.setTimeout(10000, () => request.destroy(new Error(localized("winInline.proxy-http.484122855d3a"))))
     request.once('error', () => reject(new TransferError(proxy.signal.aborted ? 'cancelled' : 'network')))
     request.once('connect', (response, connection, head) => {
       request.setTimeout(0)
@@ -91,7 +92,7 @@ export async function proxyRequest(proxy: DiagnosticTransport, url: URL,
           resolve({ status, body: Buffer.concat(chunks, bytes), headers: response.headers })
         })
       })
-      request.setTimeout(10000, () => request.destroy(new Error('transfer timeout')))
+      request.setTimeout(10000, () => request.destroy(new Error(localized("winInline.proxy-http.4dac6ca0b1cd"))))
       request.once('error', () => reject(new TransferError(proxy.signal.aborted ? 'cancelled' : 'network')))
       request.end(options.body)
     })

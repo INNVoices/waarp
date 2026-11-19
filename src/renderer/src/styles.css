@@ -95,6 +95,12 @@ input, textarea, pre, .selectable { user-select: text; }
 .search:focus-within { border-color: color-mix(in oklab, var(--a) 60%, var(--line)); box-shadow: var(--focus); }
 .search.bad { border-color: var(--err); }
 .search input { flex: 1; min-width: 0; color: var(--t); }
+.search input:focus-visible { outline: none; box-shadow: none; }
+@media (forced-colors: active) {
+  .search:focus-within { outline: 2px solid Highlight; outline-offset: 1px; }
+}
+.bool-field { width: 18px; height: 18px; flex: none; accent-color: var(--a); cursor: pointer; }
+.bool-field:disabled { cursor: default; }
 .search input::placeholder, textarea::placeholder { color: var(--t4); }
 .select-field { flex: 1; min-width: 180px; height: var(--h-lg); padding: 0 12px; color: var(--t); background: var(--field); border: 1px solid var(--line); border-radius: var(--r); font: inherit; }
 .select-field:focus-visible { outline: none; border-color: var(--a); box-shadow: var(--focus); }

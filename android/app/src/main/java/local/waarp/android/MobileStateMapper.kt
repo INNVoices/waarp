@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android
 
+import local.waarp.android.i18n.localized
+
 import local.waarp.android.core.*
 import local.waarp.android.data.*
 import local.waarp.android.ui.*
@@ -72,11 +74,11 @@ internal class MobileStateMapper {
         val groupsById = groupIndex.get(data.groups) { data.groups.associateBy { it.id } }
         val appsByPackage = appIndex.get(apps) { apps.associateBy { it.packageName } }
         fun selected(id: String): String? = nativeByTag["grp-$id"]?.selected?.removePrefix("p-")
-        fun pathName(id: String?) = when (id) { DIRECT -> "Напрямую"; AUTO -> "Авто"; null -> "Не выбран";
-            else -> profilesById[id]?.name ?: groupsById[id]?.name ?: "Недоступный путь" }
+        fun pathName(id: String?) = when (id) { DIRECT -> localized("MobileStateMapper.b2a8b00a0d3d", "Напрямую"); AUTO -> localized("MobileStateMapper.21aec06578c2", "Авто"); null -> localized("MobileStateMapper.f5c06ffab708", "Не выбран");
+            else -> profilesById[id]?.name ?: groupsById[id]?.name ?: localized("MobileStateMapper.ec6b82f4e070", "Недоступный путь") }
         fun viaHealth(id: String): ProbeHealth? = measured[if (id.startsWith("g-")) selected(id) else id]
         val available = availableCache.get(data.profiles) { data.profiles.filterNot { it.revoked || it.subscriptionMissing }.mapTo(HashSet()) { it.id } }
-        val allGroups = allGroupsCache.get(data.groups, data.profiles) { data.groups + TunnelGroup(AUTO, "Авто", "fastest", data.profiles.filter { it.id in available && it.source != "public" }.map { it.id }) }
+        val allGroups = allGroupsCache.get(data.groups, data.profiles) { data.groups + TunnelGroup(AUTO, localized("MobileStateMapper.ecf2223e5b3e", "Авто"), "fastest", data.profiles.filter { it.id in available && it.source != "public" }.map { it.id }) }
         val availableGroups = availableGroupsCache.get(allGroups, available) { allGroups.filter { it.members.any(available::contains) }.mapTo(HashSet()) { it.id } }
         val autoReferenced = data.settings.defaultVia == AUTO || data.settings.systemDnsVia == AUTO ||
             data.routes.any { it.enabled && (it.via == AUTO || it.fallback == AUTO) }
@@ -88,26 +90,26 @@ internal class MobileStateMapper {
         val policyActive = runtime.phase == RuntimePhase.ON
         val policyContext = when (runtime.phase) {
             RuntimePhase.ON -> ""
-            RuntimePhase.OFF -> "VPN выключен. Сохранённая настройка DNS: "
-            RuntimePhase.STARTING -> "VPN включается. Запланированная настройка DNS: "
-            RuntimePhase.STOPPING -> "VPN выключается. Настройка DNS для следующего включения: "
-            RuntimePhase.ERROR -> "Ошибка VPN. Настройка DNS для успешного включения: "
+            RuntimePhase.OFF -> localized("MobileStateMapper.5f1496788080", "VPN выключен. Сохранённая настройка DNS: ")
+            RuntimePhase.STARTING -> localized("MobileStateMapper.b5a28579a04a", "VPN включается. Запланированная настройка DNS: ")
+            RuntimePhase.STOPPING -> localized("MobileStateMapper.aa24162d4276", "VPN выключается. Настройка DNS для следующего включения: ")
+            RuntimePhase.ERROR -> localized("MobileStateMapper.8134751df532", "Ошибка VPN. Настройка DNS для успешного включения: ")
         }
         val systemDnsHint = policyContext + when {
             systemDns.blocked -> systemDns.reason + " " + if (policyActive)
-                "Системные DNS-запросы, для которых Android не определил приложение, блокируются."
-            else "При работе VPN системные DNS-запросы, для которых Android не определил приложение, будут блокироваться."
+                localized("MobileStateMapper.1c31286e5b3c", "Системные DNS-запросы, для которых Android не определил приложение, блокируются.")
+            else localized("MobileStateMapper.029a1c7f53c5", "При работе VPN системные DNS-запросы, для которых Android не определил приложение, будут блокироваться.")
             systemDns.via == DIRECT && data.settings.systemDnsVia == DIRECT ->
-                (if (policyActive) "Системный DNS идёт напрямую" else "При работе VPN системный DNS пойдёт напрямую") +
-                    ": этот путь выбран явно. Правила доменов сохраняют приоритет."
+                (if (policyActive) localized("MobileStateMapper.55b97e08cd57", "Системный DNS идёт напрямую") else localized("MobileStateMapper.0eefceafb636", "При работе VPN системный DNS пойдёт напрямую")) +
+                    localized("MobileStateMapper.a868783039df", ": этот путь выбран явно. Правила доменов сохраняют приоритет.")
             systemDns.via == DIRECT ->
-                (if (policyActive) "Системный DNS следует правилам доменов; остальные запросы идут напрямую."
-                 else "При работе VPN системный DNS будет следовать правилам доменов; остальные запросы пойдут напрямую.") +
-                    " Защищённых маршрутов приложений пока нет."
-            else -> "Общий DNS-путь: «${pathName(systemDns.via)}»" +
-                (systemDns.fallback?.let { "; резерв — «${pathName(it)}»" } ?: "") +
-                (if (policyActive) ". Применяется" else ". При работе VPN будет применяться") +
-                " к системным запросам, для которых Android не определил приложение."
+                (if (policyActive) localized("MobileStateMapper.55f7ea516ed9", "Системный DNS следует правилам доменов; остальные запросы идут напрямую.")
+                 else localized("MobileStateMapper.81e234d19b39", "При работе VPN системный DNS будет следовать правилам доменов; остальные запросы пойдут напрямую.")) +
+                    localized("MobileStateMapper.44e2db37e888", " Защищённых маршрутов приложений пока нет.")
+            else -> localized("MobileStateMapper.1284ec0d020b", "Общий DNS-путь: «{arg1}»", pathName(systemDns.via)) +
+                (systemDns.fallback?.let { localized("MobileStateMapper.6b551bce658c", "; резерв — «{arg1}»", pathName(it)) } ?: "") +
+                (if (policyActive) localized("MobileStateMapper.5b0109503f83", ". Применяется") else localized("MobileStateMapper.0f687d98cbb9", ". При работе VPN будет применяться")) +
+                localized("MobileStateMapper.75a8f1981e0c", " к системным запросам, для которых Android не определил приложение.")
         }
         val routeUi = routesCache.get(data.routes, available, availableGroups, input.nativeGroups, measured, runtime.phase, input.compiledRoutes) { data.routes.map { route ->
             val fallbackNative = nativeByTag[compiledById[route.id]?.targetTag ?: "fb-${route.id}"]?.selected
@@ -135,10 +137,10 @@ internal class MobileStateMapper {
                 route.name, route.via, route.fallback, route.enabled, route.match.takeIf { route.kind == "app" },
                 route.match.takeIf { route.kind == "preset" }, route.match.takeIf { route.kind == "custom" }, status,
                 effectiveViaId = effective, connectionUse = ConnectionUses.normalize(route.connectionUse), reason = when {
-                    !pathAvailable(route.via) -> "Путь удалён или недоступен. Назначьте другой; напрямую трафик не перенаправляется."
-                    compiledBlocked -> "Путь не вошёл в текущую конфигурацию VPN. Уменьши число активных туннелей или измени назначение."
-                    routeHealth?.down == true -> "Две последовательные проверки внешних сайтов не прошли. Маршрут остаётся назначенным."
-                    runtime.phase == RuntimePhase.ON && effective != DIRECT && routeHealth == null -> "Маршрут установлен; удалённый путь ещё не проверен"
+                    !pathAvailable(route.via) -> localized("MobileStateMapper.e94a416f26f2", "Путь удалён или недоступен. Назначьте другой; напрямую трафик не перенаправляется.")
+                    compiledBlocked -> localized("MobileStateMapper.9d3e8e86d9a4", "Путь не вошёл в текущую конфигурацию VPN. Уменьши число активных туннелей или измени назначение.")
+                    routeHealth?.down == true -> localized("MobileStateMapper.c3b69e56eb6d", "Две последовательные проверки внешних сайтов не прошли. Маршрут остаётся назначенным.")
+                    runtime.phase == RuntimePhase.ON && effective != DIRECT && routeHealth == null -> localized("MobileStateMapper.85160352a7d9", "Маршрут установлен; удалённый путь ещё не проверен")
                     else -> null
                 })
         } }
@@ -151,23 +153,23 @@ internal class MobileStateMapper {
                 packageName, host, port, connection.network, pathName(outbound), connection.rule, connection.downloadBytes, connection.uploadBytes)
         } }
         val notices = noticesCache.get(data, routeUi, apps, input.loadError, runtime.phase, runtime.lockdown, systemDnsHint, input.blockedPaths, input.liveUpdateNote) { buildList {
-            input.loadError?.let { add(NoticeUi("store", NoticeLevel.BLOCK, "Хранилище недоступно", it)) }
+            input.loadError?.let { add(NoticeUi("store", NoticeLevel.BLOCK, localized("MobileStateMapper.08740b790897", "Хранилище недоступно"), it)) }
             if (policyActive) input.liveUpdateNote?.let { add(NoticeUi("live-update-limit", NoticeLevel.WARNING,
-                "Обновление большой таблицы маршрутов", it)) }
-            if (!pathAvailable(data.settings.defaultVia)) add(NoticeUi("global-missing", NoticeLevel.BLOCK, "Общий маршрут недоступен",
-                if (policyActive) "Трафик без отдельного правила блокируется до выбора доступного пути."
-                else "При работе VPN трафик без отдельного правила будет блокироваться до выбора доступного пути."))
+                localized("MobileStateMapper.ec9c9b77c1de", "Обновление большой таблицы маршрутов"), it)) }
+            if (!pathAvailable(data.settings.defaultVia)) add(NoticeUi("global-missing", NoticeLevel.BLOCK, localized("MobileStateMapper.bb2de7b72eed", "Общий маршрут недоступен"),
+                if (policyActive) localized("MobileStateMapper.08c84bcbb980", "Трафик без отдельного правила блокируется до выбора доступного пути.")
+                else localized("MobileStateMapper.4567bd4247b2", "При работе VPN трафик без отдельного правила будет блокироваться до выбора доступного пути.")))
             if (runtime.phase == RuntimePhase.ON && data.settings.defaultVia in input.blockedPaths) add(NoticeUi("global-budget", NoticeLevel.BLOCK,
-                "Общий путь не загружен", "Он не вошёл в текущую конфигурацию VPN. Трафик без отдельного правила заблокирован; выбери другой путь или уменьши число активных туннелей."))
-            if (systemDns.blocked) add(NoticeUi("system-dns", NoticeLevel.WARNING, "Общий DNS требует выбора", systemDnsHint))
-            if (routeUi.any { it.state == RouteState.BLOCKED }) add(NoticeUi("blocked-routes", NoticeLevel.WARNING, "Есть недоступные маршруты", "Откройте «Маршруты» и проверьте назначенные туннели."))
+                localized("MobileStateMapper.dad75a476642", "Общий путь не загружен"), localized("MobileStateMapper.ec146c3d010e", "Он не вошёл в текущую конфигурацию VPN. Трафик без отдельного правила заблокирован; выбери другой путь или уменьши число активных туннелей.")))
+            if (systemDns.blocked) add(NoticeUi("system-dns", NoticeLevel.WARNING, localized("MobileStateMapper.e2333b11aa50", "Общий DNS требует выбора"), systemDnsHint))
+            if (routeUi.any { it.state == RouteState.BLOCKED }) add(NoticeUi("blocked-routes", NoticeLevel.WARNING, localized("MobileStateMapper.0a8421b6eed9", "Есть недоступные маршруты"), localized("MobileStateMapper.7eef8a086425", "Откройте «Маршруты» и проверьте назначенные туннели.")))
             if (routeUi.any { it.state == RouteState.CHECK_FAILED }) add(NoticeUi("route-checks", NoticeLevel.WARNING,
-                "Есть ошибки проверки маршрутов", "Проверки внешних сайтов не прошли. Назначения сохранены; подробности — в «Маршрутах»."))
-            if (data.profiles.any { it.source == "public" }) add(NoticeUi("public", NoticeLevel.WARNING, "Добавлены публичные узлы", "Их владельцы неизвестны. Они не входят в Авто и используются только при вашем выборе."))
-            if (runtime.phase == RuntimePhase.ON && !runtime.lockdown) add(NoticeUi("lockdown", NoticeLevel.INFO, "Постоянная блокировка не включена", "При остановке VPN Android может направить трафик напрямую. Системная настройка «Блокировать соединения без VPN» доступна в настройках."))
+                localized("MobileStateMapper.5fa35aa26665", "Есть ошибки проверки маршрутов"), localized("MobileStateMapper.6a18098cbf8c", "Проверки внешних сайтов не прошли. Назначения сохранены; подробности — в «Маршрутах».")))
+            if (data.profiles.any { it.source == "public" }) add(NoticeUi("public", NoticeLevel.WARNING, localized("MobileStateMapper.d7a162936aad", "Добавлены публичные узлы"), localized("MobileStateMapper.2392065ab13e", "Их владельцы неизвестны. Они не входят в Авто и используются только при вашем выборе.")))
+            if (runtime.phase == RuntimePhase.ON && !runtime.lockdown) add(NoticeUi("lockdown", NoticeLevel.INFO, localized("MobileStateMapper.27d1176dac32", "Постоянная блокировка не включена"), localized("MobileStateMapper.d9b78d117e8d", "При остановке VPN Android может направить трафик напрямую. Системная настройка «Блокировать соединения без VPN» доступна в настройках.")))
             val appRoutes = data.routes.filter { it.enabled && it.kind == "app" }.groupBy { route -> appsByPackage[route.match]?.uid }
             if (appRoutes.any { (uid, routes) -> uid != null && routes.map { it.via }.distinct().size > 1 }) add(NoticeUi("shared-uid", NoticeLevel.WARNING,
-                "Приложения разделяют UID", "Android не различает их сетевые сокеты. Для общего UID действует первое подходящее правило."))
+                localized("MobileStateMapper.038876fc62e3", "Приложения разделяют UID"), localized("MobileStateMapper.b811a2a742fd", "Android не различает их сетевые сокеты. Для общего UID действует первое подходящее правило.")))
         } }
         val knownPublicIdentities = if (catalogProfiles.isEmpty()) emptySet() else publicIdentityCache.get(data.profiles) { data.profiles.mapTo(HashSet(), ProfileImporter::identity) }
         val catalogIdentities = catalogIdentityCache.get(catalogProfiles) { catalogProfiles.associate { it.id to ProfileImporter.identity(it) } }
@@ -177,8 +179,8 @@ internal class MobileStateMapper {
                 recovering = input.applying, recoveryFailed = input.loadError != null, error = runtime.message,
                 connectedSinceMillis = runtime.startedAt.takeIf { it > 0 }, downloadBytesPerSecond = runtime.downloadBps,
                 uploadBytesPerSecond = runtime.uploadBps, downloadedBytes = runtime.downloadBytes, uploadedBytes = runtime.uploadBytes,
-                selectedPathLabel = if (data.settings.defaultVia == DIRECT) "Только выбранное · общий путь напрямую"
-                    else "Всё устройство · ${pathName(data.settings.defaultVia)}",
+                selectedPathLabel = if (data.settings.defaultVia == DIRECT) localized("MobileStateMapper.19b0ead369ae", "Только выбранное · общий путь напрямую")
+                    else localized("MobileStateMapper.d81b95c17841", "Всё устройство · {arg1}", pathName(data.settings.defaultVia)),
                 autoPoolLive = input.autoPoolLive.takeIf { showAutoPool },
                 autoPoolTotal = allGroups.last().members.size.takeIf { showAutoPool }),
             profiles = profilesCache.get(data.profiles, measured) { data.profiles.map { profile -> TunnelUi(profile.id, profile.name, profile.protocol, profile.host, profile.port,

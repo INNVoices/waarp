@@ -1,5 +1,7 @@
 package local.waarp.android.data
 
+import local.waarp.android.i18n.localized
+
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -28,7 +30,7 @@ class ProfileStore(context: Context, catalogCache: Boolean = false) {
         // cannot replace the key that encrypted the other file moments earlier.
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (store.getKey(ALIAS, null) as? SecretKey)?.let { return@synchronized it }
-        check(create) { "Ключ хранилища недоступен" }
+        check(create) { localized("ProfileStore.598e99a71c3b", "Ключ хранилища недоступен") }
         KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
             init(KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setKeySize(256)
@@ -59,7 +61,7 @@ class ProfileStore(context: Context, catalogCache: Boolean = false) {
             return try { AppData.fromJson(JSONObject(plain.toString(Charsets.UTF_8))) } finally { plain.fill(0) }
         } catch (error: Exception) {
             // Preserve the damaged/encrypted file; an unavailable key never silently resets profiles.
-            throw IllegalStateException("Не удалось открыть защищённое хранилище. Данные сохранены; повторите попытку после разблокировки устройства.", error)
+            throw IllegalStateException(localized("ProfileStore.e2829d9797b5", "Не удалось открыть защищённое хранилище. Данные сохранены; повторите попытку после разблокировки устройства."), error)
         }
     }
     suspend fun write(data: AppData) = withContext(Dispatchers.IO) { mutex.withLock {
@@ -67,14 +69,14 @@ class ProfileStore(context: Context, catalogCache: Boolean = false) {
         val plain = data.json().toString().toByteArray(Charsets.UTF_8)
         try {
             // Header (4), nonce (12) and GCM tag (16) are part of the read limit.
-            require(plain.size <= MAX_STORE_BYTES - 32) { "Хранилище слишком большое" }
+            require(plain.size <= MAX_STORE_BYTES - 32) { localized("ProfileStore.8fc81348dc43", "Хранилище слишком большое") }
             val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
             val encrypted = cipher.doFinal(plain)
             require(cipher.iv.size == 12)
             // The independently locked state/catalog files can create this shared
             // directory concurrently on first install; mkdirs=false can mean success
             // by the other writer, so inspect the resulting directory once more.
-            check(file.baseFile.parentFile?.let { it.isDirectory || it.mkdirs() || it.isDirectory } == true) { "Не удалось создать хранилище" }
+            check(file.baseFile.parentFile?.let { it.isDirectory || it.mkdirs() || it.isDirectory } == true) { localized("ProfileStore.ada967b89d1f", "Не удалось создать хранилище") }
             val stream = file.startWrite()
             try {
                 stream.write(byteArrayOf(87, 82, 80, 49)); stream.write(cipher.iv); stream.write(encrypted)

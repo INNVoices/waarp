@@ -1,13 +1,11 @@
 # Waarp Android
 
-Android is implemented in this repository under `android/`. Build products go to **`out/android/`**. Version **0.5.0-rc.4** adds bounded live routing, prepared MASQUE import, compatible profile tuning, verified content checks, offline session evidence and an explicit service-download path. See [the shared rc.4 / desktop rc.2 audit](ROUTE-AND-CONNECTION-AUDIT-2026-11-18.md). The native WireGuard/AmneziaWG fixes and pinned core from [rc.3](ANDROID-RC3-AWG.md) are retained. Approval requires the actual release acceptance below; a version label alone does not establish stability.
-
-The preceding [rc.2 hardening record](ANDROID-RC2-HARDENING.md) documents its Main-thread fixes, phase-correct UI notices, scoped frame evidence and acceptance boundary. The rc.3 record identifies the subsequent connectivity corrections and checks.
+Android 1.0.0 (version code 7) lives in `android/`. The local APK builder writes verified files to `out/android/`. See the [1.0.0 component and acceptance record](V1.md), [earlier routing audit](ROUTE-AND-CONNECTION-AUDIT-2026-11-18.md) and [native engine history](ANDROID-RC3-AWG.md).
 
 ## Platform
 
 - Android 10 / API 29 minimum; compile/target API 36.
-- Native Kotlin 2.2.21, Compose and Material 3. Four Russian-language destinations: **Главная**, **Маршруты**, **Туннели**, **Диагностика**; settings are separate. Bottom navigation on phones, navigation rail on wider displays.
+- Native Kotlin 2.2.21, Compose and Material 3. Four destinations (shown here in Russian): **Главная**, **Маршруты**, **Туннели**, **Диагностика**; settings are separate. Bottom navigation on phones, navigation rail on wider displays.
 - Real Android `VpnService`, system consent, foreground notification, revoke handling, underlying-network monitoring and protected native sockets.
 - In-process **sing-box-lx 1.14.4-lx.35-waarp.2** Android AAR, Go 1.26.10. This downstream build retains bounded DNS recovery and terminal-close ownership fixes and corrects WireGuard UDP GSO fallback. `android/native-source.json` locks the upstream source, patches, regression tests and toolchain; `android/app/src/main/res/raw/engine_integrity.json` locks the actual AAR, Java archive and each ABI's native bytes. See [DNS recovery evidence and contract](ANDROID-NATIVE-DNS-RECOVERY.md) and [the WireGuard correction](ANDROID-RC3-AWG.md).
 - Release package `local.waarp.android`; debug package `local.waarp.android.debug`. Separate APKs for `arm64-v8a`, `armeabi-v7a` and `x86_64`; most current phones need arm64. The install helper queries the actual device ABI.
@@ -73,16 +71,17 @@ Config/key material is not passed to service-start Intents, screen DTOs, Bundle 
 
 ## Build and install
 
-Requirements: Linux x86_64 for the source-built native core, Go **1.26.10**, Temurin **17.0.21+9**, Android SDK command-line tools, `platforms;android-36`, `ndk;28.2.13676358`, `build-tools;35.0.0`, `platform-tools`, Git, Node.js and Python 3. Set `JAVA_HOME`/`ANDROID_HOME` and accept the SDK license. The source lock also pins gomobile and the actual SDK bootclasspath hash. The committed Gradle 8.13 wrapper verifies its distribution checksum.
+### Build on Windows
 
-```sh
-npm run android:build
-python3 scripts/android-install.py --variant debug --launch
-```
+Run `build.bat apk` from the checkout with Node.js 22, JDK 17 and Python 3 on PATH. The source tree includes the compressed native engine. The builder restores it locally and checks its size and SHA-256 before Gradle can use it. No GitHub account or Actions artifact is required.
 
-Quick debug APK on Windows without installing an Android toolchain: `build.bat apk` (or `build.bat` and choose 3). It needs JDK 17 and Python only. On first use it asks to accept the Android SDK License and downloads just `platforms;android-36` and `build-tools;35.0.0` (~125 MB, SHA-1 checked against Google's index) into the ignored `.android-local/` folder of the repository; Gradle and its dependencies also live there (`GRADLE_USER_HOME`). No Android Studio, sdkmanager, NDK or Go. The engine AAR cannot be built on Windows and GitHub serves CI artifacts only to a signed-in browser or client. The builder verifies `android/app/libs/libbox.aar` against the current pin, including after an engine update, then checks downloaded `waarp-android-build-reports` archives. If a matching AAR is still missing, it uses an existing `GITHUB_TOKEN` or authenticated `gh` session to locate a run; public repositories also work anonymously. If API access is unavailable, it opens the Android Actions workflow in your browser. Download the build's `waarp-android-build-reports` artifact into Downloads; the builder waits up to ten minutes and continues only when the AAR size and SHA-256 match. The native artifact can be used as soon as the build job uploads it, while the separate soak is still running. The verified AAR stays in place for later builds; no login command is run by the builder. It builds `:app:assembleDebug`, checks each APK with `scripts/android-verify.py` and publishes `out/android/waarp-android-<version>-<abi>-debug.apk`; the previous set moves to `out/android-history/`. Unit tests, lint, release and test APKs stay with `npm run android:build`. Deleting `.android-local/` removes everything it downloaded.
+On first use the builder asks for the SDK license and installs Android platform 36 and Build Tools 35.0.0 (about 125 MB of SDK downloads). Gradle 8.13 and Maven dependencies are cached separately under `.android-local/`. The first build needs network access for those dependencies. Subsequent builds can reuse them. The quick build checks one debug APK per supported ABI in `out/android/`.
 
-The build verifies an existing matching AAR or builds the locked core from source, runs JVM tests and debug/release lint, builds debug/release/instrumentation APKs plus the separate release acceptance APK, verifies actual APK contents and publishes a complete `out/android/` set atomically. Earlier artifacts are retained under `out/android-history/`, so older versions or signature modes cannot silently mix with the new release.
+### Build and verify all variants
+
+Set `ANDROID_HOME` and `JAVA_HOME` and run `npm run android:build` for JVM tests, lint, debug and release variants, acceptance APKs and artifact verification. Release signing uses the existing external identity described below. A debug installation has a separate package ID.
+
+To reproduce the native library itself on Linux, use `scripts/android-core-build.py` and the exact inputs in [the source lock](../android/native-source.json). Native source reproduction requires the pinned Go toolchain and NDK. The packaged library is distributed under the terms in [the bundled engine license and notices](../android/app/src/main/assets/licenses/).
 
 CI preserves Gradle's downloaded dependencies on the default branch and on pull requests from this same repository. Fork pull requests and non-default-branch dispatches retain read-only caching. The pinned [setup-gradle action](https://github.com/gradle/actions/blob/48b5f213c81028ace310571dc5ec0fbbca0b2947/docs/setup-gradle.md) scopes a PR's saved cache to that PR; a first cold build still needs repository access. This avoids repeating full dependency downloads on every update, following [Maven Central's HTTP 429 guidance](https://central.sonatype.org/faq/429-error/). Dependency versions, repositories and all build/runtime gates remain unchanged; rate-limit failures are retained as failures and are not retried automatically.
 

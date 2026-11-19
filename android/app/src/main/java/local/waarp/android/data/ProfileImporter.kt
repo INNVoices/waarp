@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.data
 
+import local.waarp.android.i18n.localized
+
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
@@ -19,37 +21,37 @@ object ProfileImporter {
     const val DEFAULT_FINGERPRINT = "ios"
     private val fingerprints = setOf("chrome", "chrome_155", "firefox", "safari", "edge", "ios", "android", "360", "qq", "random", "randomized")
     private val links = Regex("(?:vless|vmess|trojan|ss|hysteria2|hy2|tuic)://[^\\s\"'<>\\\\]+", RegexOption.IGNORE_CASE)
-    fun name(value: String, default: String = "Сервер") = value.replace(Regex("[\\p{Cntrl}]"), " ").trim().take(80).ifEmpty { default }
+    fun name(value: String, default: String = localized("ProfileImporter.28410ddc30a5", "Сервер")) = value.replace(Regex("[\\p{Cntrl}]"), " ").trim().take(80).ifEmpty { default }
     fun decode(value: String): String = URLDecoder.decode(value.replace("+", "%2B"), "UTF-8")
     fun base64(value: String): ByteArray {
         val raw = value.filterNot(Char::isWhitespace).replace('-', '+').replace('_', '/')
-        require(raw.length <= MAX_IMPORT_BYTES * 2) { "Слишком большой блок base64" }
+        require(raw.length <= MAX_IMPORT_BYTES * 2) { localized("ProfileImporter.25795aeeed0a", "Слишком большой блок base64") }
         return Base64.getDecoder().decode(raw)
     }
     fun host(value: String): String {
         val raw = value.removePrefix("[").removeSuffix("]")
         if (AddressRules.isIp(raw)) return raw
-        require(!raw.contains(':') && !raw.matches(Regex("[0-9.]+"))) { "Некорректный адрес сервера" }
+        require(!raw.contains(':') && !raw.matches(Regex("[0-9.]+"))) { localized("ProfileImporter.04884e168f4a", "Некорректный адрес сервера") }
         val result = IDN.toASCII(raw.removeSuffix("."), IDN.USE_STD3_ASCII_RULES).lowercase()
         require(result.isNotEmpty() && result.length <= 253 && result.split('.').all {
             it.matches(Regex("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"))
-        }) { "Некорректный адрес сервера" }
+        }) { localized("ProfileImporter.04884e168f4a", "Некорректный адрес сервера") }
         return result
     }
-    fun port(value: String): Int = value.toIntOrNull()?.takeIf { it in 1..65535 } ?: error("Порт должен быть от 1 до 65535")
+    fun port(value: String): Int = value.toIntOrNull()?.takeIf { it in 1..65535 } ?: error(localized("ProfileImporter.6859da55f91d", "Порт должен быть от 1 до 65535"))
     fun endpoint(value: String): Pair<String, Int> {
         val match = Regex("^(?:\\[([^]]+)\\]|([^:\\s]+)):(\\d+)$").matchEntire(value.trim())
-            ?: error("Endpoint должен быть host:port или [IPv6]:port")
+            ?: error(localized("ProfileImporter.b9b1f658e7f3", "Endpoint должен быть host:port или [IPv6]:port"))
         val h = match.groupValues[1].ifEmpty { match.groupValues[2] }
-        if (match.groupValues[1].isNotEmpty()) require(h.contains(':') && AddressRules.isIp(h)) { "Некорректный IPv6" }
+        if (match.groupValues[1].isNotEmpty()) require(h.contains(':') && AddressRules.isIp(h)) { localized("ProfileImporter.3b94086c5201", "Некорректный IPv6") }
         return host(h) to port(match.groupValues[3])
     }
     fun isSubscription(text: String) = Regex("^https://[^\\s]+$", RegexOption.IGNORE_CASE).matches(text.trim())
 
     fun parse(raw: String, suggestedName: String = "", limit: Int = MAX_PROFILES): ImportResult {
-        require(raw.toByteArray(Charsets.UTF_8).size <= MAX_IMPORT_BYTES) { "Конфиг слишком большой: максимум 1 МБ" }
+        require(raw.toByteArray(Charsets.UTF_8).size <= MAX_IMPORT_BYTES) { localized("ProfileImporter.59311364df6c", "Конфиг слишком большой: максимум 1 МБ") }
         var text = raw.trim().removePrefix("\uFEFF")
-        require(text.isNotEmpty()) { "Вставьте конфиг или ссылку" }
+        require(text.isNotEmpty()) { localized("ProfileImporter.8c88fd9edc04", "Вставьте конфиг или ссылку") }
         if (MasqueImporter.matches(text)) return MasqueImporter.parse(text, suggestedName, limit)
         if (text.startsWith("vpn://", true) || text.contains(Regex("\\[Interface]", RegexOption.IGNORE_CASE))) {
             return ImportResult(listOf(wireGuard(text, suggestedName)))
@@ -67,7 +69,7 @@ object ProfileImporter {
             .filter { it.isNotEmpty() && !it.startsWith('#') && !it.startsWith(';') }.toList()
         val found = if (structured) links.findAll(normalized).map { it.value }.distinct().toList()
             else plainLines.filter { links.matches(it) }.distinct()
-        require(found.isNotEmpty()) { "Формат не распознан: нужен .conf, .ovpn, ключ Amnezia, ссылка или подписка" }
+        require(found.isNotEmpty()) { localized("ProfileImporter.9e6581306870", "Формат не распознан: нужен .conf, .ovpn, ключ Amnezia, ссылка или подписка") }
         val parsed = mutableListOf<TunnelProfile>()
         var skipped = if (structured) Regex("([A-Za-z][A-Za-z0-9+.-]*)://[^\\s\"'<>\\\\]+")
             .findAll(normalized).count { it.groupValues[1].lowercase() !in setOf("vless", "vmess", "trojan", "ss", "hysteria2", "hy2", "tuic", "https", "http") }
@@ -79,7 +81,7 @@ object ProfileImporter {
                 skipped++
             }
         }
-        require(parsed.isNotEmpty()) { "Нет поддерживаемых профилей; проверьте формат и параметры защиты" }
+        require(parsed.isNotEmpty()) { localized("ProfileImporter.ddac9d635296", "Нет поддерживаемых профилей; проверьте формат и параметры защиты") }
         // A single pasted URL can be deliberately named; provider names stay intact in subscriptions.
         val result = if (parsed.size == 1 && suggestedName.isNotBlank()) listOf(parsed.single().copy(name = name(suggestedName))) else parsed
         return ImportResult(result, skipped)
@@ -96,64 +98,64 @@ object ProfileImporter {
             val header = Regex("\\[([A-Za-z]+)]").matchEntire(line)
             if (header != null) {
                 section = header.groupValues[1].lowercase()
-                require(section in setOf("interface", "peer") && section !in sections) { "Нужен один [Interface] и один [Peer]" }
+                require(section in setOf("interface", "peer") && section !in sections) { localized("ProfileImporter.e2d9f7eed962", "Нужен один [Interface] и один [Peer]") }
                 current = linkedMapOf(); sections[section] = current; continue
             }
-            val pair = Regex("([A-Za-z0-9_]+)\\s*=\\s*(.*)").matchEntire(line) ?: error("Некорректная строка конфига")
-            val values = current ?: error("Параметр вне секции")
+            val pair = Regex("([A-Za-z0-9_]+)\\s*=\\s*(.*)").matchEntire(line) ?: error(localized("ProfileImporter.f2448347d7a1", "Некорректная строка конфига"))
+            val values = current ?: error(localized("ProfileImporter.1b93c5497611", "Параметр вне секции"))
             val key = pair.groupValues[1].lowercase(); val value = pair.groupValues[2].trim()
             if ((section == "interface" && key in setOf("address", "dns")) || (section == "peer" && key == "allowedips"))
                 values[key] = listOfNotNull(values[key], value).joinToString(",")
             else {
-                require(key !in values || values[key] == value) { "Параметр задан повторно с другим значением" }
+                require(key !in values || values[key] == value) { localized("ProfileImporter.9e0b7ba758a3", "Параметр задан повторно с другим значением") }
                 values[key] = value
             }
         }
-        val i = sections["interface"] ?: error("Нет [Interface]")
-        val p = sections["peer"] ?: error("Нет [Peer]")
+        val i = sections["interface"] ?: error(localized("ProfileImporter.eb561ee1c427", "Нет [Interface]"))
+        val p = sections["peer"] ?: error(localized("ProfileImporter.2c1417fffd49", "Нет [Peer]"))
         val numeric = setOf("jc", "jmin", "jmax", "s1", "s2", "s3", "s4")
         val magic = setOf("h1", "h2", "h3", "h4", "i1", "i2", "i3", "i4", "i5")
-        require(i.keys.all { it in numeric + magic + setOf("privatekey", "address", "dns", "mtu", "listenport") }) { "Конфиг содержит неподдерживаемую системную директиву" }
-        require(p.keys.all { it in setOf("publickey", "presharedkey", "endpoint", "allowedips", "persistentkeepalive") }) { "Неподдерживаемый параметр [Peer]" }
+        require(i.keys.all { it in numeric + magic + setOf("privatekey", "address", "dns", "mtu", "listenport") }) { localized("ProfileImporter.40632e9d8a3a", "Конфиг содержит неподдерживаемую системную директиву") }
+        require(p.keys.all { it in setOf("publickey", "presharedkey", "endpoint", "allowedips", "persistentkeepalive") }) { localized("ProfileImporter.97ded385801e", "Неподдерживаемый параметр [Peer]") }
         fun key(value: String?): String {
-            require(value != null && value.matches(Regex("[A-Za-z0-9+/]{43}=")) && base64(value).size == 32) { "Нужен ключ WireGuard: 32 байта base64" }
+            require(value != null && value.matches(Regex("[A-Za-z0-9+/]{43}=")) && base64(value).size == 32) { localized("ProfileImporter.15f94dc39934", "Нужен ключ WireGuard: 32 байта base64") }
             return value
         }
         fun list(value: String?) = value.orEmpty().split(',').map(String::trim).filter(String::isNotEmpty).distinct()
-        val addresses = list(i["address"]).map(AddressRules::prefix).also { require(it.isNotEmpty()) { "Нет Address" } }
-        val allowed = list(p["allowedips"]).map(AddressRules::prefix).also { require(it.isNotEmpty()) { "Нет AllowedIPs" } }
-        val (server, serverPort) = endpoint(p["endpoint"] ?: error("Нет Endpoint"))
+        val addresses = list(i["address"]).map(AddressRules::prefix).also { require(it.isNotEmpty()) { localized("ProfileImporter.0199fa28687d", "Нет Address") } }
+        val allowed = list(p["allowedips"]).map(AddressRules::prefix).also { require(it.isNotEmpty()) { localized("ProfileImporter.fb45e0252ce6", "Нет AllowedIPs") } }
+        val (server, serverPort) = endpoint(p["endpoint"] ?: error(localized("ProfileImporter.8e795084bf03", "Нет Endpoint")))
         val peer = obj("address" to server, "port" to serverPort, "public_key" to key(p["publickey"]), "allowed_ips" to allowed,
             "persistent_keepalive_interval" to p["persistentkeepalive"]?.let { if (it.equals("off", true)) 0 else unsigned(it, 65535) }?.toInt().let { it ?: 0 })
         p["presharedkey"]?.let { peer.put("pre_shared_key", key(it)) }
-        val mtu = i["mtu"]?.let { unsigned(it, 9000).also { n -> require(n >= 576) { "MTU должен быть от 576 до 9000" } } } ?: 1280
+        val mtu = i["mtu"]?.let { unsigned(it, 9000).also { n -> require(n >= 576) { localized("ProfileImporter.7258b0f6785d", "MTU должен быть от 576 до 9000") } } } ?: 1280
         val node = obj("type" to "wireguard", "system" to false, "mtu" to mtu, "address" to addresses,
             "private_key" to key(i["privatekey"]), "peers" to listOf(peer))
         i["listenport"]?.let { node.put("listen_port", unsigned(it, 65535)) }
         numeric.forEach { field -> i[field]?.let { node.put(field, unsigned(it, if (field.startsWith('s')) 65535 else 0xffffffffL)) } }
-        require(node.optLong("jmin", 0) <= node.optLong("jmax", 0)) { "Jmin больше Jmax" }
+        require(node.optLong("jmin", 0) <= node.optLong("jmax", 0)) { localized("ProfileImporter.51428d22d142", "Jmin больше Jmax") }
         val headers = (1..4).map { index ->
             val value = i["h$index"]
             if (value == null) return@map index.toLong() to index.toLong()
-            val match = Regex("(\\d+)\\s*(?:-\\s*(\\d+))?").matchEntire(value) ?: error("H должен быть числом или диапазоном")
+            val match = Regex("(\\d+)\\s*(?:-\\s*(\\d+))?").matchEntire(value) ?: error(localized("ProfileImporter.f929f3fe6a30", "H должен быть числом или диапазоном"))
             val lo = unsigned(match.groupValues[1], 0xffffffffL)
             val hi = match.groupValues[2].takeIf(String::isNotEmpty)?.let { unsigned(it, 0xffffffffL) } ?: lo
-            require(lo <= hi) { "Обратный диапазон H" }
+            require(lo <= hi) { localized("ProfileImporter.4d1ca4f34c1c", "Обратный диапазон H") }
             node.put("h$index", if (lo == hi) lo else "$lo-$hi")
             if (lo == 0L && hi == 0L) index.toLong() to index.toLong() else lo to hi
         }
         for (a in headers.indices) for (b in a + 1 until headers.size)
-            require(headers[a].first > headers[b].second || headers[b].first > headers[a].second) { "Диапазоны H не должны пересекаться" }
+            require(headers[a].first > headers[b].second || headers[b].first > headers[a].second) { localized("ProfileImporter.7749ad221765", "Диапазоны H не должны пересекаться") }
         (1..5).forEach { index -> i["i$index"]?.let { value ->
             val tags = Regex("<([^<>]*)>").findAll(value).toList()
-            require(tags.isNotEmpty() && value.replace(Regex("<[^<>]*>"), "").isBlank()) { "I должен содержать теги <...>" }
+            require(tags.isNotEmpty() && value.replace(Regex("<[^<>]*>"), "").isBlank()) { localized("ProfileImporter.3babf45ed3de", "I должен содержать теги <...>") }
             tags.forEach { match ->
                 val words = match.groupValues[1].trim().split(Regex("\\s+"))
                 when (words[0]) {
                     "r", "rc", "rd", "dz" -> { require(words.size == 2); unsigned(words[1], 2016) }
-                    "b" -> require(words.size == 2 && words[1].matches(Regex("(?:0x)?(?:[0-9a-fA-F]{2})+"))) { "Некорректные байты I" }
+                    "b" -> require(words.size == 2 && words[1].matches(Regex("(?:0x)?(?:[0-9a-fA-F]{2})+"))) { localized("ProfileImporter.62cac4e005fa", "Некорректные байты I") }
                     "t", "d", "ds" -> require(words.size == 1)
-                    else -> error("Неподдерживаемый тег I")
+                    else -> error(localized("ProfileImporter.d338b54cffc8", "Неподдерживаемый тег I"))
                 }
             }
             node.put("i$index", value)
@@ -166,7 +168,7 @@ object ProfileImporter {
 
     private fun unsigned(value: String, max: Long): Long = value.toLongOrNull()?.takeIf {
         value.matches(Regex("[0-9]+")) && it in 0..max
-    } ?: error("Числовой параметр вне допустимого диапазона")
+    } ?: error(localized("ProfileImporter.9cd715e86240", "Числовой параметр вне допустимого диапазона"))
 
     private fun unwrapAmnezia(encoded: String): String {
         val bytes = base64(encoded)
@@ -190,42 +192,42 @@ object ProfileImporter {
                 else -> null
             }
         }
-        return find(JSONObject(text), 0) ?: error("В vpn:// нет конфига WireGuard/AmneziaWG; экспортируйте нативный .conf")
+        return find(JSONObject(text), 0) ?: error(localized("ProfileImporter.698c34c3f721", "В vpn:// нет конфига WireGuard/AmneziaWG; экспортируйте нативный .conf"))
     }
 
     fun checkJsonDepth(text: String) {
         var depth = 0; var quoted = false; var escaped = false
         text.forEach { c ->
             if (quoted) { if (escaped) escaped = false else if (c == '\\') escaped = true else if (c == '"') quoted = false }
-            else when (c) { '"' -> quoted = true; '{', '[' -> { depth++; require(depth <= 32) { "Слишком глубокий JSON" } }; '}', ']' -> depth-- }
+            else when (c) { '"' -> quoted = true; '{', '[' -> { depth++; require(depth <= 32) { localized("ProfileImporter.af6b65d840da", "Слишком глубокий JSON") } }; '}', ']' -> depth-- }
         }
     }
     private data class Share(val scheme: String, val credential: String, val host: String, val port: Int, val query: Map<String, String>, val name: String)
     private fun share(raw: String): Share {
         val match = Regex("^([a-z0-9]+)://([^/?#]*)@([^/?#]+)(?:/)?(?:\\?([^#]*))?(?:#(.*))?$", RegexOption.IGNORE_CASE).matchEntire(raw)
-            ?: error("Некорректная ссылка подключения")
+            ?: error(localized("ProfileImporter.b0a55fa850fe", "Некорректная ссылка подключения"))
         val scheme = match.groupValues[1].lowercase()
         val authority = match.groupValues[3].removeSuffix("/")
         val ep = if (authority.startsWith('[') && authority.endsWith(']') || !authority.contains(':')) host(authority) to 443 else endpoint(authority)
         val q = linkedMapOf<String, String>()
         match.groupValues[4].split('&').filter(String::isNotEmpty).forEach {
             val key = decode(it.substringBefore('=')); val value = decode(it.substringAfter('=', "")).trim()
-            require(key !in q || q[key] == value) { "Противоречащие параметры ссылки" }; q[key] = value
+            require(key !in q || q[key] == value) { localized("ProfileImporter.36c8455a3f14", "Противоречащие параметры ссылки") }; q[key] = value
         }
         return Share(scheme, match.groupValues[2], ep.first, ep.second, q, name(decode(match.groupValues[5]), ep.first))
     }
     private fun tls(q: Map<String, String>, server: String, on: Boolean = true): JSONObject? {
-        require(listOf("allowInsecure", "insecure").none { q[it]?.lowercase() in setOf("1", "true") }) { "Отключённая проверка TLS не поддерживается" }
-        require(listOf("pinSHA256", "ech", "pqv").none { !q[it].isNullOrBlank() }) { "Параметр проверки TLS не поддерживается" }
+        require(listOf("allowInsecure", "insecure").none { q[it]?.lowercase() in setOf("1", "true") }) { localized("ProfileImporter.171e961498d2", "Отключённая проверка TLS не поддерживается") }
+        require(listOf("pinSHA256", "ech", "pqv").none { !q[it].isNullOrBlank() }) { localized("ProfileImporter.3d2d3586d1ba", "Параметр проверки TLS не поддерживается") }
         val fp = q["fp"]?.takeIf(String::isNotBlank)?.lowercase()
-        require(fp == null || fp in fingerprints) { "Неподдерживаемый TLS fingerprint" }
+        require(fp == null || fp in fingerprints) { localized("ProfileImporter.f6ec8d8cad87", "Неподдерживаемый TLS fingerprint") }
         if (!on) return null
         return obj("enabled" to true, "server_name" to (q["sni"]?.takeIf(String::isNotBlank) ?: q["peer"]?.takeIf(String::isNotBlank) ?: server),
             "alpn" to q["alpn"]?.takeIf(String::isNotBlank)?.split(',')?.map(String::trim),
             "utls" to fp?.let { obj("enabled" to true, "fingerprint" to it) })
     }
     private fun transport(type: String?, q: Map<String, String>): JSONObject? {
-        require(q["headerType"].isNullOrBlank() || q["headerType"] == "none") { "Неподдерживаемый transport header" }
+        require(q["headerType"].isNullOrBlank() || q["headerType"] == "none") { localized("ProfileImporter.52a6d30497ad", "Неподдерживаемый transport header") }
         return when (type?.lowercase().orEmpty()) {
             "", "tcp", "raw" -> null
             "ws" -> obj("type" to "ws", "path" to (q["path"]?.ifEmpty { "/" } ?: "/"), "headers" to q["host"]?.takeIf(String::isNotBlank)?.let { obj("Host" to it) })
@@ -234,13 +236,13 @@ object ProfileImporter {
             "httpupgrade" -> obj("type" to "httpupgrade", "path" to (q["path"] ?: "/"), "host" to q["host"]?.takeIf(String::isNotBlank))
             "xhttp", "splithttp" -> {
                 val mode = q["mode"]?.takeIf(String::isNotBlank)
-                require(mode == null || mode in setOf("auto", "packet-up", "stream-up", "stream-one")) { "Неподдерживаемый режим XHTTP" }
+                require(mode == null || mode in setOf("auto", "packet-up", "stream-up", "stream-one")) { localized("ProfileImporter.7aea2c4e7c60", "Неподдерживаемый режим XHTTP") }
                 obj("type" to "xhttp", "mode" to mode, "path" to q["path"], "host" to q["host"]).also { result ->
                     q["extra"]?.let { raw ->
                         checkJsonDepth(raw); val extra = JSONObject(raw)
-                        require(extra.keys().asSequence().all { it in setOf("headers", "xPaddingBytes", "xmux") }) { "Неподдерживаемый параметр XHTTP extra" }
-                        require(!extra.has("headers") || extra.opt("headers") is JSONObject) { "headers должен быть объектом" }
-                        require(!extra.has("xmux") || extra.opt("xmux") is JSONObject) { "xmux должен быть объектом" }
+                        require(extra.keys().asSequence().all { it in setOf("headers", "xPaddingBytes", "xmux") }) { localized("ProfileImporter.d7ae09e5d84d", "Неподдерживаемый параметр XHTTP extra") }
+                        require(!extra.has("headers") || extra.opt("headers") is JSONObject) { localized("ProfileImporter.7aeb763e9970", "headers должен быть объектом") }
+                        require(!extra.has("xmux") || extra.opt("xmux") is JSONObject) { localized("ProfileImporter.256a694cd022", "xmux должен быть объектом") }
                         extra.optJSONObject("headers")?.let { headers ->
                             require(headers.keys().asSequence().all { headers.get(it) is String })
                             result.put("headers", headers)
@@ -258,10 +260,10 @@ object ProfileImporter {
                         extra.optJSONObject("xmux")?.let { xmux ->
                             val fields = mapOf("maxConcurrency" to "max_concurrency", "maxConnections" to "max_connections", "cMaxReuseTimes" to "c_max_reuse_times",
                                 "hMaxRequestTimes" to "h_max_request_times", "hMaxReusableSecs" to "h_max_reusable_secs", "hKeepAlivePeriod" to "h_keep_alive_period")
-                            require(!(xmux.has("maxConcurrency") && xmux.has("maxConnections"))) { "XHTTP задаёт два взаимоисключающих лимита" }
+                            require(!(xmux.has("maxConcurrency") && xmux.has("maxConnections"))) { localized("ProfileImporter.2a268651c9c1", "XHTTP задаёт два взаимоисключающих лимита") }
                             val mapped = JSONObject()
                             xmux.keys().forEach { key ->
-                                val target = fields[key] ?: error("Неподдерживаемый параметр xmux")
+                                val target = fields[key] ?: error(localized("ProfileImporter.7953ec1d674f", "Неподдерживаемый параметр xmux"))
                                 if (key == "hKeepAlivePeriod") mapped.put(target, xmux.getInt(key).also { require(it >= 0) })
                                 else range(xmux.get(key))?.let { mapped.put(target, it) }
                             }; result.put("xmux", mapped)
@@ -269,7 +271,7 @@ object ProfileImporter {
                     }
                 }
             }
-            else -> error("Неподдерживаемый транспорт")
+            else -> error(localized("ProfileImporter.ca49d117a54a", "Неподдерживаемый транспорт"))
         }
     }
     fun link(raw: String): TunnelProfile {
@@ -277,15 +279,15 @@ object ProfileImporter {
         if (scheme == "vmess") {
             val text = base64(raw.substringAfter("://").substringBefore('#')).toString(Charsets.UTF_8); checkJsonDepth(text)
             val j = JSONObject(text); val server = host(j.getString("add")); val serverPort = port(j.get("port").toString())
-            val id = j.getString("id"); require(uuid.matches(id)) { "Некорректный UUID VMess" }
+            val id = j.getString("id"); require(uuid.matches(id)) { localized("ProfileImporter.5051d63e1262", "Некорректный UUID VMess") }
             val q = listOf("path", "host", "sni", "fp", "alpn", "allowInsecure", "insecure", "pinSHA256", "ech").associateWith { j.optString(it) }.toMutableMap()
             q["headerType"] = j.optString("type", "none"); q["serviceName"] = j.optString("path")
-            val security = j.optString("tls").lowercase(); require(security in setOf("", "none", "tls")) { "Неподдерживаемая защита VMess" }
+            val security = j.optString("tls").lowercase(); require(security in setOf("", "none", "tls")) { localized("ProfileImporter.06ba23fda8ba", "Неподдерживаемая защита VMess") }
             val cipher = j.optString("scy", "auto").ifEmpty { "auto" }
             require(cipher in setOf("auto", "none", "zero", "aes-128-gcm", "chacha20-poly1305", "aes-128-ctr"))
             val aidValue = j.opt("aid")?.toString() ?: "0"
-            require(aidValue.matches(Regex("[0-9]+"))) { "VMess alterId должен быть целым числом" }
-            val aid = aidValue.toIntOrNull(); require(aid != null && aid in 0..65535) { "Некорректный VMess alterId" }
+            require(aidValue.matches(Regex("[0-9]+"))) { localized("ProfileImporter.7b4da578bd95", "VMess alterId должен быть целым числом") }
+            val aid = aidValue.toIntOrNull(); require(aid != null && aid in 0..65535) { localized("ProfileImporter.07ea53bffa4e", "Некорректный VMess alterId") }
             return TunnelProfile(name = name(j.optString("ps"), server), protocol = "VMess", host = server, port = serverPort,
                 config = obj("type" to "vmess", "server" to server, "server_port" to serverPort, "uuid" to id, "alter_id" to aid,
                     "security" to cipher, "tls" to tls(q, server, security == "tls"), "transport" to transport(j.optString("net"), q)).toString())
@@ -293,14 +295,14 @@ object ProfileImporter {
         if (scheme == "ss") {
             val body = raw.substringAfter("://"); val fragment = body.substringAfter('#', ""); val main = body.substringBefore('#')
             val ssQuery = main.substringAfter('?', "").split('&').filter(String::isNotEmpty)
-            require(ssQuery.none { decode(it.substringBefore('=')).equals("plugin", true) }) { "Плагины Shadowsocks не поддерживаются" }
-            require(ssQuery.all { decode(it.substringBefore('=')) in setOf("outline") }) { "Неподдерживаемый параметр Shadowsocks" }
+            require(ssQuery.none { decode(it.substringBefore('=')).equals("plugin", true) }) { localized("ProfileImporter.f50e6fed2bf4", "Плагины Shadowsocks не поддерживаются") }
+            require(ssQuery.all { decode(it.substringBefore('=')) in setOf("outline") }) { localized("ProfileImporter.ed6214661e3b", "Неподдерживаемый параметр Shadowsocks") }
             val dec = if ('@' in main) {
                 val credentials = main.substringBeforeLast('@')
                 (if (':' in credentials) decode(credentials) else base64(credentials).toString(Charsets.UTF_8)) + "@" + main.substringAfterLast('@').substringBefore('?').removeSuffix("/")
             } else base64(main.substringBefore('?')).toString(Charsets.UTF_8)
             val method = dec.substringBefore(':'); val password = dec.substringAfter(':').substringBeforeLast('@')
-            require(':' in dec && '@' in dec && method.isNotBlank() && password.isNotEmpty()) { "Некорректный Shadowsocks" }
+            require(':' in dec && '@' in dec && method.isNotBlank() && password.isNotEmpty()) { localized("ProfileImporter.1eed7e82b064", "Некорректный Shadowsocks") }
             val (server, serverPort) = endpoint(dec.substringAfterLast('@'))
             return TunnelProfile(name = name(decode(fragment), server), protocol = "Shadowsocks", host = server, port = serverPort,
                 config = obj("type" to "shadowsocks", "server" to server, "server_port" to serverPort, "method" to method, "password" to password).toString())
@@ -316,16 +318,16 @@ object ProfileImporter {
             "tuic" -> tlsKeys + setOf("congestion_control")
             else -> emptySet()
         }
-        require(q.keys.all { it in allowedQuery }) { "Ссылка содержит неподдерживаемый параметр; он не будет пропущен молча" }
-        require(q["extra"].isNullOrBlank() || q["type"]?.lowercase() in setOf("xhttp", "splithttp")) { "extra поддерживается только с XHTTP" }
+        require(q.keys.all { it in allowedQuery }) { localized("ProfileImporter.1457997fb2de", "Ссылка содержит неподдерживаемый параметр; он не будет пропущен молча") }
+        require(q["extra"].isNullOrBlank() || q["type"]?.lowercase() in setOf("xhttp", "splithttp")) { localized("ProfileImporter.9168d8444d5e", "extra поддерживается только с XHTTP") }
         val node = obj("server" to u.host, "server_port" to u.port)
         val label = when (scheme) {
             "vless" -> {
-                val id = decode(u.credential); require(uuid.matches(id)) { "Некорректный UUID VLESS" }
+                val id = decode(u.credential); require(uuid.matches(id)) { localized("ProfileImporter.bf6be2942272", "Некорректный UUID VLESS") }
                 val security = q["security"]?.lowercase() ?: "none"; require(security in setOf("none", "tls", "reality"))
-                require(security == "reality" || listOf("pbk", "sid").all { q[it].isNullOrBlank() }) { "Ключи REALITY требуют security=reality" }
-                require(q["spx"].isNullOrBlank() || q["spx"] == "/") { "Неподдерживаемый REALITY spider path" }
-                val flow = q["flow"]?.takeIf(String::isNotBlank); require(flow == null || flow == "xtls-rprx-vision") { "Неподдерживаемый VLESS flow" }
+                require(security == "reality" || listOf("pbk", "sid").all { q[it].isNullOrBlank() }) { localized("ProfileImporter.898f82cb7c86", "Ключи REALITY требуют security=reality") }
+                require(q["spx"].isNullOrBlank() || q["spx"] == "/") { localized("ProfileImporter.0bff908f7c0a", "Неподдерживаемый REALITY spider path") }
+                val flow = q["flow"]?.takeIf(String::isNotBlank); require(flow == null || flow == "xtls-rprx-vision") { localized("ProfileImporter.4f5a8c60c686", "Неподдерживаемый VLESS flow") }
                 node.put("type", "vless").put("uuid", id)
                 flow?.let { node.put("flow", it) }
                 q["encryption"]?.takeUnless { it == "none" || it.isBlank() }?.let { node.put("encryption", it) }
@@ -335,14 +337,14 @@ object ProfileImporter {
                 tls(q + ("fp" to (q["fp"]?.takeIf(String::isNotBlank) ?: DEFAULT_FINGERPRINT)), u.host, security != "none")?.let { t ->
                     if (security == "reality") {
                         val pk = q["pbk"].orEmpty(); val sid = q["sid"].orEmpty()
-                        require(pk.matches(Regex("[A-Za-z0-9_-]{43}")) && sid.matches(Regex("(?:[0-9a-fA-F]{2}){0,8}")) && !q["sni"].isNullOrBlank()) { "Неполные параметры REALITY" }
+                        require(pk.matches(Regex("[A-Za-z0-9_-]{43}")) && sid.matches(Regex("(?:[0-9a-fA-F]{2}){0,8}")) && !q["sni"].isNullOrBlank()) { localized("ProfileImporter.ee5d77a78d34", "Неполные параметры REALITY") }
                         t.put("reality", obj("enabled" to true, "public_key" to pk, "short_id" to sid))
                     }; node.put("tls", t)
                 }
                 transport(q["type"], q)?.let { node.put("transport", it) }; "VLESS"
             }
             "trojan" -> {
-                require(u.credential.isNotBlank() && ':' !in u.credential) { "Пароль Trojan должен быть percent-encoded" }
+                require(u.credential.isNotBlank() && ':' !in u.credential) { localized("ProfileImporter.558ce6db1902", "Пароль Trojan должен быть percent-encoded") }
                 require(q["security"].isNullOrBlank() || q["security"].equals("tls", true)); require(q["flow"].isNullOrBlank())
                 node.put("type", "trojan").put("password", decode(u.credential)).put("tls", tls(q, u.host))
                 transport(q["type"], q)?.let { node.put("transport", it) }; "Trojan"
@@ -351,18 +353,18 @@ object ProfileImporter {
                 require(u.credential.isNotEmpty()); node.put("type", "hysteria2").put("password", decode(u.credential)).put("tls", tls(q, u.host))
                 hopping?.ports?.let { node.put("server_ports", jsonArray(it)).put("hop_interval", "30s") }
                 q["obfs"]?.takeIf(String::isNotBlank)?.let {
-                    require(it == "salamander" && !q["obfs-password"].isNullOrBlank()) { "Неполная обфускация Hysteria2" }
+                    require(it == "salamander" && !q["obfs-password"].isNullOrBlank()) { localized("ProfileImporter.c18b464cf2a0", "Неполная обфускация Hysteria2") }
                     node.put("obfs", obj("type" to it, "password" to q["obfs-password"]))
                 }; "Hysteria2"
             }
             "tuic" -> {
                 val id = decode(u.credential.substringBefore(':')); val password = decode(u.credential.substringAfter(':', ""))
-                require(uuid.matches(id) && password.isNotEmpty()) { "Некорректные параметры TUIC" }
+                require(uuid.matches(id) && password.isNotEmpty()) { localized("ProfileImporter.a836b17c6b71", "Некорректные параметры TUIC") }
                 val congestion = q["congestion_control"] ?: "bbr"; require(congestion in setOf("cubic", "new_reno", "bbr"))
                 node.put("type", "tuic").put("uuid", id).put("password", password).put("congestion_control", congestion)
                     .put("tls", tls(q + ("alpn" to (q["alpn"] ?: "h3")), u.host)); "TUIC"
             }
-            else -> error("Неподдерживаемый протокол")
+            else -> error(localized("ProfileImporter.31a5def22949", "Неподдерживаемый протокол"))
         }
         return TunnelProfile(name = u.name, protocol = label, host = u.host, port = u.port, config = node.toString())
     }

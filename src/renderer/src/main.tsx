@@ -6,6 +6,13 @@ import '@fontsource-variable/jetbrains-mono'
 import './styles.css'
 import './layout.css'
 import { createRoot } from 'react-dom/client'
-import { App } from './App'
+import { loadLocale } from '../../shared/localization'
 
-createRoot(document.getElementById('root')!).render(<App />)
+async function mount() {
+  const locale = await loadLocale(navigator.languages)
+  document.documentElement.lang = locale
+  document.documentElement.dir = locale === 'ar' || locale === 'fa' ? 'rtl' : 'ltr'
+  const { App } = await import('./App')
+  createRoot(document.getElementById('root')!).render(<App />)
+}
+void mount()

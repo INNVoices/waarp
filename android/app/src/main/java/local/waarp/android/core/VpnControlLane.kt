@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.core
 
+import local.waarp.android.i18n.localized
+
 import kotlinx.coroutines.flow.update
 import java.util.concurrent.Executors
 
@@ -51,7 +53,7 @@ internal object VpnControlLane {
             if (!RuntimeState.isCurrent(request.generation)) return
             val enabled = persist()
             if (!RuntimeState.isCurrent(request.generation)) return
-            check(enabled) { "Намерение включить VPN больше не действует" }
+            check(enabled) { localized("VpnControlLane.a4f2391950d8", "Намерение включить VPN больше не действует") }
             activate()
         } catch (error: Exception) { fail(error) }
     }

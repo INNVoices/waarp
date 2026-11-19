@@ -1,3 +1,4 @@
+import { localized } from '../../../shared/localization'
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { Map as LibreMap, Popup, setWorkerUrl, type GeoJSONSource, type MapMouseEvent, type StyleSpecification } from 'maplibre-gl'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
@@ -90,7 +91,7 @@ export function AtlasCanvas(props: AtlasCanvasProps) {
         touchPitch: false, scrollZoom: false, fadeDuration: 0, maxTileCacheSize: 32,
         transformRequest: url => {
           // A future style edit must not turn server browsing into a third-party lookup.
-          if (/^https?:/i.test(url) && new URL(url).origin !== location.origin) throw new Error('Atlas uses local resources')
+          if (/^https?:/i.test(url) && new URL(url).origin !== location.origin) throw new Error(localized("winInline.atlas-canvas.cf890764506a"))
           return { url }
         } })
       mapRef.current = map

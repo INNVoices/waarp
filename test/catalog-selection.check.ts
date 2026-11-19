@@ -1,3 +1,4 @@
+import { localized } from '../src/shared/localization'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -25,7 +26,7 @@ function ipcCallback(channel: string, scope: Record<string, unknown>): (...args:
   const executable = ts.transpileModule('const callback = ' + callbacks[0].getText(source), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None }
   }).outputText
-  return runInNewContext(executable + '\ncallback', scope)
+  return runInNewContext(executable + '\ncallback', { ...scope, localized })
 }
 
 async function main() {

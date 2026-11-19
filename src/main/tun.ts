@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 // Windows TUN safety (hardening R1): Waarp's own TUN service subnet, the recursion guard rule, controller port choice,
 // the startup readiness budget and a read-only preflight for a stale Waarp adapter or a subnet collision.
 // Nothing here changes Windows: when the state is ambiguous Waarp refuses to start instead of "repairing" the system.
@@ -112,14 +113,14 @@ const routeInOurs = (prefix: string): boolean => {
 
 /** pure decision. Called only when no Waarp core is running, so any adapter named exactly Waarp is a leftover. */
 export function tunPreflight(snap: TunSnapshot | undefined): Preflight {
-  if (!snap) return { ok: false, kind: 'tun_unknown', text: 'Не удалось проверить сетевые адаптеры Windows. Туннель не запущен, сеть не менялась' }
+  if (!snap) return { ok: false, kind: 'tun_unknown', text: localized("winInline.tun.996498ae597d") }
   if (snap.adapters.some(a => a.name.toLowerCase() === TUN.name.toLowerCase())) {
-    return { ok: false, kind: 'tun_stale', text: 'В Windows остался адаптер Waarp от прошлого запуска. Новый туннель не запущен. Перезагрузи компьютер и попробуй снова; Waarp не будет удалять сетевые адаптеры автоматически' }
+    return { ok: false, kind: 'tun_stale', text: localized("winInline.tun.c5e4536dd77e") }
   }
   const taken = [...snap.addrs.filter(a => inOurs(a.ip)).map(a => a.alias), ...snap.routes.filter(r => routeInOurs(r.prefix)).map(r => r.alias)]
   if (taken.length) {
     const who = [...new Set(taken.filter(Boolean))].slice(0, 2).join(', ')
-    return { ok: false, kind: 'tun_collision', text: `Служебная подсеть Waarp уже занята${who ? ` (${who})` : ''}. Туннель не запущен, чужую сеть Waarp не трогает` }
+    return { ok: false, kind: 'tun_collision', text: localized("winInline.tun.c59d28d1851b", who ? ` (${who})` : '') }
   }
   return { ok: true }
 }

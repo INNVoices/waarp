@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 import { ChildProcess, spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -177,7 +178,7 @@ export class Engine extends EventEmitter {
   private clearJournal(): boolean {
     if (this.journal.clear() !== false) return true
     this.recoveryOk = false
-    this.recoveryError = this.journal.lastError ?? 'Процесс закрыт, но его временные файлы не удалены. Повтори восстановление'
+    this.recoveryError = this.journal.lastError ?? localized("winInline.engine.3c994768cba1")
     this.push(`[recovery:cleanup] ${this.recoveryError}`)
     return false
   }
@@ -190,16 +191,16 @@ export class Engine extends EventEmitter {
       try {
         // Recovery reconciles a previous run. It must never terminate a core started by
         // this instance while a late bootstrap/reset callback was waiting in the queue.
-        if (this.child) error = 'Движок ещё работает. Сначала закрой Waarp, затем повтори восстановление'
-        else if (!(await this.journal.recover())) error = this.journal.lastError ?? 'Не удалось восстановить прошлый процесс движка. Повтори восстановление'
-        else if (!(await this.relays.recover())) error = this.relays.lastError ?? 'Не удалось восстановить процессы выбранных серверов'
-        else if (!otherRuntimesOk) error = otherError ?? 'Проверочный движок не подтвердил остановку. Повтори восстановление'
+        if (this.child) error = localized("winInline.engine.a6cf026bc5a4")
+        else if (!(await this.journal.recover())) error = this.journal.lastError ?? localized("winInline.engine.a46bf46678ad")
+        else if (!(await this.relays.recover())) error = this.relays.lastError ?? localized("winInline.engine.60286be4bacb")
+        else if (!otherRuntimesOk) error = otherError ?? localized("winInline.engine.ae1bb799eee0")
         else {
           const inspected = await RuntimeJournal.inspectUntracked(this.exe)
           if (!inspected.ok) error = inspected.error
         }
       } catch {
-        error = 'Не удалось проверить прошлые процессы Waarp. Повтори восстановление; подробности доступны в диагностике'
+        error = localized("winInline.engine.886393c5a2b2")
       }
       this.recoveryError = error
       this.recoveryOk = !error
@@ -207,7 +208,7 @@ export class Engine extends EventEmitter {
         this.push(`[recovery:engine] ${error}`)
         this.set({ phase: 'error', error })
       } else {
-        this.push('[recovery:engine] Предыдущие процессы проверены; запуск разрешён')
+        this.push(localized("winInline.engine.07970a090c2f"))
         if (previousError && this.status.error === previousError) this.set({ phase: 'off', engine: 'down', since: undefined, error: undefined })
       }
       return this.recoveryOk
@@ -241,7 +242,7 @@ export class Engine extends EventEmitter {
 
   private async startNow(profiles: Profile[], s: Settings, signal: AbortSignal, retry = true): Promise<void> {
     if (!this.recoveryOk) {
-      this.set({ phase: 'error', error: this.recoveryError ?? 'Проверка прошлых процессов ещё не завершена. Дождись восстановления и повтори запуск' })
+      this.set({ phase: 'error', error: this.recoveryError ?? localized("winInline.engine.ae47ec35eec1") })
       return
     }
     const began = Date.now()
@@ -251,7 +252,7 @@ export class Engine extends EventEmitter {
     // flight. Finish it before allocating a new generation of fixed slots.
     if (!(await this.relays.stop())) { this.set({ phase: 'error', error: this.relays.lastError }); return }
     if (signal.aborted) return
-    if (!existsSync(this.exe)) { this.set({ phase: 'error', error: 'Не найден движок engine\\sing-box.exe' }); return }
+    if (!existsSync(this.exe)) { this.set({ phase: 'error', error: localized("winInline.engine.dcdbf97b58b4") }); return }
     this.stopping = false
     this.tail = []
     // HOTFIX-RUNTIME-01 B: the local port pick does not depend on the Windows check, so both run together;
@@ -272,14 +273,14 @@ export class Engine extends EventEmitter {
     if (!prepared || signal.aborted) return
     const [pf, port, hostV6] = prepared
     if (!pf.ok) { this.set({ phase: 'error', engine: 'down', since: undefined, error: pf.text, recovery: pf.kind }); return }
-    if (!port) { this.set({ phase: 'error', error: 'Нет свободного локального порта для управления движком. Туннель не запущен', recovery: undefined }); return }
+    if (!port) { this.set({ phase: 'error', error: localized("winInline.engine.b6b959ef90a9"), recovery: undefined }); return }
     this.api = { port, secret: randomBytes(16).toString('hex') }
     // Select a distinct loopback port. The random credentials remain in this main
     // process and the private native configuration, never in the renderer.
     let proxyPort = await untilCancelled(pickPort(), signal)
     if (proxyPort === port) proxyPort = await untilCancelled(pickPort(), signal)
     if (signal.aborted) return
-    if (!proxyPort || proxyPort === port) { this.set({ phase: 'error', error: 'Нет свободного локального порта для проверки соединения' }); return }
+    if (!proxyPort || proxyPort === port) { this.set({ phase: 'error', error: localized("winInline.engine.162321ec9fef") }); return }
     this.diagnostic = { port: proxyPort, username: randomBytes(12).toString('hex'), password: randomBytes(24).toString('hex') }
     this.secrets = [this.api.secret, this.diagnostic.username, this.diagnostic.password,
       ...profiles.flatMap(p => (p.kind === 'vless' ? vlessSecrets(p) : p.kind === 'out' ? outSecrets(p) : p.kind === 'openvpn' ? openVpnSecrets(p) : []))]
@@ -288,7 +289,7 @@ export class Engine extends EventEmitter {
     // R5: the core gets a bounded Auto live pool; the plan/UI keep the full logical Auto membership
     const autoLive = runtimeAutoLive(s, profiles, this.lastAutoPick)
     if (!(await this.relays.reserve(() => !signal.aborted, pickPort, [this.api.port, this.diagnostic.port]))) {
-      if (!signal.aborted) this.set({ phase: 'error', error: this.relays.lastError ?? 'Не удалось подготовить выбор серверов' })
+      if (!signal.aborted) this.set({ phase: 'error', error: this.relays.lastError ?? localized("winInline.engine.3b5f35f0a465") })
       return
     }
     this.secrets.push(...this.relays.graph.slots.flatMap(slot => [slot.username, slot.password]))
@@ -297,12 +298,12 @@ export class Engine extends EventEmitter {
     const slots = planSlots(s)!
     const ruleDir = join(this.dir, 'rules')
     try { ({ cfg, files } = buildRuntime(profiles, s, { api: this.api, selfExe: this.selfExe, autoLive, selectors: true, slots, ruleDir, hostV6, preload, preloadGroups: true, diagnostic: this.diagnostic, relays: this.relays.graph })) }
-    catch { this.set({ phase: 'error', error: 'Не удалось подготовить конфиг движка' }); return }
+    catch { this.set({ phase: 'error', error: localized("winInline.engine.92de67b7652a") }); return }
     try {
       mkdirSync(ruleDir, { recursive: true })
       const generation = randomBytes(12).toString('hex')
       Object.entries(files).forEach(([tag, body], i) => writeFileSync(join(ruleDir, ruleFileOf(tag)), ruleFileWithWitness(body, `${generation}.${i}.${CANARY_ZONE}`)))
-    } catch { this.set({ phase: 'error', error: 'Не удалось записать временный конфиг движка' }); return }
+    } catch { this.set({ phase: 'error', error: localized("winInline.engine.9bde49d8f88a") }); return }
     this.ids = usedProfiles(s, profiles, live).map(p => p.id)
     this.groups = liveGroups(withAuto(s, profiles, autoLive), new Set(profiles.filter(p => !p.revoked).map(p => p.id)))
     this.firstSelected = new Map(this.groups.map(g => [g.id, g.members[0]]))
@@ -325,7 +326,7 @@ export class Engine extends EventEmitter {
     }
     catch {
       try { rmSync(file, { force: true }) } catch {}
-      this.set({ phase: 'error', error: 'Не удалось записать временный конфиг движка' })
+      this.set({ phase: 'error', error: localized("winInline.engine.9bde49d8f88a") })
       return
     }
     this.set({ phase: 'starting', error: undefined, recovery: undefined, since: undefined, pings: {}, fallback: {}, down: 0, up: 0, downTotal: 0, upTotal: 0 })
@@ -344,18 +345,18 @@ export class Engine extends EventEmitter {
       if (this.stopping) return
       const fatal = this.tail.filter(l => /FATAL|ERROR/.test(l)).pop()
       if (retry && ADAPTER_CLASH.test(fatal ?? '')) return
-      this.set({ phase: 'error', engine: 'down', since: undefined, error: humanize(fatal) ?? `Движок завершился (код ${code})` })
+      this.set({ phase: 'error', engine: 'down', since: undefined, error: humanize(fatal) ?? localized("winInline.engine.1809525503bd", code) })
       // R2.4: a crashed core may leave its adapter/routes behind; check read-only and block the next start if so
       void this.serialize(async () => { const r = await this.residue(); if (r && !this.child) this.set({ error: r.text, recovery: r.kind }) })
     })
     child.on('error', e => {
       if (this.child !== child) return
       // ChildProcess also emits error when signalling fails. Keep the live handle/lease until exit is proved.
-      if (child.pid && child.exitCode === null && child.signalCode === null) { this.set({ phase: 'error', error: `Ошибка процесса движка: ${e.message}` }); return }
+      if (child.pid && child.exitCode === null && child.signalCode === null) { this.set({ phase: 'error', error: localized("winInline.engine.54da405713ea", e.message) }); return }
       this.clearJournal()
       this.child = undefined
       this.halt()
-      this.set({ phase: 'error', engine: 'down', since: undefined, error: `Движок не запустился: ${e.message}` })
+      this.set({ phase: 'error', engine: 'down', since: undefined, error: localized("winInline.engine.b58dece51920", e.message) })
     })
     // A failed OS spawn emits `error`, not `exit`. Wait for that diagnostic instead
     // of trying to journal/stop an absent PID and waiting for an exit that cannot fire.
@@ -376,8 +377,8 @@ export class Engine extends EventEmitter {
       // A process without a verified lease must never be followed by another engine start.
       this.recoveryOk = false
       this.recoveryError = stopped
-        ? `Не удалось записать владельца процесса движка; запуск остановлен. ${recordError ?? 'Повтори запуск, чтобы проверить восстановление'}`
-        : 'Не удалось подтвердить остановку движка без записи владельца. Нажми «Восстановить» перед повторным запуском'
+        ? localized("winInline.engine.e2935b91fb5a", recordError ?? localized("winInline.engine.08336792980c"))
+        : localized("winInline.engine.d3dacc1b0c2a")
       this.push(`[recovery:record] ${this.recoveryError}`)
       this.set({ phase: 'error', error: this.recoveryError })
       return
@@ -394,7 +395,7 @@ export class Engine extends EventEmitter {
       }
       if (this.status.phase !== 'error') {
         const diagnostic = this.tail.filter(l => /FATAL|ERROR|open interface take too much time/i.test(l)).pop()
-        this.set({ phase: 'error', engine: 'down', since: undefined, error: humanize(diagnostic) ?? 'Движок не стартовал' })
+        this.set({ phase: 'error', engine: 'down', since: undefined, error: humanize(diagnostic) ?? localized("winInline.engine.5eabbbefa88d") })
       }
       return
     }
@@ -433,12 +434,12 @@ export class Engine extends EventEmitter {
           // Unmeasured members and older successful evidence prevent that claim.
           const allDown = this.ids.length > 0 && this.ids.every(id => h[id] === 'down')
           const noneYet = first && ids.length > 0 && ids.every(id => h[id] !== 'ok')
-          const error = allDown ? 'Туннели не ответили на две проверки подряд. Проверь сеть или смени подключение' : noneYet ? 'Серверы пока не ответили, проверяю ещё раз' : undefined
+          const error = allDown ? localized("winInline.engine.30228de38317") : noneYet ? localized("winInline.engine.09978d07d61a") : undefined
           this.lastAutoPick = this.firstSelected.get(AUTO_ID) ?? this.lastAutoPick
           this.set({ engine: 'up', pings, pingRound: ++this.pingSeq, pingAt: Date.now(), health: h, fallback, error, picked: Object.fromEntries(this.firstSelected), autoPool: this.autoPool })
         })
       } catch {
-        if (roundCurrent() && this.pollFailures < 2) this.set({ error: 'Не удалось обновить состояние туннелей; повторю проверку' })
+        if (roundCurrent() && this.pollFailures < 2) this.set({ error: localized("winInline.engine.74db842f02ad") })
       } finally { roundBusy = false }
     }
     void round(true)
@@ -458,8 +459,8 @@ export class Engine extends EventEmitter {
       const restored = await this.restoreLive(current)
       if (!current()) return false
       this.liveProblem = restored
-        ? 'Не удалось применить изменение. Прежние маршруты восстановлены; повтори действие'
-        : 'Состояние изменяемых маршрутов ещё не подтверждено. Сессия VPN сохранена; повтори действие'
+        ? localized("winInline.engine.4363917ea25a")
+        : localized("winInline.engine.666001350389")
       this.push(`[apply] ${stage}; ${restored ? 'previous routing restored' : 'edit barrier reconciliation pending'}; core and TUN kept`)
       this.set({ error: this.liveProblem })
       if (restored) await this.relays.trim(protectedIds)
@@ -474,7 +475,7 @@ export class Engine extends EventEmitter {
     const slots = sameEffectiveRouting(run.settings, s) && run.loaded.slots
       ? run.loaded.slots : planSlots(s, run.loaded.slots)
     if (!slots) {
-      this.liveProblem = 'Достигнут предел одновременных маршрутов. Действующие соединения сохранены'
+      this.liveProblem = localized("winInline.engine.e5d469ee95bd")
       this.set({ error: this.liveProblem }); return false
     }
     const needed = usedProfiles(s, profiles, { autoLive: run.autoLive })
@@ -482,11 +483,11 @@ export class Engine extends EventEmitter {
     const late = needed.filter(profile => !nativeProfiles.has(profile.id))
     if (late.some(candidate => candidate.kind === 'awg' && profiles.some(loaded => nativeProfiles.has(loaded.id) &&
       loaded.kind === 'awg' && loaded.privateKey === candidate.privateKey && loaded.peer.publicKey === candidate.peer.publicKey))) {
-      this.liveProblem = 'Эти ключи WireGuard уже используются текущей сессией. Выбери существующее подключение с этими ключами'
+      this.liveProblem = localized("winInline.engine.f04657e6cbd2")
       this.set({ error: this.liveProblem }); return false
     }
     if (!(await this.relays.ensure(late, protectedIds, current))) {
-      if (current()) { this.liveProblem = this.relays.lastError ?? 'Не удалось применить выбранный сервер. Действующий маршрут сохранён'; this.set({ error: this.liveProblem }); await this.relays.trim(protectedIds) }
+      if (current()) { this.liveProblem = this.relays.lastError ?? localized("winInline.engine.181d9c981e77"); this.set({ error: this.liveProblem }); await this.relays.trim(protectedIds) }
       return false
     }
     const relayGraph = this.relays.graph
@@ -497,7 +498,7 @@ export class Engine extends EventEmitter {
     const switches = liveSwitches(run.cfg, next.cfg)
     if (!switches) {
       const sections = Object.keys(run.cfg).filter(key => JSON.stringify((run.cfg as any)[key]) !== JSON.stringify((next.cfg as any)[key]))
-      this.liveProblem = 'Это изменение системных настроек нельзя применить к текущей сессии. Действующие маршруты сохранены'
+      this.liveProblem = localized("winInline.engine.f62e2bf01d55")
       this.push('[apply] structural change in ' + sections.join(', ') + '; current core and TUN kept')
       this.set({ error: this.liveProblem }); await this.relays.trim(protectedIds); return false
     }
@@ -573,10 +574,10 @@ export class Engine extends EventEmitter {
     const put = async (name: string, body: string) => {
       const file = join(dir, name), tmp = file + '.tmp'
       try {
-        if (!active()) throw new Error('rule apply cancelled or timed out')
+        if (!active()) throw new Error(localized("winInline.engine.13c55499c33d"))
         writeFileSync(tmp, body)
         for (let i = 0; i < 5; i++) {
-          if (!active()) throw new Error('rule apply cancelled or timed out')
+          if (!active()) throw new Error(localized("winInline.engine.13c55499c33d"))
           try { renameSync(tmp, file); return }
           catch (error) {
             // Never truncate a watched file after an atomic replacement fails:
@@ -697,7 +698,7 @@ export class Engine extends EventEmitter {
       const r = this.status.recovery ? await this.residue() : undefined
       if (r) { this.set({ phase: 'error', engine: 'down', since: undefined, error: r.text, recovery: r.kind }); return false }
       if (!(await workers)) {
-        this.set({ phase: 'error', engine: 'down', since: undefined, error: this.relays.lastError ?? 'Процесс выбранного сервера ещё работает' })
+        this.set({ phase: 'error', engine: 'down', since: undefined, error: this.relays.lastError ?? localized("winInline.engine.5737ee848b35") })
         return false
       }
       this.halt()
@@ -713,14 +714,14 @@ export class Engine extends EventEmitter {
       const identity = this.journal.recordedIdentity(c.pid)
       if (identity) {
         if (await this.breakSignal(c.pid, identity)) exited = await waitExit(c, this.gracefulMs)
-        else this.push('[stop] CTRL_BREAK не отправлен: нет подтверждённой отдельной консоли. Закрываю собственный процесс по сохранённому дескриптору')
+        else this.push(localized("winInline.engine.5559aac8295a"))
       }
     }
     if (!exited) {
       try { c.kill() } catch { /* the wait below decides */ }
       exited = await waitExit(c, this.killMs)
     }
-    if (!exited) { this.set({ phase: 'error', error: 'Движок не подтвердил остановку. Новый туннель не будет запущен' }); return false }
+    if (!exited) { this.set({ phase: 'error', error: localized("winInline.engine.573a661a0bf7") }); return false }
     const cleaned = this.clearJournal()
     this.child = undefined
     this.halt()
@@ -955,7 +956,7 @@ export class Engine extends EventEmitter {
       if (!current()) return
       this.flowActivity.invalidate()
       this.pollFailures++
-      if (this.pollFailures >= 2) this.set({ engine: 'down', error: 'Движок не отвечает на локальные запросы. Попробуй отключить и снова включить Waarp' })
+      if (this.pollFailures >= 2) this.set({ engine: 'down', error: localized("winInline.engine.ede32768a10b") })
     }
     try {
       const r = await this.req('/connections', 2000)
@@ -973,10 +974,10 @@ export class Engine extends EventEmitter {
         if (!c || typeof c !== 'object' || typeof c.id !== 'string' || !c.id ||
           !c.metadata || typeof c.metadata !== 'object' || Array.isArray(c.metadata) ||
           (c.chains !== undefined && (!Array.isArray(c.chains) || c.chains.some((tag: unknown) => typeof tag !== 'string'))))
-          throw new Error('Invalid connection snapshot')
+          throw new Error(localized("winInline.engine.c08f55d3a25c"))
         const m = c.metadata
         if (['processPath', 'process', 'host', 'destinationIP', 'network'].some(key => m[key] !== undefined && typeof m[key] !== 'string'))
-          throw new Error('Invalid connection metadata')
+          throw new Error(localized("winInline.engine.1b2b45e965d2"))
         const exe: string = m.processPath ?? ''
         const chain: string[] = c.chains ?? []
         const slot = chain.map(x => /^rt-([ad])(\d+)$/.exec(x)).find(Boolean)
@@ -984,7 +985,7 @@ export class Engine extends EventEmitter {
         if (!via || !loaded.has(via)) attributed = false
         return {
           id: c.id,
-          app: exe ? exe.split('\\').pop()!.replace(/\.exe$/i, '') : (m.process || 'система'),
+          app: exe ? exe.split('\\').pop()!.replace(/\.exe$/i, '') : (m.process || localized("winInline.engine.b8fb705d63c1")),
           exe,
           host: m.host || m.destinationIP || '',
           ip: typeof m.destinationIP === 'string' ? m.destinationIP : undefined,
@@ -1022,11 +1023,11 @@ const ADAPTER_CLASH = /create adapter:.*open existing adapter:/i
 
 function humanize(line?: string): string | undefined {
   if (!line) return undefined
-  if (ADAPTER_CLASH.test(line)) return 'Windows ещё не освободил прошлый адаптер Waarp. Включи Waarp ещё раз через несколько секунд'
-  if (/access is denied|operation not permitted|requires elevation|Отказано/i.test(line)) return 'Нужны права администратора, чтобы создать сетевой адаптер'
-  if (/address already in use|bind:/i.test(line)) return 'Порт занят: похоже, ещё одна копия Waarp уже работает'
-  if (/open interface take too much time/i.test(line)) return 'Windows не успел открыть адаптер Waarp. Туннель остановлен; чужие подключения не менялись'
-  if (/configure tun|create tun|wintun/i.test(line)) return 'Не удалось создать адаптер. Закрой другие VPN и попробуй ещё раз'
-  if (/decode|private key|public key|base64/i.test(line)) return 'Ключи в конфиге битые. Переимпортируй конфиг'
+  if (ADAPTER_CLASH.test(line)) return localized("winInline.engine.31c7c24fc3c7")
+  if (/access is denied|operation not permitted|requires elevation|Отказано/i.test(line)) return localized("winInline.engine.3bcdc079e57b")
+  if (/address already in use|bind:/i.test(line)) return localized("winInline.engine.145013487923")
+  if (/open interface take too much time/i.test(line)) return localized("winInline.engine.942b09c26678")
+  if (/configure tun|create tun|wintun/i.test(line)) return localized("winInline.engine.bd383b48b157")
+  if (/decode|private key|public key|base64/i.test(line)) return localized("winInline.engine.a0d588740d0a")
   return line.replace(/^.*?(FATAL|ERROR)\[\d+\]\s*/, '').slice(0, 220)
 }

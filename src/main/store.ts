@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 import { safeStorage } from 'electron'
 import { copyFileSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -53,7 +54,7 @@ export class Store {
   private open(s: string) {
     if (s.startsWith('e:')) return safeStorage.decryptString(Buffer.from(s.slice(2), 'base64'))
     if (s.startsWith('p:')) return s.slice(2) // legacy plaintext is read only; next successful save seals it
-    throw new Error('Unknown profile encoding')
+    throw new Error(localized("winInline.store.8db8c29a2cd8"))
   }
 
   canSave(): boolean {

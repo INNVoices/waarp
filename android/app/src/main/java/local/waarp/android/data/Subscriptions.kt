@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.data
 
+import local.waarp.android.i18n.localized
+
 data class SubscriptionMerge(val profiles: List<TunnelProfile>, val updated: Int, val added: Int, val missing: Int)
 
 object Subscriptions {
     /** Endpoint rotation preserves a route only for unique identities; ambiguous provider entries never steal IDs. */
     fun reconcile(old: List<TunnelProfile>, incoming: ImportResult, subscription: String): SubscriptionMerge {
-        require(incoming.skipped == 0) { "Подписка прочитана не полностью. Сохранённые профили оставлены без изменений." }
-        require(incoming.profiles.isNotEmpty()) { "Подписка не вернула поддерживаемых профилей; сохранённые данные оставлены" }
+        require(incoming.skipped == 0) { localized("Subscriptions.93304934011c", "Подписка прочитана не полностью. Сохранённые профили оставлены без изменений.") }
+        require(incoming.profiles.isNotEmpty()) { localized("Subscriptions.0d5e5134a040", "Подписка не вернула поддерживаемых профилей; сохранённые данные оставлены") }
         val prior = old.withIndex().filter { it.value.subscription == subscription }
         val fresh = incoming.profiles.distinctBy(ProfileImporter::identity)
         val matches = mutableMapOf<Int, TunnelProfile>(); val consumed = mutableSetOf<String>()
@@ -38,7 +40,7 @@ object Subscriptions {
                 result.add(profile.copy(subscription = subscription, subscriptionKey = ProfileImporter.subscriptionKey(profile))); added++
             }
         }
-        require(result.size <= MAX_PROFILES) { "В подписке слишком много профилей" }
+        require(result.size <= MAX_PROFILES) { localized("Subscriptions.fd409258a3f4", "В подписке слишком много профилей") }
         return SubscriptionMerge(result, updated, added, missing)
     }
 }

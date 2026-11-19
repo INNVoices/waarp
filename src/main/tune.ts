@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 import { createHash } from 'node:crypto'
 import type { Profile } from '../shared/types'
 
@@ -66,10 +67,10 @@ export function applyTune(p: Profile, t: TunePatch): Profile {
 /** Non-secret preview for the existing helper; proposed changes are visible before any measurement. */
 export function tuneOptions(p: Profile): { label: string; detail: string }[] {
   return variants(p).map(v => ({ label: v.label, detail: v.patch.vhttp
-    ? 'Тот же endpoint и ключи Cloudflare; HTTP/3 использует UDP, HTTP/2 — TCP'
-    : v.patch.mtu ? 'Размер пакета внутри туннеля; ключи и сервер сохраняются'
-    : v.patch.jc !== undefined ? 'Только служебные пакеты клиента; H, S, I и ключи сохраняются'
-    : 'Только ClientHello или разделение записей TLS; SNI, ключи и проверка сервера сохраняются' }))
+    ? localized("winInline.tune.aca4b9758272")
+    : v.patch.mtu ? localized("winInline.tune.77f0ed896f03")
+    : v.patch.jc !== undefined ? localized("winInline.tune.a0175407c1b7")
+    : localized("winInline.tune.bfd15c9281a3") }))
 }
 
 /** a stored tune applies only on the same network, to the unchanged profile, while fresh */

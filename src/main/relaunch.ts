@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 import { ps } from './ps'
 
 const WAIT_PARENT = '--waarp-wait-parent'
@@ -5,7 +6,7 @@ const validPid = (pid: number) => Number.isSafeInteger(pid) && pid > 4
 
 /** Replace any inherited handoff marker, preserving the app's ordinary launch arguments. */
 export function relaunchArgs(args: string[], parentPid: number): string[] {
-  if (!validPid(parentPid)) throw new Error('Invalid relaunch parent')
+  if (!validPid(parentPid)) throw new Error(localized("winInline.relaunch.db7e2cebe57f"))
   const out: string[] = []
   for (let i = 0; i < args.length; i++) {
     if (args[i] === WAIT_PARENT) { i++; continue }
@@ -22,7 +23,7 @@ export function relaunchParent(args: string[], selfPid = process.pid): number | 
     const raw = arg === WAIT_PARENT ? args[++i] : arg.startsWith(WAIT_PARENT + '=') ? arg.slice(WAIT_PARENT.length + 1) : undefined
     if (arg !== WAIT_PARENT && !arg.startsWith(WAIT_PARENT + '=')) continue
     const pid = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : 0
-    if (parent !== undefined || !validPid(pid) || pid === selfPid) throw new Error('Invalid relaunch parent')
+    if (parent !== undefined || !validPid(pid) || pid === selfPid) throw new Error(localized("winInline.relaunch.db7e2cebe57f"))
     parent = pid
   }
   return parent

@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 import { request } from 'node:https'
 import { Readable } from 'node:stream'
 import { publicSourceForUrl, type PublicSourceFormat } from '../shared/public-sources'
@@ -38,7 +39,7 @@ const SUPPORTED_URI = /^(?:vless|vmess|trojan|ss|hysteria2|hy2|tuic):\/\//i
 
 function permittedUrl(url: URL, hosts: ReadonlySet<string>): void {
   if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || !hosts.has(url.hostname.toLowerCase())) {
-    throw new Error('catalog destination is not permitted')
+    throw new Error(localized("winInline.catalog-fetch.313991c058d5"))
   }
 }
 
@@ -136,14 +137,14 @@ async function loadSource(requested: string, cancel: AbortSignal, transport?: Pi
         })
         signal.throwIfAborted()
         const body = supportedBody(text, format)
-        if (!body) { responseWasInvalid = true; throw new Error('invalid catalog format') }
+        if (!body) { responseWasInvalid = true; throw new Error(localized("winInline.catalog-fetch.a6a75db01b20")) }
         result.attempts!.push({ url: endpoint, outcome: 'ok' })
         return { ...result, body, selectedUrl }
       } catch {
         result.attempts!.push({ url: endpoint, outcome: signal.aborted ? 'cancelled' : responseWasInvalid ? 'invalid-format' : 'unavailable' })
       }
     }
-    return { ...result, error: cancel.aborted ? 'Загрузка каталога отменена' : 'Источник и его зеркала не вернули поддерживаемый список по выбранному пути' }
+    return { ...result, error: cancel.aborted ? localized("winInline.catalog-fetch.6bfc3ba3be97") : localized("winInline.catalog-fetch.2a8d893315f2") }
   } finally { clearTimeout(timer) }
 }
 

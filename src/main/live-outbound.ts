@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import type { Profile } from '../shared/types'
@@ -48,7 +49,7 @@ export class LiveOutbounds {
     if (epoch !== this.epoch) return false
     this.cleanupOk = results.every(Boolean)
     if (this.cleanupOk) { this.entries = []; this.slots = []; this.lastError = undefined }
-    else this.lastError = 'Не удалось восстановить процесс выбранного сервера'
+    else this.lastError = localized("winInline.live-outbound.aac4504ef6cd")
     return this.cleanupOk
   }
 
@@ -67,7 +68,7 @@ export class LiveOutbounds {
       result.push({ id: 'waarp-live-' + result.length, port,
         username: randomBytes(12).toString('hex'), password: randomBytes(24).toString('hex') })
     }
-    if (result.length !== LIVE_OUTBOUND_SLOTS) { this.lastError = 'Нет свободных локальных портов для выбора сервера'; return false }
+    if (result.length !== LIVE_OUTBOUND_SLOTS) { this.lastError = localized("winInline.live-outbound.ca7bf02334d9"); return false }
     this.slots = result
     this.lastError = undefined
     return true
@@ -87,7 +88,7 @@ export class LiveOutbounds {
       const signature = credentialKey(profile)
       let entry = this.entries.find(value => value.profileId === profile.id)
       if (entry && entry.signature !== signature && protectedIds.has(profile.id)) {
-        this.lastError = 'Данные активного сервера изменились. Действующий маршрут сохранён'
+        this.lastError = localized("winInline.live-outbound.e4404c7ca8e3")
         return false
       }
       let effective = entry?.signature === signature ? entry.profile : structuredClone(profile)
@@ -97,9 +98,9 @@ export class LiveOutbounds {
         try {
           const prepared = await this.preparePublic(profile, AbortSignal.any([controller.signal, AbortSignal.timeout(4000)]))
           if (!live()) return false
-          if (!prepared) { this.lastError = 'Не удалось подтвердить адрес публичного сервера. Действующий маршрут сохранён'; return false }
+          if (!prepared) { this.lastError = localized("winInline.live-outbound.65e31d00702e"); return false }
           effective = prepared
-        } catch { this.lastError = 'Проверка адреса сервера не завершилась. Действующий маршрут сохранён'; return false }
+        } catch { this.lastError = localized("winInline.live-outbound.9704ef2485bd"); return false }
         finally { this.preparations.delete(controller) }
       }
       if (!live()) return false
@@ -107,9 +108,9 @@ export class LiveOutbounds {
         const free = this.slots.find(slot => !this.entries.some(value => value.slot.id === slot.id))
         const reusable = free ? undefined : this.entries.find(value => !protectedIds.has(value.profileId) && !requested.has(value.profileId))
         const slot = free ?? reusable?.slot
-        if (!slot) { this.lastError = 'Все места для одновременных серверов заняты. Освободи неиспользуемый маршрут'; return false }
+        if (!slot) { this.lastError = localized("winInline.live-outbound.7814609c0fda"); return false }
         if (reusable) {
-          if (!(await reusable.worker.stop()) || !live()) { this.lastError = 'Предыдущий сервер ещё завершает работу'; return false }
+          if (!(await reusable.worker.stop()) || !live()) { this.lastError = localized("winInline.live-outbound.85af3912ee29"); return false }
           this.entries = this.entries.filter(value => value !== reusable)
         }
         const worker = this.create(this.path(this.slots.indexOf(slot)), live, slot, profile.id)
@@ -118,7 +119,7 @@ export class LiveOutbounds {
       }
       if (!(await entry.worker.ensure([effective], [])) || !live()) {
         entry.ready = false
-        this.lastError = 'Не удалось подготовить выбранный сервер. Действующий маршрут сохранён'
+        this.lastError = localized("winInline.live-outbound.6fcf37630033")
         return false
       }
       entry.profile = effective; entry.signature = signature
@@ -128,7 +129,7 @@ export class LiveOutbounds {
         if (typeof measured[profile.id] !== 'number' || !Number.isFinite(measured[profile.id])) {
           entry.ready = false
           await entry.worker.stop()
-          this.lastError = 'Выбранный публичный сервер сейчас не отвечает. Действующий маршрут сохранён'
+          this.lastError = localized("winInline.live-outbound.a12fb790e044")
           return false
         }
       }
@@ -156,11 +157,11 @@ export class LiveOutbounds {
       const clean = results.every(Boolean)
       if (clean && entries === this.entries) { this.entries = []; this.slots = [] }
       this.cleanupOk = clean
-      if (!clean) this.lastError = 'Процесс выбранного сервера не подтвердил остановку'
+      if (!clean) this.lastError = localized("winInline.live-outbound.9b00ac46b65f")
       return clean
     }).catch(() => {
       this.cleanupOk = false
-      this.lastError = 'Не удалось подтвердить остановку выбранного сервера'
+      this.lastError = localized("winInline.live-outbound.13f72ec96fdf")
       return false
     }).finally(() => { if (this.stopping === stopping) this.stopping = undefined })
     this.stopping = stopping

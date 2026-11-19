@@ -2,7 +2,11 @@
 
 [English README](../README.md) · [Русский README](../README.ru.md) · [All GitHub releases](https://github.com/INNVoices/waarp/releases) · [Release preview workflow](../.github/workflows/release-preview.yml)
 
-## Current releases — Windows r6 and Android r5
+## Stable source · 1.0.0
+
+Both clients use version 1.0.0. Android uses version code 7. See the [component and acceptance record](V1.md), [build instructions](ANDROID.md#build-and-install) and [release notes](../release/stable.md). The portable release workflow verifies the EXE, its packaged engine and its checksum list before publication.
+
+## Preview archive · Windows r6 and Android r5
 
 **Windows r6 is published as a prerelease**, released on 18 November 2026 at 16:54:52 UTC. It updates only the desktop application to `0.4.1-rc.5`. Its tag and binaries refer to source [`0e0bb6c7cad421dc0fff377d8c7f826d115e0292`](https://github.com/INNVoices/waarp/commit/0e0bb6c7cad421dc0fff377d8c7f826d115e0292). All required jobs in the [release workflow](https://github.com/INNVoices/waarp/actions/runs/44348809024) passed; Android was skipped as declared by the Windows-only release intent. [Published r6 release](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r6).
 

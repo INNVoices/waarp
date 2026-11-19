@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.data
 
+import local.waarp.android.i18n.localized
+
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.DnsResolver
@@ -69,10 +71,10 @@ class NetworkTools(context: Context) {
         val capabilities = connectivity.getNetworkCapabilities(network)
         when {
             capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true -> "Wi-Fi"
-            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true -> "Мобильная сеть"
-            else -> "Текущая сеть"
+            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true -> localized("NetworkTools.3a3e2b6cb86d", "Мобильная сеть")
+            else -> localized("NetworkTools.38221c67e808", "Текущая сеть")
         }
-    } ?: "Нет подключения"
+    } ?: localized("NetworkTools.188cff2ecfb9", "Нет подключения")
 
     // Control-plane fetches must remain reachable when a saved tunnel is broken.
     // The app UID stays inside TUN for native TCP reverse NAT, so bind these
@@ -88,11 +90,11 @@ class NetworkTools(context: Context) {
         boundNetwork: Network?, publicSource: PublicCatalogSource?): String = withContext(Dispatchers.IO) {
         NetworkOperation.within(30_000) {
             require(maxBytes > 0)
-            val network = boundNetwork ?: if (physical) physicalNetwork() ?: error("Нет физического подключения к сети") else null
+            val network = boundNetwork ?: if (physical) physicalNetwork() ?: error(localized("NetworkTools.abbf2e0f35ff", "Нет физического подключения к сети")) else null
             var current = URI(url)
             repeat(5) { redirect ->
                 coroutineContext.ensureActive()
-                require(current.scheme.equals("https", true) && current.host != null && current.rawUserInfo == null) { "Нужна HTTPS-ссылка без логина в адресе" }
+                require(current.scheme.equals("https", true) && current.host != null && current.rawUserInfo == null) { localized("NetworkTools.f1f398273c92", "Нужна HTTPS-ссылка без логина в адресе") }
                 publicSource?.let { PublicSourcePolicy.requireEndpoint(it, current) }
                 val client = clientFor(network, current.host, publicSource != null)
                 val request = Request.Builder().url(current.toString())
@@ -102,12 +104,12 @@ class NetworkTools(context: Context) {
                 val context = coroutineContext
                 val reply = NetworkOperation.http(client.newCall(request)) { response ->
                     if (response.code in setOf(301, 302, 303, 307, 308)) {
-                        require(redirect < 4) { "Слишком много перенаправлений" }
-                        FetchReply.Redirect(response.header("Location") ?: error("Нет адреса перенаправления"))
+                        require(redirect < 4) { localized("NetworkTools.524722e66aee", "Слишком много перенаправлений") }
+                        FetchReply.Redirect(response.header("Location") ?: error(localized("NetworkTools.4f7c8fc21ae1", "Нет адреса перенаправления")))
                     } else {
-                        require(response.isSuccessful) { "Сервер вернул HTTP ${response.code}" }
+                        require(response.isSuccessful) { localized("NetworkTools.72a68bd886de", "Сервер вернул HTTP {arg1}", response.code) }
                         val body = response.body
-                        require(body.contentLength() <= maxBytes || body.contentLength() < 0) { "Ответ сервера слишком большой" }
+                        require(body.contentLength() <= maxBytes || body.contentLength() < 0) { localized("NetworkTools.73085cac6074", "Ответ сервера слишком большой") }
                         // OkHttp transparently decompresses gzip; bound decompressed bytes.
                         FetchReply.Body(body.byteStream().use { readBounded(it, maxBytes) { context.ensureActive() }.toString(Charsets.UTF_8) })
                     }
@@ -117,14 +119,14 @@ class NetworkTools(context: Context) {
                     is FetchReply.Body -> return@within reply.text
                 }
             }
-            error("Не удалось загрузить HTTPS-ссылку")
+            error(localized("NetworkTools.502052b20c62", "Не удалось загрузить HTTPS-ссылку"))
         }
     }
 
     /** Only called for an explicitly supplied test endpoint and a confirmed Waarp service route. */
     suspend fun uploadCheck(url: String, vpn: Network): TransferObservation = withContext(Dispatchers.IO) {
         val uri = target(url)
-        require(uri.rawQuery == null) { "Тестовый адрес отправки должен быть без параметров и секретов" }
+        require(uri.rawQuery == null) { localized("NetworkTools.0cff81236dcd", "Тестовый адрес отправки должен быть без параметров и секретов") }
         NetworkOperation.within(15_000) {
             val body = TransferProof.uploadPayload()
             val request = Request.Builder().url(uri.toString())
@@ -189,10 +191,10 @@ class NetworkTools(context: Context) {
     suspend fun preparePublicProbe(profile: TunnelProfile): TunnelProfile = withContext(Dispatchers.IO) {
         NetworkOperation.within(8_000) {
             require(profile.source == "public")
-            val physical = physicalNetwork() ?: error("Нет физического подключения к сети")
+            val physical = physicalNetwork() ?: error(localized("NetworkTools.e2c96937fc02", "Нет физического подключения к сети"))
             val hosts = PublicSourcePolicy.endpointHosts(profile)
             val answers = hosts.associateWith { host -> resolve(physical, host) }
-            check(physicalNetwork()?.networkHandle == physical.networkHandle) { "Сеть изменилась до проверки публичного профиля" }
+            check(physicalNetwork()?.networkHandle == physical.networkHandle) { localized("NetworkTools.9c789fd38ff7", "Сеть изменилась до проверки публичного профиля") }
             PublicSourcePolicy.pinForProbe(profile, answers)
         }
     }
@@ -205,16 +207,16 @@ class NetworkTools(context: Context) {
                     val profiles = PublicCatalog.loadSource(source, fetcher)
                     profiles to CatalogSourceUi(source.name, profiles.size, true)
                 } catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { emptyList<TunnelProfile>() to CatalogSourceUi(source.name, 0, false, "Источник недоступен или формат не поддерживается") }
+                catch (_: Exception) { emptyList<TunnelProfile>() to CatalogSourceUi(source.name, 0, false, localized("NetworkTools.a9ee44f98080", "Источник недоступен или формат не поддерживается")) }
             }
         } }.map { it.await() }
         CatalogResult(PublicCatalog.fairPool(results.map { it.first }), results.map { it.second })
     }
 
     fun target(raw: String): URI {
-        val text = raw.trim(); require(text.isNotBlank() && text.length <= 2048) { "Укажите домен или HTTPS-адрес" }
+        val text = raw.trim(); require(text.isNotBlank() && text.length <= 2048) { localized("NetworkTools.4fbf8ec0070f", "Укажите домен или HTTPS-адрес") }
         val uri = URI(if (text.contains("://")) text else "https://$text")
-        require(uri.scheme.equals("https", true) && uri.rawUserInfo == null && uri.host != null && uri.fragment == null) { "Нужен HTTPS-адрес без логина и фрагмента" }
+        require(uri.scheme.equals("https", true) && uri.rawUserInfo == null && uri.host != null && uri.fragment == null) { localized("NetworkTools.3a97b2ce96dd", "Нужен HTTPS-адрес без логина и фрагмента") }
         ProfileImporter.host(uri.host)
         require(uri.port == -1 || uri.port in 1..65535)
         return uri
@@ -223,10 +225,10 @@ class NetworkTools(context: Context) {
     suspend fun diagnose(raw: String): List<DiagnosticLayerUi> = withContext(Dispatchers.IO) {
         val uri = target(raw); val network = physicalNetwork()
         val result = mutableListOf<DiagnosticLayerUi>()
-        if (network == null) return@withContext listOf(DiagnosticLayerUi("Сеть Android", ObservationResult.FAILED, "Нет физического подключения"))
+        if (network == null) return@withContext listOf(DiagnosticLayerUi(localized("NetworkTools.c6a6a6bbcca5", "Сеть Android"), ObservationResult.FAILED, localized("NetworkTools.6fd721a640b1", "Нет физического подключения")))
         val caps = connectivity.getNetworkCapabilities(network)
-        result.add(DiagnosticLayerUi("Сеть Android", ObservationResult.OK,
-            when { caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true -> "Wi‑Fi"; caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true -> "Мобильная сеть"; else -> "Физическая сеть" }))
+        result.add(DiagnosticLayerUi(localized("NetworkTools.c6a6a6bbcca5", "Сеть Android"), ObservationResult.OK,
+            when { caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true -> "Wi‑Fi"; caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true -> localized("NetworkTools.1f633a429117", "Мобильная сеть"); else -> localized("NetworkTools.7caef1558a62", "Физическая сеть") }))
         suspend fun observe(label: String, block: suspend () -> String): Boolean {
             coroutineContext.ensureActive()
             return try { result.add(DiagnosticLayerUi(label, ObservationResult.OK, block())); true }
@@ -236,31 +238,31 @@ class NetworkTools(context: Context) {
             }
         }
         var addresses = emptyList<InetAddress>()
-        observe("Системный DNS · напрямую") {
+        observe(localized("NetworkTools.ae75d624d698", "Системный DNS · напрямую")) {
             addresses = resolve(network, uri.host)
-            require(addresses.isNotEmpty()); "${addresses.size} адресов"
+            require(addresses.isNotEmpty()); localized("NetworkTools.e624115f3e08", "{arg1} адресов", addresses.size)
         }
         observe("DNS over HTTPS · Cloudflare") {
             val response = fetch("https://cloudflare-dns.com/dns-query?name=${URLEncoder.encode(uri.host, "UTF-8")}&type=A", 64 * 1024, physical = true)
-            val dns = JSONObject(response); require(dns.optInt("Status", -1) == 0 && (dns.optJSONArray("Answer")?.length() ?: 0) > 0) { "DNS не вернул адрес" }
-            "DNS-ответ получен через HTTPS"
+            val dns = JSONObject(response); require(dns.optInt("Status", -1) == 0 && (dns.optJSONArray("Answer")?.length() ?: 0) > 0) { localized("NetworkTools.85ae434fd62f", "DNS не вернул адрес") }
+            localized("NetworkTools.676382cacc62", "DNS-ответ получен через HTTPS")
         }
         val address = addresses.firstOrNull { it.address.size == 4 } ?: addresses.firstOrNull()
         if (address == null) {
-            result.add(DiagnosticLayerUi("TCP / TLS / HTTP · напрямую", ObservationResult.SKIPPED, "Нет результата системного DNS"))
+            result.add(DiagnosticLayerUi(localized("NetworkTools.1cfc5d0ee8c7", "TCP / TLS / HTTP · напрямую"), ObservationResult.SKIPPED, localized("NetworkTools.cbbaa63760e7", "Нет результата системного DNS")))
             return@withContext result
         }
         val port = if (uri.port == -1) 443 else uri.port
-        observe("TCP · напрямую") {
+        observe(localized("NetworkTools.7aba0e0fe189", "TCP · напрямую")) {
             val start = System.nanoTime()
             network.socketFactory.createSocket().use { socket ->
                 NetworkOperation.within(7_000) {
                     NetworkOperation.call(socket::close) { socket.connect(InetSocketAddress(address, port), 5000) }
                 }
             }
-            "Соединение установлено, ${(System.nanoTime() - start) / 1_000_000} мс"
+            localized("NetworkTools.d6a5b09bfe89", "Соединение установлено, {arg1} мс", (System.nanoTime() - start) / 1_000_000)
         }
-        observe("TLS · проверка сертификата") {
+        observe(localized("NetworkTools.d1687e644fb5", "TLS · проверка сертификата")) {
             val socket = network.socketFactory.createSocket()
             try {
                 NetworkOperation.within(14_000) {
@@ -268,17 +270,17 @@ class NetworkTools(context: Context) {
                         socket.connect(InetSocketAddress(address, port), 5000); socket.soTimeout = 7000
                         ((SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(socket, uri.host, port, true) as SSLSocket).use { tls ->
                             tls.sslParameters = tls.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
-                            tls.startHandshake(); "${tls.session.protocol}, имя и цепочка сертификата проверены"
+                            tls.startHandshake(); localized("NetworkTools.93acfaeb52b0", "{arg1}, имя и цепочка сертификата проверены", tls.session.protocol)
                         }
                     }
                 }
             } finally { socket.close() }
         }
-        observe("HTTP · напрямую") {
+        observe(localized("NetworkTools.1397768e420e", "HTTP · напрямую")) {
             NetworkOperation.within(12_000) {
                 val client = clientFor(network, uri.host)
                 val request = Request.Builder().url(uri.toString()).head().build()
-                NetworkOperation.http(client.newCall(request)) { "Ответ HTTP ${it.code}" }
+                NetworkOperation.http(client.newCall(request)) { localized("NetworkTools.efb65089910e", "Ответ HTTP {arg1}", it.code) }
             }
         }
         result
@@ -288,17 +290,17 @@ class NetworkTools(context: Context) {
         val SOURCES: List<Pair<String, String>> = PublicCatalog.SOURCES.map { it.name to it.url }
         fun readBounded(input: InputStream, limit: Int = MAX_IMPORT_BYTES, checkActive: () -> Unit = {}): ByteArray {
             val output = ByteArrayOutputStream(); val buffer = ByteArray(8192)
-            while (true) { checkActive(); val n = input.read(buffer); if (n < 0) break; require(output.size() + n <= limit) { "Файл слишком большой" }; output.write(buffer, 0, n) }
+            while (true) { checkActive(); val n = input.read(buffer); if (n < 0) break; require(output.size() + n <= limit) { localized("NetworkTools.74d937017f4b", "Файл слишком большой") }; output.write(buffer, 0, n) }
             return output.toByteArray()
         }
         fun safeError(error: Throwable): String = when (error) {
-            is java.net.SocketTimeoutException -> "Сервер не ответил за отведённое время"
-            is java.net.UnknownHostException -> "Не удалось разрешить имя сервера"
-            is javax.net.ssl.SSLException -> "Не удалось подтвердить защищённое TLS-соединение"
-            is java.net.ConnectException -> "Соединение не установлено"
-            is SecurityException -> "Android не разрешил сетевую операцию"
-            is java.io.IOException -> "Ошибка сетевого обмена"
-            else -> "Проверка не завершена"
+            is java.net.SocketTimeoutException -> localized("NetworkTools.ea6d13b8207c", "Сервер не ответил за отведённое время")
+            is java.net.UnknownHostException -> localized("NetworkTools.0865b26e2e25", "Не удалось разрешить имя сервера")
+            is javax.net.ssl.SSLException -> localized("NetworkTools.f6aca31075fd", "Не удалось подтвердить защищённое TLS-соединение")
+            is java.net.ConnectException -> localized("NetworkTools.2265abd655c4", "Соединение не установлено")
+            is SecurityException -> localized("NetworkTools.90bc49eeab2f", "Android не разрешил сетевую операцию")
+            is java.io.IOException -> localized("NetworkTools.bc8c39883bbd", "Ошибка сетевого обмена")
+            else -> localized("NetworkTools.2847f05267ab", "Проверка не завершена")
         }
     }
 }

@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 import type { Adapter, Notice, Profile } from '../shared/types'
 import { isIPv4 } from 'node:net'
 import { ps } from './ps'
@@ -44,17 +45,17 @@ export async function adapters(read: () => Promise<unknown> = () => ps(SCAN, 150
     const list = parseAdapterSnapshot(await read())
     if (list) return list
   } catch { /* preserve an unknown state instead of silently admitting a new tunnel */ }
-  throw new Error('Не удалось проверить сетевые адаптеры и маршруты Windows. Повтори попытку')
+  throw new Error(localized("winInline.guard.8bda30247bbd"))
 }
 
 /** Inspection failure blocks a new start but does not tear down an already working tunnel. */
 export function adapterInspectionNotice(running: boolean): Notice {
   return {
     level: running ? 'warn' : 'block',
-    title: 'Не удалось проверить сеть Windows',
+    title: localized("winInline.guard.93e817c8277d"),
     text: running
-      ? 'Последняя проверка адаптеров и маршрутов не завершилась. Текущее подключение сохранено; следующая проверка повторится автоматически.'
-      : 'Windows не вернула полные данные об адаптерах и маршрутах. Новый туннель пока не запущен. Повтори попытку.'
+      ? localized("winInline.guard.e2afd3246898")
+      : localized("winInline.guard.aebf95a4442b")
   }
 }
 
@@ -67,14 +68,14 @@ export function conflicts(ps: Profile[], list: Adapter[], ownName = 'Waarp', all
     if (a.name.toLowerCase() === ownName.toLowerCase()) continue
     const same = a.ipv4.find(ip => mine.has(ip))
     if (same) {
-      out.push({ level: 'warn', title: 'Адрес туннеля уже используется', text: `Адрес ${same} найден у адаптера «${a.name}». Совпадение адреса не доказывает совпадение ключа. Этот профиль может не запуститься; для одновременной работы безопаснее отдельный конфиг.` })
+      out.push({ level: 'warn', title: localized("winInline.guard.fb035207745a"), text: localized("winInline.guard.7cae672c1cec", same, a.name) })
     }
     if (VPN_LIKE.test(a.desc) || VPN_LIKE.test(a.name)) {
       out.push(a.fullRoute
         ? allowVpnUnderlay
-          ? { level: 'warn', title: `Внешний VPN: ${a.name}`, text: 'Waarp направит только выбранные карточки через их сервер поверх текущего VPN. Текущий VPN и его настройки не изменяются.' }
-          : { level: 'block', title: `Включён другой VPN: ${a.name}`, text: 'У этого адаптера найден полный маршрут. Совместимость маршрутов и DNS пока не подтверждена, поэтому Waarp не запускает второй системный туннель.' }
-        : { level: 'info', title: `Рядом работает ${a.name}`, text: 'Полный маршрут не найден. Это не доказывает совместимость DNS и отдельных маршрутов; проверь их перед совместной работой.' })
+          ? { level: 'warn', title: localized("winInline.guard.29bba0da79f4", a.name), text: localized("winInline.guard.49c4108f3f38") }
+          : { level: 'block', title: localized("winInline.guard.8e6f8087fe3d", a.name), text: localized("winInline.guard.0a6768b069e6") }
+        : { level: 'info', title: localized("winInline.guard.93ba9f2c31d4", a.name), text: localized("winInline.guard.1fb91174b2c6") })
     }
   }
   return out

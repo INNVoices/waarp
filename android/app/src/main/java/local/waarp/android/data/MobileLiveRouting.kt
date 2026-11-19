@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.data
 
+import local.waarp.android.i18n.localized
+
 import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
@@ -27,7 +29,7 @@ object MobileLiveRouting {
     const val DNS_GUARD = "update-dns-guard"
     private const val PRELOAD_LIMIT = 4
     const val MAX_WATCHED_SETS = 112
-    private const val WATCHER_LIMIT_NOTE = "Список правил превышает доступный лимит живого обновления. Изменение активных маршрутов потребует переподключения VPN; выключенные карточки на этот лимит не влияют."
+    private val WATCHER_LIMIT_NOTE get() = localized("MobileLiveRouting.49d5abefe348", "Список правил превышает доступный лимит живого обновления. Изменение активных маршрутов потребует переподключения VPN; выключенные карточки на этот лимит не влияют.")
     private fun watcherBudget(): Int = runCatching {
         (File("/proc/sys/fs/inotify/max_user_instances").readText().trim().toInt() - 16).coerceIn(0, MAX_WATCHED_SETS)
     }.getOrDefault(MAX_WATCHED_SETS)

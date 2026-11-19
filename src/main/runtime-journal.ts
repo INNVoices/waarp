@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 // C12: only a process recorded by this Waarp run may be recovered. The journal has no credentials.
 import { lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
@@ -26,7 +27,7 @@ async function identity(pid: number): Promise<Identity | null> {
   const script = `$ErrorActionPreference='Stop';$p=Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}';if($null -eq $p){'null'}else{[pscustomobject]@{path=$p.ExecutablePath;started=$p.CreationDate.ToUniversalTime().ToString('o')}|ConvertTo-Json -Compress}`
   const value = await ps<Identity | null>(script, 5000)
   if (value === null) return null
-  if (!validIdentity(value)) throw new Error('Process identity unavailable')
+  if (!validIdentity(value)) throw new Error(localized("winInline.runtime-journal.e3c3de96e4c3"))
   return value
 }
 
@@ -67,11 +68,11 @@ export class RuntimeJournal {
 
   async record(pid: number | undefined): Promise<boolean> {
     this.lastError = undefined
-    if (!pid || !Number.isSafeInteger(pid) || pid <= 4) return this.fail('Движок не сообщил допустимый номер процесса')
+    if (!pid || !Number.isSafeInteger(pid) || pid <= 4) return this.fail(localized("winInline.runtime-journal.73d0b1045dd3"))
     let found: Identity | null
     try { found = await this.ops.identity(pid) }
-    catch { return this.fail('Windows не дала прочитать владельца запущенного движка. Повтори запуск с правами администратора') }
-    if (!validIdentity(found) || !samePath(found.path, this.exe)) return this.fail('Windows не подтвердила владельца запущенного движка')
+    catch { return this.fail(localized("winInline.runtime-journal.b834c16e86f6")) }
+    if (!validIdentity(found) || !samePath(found.path, this.exe)) return this.fail(localized("winInline.runtime-journal.bc373b02052f"))
     const temp = this.journal + '.tmp'
     try {
       const lease: Lease = { version: 1, runId: this.runId, pid, path: found.path, started: found.started }
@@ -80,7 +81,7 @@ export class RuntimeJournal {
       renameSync(temp, this.journal)
       this.lease = lease
       return true
-    } catch { try { rmSync(temp, { force: true }) } catch {}; return this.fail('Не удалось сохранить журнал процесса движка. Проверь доступ к папке данных Waarp и свободное место') }
+    } catch { try { rmSync(temp, { force: true }) } catch {}; return this.fail(localized("winInline.runtime-journal.8178eb62b078")) }
   }
 
   /** R2: is this PID still exactly the process recorded by this run (path + creation time)? Read-only. */
@@ -105,7 +106,7 @@ export class RuntimeJournal {
     this.lease = undefined
     // Keep the ownership evidence until its potentially secret config has been removed too.
     try { rmSync(this.runtimeFile, { force: true }); rmSync(this.journal, { force: true }) }
-    catch { return this.fail('Процесс закрыт, но Windows не дала удалить его временные файлы. Повтори восстановление') }
+    catch { return this.fail(localized("winInline.runtime-journal.39bbddd85eaa")) }
     this.lastError = undefined
     return true
   }
@@ -119,11 +120,11 @@ export class RuntimeJournal {
       const script = `$ErrorActionPreference='Stop';$blocked=@();$unknown=@();$processes=@([Diagnostics.Process]::GetProcessesByName(${name}));foreach($p in $processes){try{if($p.HasExited){continue};${checkPath}}catch{try{if(-not $p.HasExited){$unknown += $p.Id}}catch{$unknown += $p.Id}}finally{$p.Dispose()}};[pscustomobject]@{blocked=@($blocked);unknown=@($unknown)}|ConvertTo-Json -Compress`
       const result = await ps<{ blocked: number[]; unknown: number[] }>(script, 8000)
       const pids = (v: unknown): v is number[] => Array.isArray(v) && v.every(p => Number.isSafeInteger(p) && p > 0)
-      if (!result || !pids(result.blocked) || !pids(result.unknown)) throw new Error('Process list unavailable')
-      if (result.unknown.length) return { ok: false, reason: 'process_unknown', error: 'Windows не дала проверить оставшийся процесс движка. Повтори запуск Waarp с правами администратора' }
-      if (result.blocked.length) return { ok: false, reason: 'process_running', error: `Остался процесс движка без подтверждённого владельца (PID ${result.blocked.slice(0, 4).join(', ')}). Закрой другую копию Waarp и повтори восстановление` }
+      if (!result || !pids(result.blocked) || !pids(result.unknown)) throw new Error(localized("winInline.runtime-journal.271e056d7656"))
+      if (result.unknown.length) return { ok: false, reason: 'process_unknown', error: localized("winInline.runtime-journal.828f875bc4e5") }
+      if (result.blocked.length) return { ok: false, reason: 'process_running', error: localized("winInline.runtime-journal.f6d727db85ec", result.blocked.slice(0, 4).join(', ')) }
       return { ok: true }
-    } catch { return { ok: false, reason: 'inspection_failed', error: 'Не удалось проверить процессы Windows через PowerShell. Повтори восстановление' } }
+    } catch { return { ok: false, reason: 'inspection_failed', error: localized("winInline.runtime-journal.876f2af17111") } }
   }
 
   /** Missing/corrupt ownership requires absence of every same-name core, even in an old portable directory. */
@@ -132,7 +133,7 @@ export class RuntimeJournal {
       const result = await (this.ops.inspect?.(this.exe, true) ?? RuntimeJournal.inspectUntracked(this.exe, true))
       if (!result.ok) return this.fail(`${problem}. ${result.error}`)
       return this.clear()
-    } catch { return this.fail(`${problem}. Проверить процессы Windows не удалось. Повтори восстановление`) }
+    } catch { return this.fail(localized("winInline.runtime-journal.6fab9d5142d7", problem)) }
   }
 
   /** Shared by startup/retry callers so the same verified process is never terminated twice concurrently. */
@@ -152,26 +153,26 @@ export class RuntimeJournal {
         try { lstatSync(this.runtimeFile) }
         catch (statError) {
           if ((statError as NodeJS.ErrnoException).code === 'ENOENT') return true
-          return this.fail('Не удалось проверить временный конфиг прошлого процесса. Повтори восстановление')
+          return this.fail(localized("winInline.runtime-journal.37320e6764e3"))
         }
-        return this.recoverUnowned('Остался временный конфиг без журнала владельца')
+        return this.recoverUnowned(localized("winInline.runtime-journal.8e68e39d0960"))
       }
-      return this.recoverUnowned('Журнал прошлого процесса повреждён')
+      return this.recoverUnowned(localized("winInline.runtime-journal.88a5b44725f2"))
     }
-    if (!validLease(raw)) return this.recoverUnowned('Журнал прошлого процесса повреждён')
+    if (!validLease(raw)) return this.recoverUnowned(localized("winInline.runtime-journal.88a5b44725f2"))
     const lease = raw
     const same = (f: Identity | null) => !!f && samePath(f.path, lease.path) && f.started === lease.started
     let found: Identity | null
     try {
       found = await this.ops.identity(lease.pid)
-      if (found !== null && !validIdentity(found)) throw new Error('Process identity unavailable')
-    } catch { return this.fail('Не удалось проверить владельца прошлого процесса движка. Повтори запуск Waarp с правами администратора') }
+      if (found !== null && !validIdentity(found)) throw new Error(localized("winInline.runtime-journal.e3c3de96e4c3"))
+    } catch { return this.fail(localized("winInline.runtime-journal.e18d8fca7034")) }
     // A new portable build may have a different extraction path. First reconcile the recorded identity,
     // not the current executable path: dead/reused PIDs are safe to clear after an upgrade or move too.
     if (!same(found)) return this.clear()
-    if (win32.basename(lease.path).toLowerCase() !== win32.basename(this.exe).toLowerCase()) return this.fail('Журнал прошлого процесса ссылается на другой исполняемый файл. Автоматическая остановка заблокирована')
-    try { if (!(await this.ops.terminate(lease.pid, found!))) return this.fail('Windows отказала в остановке прошлого процесса движка. Повтори запуск Waarp с правами администратора') }
-    catch { return this.fail('Не удалось остановить подтверждённый прошлый процесс движка. Повтори восстановление') }
+    if (win32.basename(lease.path).toLowerCase() !== win32.basename(this.exe).toLowerCase()) return this.fail(localized("winInline.runtime-journal.c53304129e5c"))
+    try { if (!(await this.ops.terminate(lease.pid, found!))) return this.fail(localized("winInline.runtime-journal.1aab058d4600")) }
+    catch { return this.fail(localized("winInline.runtime-journal.5b271758c96c")) }
     // A terminate request is not proof. Bound both polling attempts and elapsed time; each Windows query is bounded too.
     const deadline = Date.now() + 5000
     for (let i = 0; i < 20 && Date.now() < deadline; i++) {
@@ -179,10 +180,10 @@ export class RuntimeJournal {
       let now: Identity | null
       try {
         now = await this.ops.identity(lease.pid)
-        if (now !== null && !validIdentity(now)) throw new Error('Process identity unavailable')
-      } catch { return this.fail('Не удалось подтвердить завершение прошлого процесса движка. Повтори восстановление') }
+        if (now !== null && !validIdentity(now)) throw new Error(localized("winInline.runtime-journal.e3c3de96e4c3"))
+      } catch { return this.fail(localized("winInline.runtime-journal.aff96aadf202")) }
       if (!same(now)) return this.clear()
     }
-    return this.fail('Прошлый процесс движка ещё не завершился. Повтори восстановление')
+    return this.fail(localized("winInline.runtime-journal.d44104e3b18e"))
   }
 }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.core
 
+import local.waarp.android.i18n.localized
+
 import local.waarp.android.data.MobileLivePlan
 import local.waarp.android.data.MobileLiveRouting
 import java.io.File
@@ -19,7 +21,7 @@ internal object LiveRoutingFiles {
         require(sets.size <= MobileLiveRouting.MAX_WATCHED_SETS)
         val root = privateRoot.canonicalPath + File.separator
         val witnesses = sets.map { set ->
-            check(current()) { "Запуск отменён" }
+            check(current()) { localized("LiveRoutingFiles.43b809ee4758", "Запуск отменён") }
             require(set.getString("type") == "local" && set.getString("format") == "source")
             val tag = set.getString("tag")
             val file = File(set.getString("path"))
@@ -42,7 +44,7 @@ internal object LiveRoutingFiles {
 
     fun initialize(plan: MobileLivePlan) {
         val directory = File(plan.directory)
-        check(directory.isDirectory || directory.mkdirs()) { "Не удалось создать правила VPN" }
+        check(directory.isDirectory || directory.mkdirs()) { localized("LiveRoutingFiles.655467459fda", "Не удалось создать правила VPN") }
         directory.setReadable(false, false); directory.setWritable(false, false); directory.setExecutable(false, false)
         check(directory.setReadable(true, true) && directory.setWritable(true, true) && directory.setExecutable(true, true))
         plan.files.forEach { (tag, body) -> write(plan, tag, body) }
@@ -71,14 +73,14 @@ internal object LiveRoutingFiles {
         selected: () -> Map<String, String>,
         onUncertain: (Throwable) -> Unit,
         writer: (MobileLivePlan, String, String) -> String = ::write) {
-        require(before.compatible(after)) { "Новый профиль требует переподключения VPN" }
+        require(before.compatible(after)) { localized("LiveRoutingFiles.572e6508271b", "Новый профиль требует переподключения VPN") }
         val changed = after.files.filter { (tag, content) -> before.files[tag] != content }
         val switches = after.selections.filter { (tag, target) -> before.selections[tag] != target && selected()[tag] != target }
         if (changed.isEmpty() && switches.isEmpty()) return
         val guards = MobileLiveRouting.guards(before, after)
         val originalSelections = selected()
         var touched = false
-        fun checkCurrent() { check(current()) { "Изменение маршрута отменено после выключения VPN" } }
+        fun checkCurrent() { check(current()) { localized("LiveRoutingFiles.88350f088128", "Изменение маршрута отменено после выключения VPN") } }
         suspend fun publish(contents: Map<String, String>) {
             checkCurrent()
             val witnesses = contents.map { (tag, body) -> checkCurrent(); touched = true; writer(after, tag, body) }
@@ -88,7 +90,7 @@ internal object LiveRoutingFiles {
         suspend fun choose(targets: Map<String, String>) {
             for ((tag, target) in targets) {
                 checkCurrent(); select(tag, target); checkCurrent()
-                check(selected()[tag] == target) { "Ядро не подтвердило новый путь" }
+                check(selected()[tag] == target) { localized("LiveRoutingFiles.e83ea07e0ea2", "Ядро не подтвердило новый путь") }
             }
         }
         try {

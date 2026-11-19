@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 import { app, nativeImage } from 'electron'
 import { wCoverage } from '../shared/brand-w'
 import { basename } from 'node:path'
@@ -29,7 +30,7 @@ async function icon(exe: string): Promise<string | undefined> {
   let timeout: NodeJS.Timeout | undefined
   try {
     // getFileIcon can hang on some exes (shell handlers, network paths): never let one icon stall the whole scan
-    const img = await Promise.race([app.getFileIcon(exe, { size: 'large' }), new Promise<never>((_, no) => { timeout = setTimeout(() => no(new Error('icon timeout')), 2000) })])
+    const img = await Promise.race([app.getFileIcon(exe, { size: 'large' }), new Promise<never>((_, no) => { timeout = setTimeout(() => no(new Error(localized("winInline.apps.f46f4eda6041"))), 2000) })])
     const url = img.isEmpty() ? '' : img.toDataURL()
     iconCache.set(k, url)
     return url || undefined

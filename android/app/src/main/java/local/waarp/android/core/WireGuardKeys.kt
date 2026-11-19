@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.core
 
+import local.waarp.android.i18n.localized
+
 import local.waarp.android.core.crypto.Curve25519
 import java.security.SecureRandom
 import java.util.Base64
@@ -24,7 +26,7 @@ object WireGuardKeys {
     fun publicKey(privateKey: String): String {
         val bytes = Base64.getDecoder().decode(privateKey.trim())
         try {
-            require(bytes.size == 32) { "Ключ WireGuard должен содержать 32 байта" }
+            require(bytes.size == 32) { localized("WireGuardKeys.2f95a32e0060", "Ключ WireGuard должен содержать 32 байта") }
             return publicFromBytes(bytes)
         } finally { bytes.fill(0) }
     }

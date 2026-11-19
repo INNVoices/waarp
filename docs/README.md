@@ -2,6 +2,8 @@
 
 **Start here:** [English](../README.md) · [Русский](../README.ru.md) · [Downloads & releases](RELEASES.md) · [Roadmap](../ROADMAP.md) · [Support](../SUPPORT.md)
 
+[Version 1.0.0, components and acceptance](V1.md) · [Project page source](index.html)
+
 | Area | Document |
 | --- | --- |
 | Current Windows server picker, pagination and live checks | [Windows 0.4.1-rc.3](SERVER-SELECTION-2026-11-18.md) |

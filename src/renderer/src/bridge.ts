@@ -1,3 +1,4 @@
+import { localized } from '../../shared/localization'
 import type { Api } from '../../preload'
 import type { AppInfo, Conn, ProfileView, Settings, Snapshot, Status } from '../../shared/types'
 import { effectiveRoutes } from '../../shared/effective'
@@ -24,16 +25,16 @@ function mock(): Api {
       { id: 'preset:chatgpt', kind: 'preset', name: 'ChatGPT', preset: 'chatgpt', via: 'a', on: true },
       { id: 'preset:instagram', kind: 'preset', name: 'Instagram', preset: 'instagram', via: 'b', on: true },
       { id: 'custom:db.team.local', kind: 'custom', name: 'db.team.local', value: 'db.team.local', via: 'direct', on: true },
-      ...(location.hash.includes('broken') ? [{ id: 'app:Old', kind: 'app', name: 'Старый клиент', exe: 'C:\Old\old.exe', matchDir: 'C:\Old', via: 'gone-1', on: true }] : []),
+      ...(location.hash.includes('broken') ? [{ id: 'app:Old', kind: 'app', name: localized("winInline.bridge.890be7a81b43"), exe: 'C:\Old\old.exe', matchDir: 'C:\Old', via: 'gone-1', on: true }] : []),
     ] as Settings['routes'] : [])
   ] }
   let status: Status = { phase: 'off', pings: {}, fallback: {}, down: 0, up: 0, downTotal: 0, upTotal: 0 }
-  let profiles: ProfileView[] = empty ? [] : [{ kind: 'awg', id: 'a', name: 'Сервер 1', host: '203.0.113.10', port: 51820, address: ['10.8.0.7/32'], version: 'AmneziaWG 2' }, { kind: 'vless', id: 'b', name: 'Запасной', host: '198.51.100.3', port: 443, address: [], version: 'VLESS · REALITY · XHTTP', subscription: true }]
+  let profiles: ProfileView[] = empty ? [] : [{ kind: 'awg', id: 'a', name: localized("winInline.bridge.e9219319d4c9"), host: '203.0.113.10', port: 51820, address: ['10.8.0.7/32'], version: 'AmneziaWG 2' }, { kind: 'vless', id: 'b', name: localized("winInline.bridge.9b4886e16a17"), host: '198.51.100.3', port: 443, address: [], version: 'VLESS · REALITY · XHTTP', subscription: true }]
   const snap = (): Snapshot => ({
     admin: true,
     profiles,
     settings, status,
-    notices: [{ level: 'info', title: 'Рядом работает Radmin VPN', text: 'Он не забирает весь трафик, конфликта нет.' }]
+    notices: [{ level: 'info', title: localized("winInline.bridge.640bddcab1fd"), text: localized("winInline.bridge.c75265e87b49") }]
   })
   const apps: AppInfo[] = ['Discord', 'Telegram', 'Google Chrome', 'Firefox', 'Steam', 'Visual Studio Code', 'Spotify', 'Claude', 'Obsidian', 'qBittorrent', 'Dota 2', 'Cursor'].map((n, i) => ({
     id: i === 0 ? 'd' : n, name: n, exe: `C:\\Program Files\\${n}\\${n}.exe`, matchDir: `C:\\Program Files\\${n}`, running: i % 3 !== 2, windowed: i % 2 === 0, source: 'installed'
@@ -92,8 +93,8 @@ function mock(): Api {
     pickApp: async () => null,
     settings: async (p: Partial<Settings>) => { settings = { ...settings, ...p }; return snap() },
     selectRoute: async (routeId: string, via: string) => { settings = { ...settings, routes: settings.routes.map(r => r.id === routeId ? { ...r, via, on: true, fallback: undefined } : r) }; emit('snapshot', snap()); return { ok: true, saved: true, applied: status.phase === 'on' } },
-    validate: async (v: string) => (/^[\w.-]+\.[a-z]{2,}$|^\d+\.\d+\.\d+\.\d+(\/\d+)?$/i.test(v) ? null : 'Нужен домен или IP'),
-    importProfile: async () => ({ ok: false, error: 'Это превью, импорт работает только в приложении' }),
+    validate: async (v: string) => (/^[\w.-]+\.[a-z]{2,}$|^\d+\.\d+\.\d+\.\d+(\/\d+)?$/i.test(v) ? null : localized("winInline.bridge.1406fd92b73d")),
+    importProfile: async () => ({ ok: false, error: localized("winInline.bridge.47cb86765340") }),
     createWireGuard: async (fields: { name: string; address: string; endpoint: string; serverPublicKey: string }) => {
       const clientPublicKey = 'q9MMmIcttvDr6uEcmpRFioaJZ5sHOAannstz3+5cwBM='
       const [host, port] = fields.endpoint.split(':')
@@ -102,12 +103,12 @@ function mock(): Api {
       return { ok: true, added: 1, name: fields.name, clientPublicKey }
     },
     clipPeek: async () => ({ kind: 'none' }),
-    scanQr: async () => ({ ok: false, error: 'В браузерном превью снимок экрана недоступен' }),
+    scanQr: async () => ({ ok: false, error: localized("winInline.bridge.ed53da99e7e5") }),
     discoverScan: async () => ({ ok: true, items: [] }),
     discoverPickFolder: async () => ({ ok: false, canceled: true }),
-    discoverAdd: async () => ({ ok: false, error: 'Это превью, добавление работает только в приложении' }),
+    discoverAdd: async () => ({ ok: false, error: localized("winInline.bridge.eba1f01cd7d8") }),
     renameProfile: async () => undefined,
-    replaceProfile: async () => ({ ok: false, error: 'Это превью, обновление работает только в приложении' }),
+    replaceProfile: async () => ({ ok: false, error: localized("winInline.bridge.5bd89e7b2e49") }),
     refreshSubscription: async () => ({ ok: true, updated: 2, added: 1, missing: 0 }),
     removeProfile: async () => undefined,
     notices: async () => [],
@@ -185,7 +186,7 @@ function mock(): Api {
 function unavailable(): Api {
   return new Proxy({} as Api, {
     get: (_target, key) => typeof key === 'string' && key.startsWith('on') ? () => () => {}
-      : key === 'win' ? () => {} : () => Promise.reject(new Error('Desktop bridge unavailable'))
+      : key === 'win' ? () => {} : () => Promise.reject(new Error(localized("winInline.bridge.635e3901f110")))
   })
 }
 

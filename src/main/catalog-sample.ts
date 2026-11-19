@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 /** Preserve each source's order while sharing a bounded check budget across sources and protocols. */
 export function roundRobin<T>(groups: readonly (readonly T[])[]): T[] {
   const out: T[] = []
@@ -48,5 +49,5 @@ export function sourceLabel(url: string): string {
   if (url.includes('mrdevmohamed')) return 'V2Ray Configs'
   if (url.includes('Epodonios')) return 'Epodonios'
   if (url.includes('igareck')) return 'Russia checked'
-  try { return new URL(url).hostname } catch { return 'Источник' }
+  try { return new URL(url).hostname } catch { return localized("winInline.catalog-sample.1b9d7fd6bf11") }
 }

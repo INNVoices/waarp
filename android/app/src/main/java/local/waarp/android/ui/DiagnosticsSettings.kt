@@ -2,6 +2,8 @@
 
 package local.waarp.android.ui
 
+import local.waarp.android.i18n.localized
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -41,15 +43,18 @@ import java.net.URI
 @Composable
 internal fun DiagnosticsScreen(state: MobileState, actions: MobileActions, onCreateRoute: (String, String) -> Unit) {
     var section by rememberSaveable { mutableStateOf("check") }
+    val tabs = listOf("check" to localized("DiagnosticsSettings.c74d29c13b9d", "Проверка"), "flows" to localized("DiagnosticsSettings.3c5076a0c522", "Соединения")) +
+        if (LocalDeveloperMode.current) listOf("logs" to localized("DiagnosticsSettings.aa26d844884a", "Журнал")) else emptyList()
+    val active = section.takeIf { key -> tabs.any { it.first == key } } ?: "check"
     val screens = rememberSaveableStateHolder()
     Column(Modifier.fillMaxSize()) {
         FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("check" to "Проверка", "flows" to "Соединения", "logs" to "Журнал").forEach { (key, label) ->
-                FilterChip(section == key, onClick = { section = key }, label = { Text(label) }, modifier = Modifier.heightIn(min = 48.dp))
+            tabs.forEach { (key, label) ->
+                FilterChip(active == key, onClick = { section = key }, label = { Text(label) }, modifier = Modifier.heightIn(min = 48.dp))
             }
         }
-        screens.SaveableStateProvider(section) {
-        when (section) {
+        screens.SaveableStateProvider(active) {
+        when (active) {
             "flows" -> FlowsScreen(state)
             "logs" -> LogsScreen(state, actions)
             else -> ChecksScreen(state, actions, onCreateRoute)
@@ -67,22 +72,22 @@ private fun ChecksScreen(state: MobileState, actions: MobileActions, onCreateRou
         item { TransferCheck(state, actions) }
         item {
             Panel {
-                SectionHeading("Проверить адрес", "Результаты показывают отдельные слои соединения")
-                OutlinedTextField(target, { target = it }, Modifier.fillMaxWidth(), label = { Text("Домен или IP") }, placeholder = { Text("example.com") },
+                SectionHeading(localized("DiagnosticsSettings.0230e12d29cb", "Проверить адрес"), localized("DiagnosticsSettings.b4a069535529", "Результаты показывают отдельные слои соединения"))
+                OutlinedTextField(target, { target = it }, Modifier.fillMaxWidth(), label = { Text(localized("DiagnosticsSettings.4e5fad393d1f", "Домен или IP")) }, placeholder = { Text(localized("DiagnosticsSettings.ccee06303835", "example.com")) },
                     singleLine = true, enabled = !operation.busy && diagnostic?.running != true)
-                ActionButton("Проверить соединение", operation.busy || diagnostic?.running == true, target.isNotBlank(),
+                ActionButton(localized("DiagnosticsSettings.19cdba1bfcd3", "Проверить соединение"), operation.busy || diagnostic?.running == true, target.isNotBlank(),
                     onClick = { operation.run({ actions.diagnose(target.trim()) }) }, modifier = Modifier.fillMaxWidth())
-                if (diagnostic?.running == true) OutlinedButton(onClick = { actions.cancelDiagnostic() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Отменить проверку") }
+                if (diagnostic?.running == true) OutlinedButton(onClick = { actions.cancelDiagnostic() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(localized("DiagnosticsSettings.1c007e5fdabb", "Отменить проверку")) }
                 OperationFeedback(operation)
-                if (state.status.phase != ConnectionPhase.ON) Text("VPN сейчас выключен. Проверка прямого соединения не подтверждает работу туннеля.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+                if (state.status.phase != ConnectionPhase.ON) Text(localized("DiagnosticsSettings.6c01225ffc71", "VPN сейчас выключен. Проверка прямого соединения не подтверждает работу туннеля."), style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
             }
         }
         if (diagnostic != null) {
             item {
                 Panel {
                     SectionHeading(diagnostic.routeName?.let { "$it · ${diagnostic.target}" } ?: diagnostic.target,
-                        if (diagnostic.running) "Проверка выполняется…" else "Результат последней проверки")
-                    if (diagnostic.stale) InlineMessage("Сеть или настройки изменились. Результат доступен для просмотра; повторите проверку перед выбором пути.")
+                        if (diagnostic.running) localized("DiagnosticsSettings.a93b57b5e2d0", "Проверка выполняется…") else localized("DiagnosticsSettings.2cb50bc4e855", "Результат последней проверки"))
+                    if (diagnostic.stale) InlineMessage(localized("DiagnosticsSettings.e8c17618c751", "Сеть или настройки изменились. Результат доступен для просмотра; повторите проверку перед выбором пути."))
                     Text(local.waarp.android.data.ConnectionUses.coverage(diagnostic.connectionUse), style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
                     if (diagnostic.running) LinearProgressIndicator(Modifier.fillMaxWidth())
                     diagnostic.layers.forEach { layer ->
@@ -96,12 +101,12 @@ private fun ChecksScreen(state: MobileState, actions: MobileActions, onCreateRou
                         }
                     }
                     diagnostic.conclusion?.let { InlineMessage(it) }
-                    if (diagnostic.layers.isEmpty() && !diagnostic.running) Text("Результаты отдельных слоёв пока отсутствуют.", color = WaarpMuted)
+                    if (diagnostic.layers.isEmpty() && !diagnostic.running) Text(localized("DiagnosticsSettings.92fe60e0d92f", "Результаты отдельных слоёв пока отсутствуют."), color = WaarpMuted)
                 }
             }
             if (diagnostic.paths.isNotEmpty()) item {
                 Panel {
-                    SectionHeading("Проверенные пути")
+                    SectionHeading(localized("DiagnosticsSettings.ea4b4db918e2", "Проверенные пути"))
                     diagnostic.paths.forEach { path ->
                         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                             ObservationIcon(path.result)
@@ -109,7 +114,7 @@ private fun ChecksScreen(state: MobileState, actions: MobileActions, onCreateRou
                                 Text(path.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 if (path.attempted > 0) Text(httpCheckSummary(path), style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
                             }
-                            Text(validLatency(path.latencyMs)?.let { "${formatMs(it)} мс" } ?: observationLabel(path.result),
+                            Text(validLatency(path.latencyMs)?.let { localized("DiagnosticsSettings.45fbc690ad58", "{arg1} мс", formatMs(it)) } ?: observationLabel(path.result),
                                 style = MaterialTheme.typography.labelMedium, color = observationColor(path.result))
                         }
                     }
@@ -118,20 +123,20 @@ private fun ChecksScreen(state: MobileState, actions: MobileActions, onCreateRou
                             val host = runCatching { URI(diagnostic.target).host?.removePrefix("[")?.removeSuffix("]") }.getOrNull()
                             onCreateRoute(host?.takeIf(String::isNotBlank) ?: diagnostic.target, diagnostic.suggestedViaId)
                         }, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) {
-                            Icon(Icons.Outlined.Route, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Создать маршрут для адреса")
+                            Icon(Icons.Outlined.Route, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text(localized("DiagnosticsSettings.a34e7e8b16c9", "Создать маршрут для адреса"))
                         }
                     }
                 }
             }
         } else item {
-            EmptyState(Icons.Outlined.MonitorHeart, "Сначала — измерение", "Введи адрес, чтобы увидеть результаты DNS и сетевых проверок. Недоступные или неподдерживаемые слои отмечаются отдельно.")
+            EmptyState(Icons.Outlined.MonitorHeart, localized("DiagnosticsSettings.67d788467c34", "Сначала — измерение"), localized("DiagnosticsSettings.c6a13c04fc38", "Введи адрес, чтобы увидеть результаты DNS и сетевых проверок. Недоступные или неподдерживаемые слои отмечаются отдельно."))
         }
         item {
-            SectionHeading("История задержек", "Только реальные измерения; пропуски не соединяются линией", trailing = {
-                IconButton(onClick = { operation.run({ actions.probeTunnels() }) }, enabled = !operation.busy && state.profiles.isNotEmpty()) { Icon(Icons.Outlined.Refresh, "Проверить туннели") }
+            SectionHeading(localized("DiagnosticsSettings.77a54b6a7d42", "История задержек"), localized("DiagnosticsSettings.679b54382f24", "Только реальные измерения; пропуски не соединяются линией"), trailing = {
+                IconButton(onClick = { operation.run({ actions.probeTunnels() }) }, enabled = !operation.busy && state.profiles.isNotEmpty()) { Icon(Icons.Outlined.Refresh, localized("DiagnosticsSettings.2076eec64ddd", "Проверить туннели")) }
             })
         }
-        if (state.latencyHistory.isEmpty()) item { Text("Пока нет измерений. Запусти проверку туннелей.", style = MaterialTheme.typography.bodyMedium, color = WaarpMuted) }
+        if (state.latencyHistory.isEmpty()) item { Text(localized("DiagnosticsSettings.db12d9146a55", "Пока нет измерений. Запусти проверку туннелей."), style = MaterialTheme.typography.bodyMedium, color = WaarpMuted) }
         items(state.latencyHistory, key = { it.id }, contentType = { "history" }) { history -> LatencyChart(history) }
     }
 }
@@ -147,30 +152,31 @@ private fun TransferCheck(state: MobileState, actions: MobileActions) {
     val result = state.transfer
     val busy = operation.busy || result?.running == true
     Panel {
-        SectionHeading("Проверить передачу данных", "Контрольный текст: 158 КиБ. Целостность проверяется, один пинг не считается успехом.")
-        PathField("Личный туннель", profile, choices, enabled = !busy) { profile = it }
-        Text("Проверка обращается к rfc-editor.org только по нажатию. Работу остальных сайтов она не гарантирует.",
+        SectionHeading(localized("DiagnosticsSettings.d1e76005b2af", "Проверить передачу данных"), localized("DiagnosticsSettings.61d98ce6731b", "Контрольный текст: 158 КиБ. Целостность проверяется, один пинг не считается успехом."))
+        PathField(localized("DiagnosticsSettings.a9f8c1523d53", "Личный туннель"), profile, choices, enabled = !busy) { profile = it }
+        Text(localized("DiagnosticsSettings.6e1b4ea035ce", "Проверка обращается к rfc-editor.org только по нажатию. Работу остальных сайтов она не гарантирует."),
             style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
-        TextButton(onClick = { advanced = !advanced }, enabled = !busy) { Text(if (advanced) "Скрыть проверку отправки" else "Проверить также отправку…") }
+        BooleanOption(localized("DiagnosticsSettings.f1d4b382df48", "Также проверить отправку"), value = advanced, enabled = !busy) { advanced = it }
         if (advanced) {
             OutlinedTextField(upload, { upload = it }, Modifier.fillMaxWidth(), singleLine = true, enabled = !busy,
-                label = { Text("HTTPS-адрес вашего тестового сервера") })
-            Text("Без адреса отправка не измеряется. Сервер должен подтвердить размер и SHA-256 полученных 64 КиБ. Для отправки включите VPN и выберите этот же туннель для служебных загрузок в настройках.",
+                label = { Text(localized("DiagnosticsSettings.6b045623becc", "HTTPS-адрес вашего тестового сервера")) })
+            Text(localized("DiagnosticsSettings.b5b6f1ea628c", "Без адреса отправка не измеряется. Сервер должен подтвердить размер и SHA-256 полученных 64 КиБ. Для отправки включите VPN и выберите этот же туннель для служебных загрузок в настройках."),
                 style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
         }
-        if (busy) OutlinedButton(onClick = actions::cancelTransfer, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Отменить проверку") }
-        else ActionButton("Проверить получение и отправку", false, profile in profiles.map { it.id },
-            onClick = { operation.run({ actions.measureTransfer(profile, upload.trim().takeIf(String::isNotBlank)) }) }, modifier = Modifier.fillMaxWidth())
+        if (busy) OutlinedButton(onClick = actions::cancelTransfer, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(localized("DiagnosticsSettings.3c6dcf049501", "Отменить проверку")) }
+        else ActionButton(if (advanced) localized("DiagnosticsSettings.16665d7c6d67", "Проверить получение и отправку") else localized("DiagnosticsSettings.1b3f6cc23233", "Проверить получение"), false,
+            profiles.any { it.id == profile } && (!advanced || upload.isNotBlank()),
+            onClick = { operation.run({ actions.measureTransfer(profile, upload.trim().takeIf { advanced && it.isNotBlank() }) }) }, modifier = Modifier.fillMaxWidth())
         OperationFeedback(operation)
         Column(Modifier.fillMaxWidth().heightIn(min = 80.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             fun text(value: TransferDirectionUi?) = when (value?.state) {
-                "pass" -> "Подтверждено · ${value.bytes} байт · ${value.elapsedMs ?: 0} мс"
-                "fail" -> "Не подтверждено · ${when (value.reason) { "content", "size", "truncated" -> "ответ неполный или другой"; "acknowledgement" -> "сервер не подтвердил данные"; else -> "ошибка соединения или ответа" }}"
-                else -> when (value?.reason) { "service_path" -> "Не измерено · нужен активный служебный путь"; else -> "Не измерено" }
+                "pass" -> localized("DiagnosticsSettings.adc7c6cd78d1", "Подтверждено · {arg1} байт · {arg2} мс", value.bytes, value.elapsedMs ?: 0)
+                "fail" -> localized("DiagnosticsSettings.b8ba3b59f717", "Не подтверждено · {arg1}", when (value.reason) { "content", "size", "truncated" -> localized("DiagnosticsSettings.afa4b11f49a4", "ответ неполный или другой"); "acknowledgement" -> localized("DiagnosticsSettings.7852fa77b6c2", "сервер не подтвердил данные"); else -> localized("DiagnosticsSettings.d8069f063ccf", "ошибка соединения или ответа") })
+                else -> when (value?.reason) { "service_path" -> localized("DiagnosticsSettings.3a87fa79b73e", "Не измерено · нужен активный служебный путь"); else -> localized("DiagnosticsSettings.f0d7d6802acd", "Не измерено") }
             }
-            Text("Получение: ${text(result?.download)}", style = MaterialTheme.typography.bodySmall)
-            Text("Отправка: ${text(result?.upload)}", style = MaterialTheme.typography.bodySmall)
-            if (result?.checkedAt != null) Text("${profiles.find { it.id == result.profileId }?.name ?: "Выбранный профиль"} · ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(result.checkedAt))}",
+            Text(localized("DiagnosticsSettings.8232a0f0319d", "Получение: {arg1}", text(result?.download)), style = MaterialTheme.typography.bodySmall)
+            Text(localized("DiagnosticsSettings.9207c19660a1", "Отправка: {arg1}", text(result?.upload)), style = MaterialTheme.typography.bodySmall)
+            if (result?.checkedAt != null) Text(localized("DiagnosticsSettings.54605aa833b0", "{arg1} · {arg2}", profiles.find { it.id == result.profileId }?.name ?: localized("DiagnosticsSettings.d864b0a1a233", "Выбранный профиль"), java.text.DateFormat.getDateTimeInstance().format(java.util.Date(result.checkedAt))),
                 style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
         }
     }
@@ -191,10 +197,10 @@ private fun observationColor(result: ObservationResult): Color = when (result) {
 }
 
 private fun observationLabel(result: ObservationResult): String = when (result) {
-    ObservationResult.OK -> "Успешно"
-    ObservationResult.FAILED -> "Ошибка"
-    ObservationResult.SKIPPED -> "Пропущено"
-    ObservationResult.UNKNOWN -> "Не проверено"
+    ObservationResult.OK -> localized("DiagnosticsSettings.8014726cd9b1", "Успешно")
+    ObservationResult.FAILED -> localized("DiagnosticsSettings.89f621652be3", "Ошибка")
+    ObservationResult.SKIPPED -> localized("DiagnosticsSettings.9111f928977f", "Пропущено")
+    ObservationResult.UNKNOWN -> localized("DiagnosticsSettings.3da959ef86f2", "Не проверено")
 }
 
 @Composable
@@ -205,10 +211,10 @@ private fun LatencyChart(history: LatencySeriesUi) {
     val stroke = WaarpOrange
     val grid = MaterialTheme.colorScheme.outlineVariant
     Panel {
-        SectionHeading(history.name, if (measured.isEmpty()) "Успешных измерений пока нет" else "Последнее: ${samples.lastOrNull()?.let { "${formatMs(it)} мс" } ?: "нет ответа"}")
+        SectionHeading(history.name, if (measured.isEmpty()) localized("DiagnosticsSettings.82e080972a1c", "Успешных измерений пока нет") else localized("DiagnosticsSettings.cf044f20d9e8", "Последнее: {arg1}", samples.lastOrNull()?.let { localized("DiagnosticsSettings.57c4e37e6e7e", "{arg1} мс", formatMs(it)) } ?: localized("DiagnosticsSettings.f984f34a3388", "нет ответа")))
         if (samples.isNotEmpty()) {
-            Text("${formatMs(max)} мс", style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
-            Canvas(Modifier.fillMaxWidth().height(90.dp).semantics { contentDescription = "${history.name}: ${measured.size} успешных измерений из ${samples.size}" }) {
+            Text(localized("DiagnosticsSettings.a3afd12d543a", "{arg1} мс", formatMs(max)), style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
+            Canvas(Modifier.fillMaxWidth().height(90.dp).semantics { contentDescription = localized("DiagnosticsSettings.5ea17f902a46", "{arg1}: {arg2} успешных измерений из {arg3}", history.name, measured.size, samples.size) }) {
                 val top = 4.dp.toPx()
                 val height = (size.height - top * 2).coerceAtLeast(1f)
                 drawLine(grid, Offset(0f, top + height), Offset(size.width, top + height), 1.dp.toPx())
@@ -226,8 +232,8 @@ private fun LatencyChart(history: LatencySeriesUi) {
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Раньше", style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
-                Text("Последнее", style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
+                Text(localized("DiagnosticsSettings.1032e2df4ce4", "Раньше"), style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
+                Text(localized("DiagnosticsSettings.e2b7e68a521d", "Последнее"), style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
             }
         }
     }
@@ -239,30 +245,30 @@ private fun FlowsScreen(state: MobileState) {
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     val flows = remember(state.flows, query) { state.flows.filter { flow -> listOf(flow.appName, flow.packageName, flow.host, flow.viaLabel).any { it.contains(query, true) } } }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { SearchField(query, { query = it }, "Приложение, адрес или путь") }
-        item { SectionHeading("${flows.size} соединений", if (state.status.phase == ConnectionPhase.ON) "Наблюдаемые движком сейчас" else "VPN выключен; последние наблюдения") }
+        item { SearchField(query, { query = it }, localized("DiagnosticsSettings.3187e82bcbe8", "Приложение, адрес или путь")) }
+        item { SectionHeading(localized("DiagnosticsSettings.45d585c40d37", "{arg1} соединений", flows.size), if (state.status.phase == ConnectionPhase.ON) localized("DiagnosticsSettings.2c245cd7572c", "Наблюдаемые движком сейчас") else localized("DiagnosticsSettings.c7358ff05e55", "VPN выключен; последние наблюдения")) }
         if (flows.isEmpty()) item {
-            EmptyState(Icons.Outlined.Wifi, "Нет наблюдаемых соединений", if (state.status.phase == ConnectionPhase.ON) "Открой приложение с включённым маршрутом. Его соединения появятся здесь."
-                else "Включи VPN и открой приложение, чтобы увидеть реальные соединения.")
+            EmptyState(Icons.Outlined.Wifi, localized("DiagnosticsSettings.14b2f6c85be0", "Нет наблюдаемых соединений"), if (state.status.phase == ConnectionPhase.ON) localized("DiagnosticsSettings.91e8aefcb45a", "Открой приложение с включённым маршрутом. Его соединения появятся здесь.")
+                else localized("DiagnosticsSettings.f1c489fe7009", "Включи VPN и открой приложение, чтобы увидеть реальные соединения."))
         }
         items(flows, key = { it.id }, contentType = { "flow" }) { flow ->
             Panel {
                 Column(Modifier.fillMaxWidth().clickable { selected = if (selected == flow.id) null else flow.id }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(flow.appName.ifBlank { "Приложение не определено" }, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("${flow.host}:${flow.port}", style = MaterialTheme.typography.bodySmall, color = WaarpMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(flow.appName.ifBlank { localized("DiagnosticsSettings.32a65b7167bf", "Приложение не определено") }, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(localized("DiagnosticsSettings.b83ff58bdd1c", "{arg1}:{arg2}", flow.host, flow.port), style = MaterialTheme.typography.bodySmall, color = WaarpMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
-                        Icon(Icons.Outlined.ChevronRight, if (selected == flow.id) "Свернуть соединение" else "Подробности соединения")
+                        Icon(Icons.Outlined.ChevronRight, if (selected == flow.id) localized("DiagnosticsSettings.8fbfdca2b18e", "Свернуть соединение") else localized("DiagnosticsSettings.379c6567bf30", "Подробности соединения"))
                     }
-                    Text("${flow.network.uppercase()} · ${flow.viaLabel}", style = MaterialTheme.typography.labelMedium)
-                    Text("↓ ${formatBytes(flow.downloadedBytes)}  ·  ↑ ${formatBytes(flow.uploadedBytes)}", style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
+                    Text(localized("DiagnosticsSettings.2a131d1d1911", "{arg1} · {arg2}", flow.network.uppercase(), flow.viaLabel), style = MaterialTheme.typography.labelMedium)
+                    Text(localized("DiagnosticsSettings.c7592bc8126e", "↓ {arg1}  ·  ↑ {arg2}", formatBytes(flow.downloadedBytes), formatBytes(flow.uploadedBytes)), style = MaterialTheme.typography.labelSmall, color = WaarpMuted)
                 }
                 if (selected == flow.id) SelectionContainer {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        if (flow.packageName.isNotBlank()) KeyValue("Пакет Android", flow.packageName, mono = true)
-                        if (flow.rule.isNotBlank()) KeyValue("Совпавшее правило", flow.rule)
-                        KeyValue("Идентификатор соединения", flow.id, mono = true)
+                        if (flow.packageName.isNotBlank()) KeyValue(localized("DiagnosticsSettings.1def6cecfaef", "Пакет Android"), flow.packageName, mono = true)
+                        if (flow.rule.isNotBlank()) KeyValue(localized("DiagnosticsSettings.cb883d4760c0", "Совпавшее правило"), flow.rule)
+                        KeyValue(localized("DiagnosticsSettings.c83f57b7e34c", "Идентификатор соединения"), flow.id, mono = true)
                     }
                 }
             }
@@ -280,14 +286,14 @@ private fun LogsScreen(state: MobileState, actions: MobileActions) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { operation.run({ actions.readLogs() }) }, enabled = !operation.busy, modifier = Modifier.weight(1f).heightIn(min = 50.dp)) { Icon(Icons.Outlined.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Обновить") }
-                OutlinedButton(onClick = { preview = true }, modifier = Modifier.weight(1f).heightIn(min = 50.dp)) { Icon(Icons.Outlined.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Отчёт") }
+                OutlinedButton(onClick = { operation.run({ actions.readLogs() }) }, enabled = !operation.busy, modifier = Modifier.weight(1f).heightIn(min = 50.dp)) { Icon(Icons.Outlined.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text(localized("DiagnosticsSettings.7e82d63a0ba3", "Обновить")) }
+                OutlinedButton(onClick = { preview = true }, modifier = Modifier.weight(1f).heightIn(min = 50.dp)) { Icon(Icons.Outlined.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text(localized("DiagnosticsSettings.dffd7203277a", "Отчёт")) }
             }
             OperationFeedback(operation)
         }
-        item { SearchField(query, { query = it }, "Найти в журнале") }
-        item { Text("Последние ${lines.size} строк. Отчёт подготавливается без приватных ключей и ссылок подписок.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted) }
-        if (lines.isEmpty()) item { EmptyState(Icons.Outlined.Description, "Журнал пуст", "События работы движка появятся после запуска. Для свежих данных нажми «Обновить».") }
+        item { SearchField(query, { query = it }, localized("DiagnosticsSettings.f200216fc1e3", "Найти в журнале")) }
+        item { Text(localized("DiagnosticsSettings.8e0df7ab1b0b", "Последние {arg1} строк. Отчёт подготавливается без приватных ключей и ссылок подписок.", lines.size), style = MaterialTheme.typography.bodySmall, color = WaarpMuted) }
+        if (lines.isEmpty()) item { EmptyState(Icons.Outlined.Description, localized("DiagnosticsSettings.ba3c06d3b78e", "Журнал пуст"), localized("DiagnosticsSettings.4a6f8cdd883c", "События работы движка появятся после запуска. Для свежих данных нажми «Обновить».")) }
         items(lines, key = { it.id }, contentType = { "log" }) { line ->
             SelectionContainer {
                 Text(line.text, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
@@ -296,19 +302,20 @@ private fun LogsScreen(state: MobileState, actions: MobileActions) {
             }
         }
     }
-    if (preview) AlertDialog(onDismissRequest = { preview = false }, title = { Text("Диагностика доступна без VPN") },
+    if (preview) AlertDialog(onDismissRequest = { preview = false }, title = { Text(localized("DiagnosticsSettings.29b4c07b657f", "Диагностика доступна без VPN")) },
         text = {
             Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("В отчёте: версии, состояния VPN, счётчики, категории ошибок и проверка передачи. Конфиги, адреса серверов, ссылки подписок и строки журнала не включаются.")
-                SelectionContainer { Text(state.savedDiagnostics ?: "Сохранённых сессий пока нет", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
-                TextButton(onClick = { operation.run({ actions.clearDiagnosticHistory() }) }, enabled = !operation.busy) { Text("Удалить сохранённую историю") }
+                Text(localized("DiagnosticsSettings.afb85fffec3d", "В отчёте: версии, состояния VPN, счётчики, категории ошибок и проверка передачи. Конфиги, адреса серверов, ссылки подписок и строки журнала не включаются."))
+                SelectionContainer { Text(state.savedDiagnostics ?: localized("DiagnosticsSettings.7a710dd7809b", "Сохранённых сессий пока нет"), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
+                TextButton(onClick = { operation.run({ actions.clearDiagnosticHistory() }) }, enabled = !operation.busy) { Text(localized("DiagnosticsSettings.23f32036856e", "Удалить сохранённую историю")) }
             }
-        }, confirmButton = { TextButton(onClick = actions::shareDiagnostics) { Text("Поделиться отчётом") } },
-        dismissButton = { TextButton(onClick = { preview = false }) { Text("Закрыть") } })
+        }, confirmButton = { TextButton(onClick = actions::shareDiagnostics) { Text(localized("DiagnosticsSettings.099b7982ebd5", "Поделиться отчётом")) } },
+        dismissButton = { TextButton(onClick = { preview = false }) { Text(localized("DiagnosticsSettings.8754ca7d0e8d", "Закрыть")) } })
 }
 
 @Composable
-internal fun SettingsScreen(state: MobileState, actions: MobileActions) {
+internal fun SettingsScreen(state: MobileState, actions: MobileActions, setDeveloper: (Boolean) -> Unit) {
+    val developer = LocalDeveloperMode.current
     val operation = rememberUiOperation()
     Column(Modifier.fillMaxSize()) {
     if (operation.error != null) Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) { OperationFeedback(operation) }
@@ -316,104 +323,94 @@ internal fun SettingsScreen(state: MobileState, actions: MobileActions) {
     LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             Panel {
-                SectionHeading("Маршрутизация")
-                SettingsToggle("Локальная сеть напрямую", "Доступ к устройствам и сервисам в локальной сети", state.settings.lanDirect, !operation.busy) {
+                SectionHeading(localized("DiagnosticsSettings.5d4f9b0d968e", "Маршрутизация"))
+                BooleanOption(localized("DiagnosticsSettings.f425282ee2d0", "Локальная сеть напрямую"), localized("DiagnosticsSettings.7ebbd748880e", "Доступ к устройствам и сервисам в локальной сети"), state.settings.lanDirect, !operation.busy) {
                     operation.run({ actions.saveSettings(SettingsPatch(lanDirect = it)) })
                 }
                 HorizontalDivider()
-                SettingsToggle("Домены .ru, .su и .рф напрямую", "Исключение для доменов; не определяет страну сервера по IP", state.settings.ruDirect, !operation.busy) {
+                BooleanOption(localized("DiagnosticsSettings.1e83282c787e", "Домены .ru, .su и .рф напрямую"), localized("DiagnosticsSettings.06cf64473f50", "Исключение для доменов; не определяет страну сервера по IP"), state.settings.ruDirect, !operation.busy) {
                     operation.run({ actions.saveSettings(SettingsPatch(ruDirect = it)) })
                 }
             }
         }
         item {
             Panel {
-                SectionHeading("Общий DNS Android")
-                Text("Android иногда не передаёт приложение DNS-запроса, особенно в версиях 10 и 11; для таких запросов используется общий путь.",
+                SectionHeading(localized("DiagnosticsSettings.fc547bd61a93", "Общий DNS Android"))
+                Text(localized("DiagnosticsSettings.1a2eaf09457d", "Android иногда не передаёт приложение DNS-запроса, особенно в версиях 10 и 11; для таких запросов используется общий путь."),
                     style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
-                val choices = listOf(PathChoice(SYSTEM_DNS_AUTOMATIC, "Автоматически по маршрутам", "Общий путь определяется по включённым маршрутам")) +
-                    rememberPathChoices(state).map { if (it.id == AUTO_PATH) it.copy(name = "Авто: свои туннели") else it }
-                PathField("Путь общего DNS", state.settings.systemDnsViaId ?: SYSTEM_DNS_AUTOMATIC,
+                val choices = listOf(PathChoice(SYSTEM_DNS_AUTOMATIC, localized("DiagnosticsSettings.af3ff3c12a2d", "Автоматически по маршрутам"), localized("DiagnosticsSettings.54b6ccfbcb0f", "Общий путь определяется по включённым маршрутам"))) +
+                    rememberPathChoices(state).map { if (it.id == AUTO_PATH) it.copy(name = localized("DiagnosticsSettings.579ffbb0216f", "Авто: свои туннели")) else it }
+                PathField(localized("DiagnosticsSettings.60db6fe522ea", "Путь общего DNS"), state.settings.systemDnsViaId ?: SYSTEM_DNS_AUTOMATIC,
                     choices, enabled = !operation.busy) { chosen ->
                     operation.run({ actions.setSystemDnsPath(chosen.takeUnless { it == SYSTEM_DNS_AUTOMATIC }) })
                 }
                 val dnsHint = state.settings.systemDnsHint
                 if (!dnsHint.isNullOrBlank()) InlineMessage(dnsHint, error = state.settings.systemDnsBlocked)
                 else if (state.settings.systemDnsBlocked) {
-                    InlineMessage("Общий DNS заблокирован: у приложений разные пути. Выбери туннель или группу для общих DNS-запросов.", error = true)
+                    InlineMessage(localized("DiagnosticsSettings.d5e91c64c1f1", "Общий DNS заблокирован: у приложений разные пути. Выбери туннель или группу для общих DNS-запросов."), error = true)
                 }
             }
         }
         item {
             Panel {
-                SectionHeading("Служебные загрузки", "Обновление подписок и публичного каталога")
-                val choices = listOf(PathChoice(DIRECT_PATH, "Напрямую", "Через физическую сеть")) +
+                SectionHeading(localized("DiagnosticsSettings.81d27e93a37c", "Служебные загрузки"), localized("DiagnosticsSettings.10942d757c91", "Обновление подписок и публичного каталога"))
+                val choices = listOf(PathChoice(DIRECT_PATH, localized("DiagnosticsSettings.963c03f4ffdc", "Напрямую"), localized("DiagnosticsSettings.42a3ea84bbd7", "Через физическую сеть"))) +
                     state.profiles.filter { !it.revoked && !it.subscriptionMissing && it.source == ProfileSource.PERSONAL }
                         .map { PathChoice(it.id, it.name, it.protocol) }
-                PathField("Разрешённый путь", state.settings.serviceViaId, choices, enabled = !operation.busy) { id ->
+                PathField(localized("DiagnosticsSettings.0314bd4d8690", "Разрешённый путь"), state.settings.serviceViaId, choices, enabled = !operation.busy) { id ->
                     operation.run({ actions.setServicePath(id) })
                 }
-                Text("Для выбранного туннеля нужен включённый VPN. При его отказе прямого резерва нет. Последний успешно загруженный каталог остаётся доступен без сети.",
+                Text(localized("DiagnosticsSettings.1a871de48041", "Для выбранного туннеля нужен включённый VPN. При его отказе прямого резерва нет. Последний успешно загруженный каталог остаётся доступен без сети."),
                     style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
             }
         }
         item {
             Panel {
-                SectionHeading("Запуск и уведомления")
-                SettingsToggle("Подключаться при запуске", "Включать сохранённые маршруты при открытии Waarp", state.settings.autoConnect, !operation.busy) {
+                SectionHeading(localized("DiagnosticsSettings.3fbac9995a54", "Запуск и уведомления"))
+                BooleanOption(localized("DiagnosticsSettings.9a274c9e08f5", "Подключаться при запуске"), localized("DiagnosticsSettings.3cf307d417bb", "Включать сохранённые маршруты при открытии Waarp"), state.settings.autoConnect, !operation.busy) {
                     operation.run({ actions.saveSettings(SettingsPatch(autoConnect = it)) })
                 }
                 HorizontalDivider()
-                SettingsToggle("Уведомления об ошибках", "Дополнительные сообщения об ошибках и смене состояния", state.settings.notifications, !operation.busy) {
+                BooleanOption(localized("DiagnosticsSettings.f747d9df20fd", "Уведомления об ошибках"), localized("DiagnosticsSettings.c4e8c637420d", "Дополнительные сообщения об ошибках и смене состояния"), state.settings.notifications, !operation.busy) {
                     operation.run({ actions.saveSettings(SettingsPatch(notifications = it)) })
                 }
-                Text("Служебное уведомление активного VPN требуется Android.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+                Text(localized("DiagnosticsSettings.eb9b7da3156b", "Служебное уведомление активного VPN требуется Android."), style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
             }
         }
         item {
             Panel {
-                SectionHeading("Защита Android")
-                KeyValue("Постоянный VPN", booleanStatus(state.settings.systemAlwaysOn))
-                KeyValue("Блокировать соединения без VPN", booleanStatus(state.settings.systemLockdown))
-                Text("Эти параметры задаются в системных настройках VPN. Их состояние может быть неизвестно, пока служба не запущена.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
-                OutlinedButton(onClick = actions::openSystemVpnSettings, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Text("Открыть настройки VPN Android"); Spacer(Modifier.width(8.dp)); Icon(Icons.Outlined.ChevronRight, null) }
+                SectionHeading(localized("DiagnosticsSettings.cd70145d4dfd", "Защита Android"))
+                KeyValue(localized("DiagnosticsSettings.d27d7eebca45", "Постоянный VPN"), booleanStatus(state.settings.systemAlwaysOn))
+                KeyValue(localized("DiagnosticsSettings.ca6809280be0", "Блокировать соединения без VPN"), booleanStatus(state.settings.systemLockdown))
+                Text(localized("DiagnosticsSettings.115e811bc156", "Эти параметры задаются в системных настройках VPN. Их состояние может быть неизвестно, пока служба не запущена."), style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+                OutlinedButton(onClick = actions::openSystemVpnSettings, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Text(localized("DiagnosticsSettings.654b9febabe2", "Открыть настройки VPN Android")); Spacer(Modifier.width(8.dp)); Icon(Icons.Outlined.ChevronRight, null) }
             }
         }
         item {
             Panel {
-                SectionHeading("Обслуживание")
-                Text("Восстановление завершает оставшееся состояние службы после сбоя. Сохранённые профили и маршруты остаются на месте.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+                SectionHeading(localized("DiagnosticsSettings.1837c198ac0c", "Обслуживание"))
+                BooleanOption(localized("DiagnosticsSettings.60e1e60cf250", "Для разработчиков"), localized("DiagnosticsSettings.4f24fe5c2219", "Журнал ядра и технические сведения о подключениях"), developer, onChange = setDeveloper)
+                Text(localized("DiagnosticsSettings.d8df815cd57e", "Восстановление завершает оставшееся состояние службы после сбоя. Сохранённые профили и маршруты остаются на месте."), style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
                 OutlinedButton(onClick = { operation.run({ actions.recover() }) }, enabled = !operation.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) {
-                    Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Восстановить состояние VPN")
+                    Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(8.dp)); Text(localized("DiagnosticsSettings.31adef21f0cc", "Восстановить состояние VPN"))
                 }
-                OutlinedButton(onClick = { operation.run({ actions.refresh() }) }, enabled = !operation.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Text("Обновить данные приложения") }
-                OutlinedButton(onClick = actions::shareDiagnostics, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Icon(Icons.Outlined.Share, null); Spacer(Modifier.width(8.dp)); Text("Поделиться диагностикой") }
+                OutlinedButton(onClick = { operation.run({ actions.refresh() }) }, enabled = !operation.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Text(localized("DiagnosticsSettings.bdcdf3fb2cf3", "Обновить данные приложения")) }
+                OutlinedButton(onClick = actions::shareDiagnostics, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Icon(Icons.Outlined.Share, null); Spacer(Modifier.width(8.dp)); Text(localized("DiagnosticsSettings.873da6306d86", "Поделиться диагностикой")) }
             }
         }
         item {
             Panel {
-                SectionHeading("Waarp для Android")
-                KeyValue("Приложение", state.appVersion.ifBlank { "Версия не определена" })
-                KeyValue("Движок", state.engineVersion.ifBlank { "Версия не определена" })
-                Text("Маршруты приложений используют пакеты и UID Android. Конфигурация и ключи хранятся в закрытом хранилище приложения.", style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
+                SectionHeading(localized("DiagnosticsSettings.4091c894617a", "Waarp для Android"))
+                KeyValue(localized("DiagnosticsSettings.ae6cdb8b3d4a", "Приложение"), state.appVersion.ifBlank { localized("DiagnosticsSettings.a494d55e4d35", "Версия не определена") })
+                if (developer) KeyValue(localized("DiagnosticsSettings.38d25753bae3", "Движок"), state.engineVersion.ifBlank { localized("DiagnosticsSettings.a494d55e4d35", "Версия не определена") })
+                if (developer) Text(localized("DiagnosticsSettings.2e003f6d8eb9", "Маршруты приложений используют пакеты и UID Android. Конфигурация и ключи хранятся в закрытом хранилище приложения."), style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
             }
         }
     }
     }
 }
 
-@Composable
-private fun SettingsToggle(title: String, detail: String, value: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, fontWeight = FontWeight.Medium)
-            Text(detail, style = MaterialTheme.typography.bodySmall, color = WaarpMuted)
-        }
-        Switch(value, onChange, enabled = enabled, modifier = Modifier.semantics { contentDescription = title })
-    }
-}
-
-private fun booleanStatus(value: Boolean?) = when (value) { true -> "Включено"; false -> "Выключено"; null -> "Пока неизвестно" }
+private fun booleanStatus(value: Boolean?) = when (value) { true -> localized("DiagnosticsSettings.80e36dd52de6", "Включено"); false -> localized("DiagnosticsSettings.400acc0b9a4d", "Выключено"); null -> localized("DiagnosticsSettings.e60915eafebc", "Пока неизвестно") }
 
 // Screen-only option. It must be converted to null before calling the backend;
 // AUTO_PATH selects the actual automatic tunnel group and has different semantics.

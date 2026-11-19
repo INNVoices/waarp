@@ -1,3 +1,4 @@
+import { loadLocale, localized } from '../src/shared/localization'
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { createContext, runInContext } from 'node:vm'
@@ -57,9 +58,10 @@ const eq = (actual: unknown, expected: unknown, label: string) => {
     const exited = Symbol('app.exit')
     let active = true
     const context = createContext({
-      process: { argv: args }, relaunchParent,
+      process: { argv: args }, relaunchParent, loadLocale, localized,
       waitForRelaunchParent: () => { events.push('wait'); return wait },
       app: {
+        getPreferredSystemLanguages: () => ['ru'],
         requestSingleInstanceLock: () => { events.push('lock'); return acquire() },
         exit: (code: number) => { events.push(`exit:${code}`); throw exited },
         quit: () => { events.push('quit') }
@@ -85,6 +87,7 @@ const eq = (actual: unknown, expected: unknown, label: string) => {
       holder = 'replacement'; return true
     })
     const finishing = replacement.ready()
+    await new Promise<void>(resolve => setImmediate(resolve))
     eq(replacement.events, ['wait'], 'marked replacement waits without acquiring the lock or touching shared data')
     const third = bootstrap(['--hidden'], Promise.resolve(true), () => holder === undefined)
     await third.ready()

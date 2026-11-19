@@ -1,3 +1,4 @@
+import { localized } from '../../../shared/localization'
 import { Tooltip } from './tooltip'
 import { wPath } from '../../../shared/brand-w'
 export { Tooltip }
@@ -55,10 +56,9 @@ export function Icon({ n, s = 16 }: { n: keyof typeof P | string; s?: number }) 
 
 export function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean }) {
   return (
-    <button type="button" role="switch" aria-checked={on} aria-label={label} disabled={disabled}
-      className={'tg' + (on ? ' on' : '')} onClick={e => { e.stopPropagation(); onChange(!on) }}>
-      <i />
-    </button>
+    <input type="checkbox" className="bool-field" checked={on} aria-label={label}
+      disabled={disabled} onClick={event => event.stopPropagation()}
+      onChange={event => onChange(event.currentTarget.checked)} />
   )
 }
 
@@ -85,17 +85,17 @@ export function Logo({ s = 18, open = false }: { s?: number; open?: boolean }) {
 }
 
 export const fmtBytes = (n: number) => {
-  if (n < 1024) return `${Math.round(n)} Б`
-  if (n < 1024 ** 2) return `${(n / 1024).toFixed(n < 10240 ? 1 : 0)} КБ`
-  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(n < 10 * 1024 ** 2 ? 1 : 0)} МБ`
-  return `${(n / 1024 ** 3).toFixed(2)} ГБ`
+  if (n < 1024) return localized("winInline.kit.9131a3d6e4ef", Math.round(n))
+  if (n < 1024 ** 2) return localized("winInline.kit.28a80edcf316", (n / 1024).toFixed(n < 10240 ? 1 : 0))
+  if (n < 1024 ** 3) return localized("winInline.kit.e17dc1d873e2", (n / 1024 ** 2).toFixed(n < 10 * 1024 ** 2 ? 1 : 0))
+  return localized("winInline.kit.41658118dc3e", (n / 1024 ** 3).toFixed(2))
 }
 
 export const fmtSpeed = (n: number) => {
   const b = n * 8
-  if (b < 1000) return `${Math.round(b)} бит/с`
-  if (b < 1e6) return `${(b / 1e3).toFixed(0)} Кбит/с`
-  return `${(b / 1e6).toFixed(b < 1e7 ? 1 : 0)} Мбит/с`
+  if (b < 1000) return localized("winInline.kit.70a1c7eaa9b8", Math.round(b))
+  if (b < 1e6) return localized("winInline.kit.abdd57e91569", (b / 1e3).toFixed(0))
+  return localized("winInline.kit.cdd52c7ec5b8", (b / 1e6).toFixed(b < 1e7 ? 1 : 0))
 }
 
 export const fmtDur = (ms: number) => {
@@ -125,7 +125,7 @@ export function Field({ icon, bad, className = '', ...p }: InputHTMLAttributes<H
   return (
     <label className={'search' + (bad ? ' bad' : '') + (className ? ' ' + className : '')}>
       {icon && <Icon n={icon} />}
-      <input {...p} />
+      <input aria-invalid={bad || undefined} aria-label={p.placeholder} {...p} />
     </label>
   )
 }

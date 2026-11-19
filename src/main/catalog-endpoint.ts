@@ -1,3 +1,4 @@
+import { localized } from '../shared/localization'
 // Public feed endpoints are untrusted too. Source-URL validation alone does
 // not prevent an advertised relay from pointing a native probe into the LAN.
 import { BlockList, isIP } from 'node:net'
@@ -127,7 +128,7 @@ export async function preparePublicCandidateResult(profile: Profile, signal: Abo
       const resolved = await resolvedPublic(url, bounded, resolver)
       // Apply the same literal guard to all responses, including IPv4-mapped
       // IPv6 and IPv4-compatible forms, before picking one checked dial IP.
-      if (!resolved.length || resolved.some(answer => !literalPublic(answer.address))) throw new Error('non-public endpoint')
+      if (!resolved.length || resolved.some(answer => !literalPublic(answer.address))) throw new Error(localized("winInline.catalog-endpoint.5cee71d4051d"))
       // The checker uses ipv4_only DNS for target names. Pinning a first AAAA
       // response here used to bypass that policy and break dual-stack relays
       // on networks with no working IPv6 underlay.

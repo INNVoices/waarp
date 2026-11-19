@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.core
 
+import local.waarp.android.i18n.localized
+
 import local.waarp.android.data.MobileLiveRouting
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
@@ -60,9 +62,9 @@ internal object RoutingWitness {
             socket.connect(target, 53); socket.soTimeout = 150
             var sendAt = 0L
             while (pending.isNotEmpty()) {
-                check(current()) { "Проверка маршрута отменена" }
+                check(current()) { localized("RoutingWitness.63734df307ce", "Проверка маршрута отменена") }
                 val now = System.nanoTime()
-                check(now < deadline) { "Ядро не подтвердило обновление правил" }
+                check(now < deadline) { localized("RoutingWitness.8b48c4e58bd2", "Ядро не подтвердило обновление правил") }
                 if (now >= sendAt) {
                     pending.forEach { (id, name) -> val bytes = query(id, name); socket.send(DatagramPacket(bytes, bytes.size)) }
                     sendAt = now + 200_000_000L

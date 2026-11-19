@@ -8,7 +8,7 @@ The repository's Markdown presentation, SVG cover, screenshots, release template
 
 > Waarp — open-source per-app traffic routing for Windows & Android. Bring your own VPN/proxy, use sticky failover, diagnose paths and explore an opt-in public node pool.
 
-**Website:** leave blank until a real owned website or GitHub Pages URL is published. Never use a placeholder.
+**Website:** [Waarp on GitHub Pages](https://innvoices.github.io/waarp/). The site is deployed from the root of the `gh-pages` branch.
 
 **Topics:** `vpn`, `proxy`, `traffic-routing`, `wireguard`, `amneziawg`, `sing-box`, `electron`, `android`, `kotlin`, `windows`, `networking`, `open-source`
 

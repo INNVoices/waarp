@@ -1,5 +1,7 @@
 package local.waarp.android.data
 
+import local.waarp.android.i18n.localized
+
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.IDN
@@ -91,17 +93,17 @@ data class AppData(val profiles: List<TunnelProfile> = emptyList(), val groups: 
     fun json() = obj("schema" to 1, "revision" to revision, "profiles" to profiles.map { it.json() },
         "groups" to groups.map { it.json() }, "routes" to routes.map { it.json() }, "settings" to settings.json())
     fun checked(): AppData {
-        require(profiles.size <= MAX_PROFILES && routes.size <= 2000 && groups.size <= 250) { "Слишком много сохранённых записей" }
+        require(profiles.size <= MAX_PROFILES && routes.size <= 2000 && groups.size <= 250) { localized("Models.eb6bb93ae70c", "Слишком много сохранённых записей") }
         require(profiles.map { it.id }.distinct().size == profiles.size && groups.map { it.id }.distinct().size == groups.size &&
-            routes.map { it.id }.distinct().size == routes.size) { "Повторяющиеся идентификаторы" }
-        require(profiles.all { it.id != DIRECT && it.id != AUTO && it.name.isNotBlank() && it.port in 1..65535 }) { "Некорректный профиль" }
-        require(groups.all { it.id.startsWith("g-") && it.id != AUTO && it.policy in setOf("first", "fastest") && it.members.distinct().size == it.members.size }) { "Некорректная группа" }
-        require(routes.all { it.kind in setOf("app", "preset", "custom") && it.name.isNotBlank() && it.match.isNotBlank() }) { "Некорректный маршрут" }
+            routes.map { it.id }.distinct().size == routes.size) { localized("Models.665ff382d6b4", "Повторяющиеся идентификаторы") }
+        require(profiles.all { it.id != DIRECT && it.id != AUTO && it.name.isNotBlank() && it.port in 1..65535 }) { localized("Models.fbb54da1b3ee", "Некорректный профиль") }
+        require(groups.all { it.id.startsWith("g-") && it.id != AUTO && it.policy in setOf("first", "fastest") && it.members.distinct().size == it.members.size }) { localized("Models.932b54fcd240", "Некорректная группа") }
+        require(routes.all { it.kind in setOf("app", "preset", "custom") && it.name.isNotBlank() && it.match.isNotBlank() }) { localized("Models.d3ef7e5b81f3", "Некорректный маршрут") }
         return this
     }
     companion object {
         fun fromJson(j: JSONObject): AppData {
-            require(j.getInt("schema") == 1) { "Неизвестная версия хранилища" }
+            require(j.getInt("schema") == 1) { localized("Models.5af232a5d843", "Неизвестная версия хранилища") }
             return AppData(j.getJSONArray("profiles").objects().map(TunnelProfile::fromJson),
                 j.getJSONArray("groups").objects().map(TunnelGroup::fromJson),
                 j.getJSONArray("routes").objects().map(TrafficRoute::fromJson), AppSettings.fromJson(j.getJSONObject("settings")), j.optLong("revision")).checked()
@@ -112,16 +114,16 @@ data class AppData(val profiles: List<TunnelProfile> = emptyList(), val groups: 
 data class ServicePreset(val id: String, val name: String, val hint: String, val domains: List<String>, val cidrs: List<String> = emptyList())
 object Presets {
     val all = listOf(
-        ServicePreset("youtube", "YouTube", "Видео и CDN", listOf("youtube.com", "youtu.be", "googlevideo.com", "ytimg.com", "ggpht.com", "youtube-nocookie.com", "youtubei.googleapis.com")),
-        ServicePreset("discord", "Discord", "Сайт, CDN и голос", listOf("discord.com", "discord.gg", "discordapp.com", "discordapp.net", "discord.media", "discordcdn.com", "discord.dev", "discordstatus.com")),
-        ServicePreset("telegram", "Telegram", "Сайт и серверы MTProto", listOf("telegram.org", "t.me", "telegra.ph", "telesco.pe", "tdesktop.com", "telegram.me"),
+        ServicePreset("youtube", "YouTube", localized("Models.1a36dd6fe74f", "Видео и CDN"), listOf("youtube.com", "youtu.be", "googlevideo.com", "ytimg.com", "ggpht.com", "youtube-nocookie.com", "youtubei.googleapis.com")),
+        ServicePreset("discord", "Discord", localized("Models.e21b65874327", "Сайт, CDN и голос"), listOf("discord.com", "discord.gg", "discordapp.com", "discordapp.net", "discord.media", "discordcdn.com", "discord.dev", "discordstatus.com")),
+        ServicePreset("telegram", "Telegram", localized("Models.ae947218b76f", "Сайт и серверы MTProto"), listOf("telegram.org", "t.me", "telegra.ph", "telesco.pe", "tdesktop.com", "telegram.me"),
             listOf("91.108.4.0/22", "91.108.8.0/22", "91.108.12.0/22", "91.108.16.0/22", "91.108.56.0/22", "149.154.160.0/20", "95.161.64.0/20")),
         ServicePreset("chatgpt", "ChatGPT", "OpenAI, Codex, Sora", listOf("openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com", "sora.com", "auth0.com")),
-        ServicePreset("claude", "Claude", "Claude и API", listOf("anthropic.com", "claude.ai", "claude.com", "claudeusercontent.com", "clau.de")),
-        ServicePreset("gemini", "Gemini", "Gemini и AI Studio", listOf("gemini.google.com", "aistudio.google.com", "generativelanguage.googleapis.com", "bard.google.com", "notebooklm.google.com", "alkalimakersuite-pa.clients6.google.com")),
+        ServicePreset("claude", "Claude", localized("Models.9614f658a530", "Claude и API"), listOf("anthropic.com", "claude.ai", "claude.com", "claudeusercontent.com", "clau.de")),
+        ServicePreset("gemini", "Gemini", localized("Models.82dc71e5ea09", "Gemini и AI Studio"), listOf("gemini.google.com", "aistudio.google.com", "generativelanguage.googleapis.com", "bard.google.com", "notebooklm.google.com", "alkalimakersuite-pa.clients6.google.com")),
         ServicePreset("meta", "Instagram", "Instagram, Facebook, Threads", listOf("instagram.com", "cdninstagram.com", "facebook.com", "fbcdn.net", "fb.com", "threads.net", "threads.com", "messenger.com")),
-        ServicePreset("x", "X", "X и Grok", listOf("x.com", "twitter.com", "twimg.com", "t.co", "x.ai", "grok.com")),
-        ServicePreset("spotify", "Spotify", "Музыка и подкасты", listOf("spotify.com", "scdn.co", "spotifycdn.com", "spotify.design", "pscdn.co")),
+        ServicePreset("x", "X", localized("Models.db91dac21df4", "X и Grok"), listOf("x.com", "twitter.com", "twimg.com", "t.co", "x.ai", "grok.com")),
+        ServicePreset("spotify", "Spotify", localized("Models.6258a377ca4a", "Музыка и подкасты"), listOf("spotify.com", "scdn.co", "spotifycdn.com", "spotify.design", "pscdn.co")),
         ServicePreset("dev", "Dev", "GitHub, Docker, npm", listOf("github.com", "githubusercontent.com", "githubcopilot.com", "docker.io", "docker.com", "npmjs.org", "jetbrains.com", "cursor.sh", "cursor.com")),
     )
 }
@@ -134,18 +136,18 @@ object AddressRules {
     }
     fun prefix(value: String): String {
         val raw = value.trim(); val parts = raw.split('/')
-        require(parts.size <= 2 && isIp(parts[0])) { "Некорректный IP или подсеть" }
+        require(parts.size <= 2 && isIp(parts[0])) { localized("Models.ae471a6f6bef", "Некорректный IP или подсеть") }
         val max = if (parts[0].contains(':')) 128 else 32
         val bits = if (parts.size == 1) max else parts[1].toIntOrNull() ?: -1
-        require(bits in 0..max) { "Некорректная маска сети" }
+        require(bits in 0..max) { localized("Models.0a8b12d8e9ea", "Некорректная маска сети") }
         return "${parts[0]}/$bits"
     }
     fun selector(value: String): Pair<String, Boolean> {
         val raw = value.trim().lowercase().removePrefix("https://").removePrefix("http://").removeSuffix("/")
         if (raw.contains(':') || isIp(raw.substringBefore('/'))) return prefix(raw) to true
-        require(!raw.matches(Regex("[0-9./]+"))) { "Некорректный IP или подсеть" }
+        require(!raw.matches(Regex("[0-9./]+"))) { localized("Models.60d6586b738e", "Некорректный IP или подсеть") }
         val domain = IDN.toASCII(raw.removePrefix("*.").removeSuffix("."), IDN.USE_STD3_ASCII_RULES)
-        require(domain.length <= 253 && domain.contains('.') && domain.split('.').all { it.isNotEmpty() && it.length <= 63 && !it.startsWith('-') && !it.endsWith('-') }) { "Нужен домен, IP или подсеть" }
+        require(domain.length <= 253 && domain.contains('.') && domain.split('.').all { it.isNotEmpty() && it.length <= 63 && !it.startsWith('-') && !it.endsWith('-') }) { localized("Models.5f7f935f740c", "Нужен домен, IP или подсеть") }
         return domain to false
     }
 }

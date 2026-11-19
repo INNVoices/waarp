@@ -1,0 +1,55 @@
+name: Publish Waarp release
+on:
+  create:
+permissions:
+  contents: read
+jobs:
+  release:
+    if: github.event.ref_type == 'tag' && startsWith(github.event.ref, 'v')
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Check version and tag
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_NAME -cne "v$version" -or $version -notmatch '^\d+\.\d+\.\d+$') { throw 'Tag does not match stable version' }
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run check
+      - run: npm test
+      - run: npm run engine:fetch
+      - run: npm run dist
+      - run: npm run package:verify
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install minimal Android SDK packages
+        shell: pwsh
+        run: |
+          & "$env:ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager.bat" 'platforms;android-36' 'build-tools;35.0.0'
+      - run: python scripts/android-core-restore-test.py
+      - name: Build and verify developer APKs
+        shell: cmd
+        run: build.bat apk
+      - name: Publish verified portable and source tag
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe = Get-Item "dist/Waarp-$($env:GITHUB_REF_NAME.Substring(1))-portable.exe"
+          $apks = @(Get-ChildItem out/android/*-debug.apk)
+          if ($apks.Count -ne 3) { throw 'Expected three verified debug APKs' }
+          $files = @($exe) + $apks
+          $files | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" } | Set-Content SHA256SUMS.txt -Encoding ascii
+          gh release create $env:GITHUB_REF_NAME $files.FullName SHA256SUMS.txt --verify-tag --title "Waarp $env:GITHUB_REF_NAME" --notes-file release/stable.md

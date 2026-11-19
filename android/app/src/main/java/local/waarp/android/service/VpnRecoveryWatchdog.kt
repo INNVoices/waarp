@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.service
 
+import local.waarp.android.i18n.localized
+
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
@@ -78,7 +80,7 @@ internal object VpnRecoveryWatchdog {
         val editor = prefs.edit().putBoolean(VpnController.WANTED, true)
             .putString(EPOCH, epoch).putBoolean(BLOCKED, false)
         writeHistory(editor, history)
-        commit(editor, "Не удалось сохранить намерение включить VPN")
+        commit(editor, localized("VpnRecoveryWatchdog.f8ebb6805ccd", "Не удалось сохранить намерение включить VPN"))
         arm(context, epoch, processIdentity)
         true
     }
@@ -112,7 +114,7 @@ internal object VpnRecoveryWatchdog {
                 val editor = prefs.edit().putBoolean(VpnController.WANTED, true)
                     .putString(EPOCH, epoch).putBoolean(BLOCKED, false)
                 writeHistory(editor, decision.history)
-                commit(editor, "Не удалось сохранить ожидание восстановления VPN")
+                commit(editor, localized("VpnRecoveryWatchdog.a750a2d6ed74", "Не удалось сохранить ожидание восстановления VPN"))
                 arm(context, epoch!!, previousProcess ?: "platform-restart", decision.delayMs)
                 Claim.Deferred
             }
@@ -120,7 +122,7 @@ internal object VpnRecoveryWatchdog {
                 val editor = prefs.edit().putBoolean(VpnController.WANTED, true)
                     .putString(EPOCH, epoch).putBoolean(BLOCKED, false)
                 writeHistory(editor, decision.history)
-                commit(editor, "Не удалось сохранить попытку восстановления VPN")
+                commit(editor, localized("VpnRecoveryWatchdog.dc0263680284", "Не удалось сохранить попытку восстановления VPN"))
                 arm(context, epoch!!, processIdentity)
                 Claim.Start
             }
@@ -133,15 +135,15 @@ internal object VpnRecoveryWatchdog {
         try {
             val editor = preferences(context).edit().putBoolean(VpnController.WANTED, false)
                 .remove(EPOCH).putBoolean(BLOCKED, failed).remove(HEALTHY_SINCE)
-            commit(editor, "VPN остановлен, но не удалось сохранить выключенное состояние")
+            commit(editor, localized("VpnRecoveryWatchdog.73caa40ab998", "VPN остановлен, но не удалось сохранить выключенное состояние"))
         } catch (error: Exception) {
             failure = if (error is IOException) error else IOException(
-                "VPN остановлен, но не удалось сохранить выключенное состояние", error)
+                localized("VpnRecoveryWatchdog.73caa40ab998", "VPN остановлен, но не удалось сохранить выключенное состояние"), error)
         } finally {
             try { cancel(context) }
             catch (error: Exception) {
                 if (failure != null) failure.addSuppressed(error)
-                else failure = IOException("VPN остановлен, но не удалось отменить его автовосстановление", error)
+                else failure = IOException(localized("VpnRecoveryWatchdog.269bd042923b", "VPN остановлен, но не удалось отменить его автовосстановление"), error)
             }
         }
         failure
@@ -155,14 +157,14 @@ internal object VpnRecoveryWatchdog {
         val old = readHistory(prefs)
         val next = RecoveryPolicy.healthy(old, SystemClock.elapsedRealtime(), bootCount(context))
         if (next != old) commit(prefs.edit().also { writeHistory(it, next) },
-            "Не удалось сохранить состояние восстановления VPN")
+            localized("VpnRecoveryWatchdog.beba01b36e48", "Не удалось сохранить состояние восстановления VPN"))
         arm(context, epoch, processIdentity)
     }
 
     fun interrupted(context: Context) = onControlLane {
         val prefs = preferences(context)
         if (prefs.contains(HEALTHY_SINCE)) commit(prefs.edit().remove(HEALTHY_SINCE),
-            "Не удалось сохранить прерывание VPN")
+            localized("VpnRecoveryWatchdog.9a0f49fbbf71", "Не удалось сохранить прерывание VPN"))
     }
 
     fun receive(context: Context, intent: Intent) {
@@ -200,10 +202,10 @@ internal object VpnRecoveryWatchdog {
         val value = prefs.getString(ATTEMPTS, "").orEmpty()
         val attempts = if (value.isEmpty()) emptyList() else value.split(',').map {
             it.toLongOrNull()?.takeIf { time -> time >= 0 }
-                ?: throw IOException("Повреждено состояние восстановления VPN")
+                ?: throw IOException(localized("VpnRecoveryWatchdog.0e672bac9bb0", "Повреждено состояние восстановления VPN"))
         }
         if (attempts.size > RecoveryPolicy.MAX_ATTEMPTS || attempts != attempts.sorted()) {
-            throw IOException("Повреждено состояние восстановления VPN")
+            throw IOException(localized("VpnRecoveryWatchdog.0e672bac9bb0", "Повреждено состояние восстановления VPN"))
         }
         return RecoveryHistory(attempts, prefs.getLong(HEALTHY_SINCE, -1).takeIf { it >= 0 }, prefs.getInt(BOOT_COUNT, -1))
     }
@@ -246,12 +248,12 @@ class VpnRecoveryReceiver : BroadcastReceiver() {
             VpnControlLane.execute {
                 try { VpnRecoveryWatchdog.receive(context.applicationContext, intent) }
                 catch (error: Exception) {
-                    RuntimeState.appendLog(3, "Ошибка восстановления VPN: ${error.message.orEmpty()}")
+                    RuntimeState.appendLog(3, localized("VpnRecoveryWatchdog.4f20d34adefa", "Ошибка восстановления VPN: {arg1}", error.message.orEmpty()))
                 } finally { pending.finish() }
             }
         } catch (error: Exception) {
             // No queued task owns the broadcast if submission failed.
-            try { RuntimeState.appendLog(3, "Не удалось поставить восстановление VPN в очередь") }
+            try { RuntimeState.appendLog(3, localized("VpnRecoveryWatchdog.00ac9512f844", "Не удалось поставить восстановление VPN в очередь")) }
             finally { pending.finish() }
         }
     }

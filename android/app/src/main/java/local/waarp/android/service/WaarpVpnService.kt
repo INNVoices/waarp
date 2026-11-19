@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package local.waarp.android.service
 
+import local.waarp.android.i18n.localized
+
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -55,10 +57,10 @@ class WaarpVpnService : VpnService() {
         RuntimeState.service.set(this)
         notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.createNotificationChannel(NotificationChannel(
-            CHANNEL, "Соединение Waarp", NotificationManager.IMPORTANCE_LOW,
-        ).apply { description = "Постоянное уведомление работающего VPN"; setShowBadge(false) })
+            CHANNEL, localized("WaarpVpnService.25a665b27ee6", "Соединение Waarp"), NotificationManager.IMPORTANCE_LOW,
+        ).apply { description = localized("WaarpVpnService.a311c53f7746", "Постоянное уведомление работающего VPN"); setShowBadge(false) })
         notificationManager.createNotificationChannel(NotificationChannel(
-            EVENTS_CHANNEL, "События VPN", NotificationManager.IMPORTANCE_DEFAULT,
+            EVENTS_CHANNEL, localized("WaarpVpnService.7b87cdedcbe6", "События VPN"), NotificationManager.IMPORTANCE_DEFAULT,
         ).apply { setShowBadge(false) })
         scope.launch {
             // Traffic counters do not appear in this notification; do not send
@@ -72,7 +74,7 @@ class WaarpVpnService : VpnService() {
                     runCatching {
                         notificationManager.notify(ERROR_NOTIFICATION_ID, Notification.Builder(this@WaarpVpnService, EVENTS_CHANNEL)
                             .setSmallIcon(local.waarp.android.R.drawable.ic_stat_waarp)
-                            .setContentTitle("Waarp: VPN не запущен")
+                            .setContentTitle(localized("WaarpVpnService.ce94003ee4ea", "Waarp: VPN не запущен"))
                             .setContentText(RuntimeRedaction.redact(message.orEmpty()).take(500))
                             .setContentIntent(openAppIntent()).setVisibility(Notification.VISIBILITY_PRIVATE).setAutoCancel(true).build())
                     }
@@ -146,7 +148,7 @@ class WaarpVpnService : VpnService() {
         val alwaysOn: Boolean
         val lockdown: Boolean
         try {
-            check(prepare(this) == null) { "Разрешение VPN отсутствует. Откройте Waarp и разрешите подключение" }
+            check(prepare(this) == null) { localized("WaarpVpnService.c24b2199f95a", "Разрешение VPN отсутствует. Откройте Waarp и разрешите подключение") }
             promoteToForeground()
             // Binder calls must stay outside the runtime generation monitor.
             alwaysOn = isAlwaysOn
@@ -177,10 +179,10 @@ class WaarpVpnService : VpnService() {
                 val loading = currentCoroutineContext()[Job]!!
                 configurationLoad.set(loading)
                 try {
-                    if (destroyed.get() || !RuntimeState.isCurrent(request.generation)) throw CancellationException("Запуск отменён")
+                    if (destroyed.get() || !RuntimeState.isCurrent(request.generation)) throw CancellationException(localized("WaarpVpnService.4467f202c00e", "Запуск отменён"))
                     withTimeout(20_000) {
                         val provider = RuntimeState.configurationProvider
-                            ?: throw IOException("Хранилище конфигурации ещё не готово")
+                            ?: throw IOException(localized("WaarpVpnService.e0e23befaede", "Хранилище конфигурации ещё не готово"))
                         provider()
                     }
                 } finally {
@@ -256,7 +258,7 @@ class WaarpVpnService : VpnService() {
         if (RuntimeState.service.get() === this) {
             RuntimeState.currentGeneration()?.let { generation ->
                 RuntimeState.updateIfCurrent(generation) {
-                    it.copy(phase = RuntimePhase.STARTING, message = "Android перезапускает VPN-сервис", telemetryAvailable = false)
+                    it.copy(phase = RuntimePhase.STARTING, message = localized("WaarpVpnService.00843a571174", "Android перезапускает VPN-сервис"), telemetryAvailable = false)
                 }
                 VpnController(this).recoveryInterrupted(generation)
             }
@@ -268,7 +270,7 @@ class WaarpVpnService : VpnService() {
                     current.close()
                 }
             } catch (error: Exception) {
-                RuntimeState.appendLog(3, "Ошибка закрытия VPN: ${error.message.orEmpty()}")
+                RuntimeState.appendLog(3, localized("WaarpVpnService.777342fe107c", "Ошибка закрытия VPN: {arg1}", error.message.orEmpty()))
             } finally {
                 // Keep the stop coordinator reachable until its native resources are gone.
                 // Otherwise a simultaneous OFF could observe no Service and claim cleanup finished.
@@ -302,11 +304,11 @@ class WaarpVpnService : VpnService() {
     private fun notification(): Notification {
         val state = RuntimeState.status.value
         val description = when (state.phase) {
-            RuntimePhase.OFF -> "VPN выключен"
-            RuntimePhase.STARTING -> "Подключение VPN…"
-            RuntimePhase.ON -> "VPN запущен"
-            RuntimePhase.STOPPING -> "Отключение VPN…"
-            RuntimePhase.ERROR -> "Не удалось запустить VPN"
+            RuntimePhase.OFF -> localized("WaarpVpnService.bf918ca015f2", "VPN выключен")
+            RuntimePhase.STARTING -> localized("WaarpVpnService.60b2b926e472", "Подключение VPN…")
+            RuntimePhase.ON -> localized("WaarpVpnService.88b294e9c05a", "VPN запущен")
+            RuntimePhase.STOPPING -> localized("WaarpVpnService.a9f40b11146a", "Отключение VPN…")
+            RuntimePhase.ERROR -> localized("WaarpVpnService.31b1e13d4105", "Не удалось запустить VPN")
         }
         val stop = PendingIntent.getService(this, 1,
             Intent(this, WaarpVpnService::class.java).setAction(VpnController.ACTION_STOP),
@@ -320,7 +322,7 @@ class WaarpVpnService : VpnService() {
             .setVisibility(Notification.VISIBILITY_PRIVATE)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .addAction(Notification.Action.Builder(null, "Отключить", stop).build())
+            .addAction(Notification.Action.Builder(null, localized("WaarpVpnService.cc945672e843", "Отключить"), stop).build())
             .build()
     }
 
