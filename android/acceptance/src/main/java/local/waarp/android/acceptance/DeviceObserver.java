@@ -38,6 +38,11 @@ final class DeviceObserver {
 
     void resetTarget() throws Exception {
         TrafficProbe.require(shell("pm clear " + ReleaseUi.TARGET).trim().equals("Success"), "target_reset_failed");
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            shell("cmd locale set-app-locales " + ReleaseUi.TARGET + " --user 0 --locales ru-RU");
+            TrafficProbe.require(shell("cmd locale get-app-locales " + ReleaseUi.TARGET + " --user 0")
+                    .contains("ru-RU"), "fixture_locale_unavailable");
+        }
     }
 
     int pid() throws Exception {
