@@ -32,7 +32,7 @@ internal object Localization {
     fun template(id: String, fallback: String): String = messages[id] ?: fallback
 }
 
-private val placeholder = Regex("""\{arg(\d+)}""")
+private val placeholder = Regex("""\{arg(\d+)\}""")
 
 internal fun localized(id: String, fallback: String, vararg args: Any?): String {
     val template = Localization.template(id, fallback)

@@ -154,6 +154,7 @@ jobs:
           emulator-port: 5554
           emulator-options: -no-window -gpu software -noaudio -no-boot-anim -camera-back none -no-snapshot
           script: |
+            bash scripts/android-emulator-locale.sh
             python3 scripts/android-install.py --serial emulator-5554 --with-tests
             python3 scripts/android-instrument.py --serial emulator-5554 --disposable-emulator --expect-page-size 4096 --route-smoke --timeout 300 --output out/android/route-smoke
             python3 scripts/android-instrument.py --serial emulator-5554 --disposable-emulator --expect-page-size 4096 --ui-gallery --timeout 360 --output out/android/gallery
@@ -316,6 +317,7 @@ jobs:
           emulator-port: 5554
           emulator-options: -no-window -gpu software -noaudio -no-boot-anim -camera-back none -no-snapshot
           script: |
+            bash scripts/android-emulator-locale.sh
             if [ "${{ matrix.api }}" = "29" ]; then python3 scripts/android-emulator-prepare.py --serial emulator-5554 --disposable-emulator --report out/android/device-tests/emulator-preparation.json; fi
             python3 scripts/android-awg-control.py start --binary "$RUNNER_TEMP/awg-android-fixture" --report out/android/device-tests/awg-proof.json
             python3 scripts/android-install.py --with-tests
@@ -403,6 +405,7 @@ jobs:
           emulator-port: 5554
           emulator-options: -no-window -gpu software -noaudio -no-boot-anim -camera-back none -no-snapshot
           script: |
+            bash scripts/android-emulator-locale.sh
             if [ "${{ matrix.api }}" = "29" ]; then python3 scripts/android-emulator-prepare.py --serial emulator-5554 --disposable-emulator --report out/android/release-journeys/emulator-preparation.json; fi
             python3 scripts/android-awg-control.py start --binary "$RUNNER_TEMP/awg-android-fixture" --duration 30m --report out/android/release-journeys/awg-proof.json
             python3 scripts/android-release-run.py --mode journeys --expect-page-size ${{ matrix.page-size }} --output out/android/release-journeys --duration-seconds 7200 --interval-seconds 15 --disposable-emulator
@@ -469,6 +472,7 @@ jobs:
           emulator-boot-timeout: 600
           emulator-options: -no-window -gpu software -noaudio -no-boot-anim -camera-back none -no-snapshot
           script: |
+            bash scripts/android-emulator-locale.sh
             python3 scripts/android-awg-control.py start --binary "$RUNNER_TEMP/awg-android-fixture" --duration 3h --report out/android/release-soak/awg-proof.json
             python3 scripts/android-release-run.py --mode soak --expect-page-size 16384 --output out/android/release-soak --duration-seconds 7200 --interval-seconds 15 --disposable-emulator
       - name: Stop the owned AWG peer and verify authenticated traffic
