@@ -1,0 +1,13 @@
+Waarp is an open-source VPN and proxy client for Android 10 and later. Import your own connection profiles and choose how individual apps and domains connect: through a saved tunnel or directly.
+
+Use connection profiles from a server you control or a provider you trust. Organise saved connections into groups, browse the tunnel library as a list or map, and inspect connection status and diagnostics.
+
+An optional public-node catalog contains endpoints run by third parties. Their availability depends on the endpoint and your network. Android asks for the system VPN permission before Waarp starts a tunnel.
+
+The current public Android download is the 0.5.0-rc.5 preview. It is debug-signed and installs as local.waarp.android.debug, separately from the production package local.waarp.android. Updates must keep the same package and signing identity. The 1.0.0 source version does not represent a published production APK.
+
+The screenshots show the native Android preview in Russian, using sample profiles. They were captured on an emulator with the VPN off.
+
+Waarp for Windows is a separate client in the same project. Android application code is licensed under GPL-3.0-or-later; Windows application code uses Apache-2.0. Engine and dependency licenses are documented separately in the project.
+
+Source, release notes and downloads: https://github.com/INNVoices/waarp
