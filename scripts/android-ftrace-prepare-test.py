@@ -52,6 +52,7 @@ class FakeRecorder:
             "tracefs-location-0": (0, ""), "tracefs-location-1": (1, ""),
             "tracing-on": (0, "1"), "tracing-on-after": (0, "1"), "current-tracer": (0, "nop"),
             "events-enabled": (0, "0"), "perfetto-service-state": (0, IDLE_SERVICE),
+            "enabled-events": (0, "sched:sched_switch\nsched:sched_wakeup\n"),
             "perfetto-clients": (1, ""), "atrace-user": (0, ""), "atrace-tags": (0, "0"),
             "atrace-apps": (0, ""), "atrace-clients": (1, ""), "subbuffer-write": (0, ""),
             "subbuffer-before": (0, str(self.subbuffer)), "subbuffer-after": (0, str(self.subbuffer)),
@@ -199,6 +200,32 @@ class PreparationChecks(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "session is active or armed"):
             self.prepare(recorder)
         self.assertFalse(json.loads(self.report.read_text())["mutationAttempted"])
+
+    def test_event_rejection_preserves_names_from_the_selected_tracefs_root(self):
+        recorder = FakeRecorder(self.directory, overrides={"events-enabled": (0, "X"),
+                                "tracefs-location-0": (1, ""), "tracefs-location-1": (0, "")})
+        with self.assertRaisesRegex(ValueError, "eventsEnabled='X'"):
+            self.prepare(recorder)
+        proof = json.loads(self.report.read_text())
+        self.assertEqual({"field": "eventsEnabled", "observed": "X", "expected": "0"}, proof["failedGuard"])
+        reads = [row for row in recorder.records if row["name"] == "enabled-events"]
+        self.assertEqual(1, len(reads))
+        self.assertEqual("cat /sys/kernel/debug/tracing/set_event", reads[0]["arguments"][-1])
+        self.assertEqual(b"sched:sched_switch\nsched:sched_wakeup\n",
+                         (recorder.directory / reads[0]["stdout"]["file"]).read_bytes())
+        self.assertFalse(proof["passed"] or proof["mutationAttempted"] or proof["mutated"])
+        self.assertFalse(any(">" in row["arguments"][-1] or "kill" in row["arguments"][-1] for row in recorder.records))
+
+    def test_failed_event_diagnostic_read_preserves_the_original_rejection(self):
+        recorder = FakeRecorder(self.directory, overrides={"events-enabled": (0, "X"), "enabled-events": (1, "")})
+        with self.assertRaisesRegex(ValueError, "may be active; eventsEnabled='X'") as raised:
+            self.prepare(recorder)
+        proof = json.loads(self.report.read_text())
+        self.assertEqual(str(raised.exception), proof["error"])
+        self.assertEqual("Preparation read failed: enabled-events", proof["eventDiagnosticsError"])
+        self.assertEqual(1, sum(row["name"] == "enabled-events" for row in recorder.records))
+        self.assertFalse(proof["passed"] or proof["mutationAttempted"] or proof["mutated"])
+        self.assertFalse(any(">" in row["arguments"][-1] or "kill" in row["arguments"][-1] for row in recorder.records))
 
     def test_legacy_atrace_capture_is_rejected(self):
         recorder = FakeRecorder(self.directory, overrides={"atrace-user": (0, "1")})

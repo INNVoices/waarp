@@ -141,6 +141,17 @@ There is no failed-trace retry, page-size change or acceptance-budget increase.
 The old run 11 failure remains failed. A fresh raw trace containing actual
 scheduling data is required before this correction is considered verified.
 
+If the enabled-events guard rejects preparation, the failed report identifies
+`failedGuard.field=eventsEnabled`, its observed value (for example `X`) and the
+required value `0`. After preserving that refusal, the same bounded recorder
+attempts one read of the selected tracefs root's `set_event`, retaining the raw
+enabled event names with the usual command/stream hashes. It shares the original
+10-second command, 60-second total and 64 KiB stream limits. A failed read is
+recorded separately as `eventDiagnosticsError`; it cannot replace the original
+refusal, permit a write or trigger a retry. These names describe a sampled event
+configuration, not its owner or boot-time origin. This adds failure diagnostics
+and does not fix or approve the rejected preparation.
+
 ## Recorder startup acknowledgement
 
 The historical API 35 traces contain useful scheduling data, but scheduling

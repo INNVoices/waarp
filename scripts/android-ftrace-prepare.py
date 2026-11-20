@@ -155,9 +155,13 @@ def prepare(prefix, report_path, expected_page_size, disposable_emulator, record
             state["atraceApps"] = read("atrace-apps", "getprop debug.atrace.app_number")
             atrace_code, atrace_pids = execute("atrace-clients", "pidof atrace", allow_failure=True)
             state["atraceClientPids"], state["atracePidofExitCode"] = atrace_pids, atrace_code
+            refusal = "Refusing to resize while tracing, events or a Perfetto client may be active"
+            if state["eventsEnabled"] != "0":
+                record["failedGuard"] = {"field": "eventsEnabled", "observed": state["eventsEnabled"], "expected": "0"}
+                refusal += f"; eventsEnabled={state['eventsEnabled']!r} (expected '0')"
             require(state["tracingOn"] in ("0", "1") and state["currentTracer"] == "nop"
                     and state["eventsEnabled"] == "0" and code == 1 and not pids,
-                    "Refusing to resize while tracing, events or a Perfetto client may be active")
+                    refusal)
             require(all(state[name] in ("", "0") for name in ("atraceUserInitiated", "atraceTags", "atraceApps"))
                     and atrace_code == 1 and not atrace_pids,
                     "Legacy atrace capture is active; refusing geometry mutation")
@@ -178,6 +182,13 @@ def prepare(prefix, report_path, expected_page_size, disposable_emulator, record
         return record
     except (OSError, ValueError, subprocess.SubprocessError) as failure:
         record["error"] = str(failure)[:1000]
+        if record.get("failedGuard", {}).get("field") == "eventsEnabled":
+            # Preserve the rejection. One read on the same recorder shares its
+            # original deadline/output caps and cannot authorize a resize.
+            try:
+                read("enabled-events", "cat " + root + "/set_event")
+            except (OSError, ValueError, subprocess.SubprocessError) as diagnostic_failure:
+                record["eventDiagnosticsError"] = str(diagnostic_failure)[:1000]
         raise
     finally:
         record["commands"] = getattr(execute, "records", [])
