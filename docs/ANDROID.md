@@ -120,6 +120,8 @@ python3 scripts/android-sign.py sign-apks --credentials /absolute/private/path/w
 
 `android-sign.py` compares every APK ZIP payload entry before and after signing; the code, resources and native libraries must be unchanged. Passwords are supplied to signing tools through their supported environment inputs, never command-line values. The private key is not placed in `out/`, Git, CI variables or public artifacts. CI installs the same optimized release payload with a disposable test certificate that cannot update the production installation. The final production signature is applied only after accepting those exact payload hashes.
 
+Use the offline [release evidence bundle checker](ANDROID_RELEASE_EVIDENCE.md) to bind exported Actions archives, three unsigned APKs, raw release acceptance evidence and optional retained-key signing reports before a release review. It does not sign, publish or establish historical production-upgrade compatibility.
+
 ## Production hardening in rc.1
 
 The service cancels a suspended current-configuration provider before queued shutdown, preventing a repository/native-lane lock inversion. A validated configuration edit commits stop/write/restart as one cancellation-safe transaction while preserving a later explicit OFF/revoke. Telemetry reconnects remember a stream failure that arrives during connection establishment; a failed subscription cannot publish ON. Native URL-test cancellation closes its own command client without waiting on the UI thread.
