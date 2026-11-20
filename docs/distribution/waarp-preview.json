@@ -1,0 +1,26 @@
+{
+    "version": "0.4.1-rc.5",
+    "description": "Per-app and domain routing client for Windows (preview).",
+    "homepage": "https://innvoices.github.io/waarp/",
+    "license": {
+        "identifier": "Apache-2.0",
+        "url": "https://github.com/INNVoices/waarp/blob/main/LICENSE"
+    },
+    "notes": [
+        "Preview manifest: Windows installation, upgrade and uninstall have not been validated for this distribution file.",
+        "The EXE is unsigned. Starting the tunnel requires administrator permission.",
+        "Bundled networking components have separate licenses; see the release notices and THIRD_PARTY_NOTICES.md."
+    ],
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r6/Waarp-0.4.1-rc.5-portable.exe",
+            "hash": "3cdd81a22ddb48d655714351a2ed581b608b680140f51c8b657fb994a6bf1317"
+        }
+    },
+    "shortcuts": [
+        [
+            "Waarp-0.4.1-rc.5-portable.exe",
+            "Waarp Preview"
+        ]
+    ]
+}

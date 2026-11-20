@@ -1,12 +1,122 @@
 <!doctype html>
-<html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Waarp — маршруты для Windows и Android</title><meta name="description" content="Выберите подключение для приложения, сервиса или домена в Waarp. Сборки Windows и Android, исходный код и документация.">
-<style>
-:root{color-scheme:dark;--bg:#141312;--ink:#f6eee5;--muted:#bdb1a6;--line:#423932;--accent:#ffa57f}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.55 'Segoe UI',sans-serif}main,header,footer{max-width:1180px;margin:auto;padding:24px clamp(20px,5vw,64px)}header,footer,nav{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}header{border-bottom:1px solid var(--line)}header strong{font-size:26px;letter-spacing:-1px}a{color:var(--accent);text-underline-offset:4px}a:focus-visible{outline:3px solid white;outline-offset:4px}.hero{padding:clamp(40px,7vw,92px) 0 24px}h1{font-size:clamp(44px,7vw,86px);line-height:1.04;letter-spacing:-.055em;margin:12px 0 24px;max-width:850px}p{max-width:660px;color:var(--muted)}.action{display:inline-block;background:var(--accent);color:#271a14;padding:12px 22px;border-radius:8px;font-weight:650;text-decoration:none}.preview{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:12px}figure{margin:24px 0}figcaption,small{color:var(--muted);font-size:14px}figcaption{margin-top:8px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:20px;margin:44px 0}.cards article{border-top:2px solid var(--accent);padding:8px 0 16px}h2{letter-spacing:-.04em}code{background:#292521;padding:4px 8px;border-radius:4px}footer{border-top:1px solid var(--line)}
-</style>
-<header><strong>waarp</strong><nav aria-label="Документация"><a href="https://github.com/INNVoices/waarp/blob/main/README.ru.md">Руководство</a><a href="https://github.com/INNVoices/waarp">GitHub</a></nav></header>
-<main><section class="hero"><small>Windows 10/11 · Android 10+ · v1.0.0</small><h1>Свой маршрут для каждого приложения</h1><p>Направьте браузер через личный VPN, выберите другой сервер для сайта и оставьте остальные приложения на прямом соединении.</p><a class="action" href="https://github.com/INNVoices/waarp/releases">Перейти к выпускам</a></section>
-<figure><img class="preview" src="screenshots/preview-r6/desktop-public-real-1240.png" alt="Каталог Windows с картой регионов и результатами проверки узлов"><figcaption>Каталог подключений в Windows. Снимок из выпуска r6.</figcaption></figure>
-<section class="cards" aria-label="Клиенты"><article><h2>Windows</h2><p>Маршруты для процессов, сервисов и доменов. Диагностика показывает выбранное подключение и этап, на котором возник сбой.</p><code>build.bat 2</code></article><article><h2>Android</h2><p>Нативный клиент с картой, группами подключений и правилами для приложений. Ядро для трёх архитектур входит в репозиторий.</p><code>build.bat apk</code></article></section></main>
-<footer><strong>waarp</strong><nav><a href="https://github.com/INNVoices/waarp/blob/main/docs/V1.md">Компоненты и сборка</a><a href="https://github.com/INNVoices/waarp/blob/main/SUPPORT.md">Поддержка</a></nav></footer></html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#141312">
+  <title>Waarp — маршруты для приложений в Windows и Android</title>
+  <meta name="description" content="Выбирайте VPN, прокси или прямое соединение для отдельных приложений с Waarp. Открытый код, предварительные сборки Windows и Android, установка и документация.">
+  <link rel="canonical" href="https://innvoices.github.io/waarp/">
+  <link rel="alternate" hreflang="ru" href="https://innvoices.github.io/waarp/">
+  <link rel="alternate" hreflang="en" href="https://innvoices.github.io/waarp/en/">
+  <link rel="alternate" hreflang="x-default" href="https://innvoices.github.io/waarp/">
+  <link rel="sitemap" type="application/xml" href="sitemap.xml">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Waarp">
+  <meta property="og:locale" content="ru_RU">
+  <meta property="og:locale:alternate" content="en_US">
+  <meta property="og:title" content="Waarp — маршруты для приложений в Windows и Android">
+  <meta property="og:description" content="Выбирайте VPN, прокси или прямое соединение для отдельных приложений с Waarp. Открытый код, предварительные сборки Windows и Android, установка и документация.">
+  <meta property="og:url" content="https://innvoices.github.io/waarp/">
+  <meta property="og:image" content="https://innvoices.github.io/waarp/brand/social-preview.png">
+  <meta property="og:image:alt" content="Waarp — per-app routing for Windows and Android">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Waarp — маршруты для приложений в Windows и Android">
+  <meta name="twitter:description" content="Выбирайте VPN, прокси или прямое соединение для отдельных приложений с Waarp. Открытый код, предварительные сборки Windows и Android, установка и документация.">
+  <meta name="twitter:image" content="https://innvoices.github.io/waarp/brand/social-preview.png">
+  <meta name="twitter:image:alt" content="Waarp — per-app routing for Windows and Android">
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Перейти к содержимому</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="./" aria-label="Waarp">waarp</a>
+      <nav class="header-links" aria-label="Навигация">
+        <a class="docs-link" href="https://github.com/INNVoices/waarp/blob/main/docs/README.md">Документация</a>
+        <a href="https://github.com/INNVoices/waarp">GitHub <span aria-hidden="true">↗</span></a>
+        <div class="language" role="group" aria-label="Язык страницы">
+          <a href="./" lang="ru" hreflang="ru" aria-current="page">RU</a>
+          <a href="en/" lang="en" hreflang="en">EN</a>
+        </div>
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    <div class="container">
+      <section class="hero" aria-labelledby="hero-title">
+        <p class="eyebrow">Windows + Android · открытый код <span class="status">Предварительные сборки</span></p>
+        <h1 id="hero-title">Свой маршрут для каждого приложения</h1>
+        <p class="lead">Направьте браузер через личный VPN, задайте отдельный маршрут для сайта и оставьте остальной трафик на прямом соединении. Waarp помогает управлять подключениями из одного интерфейса.</p>
+        <div class="downloads">
+          <a class="download" href="https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r6/Waarp-0.4.1-rc.5-portable.exe">
+            <span><strong>Скачать для Windows</strong><small>Windows 10/11 · x64 · 0.4.1-rc.5</small></span><span class="arrow" aria-hidden="true">↓</span>
+          </a>
+          <a class="download secondary" href="https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-arm64-v8a-debug.apk">
+            <span><strong>Скачать APK для Android</strong><small>Android 10+ · ARM64 · 0.5.0-rc.5</small></span><span class="arrow" aria-hidden="true">↓</span>
+          </a>
+        </div>
+        <p class="release-note">Это preview-сборки для тестирования: Windows r6 — EXE без цифровой подписи; Android r5 — debug APK. Исходный код в main развивается отдельно от этих выпусков.</p>
+        <p class="download-help"><a href="https://github.com/INNVoices/waarp/blob/main/docs/INSTALL.md">Установка, другие архитектуры и проверка SHA-256 <span aria-hidden="true">→</span></a></p>
+      </section>
+      <figure class="gallery">
+        <a href="screenshots/preview-r6/desktop-public-real-1240.png">
+          <img class="desktop-shot" src="screenshots/preview-r6/desktop-public-real-1240.png" width="1240" height="900" alt="Waarp для Windows: каталог подключений, карта регионов и результаты проверок" fetchpriority="high">
+        </a>
+        <figcaption>Настоящий Windows-клиент, preview r6. Доступность узлов зависит от сети и времени проверки. <a href="https://github.com/INNVoices/waarp/blob/main/docs/screenshots/preview-r6/README.md">Источник снимка и результаты проверки</a>.</figcaption>
+      </figure>
+      <section class="section" aria-labelledby="features-title">
+        <h2 id="features-title">Выбирайте подключение под задачу</h2>
+        <p class="section-intro">Waarp — клиент для управления маршрутами. Подключите собственный VPN или прокси, затем решите, какой трафик через него отправлять.</p>
+        <div class="features">
+          <article class="feature"><p class="feature-number" aria-hidden="true">01</p><h3>Маршруты по приложениям</h3><p>В Windows настраивайте правила для процессов, сервисов и доменов. В Android выбирайте приложения и путь для их трафика.</p></article>
+          <article class="feature"><p class="feature-number" aria-hidden="true">02</p><h3>Сохранённые подключения</h3><p>Импортируйте поддерживаемые профили и выбирайте подключение из своей библиотеки. Необязательный публичный каталог помогает искать сторонние узлы.</p></article>
+          <article class="feature"><p class="feature-number" aria-hidden="true">03</p><h3>Понятная диагностика</h3><p>В Windows проверяйте этапы DNS, TCP, TLS и HTTP для выбранного адреса. Смотрите измеренные ответы и разбирайтесь, где соединение прерывается.</p></article>
+        </div>
+      </section>
+    </div>
+    <section class="android-section section" aria-labelledby="android-title">
+      <div class="container android-grid">
+        <div class="android-copy">
+          <p class="eyebrow">Нативный клиент Android</p>
+          <h2 id="android-title">Подключения под рукой</h2>
+          <p>Импорт профилей, маршруты выбранных приложений, список и карта подключений — в нативном интерфейсе Kotlin. Просмотр карты сам по себе не включает VPN и не меняет маршрут.</p>
+          <p>APK из preview r5 подписан отладочным ключом и устанавливается отдельно от production-приложения. Перед установкой выберите сборку для архитектуры устройства.</p>
+          <div class="text-links">
+            <a href="https://github.com/INNVoices/waarp/blob/main/docs/INSTALL.md">Установка Android <span aria-hidden="true">→</span></a>
+            <a href="https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r5">Что входит в r5</a>
+          </div>
+          <p class="release-note" id="obtainium">Для установленного Obtainium: <a href="obtainium://app/%7B%22id%22%3A%22local.waarp.android.debug%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FINNVoices%2Fwaarp%22%2C%22author%22%3A%22INNVoices%22%2C%22name%22%3A%22Waarp%20(Android%20preview)%22%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3Atrue%2C%5C%22includeDrafts%5C%22%3Afalse%2C%5C%22fallbackToOlderReleases%5C%22%3Atrue%2C%5C%22sortMethodChoice%5C%22%3A%5C%22date%5C%22%2C%5C%22verifyLatestTag%5C%22%3Afalse%2C%5C%22apkFilterRegEx%5C%22%3A%5C%22%5Ewaarp-android-.%2B-(arm64-v8a%7Carmeabi-v7a%7Cx86_64)-debug%5C%5C%5C%5C.apk%24%5C%22%2C%5C%22invertAPKFilter%5C%22%3Afalse%2C%5C%22autoApkFilterByArch%5C%22%3Atrue%2C%5C%22includeZips%5C%22%3Afalse%2C%5C%22includeTarballs%5C%22%3Afalse%2C%5C%22trackOnly%5C%22%3Afalse%7D%22%2C%22allowIdChange%22%3Afalse%7D">импортируйте Android preview</a>, подтвердите импорт и затем установку. <a href="https://github.com/INNVoices/waarp/blob/main/docs/INSTALL.md#obtainium">Как настроить</a>.</p>
+        </div>
+        <figure class="phone-figure">
+          <a href="screenshots/preview-r5/android-atlas-normal.png"><img class="phone-shot" src="screenshots/preview-r5/android-atlas-normal.png" width="1080" height="2400" alt="Waarp для Android: список туннелей и карта в нативном интерфейсе" loading="lazy" decoding="async"></a>
+          <figcaption>Android preview r5: реальный интерфейс в эмуляторе, тестовые профили. <a href="https://github.com/INNVoices/waarp/blob/main/docs/screenshots/preview-r5/README.md">Условия съёмки</a>.</figcaption>
+        </figure>
+      </div>
+    </section>
+    <section class="container section" aria-labelledby="start-title">
+      <h2 id="start-title">От скачивания к первому маршруту</h2>
+      <ol class="steps">
+        <li><strong>Выберите сборку</strong><p>Скачайте файл для своей платформы и сверьте SHA-256 по <a href="https://github.com/INNVoices/waarp/blob/main/docs/INSTALL.md">инструкции установки</a>.</p></li>
+        <li><strong>Добавьте подключение</strong><p>Импортируйте профиль своего сервера или провайдера. Windows запросит повышение прав для туннеля; Android — системное разрешение VPN.</p></li>
+        <li><strong>Задайте правило</strong><p>Выберите приложение и подключение, сохраните маршрут и проверьте результат в диагностике.</p></li>
+      </ol>
+      <div class="project-note"><p><strong>Перед использованием.</strong> Публичными узлами управляют сторонние владельцы; их доступность и условия различаются. В Windows нет независимого firewall kill switch: при выходе движка система может вернуться к обычному маршруту. <a href="https://github.com/INNVoices/waarp/blob/main/docs/RELIABILITY.md">Ограничения и надёжность</a>.</p><p>Хотите собрать текущий исходный код? <a href="https://github.com/INNVoices/waarp/blob/main/README.ru.md">Руководство в репозитории</a> описывает сборку и возможности main. Для скачанных preview-сборок ориентируйтесь на <a href="https://github.com/INNVoices/waarp/blob/main/docs/RELEASES.md">заметки к выпускам</a>.</p></div>
+    </section>
+  </main>
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-top">
+        <a class="brand" href="https://github.com/INNVoices/waarp" aria-label="Waarp на GitHub">waarp</a>
+        <nav class="footer-links" aria-label="Ресурсы проекта">
+          <a href="https://github.com/INNVoices/waarp/releases">Все выпуски</a>
+          <a href="https://github.com/INNVoices/waarp/blob/main/SUPPORT.md">Поддержка</a>
+          <a href="https://github.com/INNVoices/waarp/blob/main/CONTRIBUTING.md">Участие в разработке</a>
+          <a href="https://github.com/INNVoices/waarp/blob/main/SECURITY.md">Безопасность</a>
+        </nav>
+      </div>
+      <p class="license-note">Открытый исходный код. Приложение Windows — <a href="https://github.com/INNVoices/waarp/blob/main/LICENSE">Apache-2.0</a>; приложение Android — <a href="https://github.com/INNVoices/waarp/blob/main/android/LICENSE">GPL-3.0-or-later</a>. У движков и зависимостей <a href="https://github.com/INNVoices/waarp/blob/main/THIRD_PARTY_NOTICES.md">свои лицензии</a>.</p>
+    </div>
+  </footer>
+</body>
+</html>
