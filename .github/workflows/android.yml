@@ -149,11 +149,14 @@ jobs:
           profile: pixel_6
           ram-size: 4096M
           heap-size: 512M
+          # Leave room for the APK, extracted native code and acceptance traces.
+          disk-size: 4096M
           disable-animations: true
           emulator-boot-timeout: 600
           emulator-port: 5554
           emulator-options: -no-window -gpu software -noaudio -no-boot-anim -camera-back none -no-snapshot
           script: |
+            adb -s emulator-5554 shell df -Pk /data
             python3 scripts/android-install.py --serial emulator-5554 --with-tests
             bash scripts/android-emulator-locale.sh
             python3 scripts/android-instrument.py --serial emulator-5554 --disposable-emulator --expect-page-size 4096 --route-smoke --timeout 300 --output out/android/route-smoke
@@ -312,11 +315,14 @@ jobs:
           profile: pixel_6
           ram-size: ${{ matrix.ram }}
           heap-size: 512M
+          # Leave room for the APK, extracted native code and acceptance traces.
+          disk-size: 4096M
           disable-animations: true
           emulator-boot-timeout: 600
           emulator-port: 5554
           emulator-options: -no-window -gpu software -noaudio -no-boot-anim -camera-back none -no-snapshot
           script: |
+            adb -s emulator-5554 shell df -Pk /data
             if [ "${{ matrix.api }}" = "29" ]; then adb -s emulator-5554 shell settings --user 0 put system system_locales ru-RU && python3 scripts/android-emulator-prepare.py --serial emulator-5554 --disposable-emulator --report out/android/device-tests/emulator-preparation.json; fi
             python3 scripts/android-awg-control.py start --binary "$RUNNER_TEMP/awg-android-fixture" --report out/android/device-tests/awg-proof.json
             python3 scripts/android-install.py --with-tests
@@ -400,11 +406,14 @@ jobs:
           profile: pixel_6
           ram-size: ${{ matrix.ram }}
           heap-size: 512M
+          # Leave room for the APK, extracted native code and acceptance traces.
+          disk-size: 4096M
           disable-animations: true
           emulator-boot-timeout: 600
           emulator-port: 5554
           emulator-options: -no-window -gpu software -noaudio -no-boot-anim -camera-back none -no-snapshot
           script: |
+            adb -s emulator-5554 shell df -Pk /data
             if [ "${{ matrix.api }}" = "29" ]; then adb -s emulator-5554 shell settings --user 0 put system system_locales ru-RU && python3 scripts/android-emulator-prepare.py --serial emulator-5554 --disposable-emulator --report out/android/release-journeys/emulator-preparation.json; fi
             python3 scripts/android-awg-control.py start --binary "$RUNNER_TEMP/awg-android-fixture" --duration 30m --report out/android/release-journeys/awg-proof.json
             python3 scripts/android-release-run.py --mode journeys --expect-page-size ${{ matrix.page-size }} --output out/android/release-journeys --duration-seconds 7200 --interval-seconds 15 --disposable-emulator
@@ -467,10 +476,13 @@ jobs:
           profile: pixel_6
           ram-size: 4096M
           heap-size: 512M
+          # Leave room for the APK, extracted native code and acceptance traces.
+          disk-size: 4096M
           disable-animations: true
           emulator-boot-timeout: 600
           emulator-options: -no-window -gpu software -noaudio -no-boot-anim -camera-back none -no-snapshot
           script: |
+            adb -s emulator-5554 shell df -Pk /data
             python3 scripts/android-awg-control.py start --binary "$RUNNER_TEMP/awg-android-fixture" --duration 3h --report out/android/release-soak/awg-proof.json
             python3 scripts/android-release-run.py --mode soak --expect-page-size 16384 --output out/android/release-soak --duration-seconds 7200 --interval-seconds 15 --disposable-emulator
       - name: Stop the owned AWG peer and verify authenticated traffic

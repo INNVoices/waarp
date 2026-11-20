@@ -1,5 +1,46 @@
 # Acceptance readiness: observed failures and bounded corrections
 
+## Current follow-up: explicit emulator storage
+
+[Android run 44429864105](https://github.com/INNVoices/waarp/actions/runs/44429864105),
+source `a05365f551800df78473eb4f17dda5ce092489bf`, passed the build/static gate,
+native API 29/35 and optimized-release API 35. It did not pass full Android
+acceptance, and the two-hour soak was skipped.
+
+The [native API 36 job](https://github.com/INNVoices/waarp/actions/runs/44429864105/job/135247787037)
+stopped while creating the installation session, before app tests:
+`Requested internal only, but not enough space`. The emulator inputs did not
+declare a data-partition size. All four emulator steps now request `4096M`
+explicitly and print `df -Pk /data` before preparation or installation so that
+the actual guest capacity remains visible in the job log. The pinned
+[emulator action](https://github.com/ReactiveCircus/android-emulator-runner/blob/a421e43855164a8197daf9d8d40fe71c6996bb0d/src/emulator-manager.ts)
+maps `disk-size` to `disk.dataPartition.size` when creating the disposable AVD.
+This changes test-environment storage; it does not establish a smaller APK or
+successful installation until a new runtime job demonstrates it.
+
+Two other failures remain separate from storage:
+
+- [Release API 29](https://github.com/INNVoices/waarp/actions/runs/44429864105/job/135247786948)
+  lost the new `system_server` during framework preparation. The retained
+  crash log reports `DeadSystemException` before app installation. The
+  preparation check correctly rejected the changed process identity.
+- [Release API 36](https://github.com/INNVoices/waarp/actions/runs/44429864105/job/135247787060)
+  refused trace-buffer preparation: `events/enable` was `X`, although
+  `tracing_on` was `0` and the observed Perfetto session counts were zero.
+  That is not the required proof that every event is disabled. The existing
+  refusal remains in place; no active tracing is stopped or cleared.
+
+The failure archives were verified against their GitHub SHA-256 digests and
+all ZIP entry CRCs before inspection: API 29 artifact `14486787174`
+(`9f3f2d3211a77fdfefd91091bca739196ffa5e0dbbef7f402a143414efa44956`),
+and release API 36 artifact `14486517407`
+(`0243a92674f3d10a96eba45feab786ba414ac6e4c7c23c8d6a2e21bee2e1c3e0`).
+App assertions, RAM/heap, page sizes, time limits, encrypted traffic proof
+and the mandatory two-hour soak are unchanged. These failures must not be
+converted into a production-release approval.
+
+## Earlier run: 44024845939
+
 This records the evidence from [Android run 44024845939](https://github.com/INNVoices/waarp/actions/runs/44024845939), source `717b8b810702e84254c449c02a3401bb9e6c4336`. It is a failed acceptance run, not a stability certificate. Downloaded failure archives were checked against the GitHub artifact size and SHA-256, then every ZIP entry CRC, before analysis.
 
 | Gate | Observed outcome |
