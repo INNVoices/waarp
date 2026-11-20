@@ -5,6 +5,22 @@
   "license": "Apache-2.0",
   "private": true,
   "description": "Windows per-app and per-site traffic router with stable Auto paths and multi-protocol tunnels",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/INNVoices/waarp.git"
+  },
+  "homepage": "https://innvoices.github.io/waarp/",
+  "bugs": {
+    "url": "https://github.com/INNVoices/waarp/issues"
+  },
+  "keywords": [
+    "vpn",
+    "proxy",
+    "split-tunneling",
+    "per-app-routing",
+    "windows",
+    "electron"
+  ],
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
