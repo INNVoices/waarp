@@ -1,0 +1,12 @@
+{
+  "apps": [
+    {
+      "id": "local.waarp.android.debug",
+      "url": "https://github.com/INNVoices/waarp",
+      "author": "INNVoices",
+      "name": "Waarp (Android preview)",
+      "additionalSettings": "{\"includePrereleases\":true,\"includeDrafts\":false,\"fallbackToOlderReleases\":true,\"sortMethodChoice\":\"date\",\"verifyLatestTag\":false,\"apkFilterRegEx\":\"^waarp-android-.+-(arm64-v8a|armeabi-v7a|x86_64)-debug\\\\.apk$\",\"invertAPKFilter\":false,\"autoApkFilterByArch\":true,\"includeZips\":false,\"includeTarballs\":false,\"trackOnly\":false}",
+      "allowIdChange": false
+    }
+  ]
+}

@@ -1,12 +1,18 @@
 # Releases, downloads and integrity
 
-[English README](../README.md) · [Русский README](../README.ru.md) · [All GitHub releases](https://github.com/INNVoices/waarp/releases) · [Release preview workflow](../.github/workflows/release-preview.yml)
+[English README](../README.md) · [Русский README](../README.ru.md) · [Installation guide](INSTALL.md) · [All GitHub releases](https://github.com/INNVoices/waarp/releases) · [Release preview workflow](../.github/workflows/release-preview.yml)
 
-## Stable source · 1.0.0
+## Current download status
 
-Both clients use version 1.0.0. Android uses version code 7. See the [component and acceptance record](V1.md), [build instructions](ANDROID.md#build-and-install) and [release notes](../release/stable.md). The portable release workflow verifies the EXE, its packaged engine and its checksum list before publication.
+The repository and the published downloads are public. Available binaries are **previews**: Windows **0.4.1-rc.5** from r6 and Android **0.5.0-rc.5** from r5. Windows is unsigned; Android APKs are debug-signed. Choose your platform in the download table below, or follow the [installation and first-route guide](INSTALL.md).
 
-## Preview archive · Windows r6 and Android r5
+## Source version 1.0.0
+
+The current source tree uses version **1.0.0** for both clients; Android uses version code **7**. A public 1.0.0 binary release has not been published. The preview files below retain their original versions, source commits and feature sets. Changes on `main`, including the expanded interface languages, do not update those files.
+
+See the [component and code acceptance record](V1.md), [build instructions](ANDROID.md#build-and-install) and [source release notes](../release/stable.md). The [release workflow](../.github/workflows/stable.yml) prepares and verifies packages, but the existence of source code or a workflow does not establish a published or production-approved release. The [release approval policy](#release-approval-policy) and the evidence for each build remain separate.
+
+## Published previews · Windows r6 and Android r5
 
 **Windows r6 is published as a prerelease**, released on 18 November 2026 at 16:54:52 UTC. It updates only the desktop application to `0.4.1-rc.5`. Its tag and binaries refer to source [`0e0bb6c7cad421dc0fff377d8c7f826d115e0292`](https://github.com/INNVoices/waarp/commit/0e0bb6c7cad421dc0fff377d8c7f826d115e0292). All required jobs in the [release workflow](https://github.com/INNVoices/waarp/actions/runs/44348809024) passed; Android was skipped as declared by the Windows-only release intent. [Published r6 release](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r6).
 
@@ -76,7 +82,7 @@ The release also contains [Windows SHA-256 sums](https://github.com/INNVoices/wa
 | Android x86_64 debug APK | `1907d4242bf01543327a30926ac4c375a662ab871284d52e5381c1d8431dff31` |
 
 > [!WARNING]
-> No version is approved as **stable**. Never present an unsigned Android `release-unsigned.apk` as installable or a development/debug APK as a production-signed update. The current repository is private; downloads require repository access until the owner changes its visibility.
+> These r5 binaries remain a **prerelease**. Never present an unsigned Android `release-unsigned.apk` as installable or a development/debug APK as a production-signed update. The published r5 downloads are public; the checks below describe those exact files and do not establish stable approval for later source versions.
 
 ### Checks completed for r5
 
