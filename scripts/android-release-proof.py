@@ -189,11 +189,9 @@ def validate_device(directory, mode, installed, duration=7200, interval=15, *, e
             "emulatorImage": ftrace_preparation["imageProof"], "ftracePreparation": ftrace_preparation, "passed": True}
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--directory", type=Path, required=True)
-    options = parser.parse_args()
-    directory = options.directory.resolve()
+def validate(directory: Path) -> dict:
+    """Reconcile the original evidence without writing or trusting a cached proof."""
+    directory = directory.resolve()
     run = json.loads((directory / "result.json").read_text())
     require(run["passedGate"] is True and run["tests"] == run["passed"] == 1 and run["failed"] == run["skipped"] == 0,
             "The release instrumentation did not pass exactly one complete scenario.")
@@ -221,6 +219,15 @@ def main():
               "deviceRounds": summary["successfulRounds"], "deviceHttpBytes": summary["httpBytes"],
               "hostTrafficSpanMs": host_span, "hostProof": proof, "emulatorImage": checked["emulatorImage"],
               "ftracePreparation": checked["ftracePreparation"]}
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--directory", type=Path, required=True)
+    options = parser.parse_args()
+    directory = options.directory.resolve()
+    result = validate(directory)
     (directory / "reconciled-proof.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps({key: value for key, value in result.items() if key != "hostProof"}))
 
