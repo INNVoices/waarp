@@ -2,6 +2,33 @@
 
 Waarp routes applications and domains through personal connections or Direct on Windows and Android. This roadmap is directional, not a promise of dates or version numbers. Reliability and regressions can reorder it.
 
+## Production execution map
+
+The [production task map](docs/production/README.md) is the agent entry point: **eight specification corpora, 60 stable task IDs**, hard and conditional dependencies, acceptance criteria and verification. The [parent tracker](https://github.com/INNVoices/waarp/issues/32) links one working issue per corpus. [AGENTS.md](AGENTS.md) describes ownership and integration; [tasks.json](docs/production/tasks.json) is the machine-readable snapshot.
+
+```sh
+python3 scripts/production-roadmap.py check
+python3 scripts/production-roadmap.py ready
+python3 scripts/production-roadmap.py show STK-003
+```
+
+The immediate order is: resolve Android runtime/infrastructure blockers and reconcile Windows evidence; accept one exact candidate and its update identity; improve everyday UI/language behavior and measured package size; implement recoverable Android Sticky Entry through a feasibility gate; expand verified distribution and useful onboarding. Independent research, small fixes and guides run in parallel with release CI.
+
+| Corpus | Outcome |
+| --- | --- |
+| [Release](docs/production/01-production-release.md) | Exact-source runtime evidence, signing, install/update and publication |
+| [Routing/security](docs/production/02-routing-and-security.md) | Clear rule/DNS semantics, continuity, privacy, protocol and failure matrices |
+| [UI/UX](docs/production/03-ui-ux.md) | Accessible controls, predictable states, drafts, recovery and first successful route |
+| [Android Sticky Entry](docs/production/04-sticky-companion.md) | Recoverable own entry plus a bounded cross-app trigger investigation |
+| [Localization](docs/production/05-localization.md) | Existing 19 languages: selection, fallback, RTL, structure and wording review |
+| [Build](docs/production/06-build-and-supply-chain.md) | Actual artifact inventory, safe removal of unused payload and verified dependencies |
+| [Distribution/growth](docs/production/07-distribution-and-growth.md) | Tested package channels, practical guides, eligible submissions and honest measurement |
+| [Agent execution](docs/production/08-agent-execution.md) | Small owned tasks, review, evidence and reliable handoffs |
+
+The [original Android Chameleon concept](docs/ANDROID-CHAMELEON-2026-11-18.md) remains the basis of “Sticky Entry”: optional launcher presentation and a user-configured event in another app, where Android exposes a supported event and launch path. Recovery comes before hiding an entry. A Windows tray/hotkey is not a substitute; changing UI visibility must not alter VPN state.
+
+The map preserves earlier Э0–Э8 and WN implementation history. Existing code is reconciled before new work; “implemented,” “tested on a native engine” and “accepted for production” remain separate claims.
+
 ## Current baseline
 
 | Area | Current state |

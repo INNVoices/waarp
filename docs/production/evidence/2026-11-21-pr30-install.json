@@ -1,0 +1,368 @@
+{
+  "schemaVersion": 1,
+  "observedOn": "2026-11-21",
+  "pullRequest": "https://github.com/INNVoices/waarp/pull/30",
+  "head": "fc0d549f259db23b2dc361f02b90c3bdcffb1a25",
+  "mergedCommit": "35c3b2e11d0001f482dbae22abccbed4db8769bf",
+  "job": "https://github.com/INNVoices/waarp/actions/runs/44856329155/job/136701575165",
+  "artifactId": 14688162644,
+  "archiveBytes": 38208,
+  "archiveSha256": "78cc188b59ce786c194df8061aca899f8e580d1090d4fe8a8c7c86fa55bf23b2",
+  "archiveCrcChecked": true,
+  "rawStreamsVerified": 22,
+  "installReport": {
+    "schemaVersion": 1,
+    "checkedAtUtc": "2026-11-21T02:41:42.970520+00:00",
+    "serial": "emulator-5554",
+    "passed": false,
+    "failedCommand": [
+      "install",
+      "-r",
+      "/home/runner/work/waarp/waarp/out/android/waarp-android-1.0.0-x86_64-debug.apk"
+    ],
+    "originalError": "RuntimeError: Performing Streamed Install\nadb: failed to install /home/runner/work/waarp/waarp/out/android/waarp-android-1.0.0-x86_64-debug.apk: cmd: Can't find service: package",
+    "diagnosticsAllowed": true,
+    "collectionFinished": true,
+    "commands": [
+      {
+        "name": "ro.kernel.qemu",
+        "arguments": [
+          "shell",
+          "getprop",
+          "ro.kernel.qemu"
+        ],
+        "attempted": true,
+        "outputLimitBytesPerStream": 16384,
+        "timeoutSeconds": 2,
+        "exitCode": 0,
+        "timedOut": false,
+        "stdout": {
+          "available": true,
+          "file": "install-failure-raw/ro.kernel.qemu.stdout.txt",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "limitReached": false
+        },
+        "stderr": {
+          "available": true,
+          "file": "install-failure-raw/ro.kernel.qemu.stderr.txt",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "limitReached": false
+        }
+      },
+      {
+        "name": "ro.boot.qemu",
+        "arguments": [
+          "shell",
+          "getprop",
+          "ro.boot.qemu"
+        ],
+        "attempted": true,
+        "outputLimitBytesPerStream": 16384,
+        "timeoutSeconds": 2,
+        "exitCode": 0,
+        "timedOut": false,
+        "stdout": {
+          "available": true,
+          "file": "install-failure-raw/ro.boot.qemu.stdout.txt",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "limitReached": false
+        },
+        "stderr": {
+          "available": true,
+          "file": "install-failure-raw/ro.boot.qemu.stderr.txt",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "limitReached": false
+        }
+      },
+      {
+        "name": "ro.debuggable",
+        "arguments": [
+          "shell",
+          "getprop",
+          "ro.debuggable"
+        ],
+        "attempted": true,
+        "outputLimitBytesPerStream": 16384,
+        "timeoutSeconds": 2,
+        "exitCode": 0,
+        "timedOut": false,
+        "stdout": {
+          "available": true,
+          "file": "install-failure-raw/ro.debuggable.stdout.txt",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "limitReached": false
+        },
+        "stderr": {
+          "available": true,
+          "file": "install-failure-raw/ro.debuggable.stderr.txt",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "limitReached": false
+        }
+      },
+      {
+        "name": "logcat-crash",
+        "arguments": [
+          "shell",
+          "logcat",
+          "-d",
+          "-b",
+          "crash",
+          "-v",
+          "threadtime",
+          "-t",
+          "256"
+        ],
+        "attempted": true,
+        "outputLimitBytesPerStream": 1048576,
+        "timeoutSeconds": 2,
+        "exitCode": 0,
+        "timedOut": false,
+        "stdout": {
+          "available": true,
+          "file": "install-failure-raw/logcat-crash.stdout.txt",
+          "bytes": 16242,
+          "sha256": "17fcca4ba65db11fa5c0a98cd187112d98f4a677468c5474befe48561574ff79",
+          "limitReached": false
+        },
+        "stderr": {
+          "available": true,
+          "file": "install-failure-raw/logcat-crash.stderr.txt",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "limitReached": false
+        }
+      },
+      {
+        "name": "framework-pids",
+        "arguments": [
+          "shell",
+          "pidof",
+          "system_server",
+          "zygote",
+          "zygote64"
+        ],
+        "attempted": true,
+        "outputLimitBytesPerStream": 16384,
+        "timeoutSeconds": 2,
+        "exitCode": 0,
+        "timedOut": false,
+        "stdout": {
+          "available": true,
+          "file": "install-failure-raw/framework-pids.stdout.txt",
+          "bytes": 10,
+          "sha256": "da764d7e671d025c09e708167889180aa94d42bcb13035e8fe483f432b20b0d3",
+          "limitReached": false
+        },
+        "stderr": {
+          "available": true,
+          "file": "install-failure-raw/framework-pids.stderr.txt",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "limitReached": false
+        }
+      },
+      {
+        "name": "package-service",
+        "arguments": [
+          "shell",
+          "service",
+          "check",
+          "package"
+        ],
+        "attempted": true,
+        "outputLimitBytesPerStream": 16384,
+        "timeoutSeconds": 2,
+        "exitCode": 0,
+        "timedOut": false,
+        "stdout": {
+          "available": true,
+          "file": "install-failure-raw/package-service.stdout.txt",
+          "bytes": 27,
+          "sha256": "d29a6a71190b793eff14c447d16258553a10fa390a3e1d564f5b1cf5488a18e1",
+          "limitReached": false
+        },
+        "stderr": {
+          "available": true,
+          "file": "install-failure-raw/package-service.stderr.txt",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "limitReached": false
+        }
+      },
+      {
+        "name": "settings-service",
+        "arguments": [
+          "shell",
+          "service",
+          "check",
+          "settings"
+        ],
+        "attempted": true,
+        "outputLimitBytesPerStream": 16384,
+        "timeoutSeconds": 2,
+        "exitCode": 0,
+        "timedOut": false,
+        "stdout": {
+          "available": true,
+          "file": "install-failure-raw/settings-service.stdout.txt",
+          "bytes": 28,
+          "sha256": "e2100559b501fa25c44670d9939afa99b026bd812341fb127e8a59547e2d4bb1",
+          "limitReached": false
+        },
+        "stderr": {
+          "available": true,
+          "file": "install-failure-raw/settings-service.stderr.txt",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "limitReached": false
+        }
+      },
+      {
+        "name": "logcat-recent",
+        "arguments": [
+          "shell",
+          "logcat",
+          "-d",
+          "-b",
+          "all",
+          "-v",
+          "threadtime",
+          "-t",
+          "1200"
+        ],
+        "attempted": true,
+        "outputLimitBytesPerStream": 1048576,
+        "timeoutSeconds": 2,
+        "exitCode": 0,
+        "timedOut": false,
+        "stdout": {
+          "available": true,
+          "file": "install-failure-raw/logcat-recent.stdout.txt",
+          "bytes": 157966,
+          "sha256": "33e25ff711188d0d0861162394483c923d42a06b833363f13b11e6a72d741990",
+          "limitReached": false
+        },
+        "stderr": {
+          "available": true,
+          "file": "install-failure-raw/logcat-recent.stderr.txt",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "limitReached": false
+        }
+      },
+      {
+        "name": "kernel",
+        "arguments": [
+          "shell",
+          "dmesg",
+          "-S",
+          "-s",
+          "262144"
+        ],
+        "attempted": true,
+        "outputLimitBytesPerStream": 524288,
+        "timeoutSeconds": 2,
+        "exitCode": 1,
+        "timedOut": false,
+        "stdout": {
+          "available": true,
+          "file": "install-failure-raw/kernel.stdout.txt",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "limitReached": false
+        },
+        "stderr": {
+          "available": true,
+          "file": "install-failure-raw/kernel.stderr.txt",
+          "bytes": 34,
+          "sha256": "426b9110c9497224234887d6087a99af8900da5094dc929fb1cd0b22a33c1be5",
+          "limitReached": false
+        }
+      },
+      {
+        "name": "memory-and-uptime",
+        "arguments": [
+          "shell",
+          "cat",
+          "/proc/meminfo",
+          "/proc/uptime"
+        ],
+        "attempted": true,
+        "outputLimitBytesPerStream": 16384,
+        "timeoutSeconds": 2,
+        "exitCode": 0,
+        "timedOut": false,
+        "stdout": {
+          "available": true,
+          "file": "install-failure-raw/memory-and-uptime.stdout.txt",
+          "bytes": 1303,
+          "sha256": "475089dba377551f8074ab47ff3a33118b4d4daa00b066fa905401ba6d7714b4",
+          "limitReached": false
+        },
+        "stderr": {
+          "available": true,
+          "file": "install-failure-raw/memory-and-uptime.stderr.txt",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "limitReached": false
+        }
+      },
+      {
+        "name": "processes",
+        "arguments": [
+          "shell",
+          "ps",
+          "-A",
+          "-o",
+          "PID,PPID,NAME"
+        ],
+        "attempted": true,
+        "outputLimitBytesPerStream": 131072,
+        "timeoutSeconds": 2,
+        "exitCode": 0,
+        "timedOut": false,
+        "stdout": {
+          "available": true,
+          "file": "install-failure-raw/processes.stdout.txt",
+          "bytes": 10479,
+          "sha256": "f4afebb3649eaedd3b42fdba9928cae5a2c892b51c4c860ee99324cd5a727d4f",
+          "limitReached": false
+        },
+        "stderr": {
+          "available": true,
+          "file": "install-failure-raw/processes.stderr.txt",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "limitReached": false
+        }
+      }
+    ],
+    "timeoutSeconds": 12,
+    "perCommandTimeoutSeconds": 2,
+    "scope": "Read-only observations after failed APK installation, before emulator teardown; not recovery, application acceptance or proof of the failure's cause.",
+    "seconds": 0.524,
+    "deadlineExhausted": false
+  },
+  "observations": {
+    "packageService": "not found",
+    "settingsService": "not found",
+    "surfaceflingerCrashTimesUtc": [
+      "2026-11-21T02:41:20Z",
+      "2026-11-21T02:41:28Z",
+      "2026-11-21T02:41:39Z"
+    ],
+    "signal": "SIGABRT",
+    "thread": "RegionSampling",
+    "library": "/vendor/lib64/hw/mapper.ranchu.so",
+    "function": "GoldfishMapper::readFromHost",
+    "assertion": "!rcEnc->featureInfo()->hasReadColorBufferDma"
+  },
+  "interpretation": "Graphics/framework crashes were observed before the failed APK installation. The bounded collector preserved the installation error. This narrows investigation but does not establish the ultimate emulator feature/configuration cause or application runtime acceptance.",
+  "provenanceLimit": "Derived record from a downloaded GitHub Actions artifact; archive and raw hashes were independently checked locally. This is not a cryptographic attestation and does not replace the original run/artifact."
+}
