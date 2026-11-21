@@ -87,7 +87,7 @@ Graphics hypothesis и независимый ftrace blocker требуют фа
 **Title:** Разобрать нестабильность framework API 29 без обхода PID/Binder guard
 
 - **Priority:** P0.
-- **Status:** `in_progress`: Подготовлен causal barrier: перед единственным start дождаться удаления activity/package/display в исходном 30 s stop deadline. 38 preparation и 10 installer tests прошли; новый runtime результат ещё не получен.
+- **Status:** `done`: PR42 прошёл native API29 26/26 и optimized release journey 1/1. Исходные ZIP/API receipts/hash/CRC проверены; raw commands показывают stale Binder registrations после исчезновения PID и их удаление до единственного start. Новый framework, 512m heap и возврат shell UID подтверждены. Доказательство: evidence/2026-11-21-api29-accepted.json.
 - **Dependencies:** нет.
 
 **Dependency notes:** нет; собственные failure diagnostics у подготовки уже существуют.
@@ -101,7 +101,7 @@ Graphics hypothesis и независимый ftrace blocker требуют фа
 **Title:** Уточнить владение BPF trace event и допустимый путь подготовки 16 KiB
 
 - **Priority:** P0.
-- **Status:** `in_progress`: Исходный events guard сохранён. Только после exact stopped-BPF refusal добавлены read-only CPU/snapshot/tracefs FD observations для следующей causal развилки; owner и quiescence пока не доказаны.
+- **Status:** `in_progress`: Подготовлен отдельный strict empty-buffer путь: exact kernel/IKCONFIG hashes, полный bounded native FD inventory, GLOBAL RCU grace-period barrier, свежие нулевые per-CPU stats и сохранение stopped BPF controls до/после единственного resize. 102 host tests прошли. Actual NDK compile/guest runtime ещё не получены; до них задача остаётся in_progress.
 - **Dependencies:** нет.
 - **Files:** `scripts/android-ftrace-prepare.py`, его `-test.py`, `scripts/android-emulator-image.py`, `docs/ANDROID-PERFETTO-16K.md`; raw `ftrace-preparation` artifact.
 - **Change:** исследовать конкретный image/kernel и источник включённого события до любой tracefs mutation. Проверенный exact kernel revision и permalink приведены ниже. Helper lookup может асинхронно включить событие, поэтому `X` совместим с нулём Perfetto sessions. Это объяснение механизма, не атрибуция actual guest. Подготовить проверяемый вариант, сохраняющий чужое состояние; если безопасный resize при таком состоянии не доказан, оставить отказ.
@@ -151,7 +151,7 @@ Graphics hypothesis и независимый ftrace blocker требуют фа
 **Title:** Зафиксировать Windows portable runtime и жизненный цикл обновления
 
 - **Priority:** P0.
-- **Status:** `in_progress`: Независимо проверен validation ZIP main217: 50 native TUN cycles, selector semantics, compiler and packaged payload reports. Portable/UAC/profile upgrade и физические сценарии этим не закрыты.
+- **Status:** `in_progress`: PR43: реальный portable EXE прошёл 3/3 запуска за 46.570 s, тот же зашифрованный профиль и настройки сохранены, все выходы штатные без оставшихся собственных процессов. ZIP/hash/CRC и ASAR bindings проверены. Это PR merge checkout; UAC, переход между версиями/rollback и физические сценарии остаются NOT_RUN. Доказательство: evidence/2026-11-21-windows-portable-pr43.json.
 - **Dependencies:** нет.
 - **Files:** `.github/workflows/ci.yml`, `.github/workflows/release-preview.yml`, `scripts/verify-package.mjs`, Windows native/lifecycle harness, `docs/V1.md`, `docs/INSTALL.md`, `engine/integrity.json`.
 - **Change:** связать текущий Windows job, packaged portable hash, shipped engine/DLL/notices и реальные native/TUN evidence. Существующее покрытие отметить `ALREADY_DONE`; адресно закрыть только отсутствующую последовательность: первый запуск, отказ UAC, штатный выход, повторный запуск, замена portable EXE при остановленном приложении, чтение сохранённого профиля, осмысленный rollback. Проверять только собственные child/TUN resources; соседний VPN не трогать.
@@ -179,7 +179,7 @@ Graphics hypothesis и независимый ftrace blocker требуют фа
 **Title:** Разобрать graphics/framework crash API 36 до установки приложения
 
 - **Priority:** P0.
-- **Status:** `in_progress`: Подготовлен bounded host AVD receipt с 18 tests; фактические target/SDK/argv следующего run нужны для проверки graphics hypothesis. Runtime crash пока не исправлен.
+- **Status:** `done`: PR44 исправил подтверждённый target=android-0 через явные SDK tools20: оба AVD созданы с target=android-36.1, image/GPU/budgets сохранены. Native API36 прошёл 26/26, 0 failed/skipped; original ZIP/API receipts/hash/CRC проверены. Release36 отдельно остановлен прежним REL-003 ftrace guard; полная matrix/soak ещё обязательны. Доказательство: evidence/2026-11-21-api36-sdk20-accepted.json.
 - **Dependencies:** нет.
 - **Files:** `.github/workflows/android.yml`, `docs/ANDROID.md`, `docs/ANDROID-PERFETTO-16K.md`, `docs/production/evidence/2026-11-21-pr30-install.json`; upstream source только как read-only evidence.
 - **Change:** сопоставить точные emulator version, Android image revision, ABI/page size и graphics backend из job/provenance с assertion `GoldfishMapper::readFromHost` / `hasReadColorBufferDma`. Найти соответствующий AOSP/gfxstream код и допустимую конфигурацию или upstream исправление. Отделить SurfaceFlinger crash, последующий framework restart и отсутствие package/settings от независимого ftrace blocker REL-003. После source review предложить один ограниченный воспроизводимый эксперимент; менять только подтверждённую причину.

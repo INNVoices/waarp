@@ -1,4 +1,4 @@
-# REL-009: исправление создания AVD, runtime ещё не принят
+# REL-009: исправлен AVD target, native runtime подтверждён
 
 ## Установленный дефект конфигурации
 
@@ -108,5 +108,10 @@ Creation report связывает original receipt SHA256, selected source.prop
 wrapper hash, точные arguments и созданные INI/config hashes. Это inventory и
 связность доверенного CI input, не самостоятельная аттестация SDK JAR payload или
 авторства произвольного JSON. Успех helper означает только корректное создание AVD.
-REL-009 остаётся открытым до фактического API36 runtime без прежнего graphics crash;
-полный release acceptance по-прежнему требует всю matrix и soak.
+Фактическое наблюдение после исправления приведено ниже. Полный release acceptance по-прежнему требует всю matrix и soak.
+
+## Фактический результат PR44
+
+В [run44864148533](https://github.com/INNVoices/waarp/actions/runs/44864148533) оба API36 creator шага успешно создали `target=android-36.1` через tools20.0 без ручного изменения target. Image36.1 r4 и GPU flags сохранены. Native API36 прошёл **26/26 tests, 0 failed, 0 skipped** за265.1s; прежний отказ до установки больше не остановил этот сценарий.
+
+[Проверенная запись](production/evidence/2026-11-21-api36-sdk20-accepted.json) содержит immutable artifact IDs, raw API receipt/ZIP/selected record hashes и пределы вывода. Исходные ZIP сверены по длине/digest/CRC. Optimized release API36 дошёл до самостоятельного ftrace blocker REL-003 (`eventsEnabled=X`, mutation=false), поэтому зависимый soak был skipped. Эта запись закрывает конкретную REL-009 корректировку и не заменяет full main-push release acceptance.

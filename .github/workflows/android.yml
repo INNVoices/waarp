@@ -65,6 +65,14 @@ jobs:
         run: python3 scripts/android-avd-receipt-test.py
       - name: Verify conditional SDK 20 AVD creation and identity guards
         run: python3 scripts/android-avd-create-pinned-test.py
+      - name: Verify exact installed kernel identity and bounded observer transport
+        run: python3 scripts/android-emulator-image-kernel-test.py
+      - name: Verify native tracefs observer metadata and refusal fixtures
+        run: python3 scripts/android-ftrace-observer-test.py
+      - name: Verify strict stopped and empty trace buffer evidence
+        run: python3 scripts/android-ftrace-empty-buffer-test.py
+      - name: Verify pinned observer build and ELF identity boundaries
+        run: python3 scripts/android-ftrace-observer-build-test.py
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
@@ -135,6 +143,9 @@ jobs:
           key: waarp-native-source-v2-${{ hashFiles('android/native*.json', 'android/native-patches/**', 'android/app/src/main/res/raw/engine_integrity.json', 'scripts/android-core-build.py', 'scripts/android-verify.py', 'scripts/android-native-notices.py') }}
       - name: Build actual APKs and verify their signatures, engine and 16 KB alignment
         run: node scripts/android-build.mjs
+      # android-build atomically replaces out/android; retain the CI-only observer afterward.
+      - name: Build the pinned test-only tracefs metadata observer
+        run: python3 scripts/android-ftrace-observer-build.py --sdk-root "$ANDROID_HOME"
       - name: Require real passing JVM regression results
         run: python3 scripts/android-test-report.py android/app/build/test-results/testDebugUnitTest --report out/android/unit-tests.json
       # This gate uses the actual APKs in this workspace. GitHub artifact-storage
@@ -203,7 +214,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: waarp-android-apks
-          path: out/android/
+          path: |
+            out/android/
+            !out/android/ci-observer/**
           if-no-files-found: error
           retention-days: 14
           compression-level: 6
@@ -229,6 +242,7 @@ jobs:
             android/app/build/outputs/mapping/release/
             out/android/*.json
             out/android-core/
+            out/android/ci-observer/
           retention-days: 14
       - name: Upload optimized release acceptance inputs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -238,6 +252,7 @@ jobs:
             out/android/*-x86_64-release-unsigned.apk
             out/android/waarp-android-release-acceptance.apk
             out/android/artifacts.json
+            out/android/ci-observer/
           if-no-files-found: error
           retention-days: 7
           compression-level: 6

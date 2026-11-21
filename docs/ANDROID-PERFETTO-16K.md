@@ -111,7 +111,7 @@ of 16 requires no write; a value of 4 permits one write of 16 only after the
 quiescence checks below. Missing interfaces, other values, changed image
 identity and unexpected stderr fail before any accepted capture.
 
-The guard requires `current_tracer=nop`, no enabled events, a successful raw
+The normal guard requires `current_tracer=nop`, no enabled events, a successful raw
 Perfetto service query explicitly supporting session enumeration with no
 configured/started/listed sessions, no `perfetto` client, and no legacy `atrace`
 client or active user/tag/app properties. The service query preserves binary
@@ -161,7 +161,131 @@ excluded. These reads share the unchanged 10-second command, 60-second sequence
 and 64 KiB stream limits. The `/proc` scan is not atomic; missing files, access
 errors or `UNKNOWN` markers cannot establish ownership. `allReadsCompleted`
 reports command completion only. `quiescenceEstablished` and `ownerEstablished`
-remain false, and the original rejection and prohibition on mutation remain.
+remain false, and those diagnostic observations alone never permit mutation.
+
+## Exact stopped-BPF empty-buffer path
+
+The earlier failures remain failures. PR 42 run `44862192000`, release API 36
+job `136719836586`, artifact `14690652483` (ZIP SHA-256
+`df8bd658a38d0ba15cdff6d498658b94b6af9a705d5048d68bf1a7f09ac8c009`)
+observed `tracing_on=0`, `nop`, exactly `bpf_trace:bpf_trace_printk` and zero
+statistics on CPUs 0 and 1. Its shell FD observation was incomplete and its
+snapshot interface was absent. It did **not** establish a safe resize. PR 44's
+same guard refusal on the corrected Android 36.1 AVD also remains failed.
+
+The narrow candidate below requires new evidence. It does not disable BPF,
+attribute the BPF producer, allow arbitrary `events/enable=X`, or relax the
+event/marker/scheduling assertions in the actual acceptance trace.
+
+### Bind the kernel and its compiled features
+
+The official 36.1 r4 image's complete `kernel-ranchu` member is 22,635,520 bytes,
+SHA-256 `8e673c5d9b9f5e44f056346eda93adf8b96d3c9f300ce7b4fcc209d6ada906a5`.
+An independently replayed range extraction verified the entire member CRC and
+its embedded IKCONFIG; it did not download or claim a hash of the whole image
+archive. The installed kernel is now hashed through bounded regular-file reads,
+and that inventory is part of the existing image proof and its 60-second
+deadline. The kernel hash has its own maximum of 10 seconds.
+
+The raw embedded `config.gz` is 46,801 bytes, SHA-256
+`f4caa7dbe4722eb5b2d3f711f92a73e2115dc4071d72846e61fde52b3698d71a`.
+The live `/proc/config.gz` must match it. In this exact configuration,
+`TRACER_MAX_TRACE` and `TRACER_SNAPSHOT` are disabled; `PID_NS` and `USER_NS` are
+disabled; `MEMBARRIER`, `PREEMPT_RCU` and `KCMP` are enabled. These are reviewed
+compile-time facts, not deductions from an absent snapshot file. The exact
+[Kconfig](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/kernel/trace/Kconfig),
+[max-buffer allocation and snapshot creation](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/kernel/trace/trace.c),
+and [raw config export](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/kernel/configs.c)
+define this relationship. Missing/wrong installed kernel, changed runtime
+config or an unexpected snapshot interface rejects the candidate.
+
+### Observe every task's file table without spawning scan children
+
+`scripts/android-ftrace-observer.c` is a test-only native observer, built with
+the already pinned NDK `28.2.13676358` for `x86_64-linux-android29` with 16 KiB ELF
+alignment. It is outside the APK. The deterministic builder retains source,
+compiler identity/version, exact arguments, binary SHA-256 and independently
+checked ELF metadata in `out/android/ci-observer/build.json`. The verifier
+compares the retained source with the checked-out source before execution and
+during replay. Build receipts are consistency evidence, not independent
+authentication of CI or the installed compiler.
+
+Only after the disposable/root/image/config guards pass, the bounded ADB
+recorder creates a fresh private `/data/local/tmp/waarp-ftrace-observer-...`
+directory, transfers the exact binary, checks its guest hash, runs it once and
+removes only that owned binary/directory. Exact transfer argv, timings, raw
+output and hashes use the same 10-second command, 60-second total and 64 KiB
+stream limits. The observer itself has a 9-second deadline. A cleanup failure
+is retained separately and cannot replace the primary observation failure.
+
+The observer requires the existing root `su` SELinux context with SELinux
+enforcing, a real procfs root, and visibility through `hidepid=0` or the actual
+filesystem GID/supplementary-group bypass for `hidepid=1/2`. Real/effective GID
+alone is insufficient. `hidepid=4`, unknown modes, a restricted proc subset or
+any unreadable data refuse observation. The exact kernel's disabled PID
+namespace feature is confirmed by the expected absence of the two literal
+`self/ns/pid` and `1/ns/pid` entries after verifying their namespace directories;
+this is never used to ignore a missing task or descriptor. See the exact
+[proc permission logic](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/fs/proc/base.c),
+[filesystem group check](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/kernel/groups.c),
+and [compiled namespace entries](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/fs/proc/namespaces.c).
+
+All `/proc/TGID/task/TID/fd` tables are covered, including threads that unshared
+their file table. `KCMP_FILES` deduplicates only proven-equal tables, and equality
+is checked again during both later task inventories. A denied/unavailable
+comparison causes a full scan of that TID; it does not omit it. Process/thread
+inventories and start times must agree across three observations; descriptor
+numbers, device/inode/type/access flags agree across two complete passes. Every
+unknown, disappearance, access error or changed identity refuses the scan.
+There is no metadata retry and no signal to another process.
+
+`fstatat` follows the proc descriptor reference for metadata without opening
+its target. Classification uses the tracefs superblock device and the exact
+top-level `trace_marker` inode: only write-only marker descriptors are allowed.
+An unknown `mnt_id` is never treated as a non-tracefs file. In this exact kernel,
+[tracefs uses one superblock](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/fs/tracefs/inode.c),
+so aliases, detached mounts and cross-namespace descriptors retain that device
+identity. The reason to avoid a mountinfo-only test is visible in the exact
+[fdinfo implementation](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/fs/proc/fd.c)
+and [mountinfo's path filtering](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/fs/proc_namespace.c).
+
+This is a bounded observation of forbidden tracefs **descriptors**, not an
+atomic ownership proof or an assertion that no mmap can outlive `close(fd)`.
+The exact resize implementation rejects mapped CPU buffers with `EBUSY` before
+deleting pages. That kernel refusal is preserved; no second write is attempted.
+The BPF producer's identity remains explicitly unknown.
+
+### Complete prior writers, then check empty counters and preserve controls
+
+After rechecking `tracing_on=0`, `nop`, the sole BPF event and 4 KiB geometry,
+the observer verifies both possible/present/online CPUs are exactly `0-1`.
+It issues one `MEMBARRIER_CMD_QUERY`, requires GLOBAL support, then one
+`MEMBARRIER_CMD_GLOBAL` with flags 0. The exact
+[membarrier implementation](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/kernel/sched/membarrier.c#L638-L655)
+performs `synchronize_rcu()` with more than one online CPU. This completes an
+already-started writer before the **new** zero-statistics observation; expedited
+or private barriers do not substitute for this reviewed path. Unsupported,
+denied, failed or timed-out barriers refuse preparation. No persistent
+registration is made.
+
+Controls/topology are checked again, and every CPU's entries, bytes, overruns,
+commit overruns, dropped/read events and oldest-event timestamp must be zero.
+The host rechecks controls and all CPU statistics before its single literal
+4→16 KiB write. Afterwards it requires 16 KiB, unchanged `PAGE_SIZE=16384`,
+unchanged stopped/nop/sole-BPF state and zero counters. The exact
+[ring-buffer order-change code](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/kernel/trace/ring_buffer.c#L6840-L7011)
+explains both the destructive page replacement that makes empty-state proof
+necessary and the preserved mapped-buffer refusal. Unknown/active paths still
+fail; no trace data, snapshot, event enable or BPF program is cleared.
+
+Host fixtures cover the new contract, partial/raw tampering, false barrier
+types/results, unavailable descriptor comparison, unshared tables, disappearing
+tasks, alias readers, FSGID, changed controls and exact kernel/config identity.
+A synthetic host scaling run with 201 threads and 256 descriptors per thread
+took approximately 0.006 seconds with proven shared-table deduplication and
+0.357 seconds with denied KCMP and all 51,456 descriptors scanned twice. These
+are host fixture timings with mocked KCMP results; guest performance and
+successful API 36 recording remain **NOT_RUN** until the next ordinary CI run.
 
 ## Recorder startup acknowledgement
 
