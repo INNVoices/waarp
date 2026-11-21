@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "task": "L10N-002",
+  "reviewedOn": "2026-11-21",
+  "pullRequest": "https://github.com/INNVoices/waarp/pull/46",
+  "headCommit": "96d4965ca909e29be62dd7c95c38b296ab741785",
+  "baseCommit": "202c70125daf94bb8499c3b758420cd9ce90a52f",
+  "status": "review",
+  "ciRun": "https://github.com/INNVoices/waarp/actions/runs/44939689471",
+  "localValidation": {
+    "npmRunCheck": "PASS",
+    "npmRunTypecheck": "PASS",
+    "offlineSuitesCompletedWithoutFailures": 66,
+    "localizationNegativeMutationsPassed": 19,
+    "existingLocalizationSuite": "PASS",
+    "literalUiBaselineChanged": false
+  },
+  "structuralCoverage": {
+    "locales": 19,
+    "windowsBaseIds": 1434,
+    "windowsLiteralCalls": 1185,
+    "windowsComputedCallsOutsideStaticCoverage": 57,
+    "androidLiteralIds": 1087,
+    "androidLiteralCalls": 1123
+  },
+  "contracts": [
+    "Separate Windows and Android dictionaries; actual loader/asset/manifest consistency.",
+    "Used literal IDs, duplicate/type checks, placeholder names and multiplicity, argN bounds.",
+    "Required CLDR forms, legal additional forms and the existing Russian fractional fallback.",
+    "Actual Android format consumers: formatter argument mapping and precision, invalid/trailing percent tokens and introduced conversions.",
+    "Comments and literal code examples do not create message call sites."
+  ],
+  "limits": [
+    "Static structure does not certify linguistic quality, geometry, RTL or device behavior.",
+    "Computed Windows IDs remain outside this static guarantee and retain runtime coverage.",
+    "Runtime locale tables, baseline, application settings, routing, signing and native code are unchanged.",
+    "A PR CI result is recorded separately from local checks; merge is required before task delivery is marked done."
+  ],
+  "ci": {
+    "runId": 44939689471,
+    "conclusion": "success",
+    "jobsCompletedSuccessfully": 3,
+    "windowsJob": {
+      "id": 136953932375,
+      "url": "https://github.com/INNVoices/waarp/actions/runs/44939689471/job/136953932375",
+      "conclusion": "success",
+      "validated": [
+        "UI checks",
+        "native lifecycle (50 cycles)",
+        "packaged portable lifecycle"
+      ]
+    }
+  },
+  "integration": {
+    "technicalReview": "accepted",
+    "merge": "pending",
+    "blocker": "Owner confirmation for merge is pending.",
+    "dependentTasksRemainPlanned": [
+      "L10N-003",
+      "L10N-004",
+      "L10N-006",
+      "L10N-008"
+    ]
+  }
+}

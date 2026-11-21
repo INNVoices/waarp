@@ -1,0 +1,245 @@
+{
+  "schemaVersion": 1,
+  "checkedAtUtc": "2026-11-21",
+  "repository": "INNVoices/waarp",
+  "pr": 45,
+  "headCommit": "ec71e72d908b29d872d7ca63ae85498e51673270",
+  "baseCommit": "202c70125daf94bb8499c3b758420cd9ce90a52f",
+  "testedMergeCommit": "8266058a051f72a9f124a3485b23b7c148eb8bd7",
+  "fullAndroidRun": {
+    "id": 44882755131,
+    "url": "https://github.com/INNVoices/waarp/actions/runs/44882755131",
+    "conclusion": "failure",
+    "jobCounts": {
+      "success": 6,
+      "failure": 1,
+      "skipped": 1
+    },
+    "failedJobId": 136783705334,
+    "skippedSoakJobId": 136785585087,
+    "requiredSoakSeconds": 7200
+  },
+  "preflightRun": {
+    "id": 44882755101,
+    "url": "https://github.com/INNVoices/waarp/actions/runs/44882755101",
+    "conclusion": "success",
+    "jobId": 136781433257
+  },
+  "artifacts": [
+    {
+      "scope": "fullAndroid",
+      "runId": 44882755131,
+      "artifact": {
+        "id": 14699306179,
+        "name": "waarp-android-release-api-36-16384-runtime",
+        "bytes": 69415,
+        "sha256": "9329bcf6622c68dbbd6a02bac0ee5788b12f4a14e1bbfcdd461a3252a48ae506",
+        "receiptDigestMatched": true,
+        "zipCrcsPassed": true,
+        "files": 104,
+        "extractedFilesMatchOriginalZip": true
+      },
+      "rawStreamsVerified": 86,
+      "observerBuildsVerifiedAgainstEc71Source": 1,
+      "observerBinarySha256": "e91c1fb547471fc38746ec0d3e369470a1dc4b5819c7c918cafee7819ac4ed2e",
+      "observerBpfProgramSha256": "414aa1528b87692af4cfb9721d15ba14eba99f0890d0d1519df7e02061b08009",
+      "preparationValidator": {
+        "accepted": false,
+        "rejection": "Unverified or out-of-scope ftrace preparation"
+      },
+      "preparationPassed": false,
+      "mutationAttempted": false,
+      "mutated": false,
+      "observer": {
+        "schemaVersion": 4,
+        "passed": false,
+        "reason": "known_thread_missing",
+        "stage": "task_inventory_middle",
+        "context": "missing_positive_shared_member",
+        "errno": 0,
+        "pid": 1840,
+        "tid": 1995,
+        "fd": -1
+      },
+      "observerAdbElapsedSeconds": 0.625967612,
+      "totalRecordedCommandSeconds": 7.2084361359999995,
+      "reachedApplicationAcceptance": false
+    },
+    {
+      "scope": "preflight",
+      "runId": 44882755101,
+      "artifact": {
+        "id": 14697699475,
+        "name": "waarp-android-tracefs-preflight-api-36-16384",
+        "bytes": 118675,
+        "sha256": "d6c212a55c0c1d5ba7a7af4835dba2929f58aa72a4a1fc4e5abaa990ebbb9b09",
+        "receiptDigestMatched": true,
+        "zipCrcsPassed": true,
+        "files": 127,
+        "extractedFilesMatchOriginalZip": true
+      },
+      "rawStreamsVerified": 102,
+      "observerBuildsVerifiedAgainstEc71Source": 2,
+      "observerBinarySha256": "e91c1fb547471fc38746ec0d3e369470a1dc4b5819c7c918cafee7819ac4ed2e",
+      "observerBpfProgramSha256": "414aa1528b87692af4cfb9721d15ba14eba99f0890d0d1519df7e02061b08009",
+      "preparationValidator": {
+        "accepted": true,
+        "reportSha256": "27b4147a1cf68176e43f48afdde04231e32f53a9fea7f8111487cba27d6e8625"
+      },
+      "preparationPassed": true,
+      "mutationAttempted": true,
+      "mutated": true,
+      "observer": {
+        "schemaVersion": 4,
+        "passed": true,
+        "uid": 0,
+        "selinuxEnforcing": true,
+        "selinuxContext": "u:r:su:s0",
+        "pidNamespacesCompiledOut": true,
+        "procHidepid": 2,
+        "procGid": 3009,
+        "procVisibilityVerified": true,
+        "processes": 307,
+        "threads": 1431,
+        "uniqueTables": 307,
+        "sharedThreads": 1124,
+        "kcmpDeniedFullScans": 0,
+        "threadCounts": [
+          1406,
+          1422,
+          1431
+        ],
+        "sharedThreadsAdded": [
+          16,
+          9
+        ],
+        "descriptorSource": "bpf-iter/task_file",
+        "descriptorCounts": [
+          5468,
+          5495
+        ],
+        "tracefsProcChecks": [
+          117,
+          117
+        ],
+        "bpfRecordCounts": [
+          5468,
+          5495
+        ],
+        "descriptorReconciliations": 0,
+        "endNumericCoverageVerified": true,
+        "bpfStreamsCompleted": [
+          307,
+          307
+        ],
+        "bpfStreamBytes": [
+          369600,
+          371328
+        ],
+        "bpfEndPrefetchAdvances": [
+          0,
+          0
+        ],
+        "markerWriters": 117,
+        "passes": 2,
+        "stableTracefsProjection": true,
+        "nonTraceComparisonDifferences": {
+          "withinPass": {
+            "added": 0,
+            "removed": 0,
+            "replaced": 0
+          },
+          "betweenPass": {
+            "added": 33,
+            "removed": 6,
+            "replaced": 4
+          }
+        },
+        "bpfProgram": {
+          "loads": 1,
+          "linkCreates": 614,
+          "iteratorCreates": 614,
+          "closedLinks": 614,
+          "closedIterators": 614,
+          "programClosed": true,
+          "sha256": "414aa1528b87692af4cfb9721d15ba14eba99f0890d0d1519df7e02061b08009",
+          "bytes": 888
+        },
+        "kernelBtfSha256": "d9bad01cb909205a22d741adf6b9f5a907a6e805354a94d9012165f2002508fa",
+        "bpfAttachTypeId": 97052,
+        "bpfReadChunkBytes": 4096,
+        "bpfRecordBytes": 64,
+        "bpfEffectiveCapabilities": "000001ffffffffff",
+        "seccompMode": 0,
+        "taskInventoryObservations": 3,
+        "stableProcessInventories": 5,
+        "stableTaskIdentities": true,
+        "stableTableRepresentatives": true,
+        "unknownDescriptors": 0,
+        "forbiddenTracefsDescriptors": 0,
+        "membarrier": {
+          "query": 639,
+          "command": 1,
+          "flags": 0,
+          "result": 0,
+          "calls": 1
+        },
+        "cpuPossible": "0-1",
+        "cpuPresent": "0-1",
+        "cpuOnline": "0-1",
+        "cpuStatsAfterBarrier": [
+          "entries: 0\noverrun: 0\ncommit overrun: 0\nbytes: 0\noldest event ts:     0.000000\nnow ts:    62.089489\ndropped events: 0\nread events: 0\n",
+          "entries: 0\noverrun: 0\ncommit overrun: 0\nbytes: 0\noldest event ts:     0.000000\nnow ts:    62.089500\ndropped events: 0\nread events: 0\n"
+        ],
+        "elapsedNs": 1149926751,
+        "deadlineNs": 9000000000,
+        "tracefsWritten": false,
+        "foreignDescriptorsOpened": false,
+        "tracePayloadRead": false
+      },
+      "observerAdbElapsedSeconds": 1.273849541,
+      "totalRecordedCommandSeconds": 9.444852296,
+      "reachedApplicationAcceptance": false
+    }
+  ],
+  "sourceBoundInference": [
+    "The full runtime reached and completed its first FD scan then refused in the middle task inventory, before the second pass, GLOBAL barrier and resize.",
+    "The missing task had previously been positively classified as sharing a file table; it was not its fixed table representative.",
+    "The preflight and failed full-runtime executed identical native/BPF bytes on the reviewed image. Their different result does not prove a build mismatch."
+  ],
+  "limits": [
+    "No process name or task start time is retained for PID 1840 / TID 1995 in the failure stdout. Its exit cause and role are unknown.",
+    "No APK installation/journey, app trace, or soak occurred in the failed optimized API36 job.",
+    "Preflight success is only trace-preparation evidence, not application or production acceptance.",
+    "No unchanged CI job was retried; guards, membership policy and timing bounds were not modified."
+  ],
+  "proposedFailureOnlyFieldsFromExistingMemory": {
+    "knownTask": [
+      "pid",
+      "tid",
+      "startClockTicks",
+      "initialInventoryIndex",
+      "tableIndex"
+    ],
+    "representative": [
+      "pid",
+      "tid",
+      "startClockTicks",
+      "initialInventoryIndex"
+    ],
+    "progress": [
+      "completedDescriptorPasses",
+      "completedInventoryPhases",
+      "observedProcessCount",
+      "observedTaskCount",
+      "observedTableCount",
+      "elapsedNs"
+    ]
+  },
+  "diagnosticConstraints": [
+    "Output only on refusal, before the same exit(1).",
+    "Use already retained numeric metadata; no extra proc reads, arbitrary waits, retries, missing-task exceptions, or altered success predicate.",
+    "No argv, fd target paths, trace payload, or third-party text.",
+    "Diagnostic fields can improve attribution but do not fix or approve the refusal."
+  ]
+}

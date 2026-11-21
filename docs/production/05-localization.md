@@ -26,12 +26,22 @@
 
 Источники: [Windows runtime](../../src/shared/localization.ts), [Android runtime](../../android/app/src/main/java/local/waarp/android/i18n/Localization.kt), [localeConfig](../../android/app/src/main/res/xml/locales_config.xml), [проверка](../../test/localization.check.ts), [browser smoke](../../test/ui.browser.mjs).
 
+## Продолжение 21 ноября: структурный контракт в review
+
+[PR #46](https://github.com/INNVoices/waarp/pull/46), head `96d4965ca909e29be62dd7c95c38b296ab741785`, расширяет существующий `npm run check` на реальную структуру Windows и Android каталогов. [Record](evidence/2026-11-21-localization-contract-review.json) фиксирует 19 языков, 1 434 Windows ID, 1 087 Android literal ID, 19 отрицательных mutation fixtures и 66 локальных offline suites без failures. Это проверка структуры; linguistic, visual, RTL и device acceptance остаются отдельными.
+
+Технический review принят; [CI 44939689471](https://github.com/INNVoices/waarp/actions/runs/44939689471) завершился успешно во всех трёх jobs. Windows job прошёл UI, native lifecycle и portable checks. Merge ожидает подтверждения владельца.
+
+Windows call sites читаются через AST, Android literal calls — через ограниченный Kotlin lexer. Проверяются имена и повторяемость placeholders, границы `argN`, CLDR forms, registry/assets/manifest, дубли и типы значений. Для реальных Android `format()` consumers проверяется весь printf-контракт, включая незавершённый `%`, неизвестную conversion и введённый спецификатор при пустом исходном формате. Комментарии и literal code examples не создают ложные IDs.
+
+57 вычисляемых Windows calls не объявлены статически разрешёнными. Существующий RU fallback для дробного числа сохранён; runtime, переводы и baseline не переписаны. После merge L10N-002 становятся готовы L10N-003, L10N-004 и L10N-006. L10N-008 дополнительно требует завершения L10N-006 и остаётся planned до glossary/review результата.
+
 ## 2. Конкретные риски
 
 | Наблюдение | Следствие | Статус доказательства |
 | --- | --- | --- |
 | `src/main/index.ts:1552` вычисляет `COMPANION_SAFE = localized(...)` на уровне модуля; таблица изначально RU, загрузка preferred locale происходит позже | Это сообщение фиксируется на RU и не следует последующим изменениям языка | Подтверждённый дефект порядка инициализации; L10N-001 |
-| `scripts/check-strings.mjs` смотрит верхний каталог strings и вызовы s/sp; locale JSON находятся в `strings/locales`, а новые inline IDs вызываются через localized | Существующий check не является полным контрактом всех платформ/переводов | Пробел покрытия, не найденный отсутствующий перевод |
+| `scripts/check-strings.mjs` смотрит верхний каталог strings и вызовы s/sp; locale JSON находятся в `strings/locales`, а новые inline IDs вызываются через localized | Существующий check не является полным контрактом всех платформ/переводов | Исходный пробел покрытия; закрывающий gate находится в review PR #46 |
 | Android `configure` читает/парсит asset без локального fallback при исключении; `localized` индексирует args по данным template | Повреждённый asset или неверный placeholder могут нарушить старт/отображение | Риск устойчивости; текущие JSON этим аудитом не признаны повреждёнными |
 | Renderer `mount()` ожидает dynamic import без отдельного error/fallback UI | Ошибка locale chunk должна быть локальной ошибкой, а не бесконечным пустым окном | Условный failure case; L10N-004 |
 | CSS содержит physical sides; `fmtBytes/fmtSpeed` Windows используют toFixed, Android форматирует по Locale.getDefault | RTL и формат чисел требуют проверки с эффективным языком приложения | Не утверждается, что все RTL/числовые экраны сломаны |
@@ -60,12 +70,12 @@
 ### L10N-002
 
 - **priority:** P1.
-- **status:** `ready`
+- **status:** `review` — PR #46, head 96d4965ca909e29be62dd7c95c38b296ab741785. Структурный gate для 19 языков, 1 434 Windows ID и 1 087 Android literal ID; 19 negative mutations и 66 local offline suites без failures. CI 44939689471: все 3 jobs success, включая Windows UI/native/portable. Технический review принят; merge ожидает подтверждения владельца. 57 computed Windows calls вне статической гарантии; runtime, catalogs и baseline не менялись.
 - **Dependencies:** нет.
-- **files:** `scripts/check-strings.mjs`, `test/localization.check.ts`, `src/shared/strings/`, Android `assets/locales/`, `i18n/Localization.kt`, `res/xml/locales_config.xml`.
+- **files:** `scripts/check-strings.mjs`, `scripts/localization-contract.mjs`, `test/localization.check.ts`, `test/localization-contract.check.ts`. Существующие runtime, locale catalogs и manifest читаются без изменения.
 - **change:** дополнить существующий gate фактической структурой каталогов: IDs каждого UI, placeholders и их multiplicity, printf-форматы, обязательные plural categories, locale registry/manifest consistency. Обрабатывать Windows и Android как два словаря; не требовать бессмысленной идентичности их ключей. Исправить устаревшие сообщения check про `en.json`, когда base — `ru.json`.
 - **acceptance:** удалённый использующийся ID, изменённый argN, неверный формат, недостающая plural category и отсутствующий asset обнаруживаются до сборки; легальные дополнительные CLDR forms проходят; комментарии/пример кода не создают ложные ошибки. Не переписывать baseline вверх ради зелёного CI.
-- **verification:** 6 отрицательных mutation fixtures и существующий позитивный набор. Статический gate запускается один раз; Android emulator и сеть не требуются.
+- **verification:** 19 отрицательных mutation fixtures и существующий позитивный набор. Статический gate запускается один раз; Android emulator и сеть для него не требуются. Required CI выполнен отдельно и успешен.
 
 ### L10N-003
 

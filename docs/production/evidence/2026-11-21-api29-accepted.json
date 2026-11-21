@@ -1,0 +1,244 @@
+{
+  "schemaVersion": 1,
+  "runId": 44862192000,
+  "runAttempt": 1,
+  "event": "pull_request",
+  "apiReportedHeadSha": "7c21bb0a000987682ef57ff21e324857491bb61f",
+  "records": [
+    {
+      "artifactId": 14690902096,
+      "artifactName": "waarp-android-api-29-4096-runtime",
+      "archiveBytes": 2014769,
+      "archiveDigest": "sha256:ee591725a405adba6d41b7f43c6dfa275b5e45c39ddf48bcaa90ad5b8f39284a",
+      "recordPath": "emulator-preparation.json",
+      "recordSha256": "9770709c57914b486cb4cff2cb57e014cbd1f8575217c8dfc9835ffb6ee6b281",
+      "passed": true,
+      "wallSeconds": 9.987,
+      "oldPids": {
+        "zygote": [
+          1669
+        ],
+        "zygote64": [
+          1668
+        ],
+        "system_server": [
+          1878
+        ]
+      },
+      "newPids": {
+        "zygote": [
+          3722
+        ],
+        "zygote64": [
+          3721
+        ],
+        "system_server": [
+          3760
+        ]
+      },
+      "serviceDrainPolls": 6,
+      "serviceDrainEvidence": [
+        {
+          "service": "activity",
+          "seconds": 4.458,
+          "result": "Service activity: found"
+        },
+        {
+          "service": "package",
+          "seconds": 4.466,
+          "result": "Service package: found"
+        },
+        {
+          "service": "display",
+          "seconds": 4.474,
+          "result": "Service display: found"
+        },
+        {
+          "service": "activity",
+          "seconds": 4.774,
+          "result": "Service activity: found"
+        },
+        {
+          "service": "package",
+          "seconds": 4.782,
+          "result": "Service package: found"
+        },
+        {
+          "service": "display",
+          "seconds": 4.789,
+          "result": "Service display: found"
+        },
+        {
+          "service": "activity",
+          "seconds": 5.089,
+          "result": "Service activity: found"
+        },
+        {
+          "service": "package",
+          "seconds": 5.097,
+          "result": "Service package: found"
+        },
+        {
+          "service": "display",
+          "seconds": 5.104,
+          "result": "Service display: found"
+        },
+        {
+          "service": "activity",
+          "seconds": 5.404,
+          "result": "Service activity: found"
+        },
+        {
+          "service": "package",
+          "seconds": 5.412,
+          "result": "Service package: found"
+        },
+        {
+          "service": "display",
+          "seconds": 5.419,
+          "result": "Service display: found"
+        },
+        {
+          "service": "activity",
+          "seconds": 5.741,
+          "result": "Service activity: not found"
+        },
+        {
+          "service": "package",
+          "seconds": 5.752,
+          "result": "Service package: not found"
+        },
+        {
+          "service": "display",
+          "seconds": 5.762,
+          "result": "Service display: not found"
+        },
+        {
+          "service": "activity",
+          "seconds": 5.829,
+          "result": "Service activity: not found"
+        },
+        {
+          "service": "package",
+          "seconds": 5.836,
+          "result": "Service package: not found"
+        },
+        {
+          "service": "display",
+          "seconds": 5.844,
+          "result": "Service display: not found"
+        }
+      ],
+      "startSeconds": 5.852,
+      "beforeServices": {
+        "activity": true,
+        "package": true,
+        "display": true
+      },
+      "drainedServices": {
+        "activity": false,
+        "package": false,
+        "display": false
+      },
+      "finalUid": 2000,
+      "identityVerified": true,
+      "heap": "512m",
+      "claims": "One successful native/release job pair on this PR run; no general stability rate or complete release acceptance claim."
+    },
+    {
+      "artifactId": 14690727711,
+      "artifactName": "waarp-android-release-api-29-4096-runtime",
+      "archiveBytes": 816672,
+      "archiveDigest": "sha256:8168dbbabc489e9a025a1bd3f2ced156d8c4787c09431d10a06d712d5f50f155",
+      "recordPath": "emulator-preparation.json",
+      "recordSha256": "adb43b5565e9e728a9c7a146f68abea98873c164cf12b4f3211e6847fe9f0d16",
+      "passed": true,
+      "wallSeconds": 11.559,
+      "oldPids": {
+        "zygote": [
+          1668
+        ],
+        "zygote64": [
+          1667
+        ],
+        "system_server": [
+          1897
+        ]
+      },
+      "newPids": {
+        "zygote": [
+          3987
+        ],
+        "zygote64": [
+          3986
+        ],
+        "system_server": [
+          4029
+        ]
+      },
+      "serviceDrainPolls": 2,
+      "serviceDrainEvidence": [
+        {
+          "service": "activity",
+          "seconds": 7.531,
+          "result": "Service activity: not found"
+        },
+        {
+          "service": "package",
+          "seconds": 7.538,
+          "result": "Service package: not found"
+        },
+        {
+          "service": "display",
+          "seconds": 7.545,
+          "result": "Service display: not found"
+        },
+        {
+          "service": "activity",
+          "seconds": 7.606,
+          "result": "Service activity: not found"
+        },
+        {
+          "service": "package",
+          "seconds": 7.612,
+          "result": "Service package: not found"
+        },
+        {
+          "service": "display",
+          "seconds": 7.619,
+          "result": "Service display: not found"
+        }
+      ],
+      "startSeconds": 7.626,
+      "beforeServices": {
+        "activity": true,
+        "package": true,
+        "display": true
+      },
+      "drainedServices": {
+        "activity": false,
+        "package": false,
+        "display": false
+      },
+      "finalUid": 2000,
+      "identityVerified": true,
+      "heap": "512m",
+      "claims": "One successful native/release job pair on this PR run; no general stability rate or complete release acceptance claim."
+    }
+  ],
+  "jobs": {
+    "native": 136719836384,
+    "release": 136719836439
+  },
+  "sourceFixPullRequest": "https://github.com/INNVoices/waarp/pull/42",
+  "nativeTests": {
+    "total": 26,
+    "passed": 26
+  },
+  "releaseJourneys": {
+    "total": 1,
+    "passed": 1,
+    "rawProofReconciled": true
+  },
+  "receiptOrigin": "Separate raw public GitHub REST GET responses; original ZIPs downloaded with authenticated GitHub connector; API digest, byte count, CRC and record bytes verified."
+}

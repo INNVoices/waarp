@@ -2,9 +2,9 @@
   "schema_version": 1,
   "product": "Waarp",
   "snapshot_date": "2026-11-21",
-  "baseline_commit": "63fc7930abfeac1b870e9c8e3fabc500768f419e",
+  "baseline_commit": "202c70125daf94bb8499c3b758420cd9ce90a52f",
   "parent_issue": "https://github.com/INNVoices/waarp/issues/32",
-  "note": "Local navigation snapshot. Verify current GitHub status and ownership before claiming. Conditional dependencies apply only to the delivery mode described in the card.",
+  "note": "Local navigation snapshot reconciled on 2026-11-21 against merged PR42/43/44, retained ec71 runtime/package evidence and open PR46/47/48. Verify current GitHub status before claiming; a PR result or historic artifact is not new exact-main acceptance.",
   "corpora": [
     {
       "id": "01",
@@ -125,7 +125,7 @@
       "title": "Разобрать нестабильность framework API 29 без обхода PID/Binder guard",
       "corpus": "01",
       "priority": "P0",
-      "status": "in_progress",
+      "status": "done",
       "lane": "release",
       "platforms": [
         "Android"
@@ -146,9 +146,13 @@
       "evidence": [
         "https://github.com/INNVoices/waarp/actions/runs/44831610512/job/136621297539",
         "docs/production/evidence/2026-11-21-api29-binder.json",
-        "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926744"
+        "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926744",
+        "https://github.com/INNVoices/waarp/pull/42",
+        "https://github.com/INNVoices/waarp/commit/f68e64ab63177afa00e96fd1d2d7cb7d6b895d8d",
+        "https://github.com/INNVoices/waarp/actions/runs/44862192000",
+        "docs/production/evidence/2026-11-21-api29-accepted.json"
       ],
-      "evidence_note": "Подготовлен causal barrier: перед единственным start дождаться удаления activity/package/display в исходном 30 s stop deadline. 38 preparation и 10 installer tests прошли; новый runtime результат ещё не получен.",
+      "evidence_note": "PR #42 слит как f68e64ab63177afa00e96fd1d2d7cb7d6b895d8d. В run 44862192000 подтверждены service-drain barrier, новые PID, heap и shell identity, native 26/26 и release journey API 29. Это одна историческая PR-пара, не общая гарантия стабильности и не полный main acceptance.",
       "inputs": [
         "CI artifact: out/android/device-tests/emulator-preparation.json; use the exact path from the failed job receipt"
       ]
@@ -180,9 +184,15 @@
       "evidence": [
         "https://github.com/INNVoices/waarp/actions/runs/44829589582/job/136616804337",
         "docs/ANDROID-PERFETTO-16K.md",
-        "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926778"
+        "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926778",
+        "https://github.com/INNVoices/waarp/pull/45",
+        "https://github.com/INNVoices/waarp/actions/runs/44882755131",
+        "https://github.com/INNVoices/waarp/actions/runs/44882755101",
+        "docs/production/evidence/2026-11-21-ec71-acceptance-recheck.json",
+        "https://github.com/INNVoices/waarp/actions/runs/44940333222/job/136958307750",
+        "docs/production/evidence/2026-11-21-android-inventory-pr48.json"
       ],
-      "evidence_note": "Исходный events guard сохранён. Только после exact stopped-BPF refusal добавлены read-only CPU/snapshot/tracefs FD observations для следующей causal развилки; owner и quiescence пока не доказаны."
+      "evidence_note": "PR #45 ec71e72: preflight 44882755101 прошёл; full run 44882755131 имеет 6 success, 1 failure, 1 skipped. Его advanced observer отказал за 0.626 s: known_thread_missing / task_inventory_middle / missing_positive_shared_member, до second pass, GLOBAL и resize; причина исчезновения task неизвестна. Отдельный main-based PR #48 job 136958307750 отказал на прежнем eventsEnabled X / bpf_trace_printk guard до mutation и установки APK; PR45 observer в нём отсутствует. Следующий causal шаг — failure-only numeric metadata из уже имеющейся памяти; без новых reads, retries или ослабления guard."
     },
     {
       "id": "REL-004",
@@ -215,8 +225,13 @@
       "spec": "docs/production/01-production-release.md#rel-004",
       "issue": "https://github.com/INNVoices/waarp/issues/33",
       "evidence": [
-        "https://github.com/INNVoices/waarp/actions/runs/44831610512"
-      ]
+        "https://github.com/INNVoices/waarp/actions/runs/44831610512",
+        "https://github.com/INNVoices/waarp/actions/runs/44882755131",
+        "docs/production/evidence/2026-11-21-ec71-acceptance-recheck.json",
+        "https://github.com/INNVoices/waarp/actions/runs/44940333222/job/136958307750",
+        "docs/production/evidence/2026-11-21-android-inventory-pr48.json"
+      ],
+      "evidence_note": "Полный ec71 / merge 8266058a run 44882755131 содержит failed optimized API 36 и skipped soak 7 200 s. Новый main-based PR #48 / merge ba9497f9: Android run 44940333222 также завершился 6 success, 1 failure, 1 skipped; API 36 отказал на прежнем events guard до APK install, soak 136960519754 skipped. Общий CI PR #48 успешен, но full production acceptance не выполнена. Требуются причинная корректировка REL-003 и полная exact-main матрица/soak; исторические successes и package build не складываются в приёмку."
     },
     {
       "id": "REL-005",
@@ -311,9 +326,15 @@
       "evidence": [
         "https://github.com/INNVoices/waarp/actions/runs/44831610520/job/136617659691",
         "docs/production/evidence/2026-11-21-windows-217.json",
-        "https://github.com/INNVoices/waarp/actions/runs/44859115697/job/136708138958"
+        "https://github.com/INNVoices/waarp/actions/runs/44859115697/job/136708138958",
+        "https://github.com/INNVoices/waarp/pull/43",
+        "https://github.com/INNVoices/waarp/commit/702112bcb0b93ab1c53f99d66970b544ecf37ce8",
+        "https://github.com/INNVoices/waarp/actions/runs/44863162870",
+        "docs/production/evidence/2026-11-21-windows-portable-pr43.json",
+        "https://github.com/INNVoices/waarp/actions/runs/44940260860",
+        "docs/production/evidence/2026-11-21-windows-cleanup-pr47.json"
       ],
-      "evidence_note": "Независимо проверен validation ZIP main217: 50 native TUN cycles, selector semantics, compiler and packaged payload reports. Portable/UAC/profile upgrade и физические сценарии этим не закрыты."
+      "evidence_note": "PR #43 уже слит (702112bcb0b93ab1c53f99d66970b544ecf37ce8): три portable запуска за 46.570 s на merge 061106b9. Новый PR #47 / tested merge 8e305059 прошёл три запуска за 49.745 s и все девять SVG; encrypted profile, settings и master OFF сохранены, normal exit/owned cleanup успешны. Его merge ожидает подтверждения владельца. Не проверены UAC, different-version upgrade/rollback, standard-user ACLs, физические sleep/network/other VPN; отдельный native test прошёл 50/50, OFF portable lifecycle не заменяет routing acceptance."
     },
     {
       "id": "REL-008",
@@ -357,7 +378,7 @@
       "title": "Разобрать graphics/framework crash API 36 до установки приложения",
       "corpus": "01",
       "priority": "P0",
-      "status": "in_progress",
+      "status": "done",
       "lane": "release",
       "platforms": [
         "Android"
@@ -383,9 +404,13 @@
         "docs/production/evidence/2026-11-21-pr30-install.json",
         "https://github.com/INNVoices/waarp/actions/runs/44856329155/job/136701575165",
         "docs/ANDROID-AVD-RECEIPT.md",
-        "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926789"
+        "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926789",
+        "https://github.com/INNVoices/waarp/pull/44",
+        "https://github.com/INNVoices/waarp/commit/202c70125daf94bb8499c3b758420cd9ce90a52f",
+        "https://github.com/INNVoices/waarp/actions/runs/44864148533",
+        "docs/production/evidence/2026-11-21-api36-sdk20-accepted.json"
       ],
-      "evidence_note": "Подготовлен bounded host AVD receipt с 18 tests; фактические target/SDK/argv следующего run нужны для проверки graphics hypothesis. Runtime crash пока не исправлен."
+      "evidence_note": "PR #44 слит как 202c70125daf94bb8499c3b758420cd9ce90a52f. Run 44864148533 подтвердил создание AVD cmdline-tools 20.0 с target android-36.1 на прежнем image/backend и native API 36: 26/26. Старый android-0 target не правили вручную; tracing REL-003 и полный candidate/soak остаются отдельными незакрытыми gates."
     },
     {
       "id": "NET-001",
@@ -1091,7 +1116,7 @@
       "title": "Структурные проверки каталогов переводов",
       "corpus": "05",
       "priority": "P1",
-      "status": "ready",
+      "status": "review",
       "lane": "ui-localization",
       "platforms": [
         "Windows",
@@ -1102,18 +1127,21 @@
       "external_blockers": [],
       "work_paths": [
         "scripts/check-strings.mjs",
+        "scripts/localization-contract.mjs",
         "test/localization.check.ts",
-        "src/shared/strings/",
-        "android/app/src/main/assets/locales/",
-        "android/app/src/main/java/local/waarp/android/i18n/Localization.kt",
-        "android/app/src/main/res/xml/locales_config.xml"
+        "test/localization-contract.check.ts"
       ],
       "scope": "дополнить существующий gate фактической структурой каталогов: IDs каждого UI, placeholders и их multiplicity, printf-форматы, обязательные plural categories, locale registry/manifest consistency. Обрабатывать Windows и Android как два словаря; не требовать бессмысленной идентичности их ключей. Исправить устаревшие сообщения check про `en.json`, когда base — `ru.json`.",
       "acceptance": "удалённый использующийся ID, изменённый argN, неверный формат, недостающая plural category и отсутствующий asset обнаруживаются до сборки; легальные дополнительные CLDR forms проходят; комментарии/пример кода не создают ложные ошибки. Не переписывать baseline вверх ради зелёного CI.",
-      "verification": "6 отрицательных mutation fixtures и существующий позитивный набор. Статический gate запускается один раз; Android emulator и сеть не требуются.",
+      "verification": "19 отрицательных mutation fixtures и существующий позитивный набор. Статический gate запускается один раз; Android emulator и сеть для него не требуются. Required CI выполнен отдельно и успешен.",
       "spec": "docs/production/05-localization.md#l10n-002",
       "issue": "https://github.com/INNVoices/waarp/issues/37",
-      "evidence": []
+      "evidence": [
+        "https://github.com/INNVoices/waarp/pull/46",
+        "https://github.com/INNVoices/waarp/actions/runs/44939689471",
+        "docs/production/evidence/2026-11-21-localization-contract-review.json"
+      ],
+      "evidence_note": "PR #46, head 96d4965ca909e29be62dd7c95c38b296ab741785. Структурный gate для 19 языков, 1 434 Windows ID и 1 087 Android literal ID; 19 negative mutations и 66 local offline suites без failures. CI 44939689471: все 3 jobs success, включая Windows UI/native/portable. Технический review принят; merge ожидает подтверждения владельца. 57 computed Windows calls вне статической гарантии; runtime, catalogs и baseline не менялись."
     },
     {
       "id": "L10N-003",
@@ -1295,7 +1323,7 @@
       "title": "Измерить состав доставляемых пакетов",
       "corpus": "06",
       "priority": "P1",
-      "status": "ready",
+      "status": "review",
       "lane": "build",
       "platforms": [
         "Windows",
@@ -1309,21 +1337,36 @@
         "scripts/android-verify.py",
         "package.json",
         "android/app/build.gradle.kts",
-        "out/validation/"
+        "out/validation/",
+        "scripts/package-inventory.mjs",
+        "scripts/package-inventory.d.mts",
+        "test/package-inventory.check.ts",
+        "scripts/android-package-inventory-test.py"
       ],
       "scope": "расширить текущий package report: размер загрузки, распакованный размер, ASAR entries, runtime modules, renderer JS/CSS/fonts/maps, Electron locales/resources, native engine, notices; отдельно DEX/resources/assets/lib каждого release ABI. У каждого входа зафиксировать SHA, source commit, variant, ABI и tool version. Сравнивать одинаковые platform/variant, не debug с release и не архив AAR с APK.",
       "acceptance": "один Windows package и три release APK имеют читаемый top-20 и JSON inventory; сумма групп объясняет весь payload, оставшееся отнесено в явную группу. Secrets, личные профили, tests/fixtures, screenshots и случайные workspace files отсутствуют. Недоступный артефакт отмечен `not_measured`, а не нулём.",
       "verification": "обработать реальные CI artifacts с сохранёнными receipts/hashes; package verifier остаётся зелёным. Это read-only анализ артефактов; он не требует новой двухчасовой VPN-сессии. Разница до/после публикуется только после BLD-004.",
       "spec": "docs/production/06-build-and-supply-chain.md#bld-001",
       "issue": "https://github.com/INNVoices/waarp/issues/38",
-      "evidence": []
+      "evidence": [
+        "https://github.com/INNVoices/waarp/pull/47",
+        "https://github.com/INNVoices/waarp/pull/48",
+        "docs/production/evidence/2026-11-21-package-baseline-ec71.json",
+        "docs/production/evidence/2026-11-21-build-continuation-review.json",
+        "https://github.com/INNVoices/waarp/actions/runs/44940333222/job/136955906954",
+        "docs/production/evidence/2026-11-21-android-inventory-pr48.json",
+        "https://github.com/INNVoices/waarp/actions/runs/44940260860",
+        "docs/production/evidence/2026-11-21-windows-cleanup-pr47.json",
+        "https://github.com/INNVoices/waarp/actions/runs/44940333205"
+      ],
+      "evidence_note": "PR #47 (head 4ec8a9e) и PR #48 (head 53b0206) прошли общий required CI; merge ожидает подтверждения владельца. Измерены ec71 baseline 1 Windows + 3 unsigned APK и новый Windows candidate. PR #48 build/SDK verification шести APK и шесть inventory sidecars проверены по selected JSON CRC, identity и group sums; весь новый APK ZIP digest и APK hashes локально не пересчитаны. Windows validation ZIP проверен целиком, новые EXE bytes измерены CI и связаны с actual lifecycle receipt. Strict Android replay сохранён; его полный runtime run имеет baseline guard failure и skipped soak."
     },
     {
       "id": "BLD-002",
       "title": "Выделить необходимый Windows runtime dependency closure",
       "corpus": "06",
       "priority": "P1",
-      "status": "planned",
+      "status": "in_progress",
       "lane": "build",
       "platforms": [
         "Windows",
@@ -1349,7 +1392,13 @@
       "verification": "packaged smoke для QR, карты/списка, RU/EN/RTL/CJK; проверка lazy assets и imports. Runtime dependency resolution проверяется внутри пакета, а не только в dev server. Отчёт включает bytes потенциальной экономии, даже если безопасное решение — сохранить компонент.",
       "spec": "docs/production/06-build-and-supply-chain.md#bld-002",
       "issue": "https://github.com/INNVoices/waarp/issues/38",
-      "evidence": []
+      "evidence": [
+        "https://github.com/INNVoices/waarp/pull/47",
+        "docs/production/evidence/2026-11-21-build-continuation-review.json",
+        "https://github.com/INNVoices/waarp/actions/runs/44940260860",
+        "docs/production/evidence/2026-11-21-windows-cleanup-pr47.json"
+      ],
+      "evidence_note": "Полная таблица 34 packaged modules и actual main/preload/renderer consumers сохранена. jsqr остаётся main runtime dependency; изменяется только simple-icons в PR #47. Остальные React, MapLibre, fonts и transitives сохранены; весь корпус требует отдельного packaged QR/map/language/lazy-asset smoke."
     },
     {
       "id": "BLD-003",
@@ -1387,7 +1436,7 @@
       "title": "Удалить подтверждённые дубли и ненужный payload небольшими PR",
       "corpus": "06",
       "priority": "P1",
-      "status": "planned",
+      "status": "in_progress",
       "lane": "build",
       "platforms": [
         "Windows",
@@ -1408,7 +1457,13 @@
       "verification": "package integrity + один targeted scenario на каждый изменённый consumer. При engine/manifest/lifecycle изменениях добавить соответствующий release gate. Revert возвращает прежний payload без миграции пользовательских данных. Никакого `rm -rf` пользовательских caches/profiles для уменьшения размера поставки.",
       "spec": "docs/production/06-build-and-supply-chain.md#bld-004",
       "issue": "https://github.com/INNVoices/waarp/issues/38",
-      "evidence": []
+      "evidence": [
+        "https://github.com/INNVoices/waarp/pull/47",
+        "docs/production/evidence/2026-11-21-build-continuation-review.json",
+        "https://github.com/INNVoices/waarp/actions/runs/44940260860",
+        "docs/production/evidence/2026-11-21-windows-cleanup-pr47.json"
+      ],
+      "evidence_note": "Windows simple-icons slice PR #47 проверен, merge ожидает подтверждения владельца. ASAR: 79 509 626 → 62 643 715 B; portable EXE: 130 906 923 → 127 991 914 B, экономия 2 915 009 B (2.226780%) по CI. Validation ZIP проверен локально; новый EXE локально не скачивался. Все девять SVG и три portable запуска прошли, license сохранена; отдельные local builds дали 96 byte-identical outputs. Весь BLD-004 остаётся in_progress: широкая Windows closure и Android cleanup не завершены."
     },
     {
       "id": "BLD-005",
@@ -1918,8 +1973,13 @@
       "verification": "validator + свежая read-only сверка затронутых GitHub objects; проверять все run attempts при утверждении о конкретном candidate. Один follow-up в issue вместо серии дублирующих комментариев.",
       "spec": "docs/production/08-agent-execution.md#ops-002",
       "issue": "https://github.com/INNVoices/waarp/issues/40",
-      "evidence": [],
-      "evidence_note": "Сверены delivered document tasks PR41; новая runtime wave сохраняет baseline evidence и ограниченные выводы до свежего exact-source acceptance."
+      "evidence": [
+        "https://github.com/INNVoices/waarp/pull/46",
+        "https://github.com/INNVoices/waarp/pull/47",
+        "https://github.com/INNVoices/waarp/pull/48",
+        "docs/production/evidence/2026-11-21-ec71-acceptance-recheck.json"
+      ],
+      "evidence_note": "Согласована текущая волна: исторические PR #42/#43/#44 evidence, различие успешного ec71 preflight и неуспешного полного Android run, review PR #46/#47/#48, пакетные baseline/closure и границы проверки. Статусы done и новые ready переводятся только после подтверждённых merges и выполненных зависимостей."
     },
     {
       "id": "OPS-003",

@@ -1,0 +1,312 @@
+{
+  "schemaVersion": 1,
+  "reviewedOn": "2026-11-21",
+  "pullRequest": "https://github.com/INNVoices/waarp/pull/48",
+  "headCommit": "53b02066a08d1d19f373c09aa29868f26be05a1a",
+  "sourceMergeCommit": "ba9497f9d6eda44a0489e97d96928e5922c07b20",
+  "run": "https://github.com/INNVoices/waarp/actions/runs/44940333222",
+  "buildJob": {
+    "id": 136955906954,
+    "url": "https://github.com/INNVoices/waarp/actions/runs/44940333222/job/136955906954",
+    "conclusion": "success",
+    "validation": "Six inventory fixtures, actual SDK verification for six application APKs, JVM/route and native smoke completed."
+  },
+  "artifact": {
+    "id": 14721936201,
+    "apiDigest": "sha256:5f73d5adf5a1c7946e746ee66d96d480cb19ef58ca4b514d3d8290c6bee8f547",
+    "wholeArchiveDigestVerifiedLocally": false,
+    "zipMembers": 107,
+    "applicationApks": 6,
+    "staticValidationReports": 6,
+    "inventorySidecars": 6,
+    "testHarnessApks": [
+      "waarp-android-debug-instrumentation.apk",
+      "waarp-android-release-acceptance.apk"
+    ],
+    "rangeRequests": 42,
+    "bytesTransferred": 100561,
+    "verificationScope": "Exact HTTP ranges from downloaded original artifact reference; selected JSON ZIP CRC checked; central directory and all six application sidecars observed. APK byte hashes reported by CI, not recomputed by this range-only replay."
+  },
+  "inventoryContext": {
+    "sourceCommit": "ba9497f9d6eda44a0489e97d96928e5922c07b20",
+    "tools": {
+      "python": "3.12.3",
+      "aapt": {
+        "executable": "aapt",
+        "sdkBuildToolsVersion": "35.0.0",
+        "versionStatus": "recorded"
+      },
+      "zipalign": {
+        "executable": "zipalign",
+        "sdkBuildToolsVersion": "35.0.0",
+        "versionStatus": "recorded"
+      },
+      "apksigner": {
+        "executable": "apksigner",
+        "sdkBuildToolsVersion": "35.0.0",
+        "versionStatus": "recorded"
+      }
+    }
+  },
+  "apkReports": [
+    {
+      "file": "waarp-android-1.0.0-armeabi-v7a-debug.apk",
+      "variant": "debug",
+      "abi": "armeabi-v7a",
+      "sha256": "09b82f5ec487c0ca51d595f290925c6ef80a9d7bc46b6c2f82ce345e5af145bc",
+      "bytes": 151782462,
+      "accountingPassed": true,
+      "sidecarMatchesValidation": true,
+      "groupsCompressedBytes": 151691789,
+      "groupsUncompressedBytes": 153527195,
+      "zipOverheadBytes": 90673
+    },
+    {
+      "file": "waarp-android-1.0.0-x86_64-debug.apk",
+      "variant": "debug",
+      "abi": "x86_64",
+      "sha256": "b3ae5a3380f4ec9cf6d1ed5846cdb90024ca9c9e562cd217d15744db14c80fc8",
+      "bytes": 168389255,
+      "accountingPassed": true,
+      "sidecarMatchesValidation": true,
+      "groupsCompressedBytes": 168305289,
+      "groupsUncompressedBytes": 170140695,
+      "zipOverheadBytes": 83966
+    },
+    {
+      "file": "waarp-android-1.0.0-arm64-v8a-debug.apk",
+      "variant": "debug",
+      "abi": "arm64-v8a",
+      "sha256": "a0defc80d3c5235f370fbf4be70d752424191f58b231cdcd4d223a80b525e898",
+      "bytes": 163224064,
+      "accountingPassed": true,
+      "sidecarMatchesValidation": true,
+      "groupsCompressedBytes": 163135185,
+      "groupsUncompressedBytes": 164970591,
+      "zipOverheadBytes": 88879
+    },
+    {
+      "file": "waarp-android-1.0.0-armeabi-v7a-release-unsigned.apk",
+      "variant": "release-unsigned",
+      "abi": "armeabi-v7a",
+      "sha256": "efd099b303df8b16c4e8ee934a8f325cb1aed6945c45ddc9a3e651dec5a301d3",
+      "bytes": 89063579,
+      "accountingPassed": true,
+      "sidecarMatchesValidation": true,
+      "groupsCompressedBytes": 88978293,
+      "groupsUncompressedBytes": 90950109,
+      "zipOverheadBytes": 85286
+    },
+    {
+      "file": "waarp-android-1.0.0-x86_64-release-unsigned.apk",
+      "variant": "release-unsigned",
+      "abi": "x86_64",
+      "sha256": "b4afb64bc20a03582c7072149413b704191ecc17857142d5d5a0241c7412a0ab",
+      "bytes": 105670372,
+      "accountingPassed": true,
+      "sidecarMatchesValidation": true,
+      "groupsCompressedBytes": 105591793,
+      "groupsUncompressedBytes": 107563609,
+      "zipOverheadBytes": 78579
+    },
+    {
+      "file": "waarp-android-1.0.0-arm64-v8a-release-unsigned.apk",
+      "variant": "release-unsigned",
+      "abi": "arm64-v8a",
+      "sha256": "a604aa5ef156ff7c0eb389708cf73a6651f02a24131cc9b3ab07f19d27c10a78",
+      "bytes": 100505181,
+      "accountingPassed": true,
+      "sidecarMatchesValidation": true,
+      "groupsCompressedBytes": 100421689,
+      "groupsUncompressedBytes": 102393505,
+      "zipOverheadBytes": 83492
+    }
+  ],
+  "releaseUnsignedComparison": {
+    "baselineEvidence": "docs/production/evidence/2026-11-21-package-baseline-ec71.json",
+    "allThreeCiReportedSha256MatchBaseline": true,
+    "scope": "CI-reported SHA256 values equal the independently retained ec71 APK baseline; this range-only review did not recompute new APK bytes.",
+    "staticReportComparison": [
+      {
+        "artifact": "waarp-android-1.0.0-armeabi-v7a-release-unsigned.apk",
+        "sha256": "efd099b303df8b16c4e8ee934a8f325cb1aed6945c45ddc9a3e651dec5a301d3",
+        "legacyStaticFieldsMatch": true,
+        "changedFields": [
+          "checkedAtUtc",
+          "inventory"
+        ]
+      },
+      {
+        "artifact": "waarp-android-1.0.0-arm64-v8a-release-unsigned.apk",
+        "sha256": "a604aa5ef156ff7c0eb389708cf73a6651f02a24131cc9b3ab07f19d27c10a78",
+        "legacyStaticFieldsMatch": true,
+        "changedFields": [
+          "checkedAtUtc",
+          "inventory"
+        ]
+      },
+      {
+        "artifact": "waarp-android-1.0.0-x86_64-release-unsigned.apk",
+        "sha256": "b4afb64bc20a03582c7072149413b704191ecc17857142d5d5a0241c7412a0ab",
+        "legacyStaticFieldsMatch": true,
+        "changedFields": [
+          "checkedAtUtc",
+          "inventory"
+        ]
+      }
+    ]
+  },
+  "integration": {
+    "status": "review",
+    "merge": "pending",
+    "reason": "Owner confirmation for merge is pending."
+  },
+  "limits": [
+    "The whole artifact ZIP digest and new APK byte hashes were not recomputed locally; selected JSON ZIP CRC and field/accounting checks were performed.",
+    "General CI completed successfully (3 jobs). Android CI completed with 6 successes, 1 failure at the unchanged main tracefs events guard before APK installation, and the 7200-second soak skipped. Production acceptance is not complete.",
+    "Local ec71 measurement used Python 3.12.14; this new CI context reports Python 3.12.3 and SDK build-tools 35.0.0. These are distinct environments."
+  ],
+  "runtimeGuardReview": {
+    "jobId": 136958307750,
+    "jobUrl": "https://github.com/INNVoices/waarp/actions/runs/44940333222/job/136958307750",
+    "artifactId": 14722116017,
+    "failureArchiveSha256": "2cdd8c57790383bc9a0eb6185aef02e7c54ce4c4d205b0569784907629cf58ca",
+    "failureArchiveDigestVerified": true,
+    "rawStreamsHashVerified": 66,
+    "failedGuard": {
+      "field": "eventsEnabled",
+      "observed": "X",
+      "expected": "0"
+    },
+    "enabledEvent": "bpf_trace_printk",
+    "beforeMutation": {
+      "tracingOn": "0",
+      "currentTracer": "nop",
+      "eventsEnabled": "X",
+      "serviceState": {
+        "supportsTracingSessions": true,
+        "numSessions": 0,
+        "numSessionsStarted": 0,
+        "listedSessions": 0
+      },
+      "perfettoClientPids": "",
+      "perfettoPidofExitCode": 1,
+      "atraceUserInitiated": "",
+      "atraceTags": "0",
+      "atraceApps": "",
+      "atraceClientPids": "",
+      "atracePidofExitCode": 1
+    },
+    "mutationAttempted": false,
+    "mutated": false,
+    "applicationInstallationReached": false,
+    "classification": "Unchanged main tracefs guard refused pre-existing stopped BPF event before application installation. Later diagnostic read failures and zero peer traffic do not supersede that primary refusal. PR45 observer is not in this candidate.",
+    "relationToInventory": "The retained legacy static fields and all three release APK hashes match the ec71 baseline; the unchanged main tracefs guard refused before the application was installed. No inventory regression is evidenced by this primary refusal.",
+    "relationToPr45": "The advanced ec71 PR45 observer and its missing_positive_shared_member refusal are a separate candidate and failure stage."
+  },
+  "ciStatus": {
+    "observedAtUtc": "2026-11-21T19:36:54.873Z",
+    "headSha": "53b02066a08d1d19f373c09aa29868f26be05a1a",
+    "general": {
+      "runId": 44940333205,
+      "attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "counts": {
+        "success": 3
+      },
+      "jobs": [
+        {
+          "id": 136955907160,
+          "name": "AWG protocol and crash (linux)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 136955907337,
+          "name": "Dependency security audit",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 136955907419,
+          "name": "checks (windows)",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ]
+    },
+    "android": {
+      "runId": 44940333222,
+      "attempt": 1,
+      "status": "completed",
+      "conclusion": "failure",
+      "counts": {
+        "success": 6,
+        "failure": 1,
+        "skipped": 1
+      },
+      "jobs": [
+        {
+          "id": 136955906954,
+          "name": "Build, unit, lint and APK integrity",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 136958307750,
+          "name": "Optimized release API 36 / 16384B",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "id": 136958307765,
+          "name": "Native VPN API 36 / 16384B",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 136958307794,
+          "name": "Optimized release API 29 / 4096B",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 136958307855,
+          "name": "Optimized release API 35 / 4096B",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 136958307870,
+          "name": "Native VPN API 29 / 4096B",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 136958308044,
+          "name": "Native VPN API 35 / 4096B",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 136960519754,
+          "name": "Optimized release 2h AWG2 soak / API 36 / 16KB",
+          "status": "completed",
+          "conclusion": "skipped"
+        }
+      ]
+    },
+    "requiredWindowsCheck": {
+      "jobId": 136955907419,
+      "name": "checks (windows)",
+      "conclusion": "success"
+    },
+    "soak": {
+      "jobId": 136960519754,
+      "conclusion": "skipped",
+      "accepted": false
+    },
+    "productionAccepted": false
+  }
+}

@@ -1,0 +1,1193 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "pullRequestHead": "ec71e72d908b29d872d7ca63ae85498e51673270",
+    "ciMergeCheckout": "8266058a051f72a9f124a3485b23b7c148eb8bd7",
+    "windowsRun": 44882755093,
+    "androidRun": 44882755131
+  },
+  "scope": "Read-only measurement of original retained CI packages. Package digests match prior static reports; no payload changes, signing or runtime acceptance is claimed. Full source/API/ZIP receipts retained separately.",
+  "windows": {
+    "version": "1.0.0",
+    "variant": "portable",
+    "architecture": "x64",
+    "portable": {
+      "status": "measured",
+      "bytes": 130906923,
+      "sha256": "b678bcfdade52aa2e10aaeb6401034b0875761525d8de96d6b73d2fc2032267a"
+    },
+    "unpackedBytes": 544017044,
+    "physicalGroups": [
+      {
+        "name": "application_archive",
+        "files": 1,
+        "bytes": 79509626
+      },
+      {
+        "name": "application_external",
+        "files": 0,
+        "bytes": 0
+      },
+      {
+        "name": "native_engine",
+        "files": 4,
+        "bytes": 78554304
+      },
+      {
+        "name": "notices",
+        "files": 17,
+        "bytes": 20858576
+      },
+      {
+        "name": "electron_locales",
+        "files": 55,
+        "bytes": 50643459
+      },
+      {
+        "name": "electron_runtime",
+        "files": 13,
+        "bytes": 314343453
+      },
+      {
+        "name": "remainder",
+        "files": 2,
+        "bytes": 107626
+      }
+    ],
+    "physicalTop20": [
+      {
+        "path": "Waarp.exe",
+        "bytes": 246411776,
+        "group": "electron_runtime"
+      },
+      {
+        "path": "resources/app.asar",
+        "bytes": 79509626,
+        "group": "application_archive"
+      },
+      {
+        "path": "resources/engine/sing-box.exe",
+        "bytes": 69020160,
+        "group": "native_engine"
+      },
+      {
+        "path": "dxcompiler.dll",
+        "bytes": 25744384,
+        "group": "electron_runtime"
+      },
+      {
+        "path": "LICENSES.chromium.html",
+        "bytes": 20477229,
+        "group": "notices"
+      },
+      {
+        "path": "resources.pak",
+        "bytes": 12436904,
+        "group": "electron_runtime"
+      },
+      {
+        "path": "icudtl.dat",
+        "bytes": 10824576,
+        "group": "electron_runtime"
+      },
+      {
+        "path": "resources/engine/libcronet.dll",
+        "bytes": 9529344,
+        "group": "native_engine"
+      },
+      {
+        "path": "vk_swiftshader.dll",
+        "bytes": 5520384,
+        "group": "electron_runtime"
+      },
+      {
+        "path": "d3dcompiler_47.dll",
+        "bytes": 4741488,
+        "group": "electron_runtime"
+      },
+      {
+        "path": "ffmpeg.dll",
+        "bytes": 3113472,
+        "group": "electron_runtime"
+      },
+      {
+        "path": "locales/ml.pak",
+        "bytes": 1767850,
+        "group": "electron_locales"
+      },
+      {
+        "path": "locales/ta.pak",
+        "bytes": 1758067,
+        "group": "electron_locales"
+      },
+      {
+        "path": "locales/kn.pak",
+        "bytes": 1720240,
+        "group": "electron_locales"
+      },
+      {
+        "path": "locales/te.pak",
+        "bytes": 1629379,
+        "group": "electron_locales"
+      },
+      {
+        "path": "locales/hi.pak",
+        "bytes": 1586602,
+        "group": "electron_locales"
+      },
+      {
+        "path": "locales/bn.pak",
+        "bytes": 1513545,
+        "group": "electron_locales"
+      },
+      {
+        "path": "dxil.dll",
+        "bytes": 1509760,
+        "group": "electron_runtime"
+      },
+      {
+        "path": "locales/gu.pak",
+        "bytes": 1495625,
+        "group": "electron_locales"
+      },
+      {
+        "path": "locales/mr.pak",
+        "bytes": 1467313,
+        "group": "electron_locales"
+      }
+    ],
+    "asar": {
+      "bytes": 79509626,
+      "sha256": "c27568879e6e1b017be569813d48645812215abb66fa0ac44b4f1058e10092cf",
+      "packedBytes": 78026234,
+      "metadataBytes": 1483392,
+      "externalBytes": 0,
+      "logicalBytes": 78026234,
+      "groups": [
+        {
+          "name": "main",
+          "files": 19,
+          "bytes": 2887377
+        },
+        {
+          "name": "preload",
+          "files": 1,
+          "bytes": 4301
+        },
+        {
+          "name": "renderer_js",
+          "files": 22,
+          "bytes": 5686589
+        },
+        {
+          "name": "renderer_css",
+          "files": 3,
+          "bytes": 160832
+        },
+        {
+          "name": "renderer_fonts",
+          "files": 50,
+          "bytes": 795840
+        },
+        {
+          "name": "renderer_maps",
+          "files": 0,
+          "bytes": 0
+        },
+        {
+          "name": "renderer_sourcemaps",
+          "files": 0,
+          "bytes": 0
+        },
+        {
+          "name": "renderer_images",
+          "files": 0,
+          "bytes": 0
+        },
+        {
+          "name": "renderer_other",
+          "files": 1,
+          "bytes": 490
+        },
+        {
+          "name": "runtime_modules",
+          "files": 5580,
+          "bytes": 68401581
+        },
+        {
+          "name": "notices",
+          "files": 33,
+          "bytes": 84368
+        },
+        {
+          "name": "remainder",
+          "files": 2,
+          "bytes": 4856
+        }
+      ],
+      "top20": [
+        {
+          "path": "node_modules/maplibre-gl/dist/maplibre-gl.mjs.map",
+          "bytes": 5732311,
+          "group": "runtime_modules",
+          "storage": "packed"
+        },
+        {
+          "path": "node_modules/maplibre-gl/dist/maplibre-gl-dev.mjs.map",
+          "bytes": 5695713,
+          "group": "runtime_modules",
+          "storage": "packed"
+        },
+        {
+          "path": "node_modules/simple-icons/index.js",
+          "bytes": 5250668,
+          "group": "runtime_modules",
+          "storage": "packed"
+        },
+        {
+          "path": "node_modules/simple-icons/index.mjs",
+          "bytes": 5250664,
+          "group": "runtime_modules",
+          "storage": "packed"
+        },
+        {
+          "path": "node_modules/maplibre-gl/dist/maplibre-gl-worker-dev.mjs.map",
+          "bytes": 3113656,
+          "group": "runtime_modules",
+          "storage": "packed"
+        },
+        {
+          "path": "node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs.map",
+          "bytes": 2973603,
+          "group": "runtime_modules",
+          "storage": "packed"
+        },
+        {
+          "path": "node_modules/maplibre-gl/dist/maplibre-gl-dev.mjs",
+          "bytes": 2543092,
+          "group": "runtime_modules",
+          "storage": "packed"
+        },
+        {
+          "path": "out/renderer/assets/atlas-canvas-Cc27TKC9.js",
+          "bytes": 1609800,
+          "group": "renderer_js",
+          "storage": "packed"
+        },
+        {
+          "path": "node_modules/maplibre-gl/dist/maplibre-gl-worker-dev.mjs",
+          "bytes": 1292441,
+          "group": "runtime_modules",
+          "storage": "packed"
+        },
+        {
+          "path": "node_modules/react-dom/cjs/react-dom-profiling.development.js",
+          "bytes": 1199917,
+          "group": "runtime_modules",
+          "storage": "packed"
+        },
+        {
+          "path": "node_modules/react-dom/cjs/react-dom-client.development.js",
+          "bytes": 1182785,
+          "group": "runtime_modules",
+          "storage": "packed"
+        },
+        {
+          "path": "node_modules/maplibre-gl/dist/maplibre-gl.mjs",
+          "bytes": 1106041,
+          "group": "runtime_modules",
+          "storage": "packed"
+        },
+        {
+          "path": "out/renderer/assets/index-BnOSKZ2B.js",
+          "bytes": 795542,
+          "group": "renderer_js",
+          "storage": "packed"
+        },
+        {
+          "path": "out/renderer/assets/maplibre-gl-worker-B0SrbRYT.js",
+          "bytes": 777626,
+          "group": "renderer_js",
+          "storage": "packed"
+        },
+        {
+          "path": "node_modules/react-dom/cjs/react-dom-profiling.profiling.js",
+          "bytes": 699916,
+          "group": "runtime_modules",
+          "storage": "packed"
+        },
+        {
+          "path": "out/main/index.js",
+          "bytes": 680972,
+          "group": "main",
+          "storage": "packed"
+        },
+        {
+          "path": "node_modules/@maplibre/maplibre-gl-style-spec/dist/index.cjs.map",
+          "bytes": 626803,
+          "group": "runtime_modules",
+          "storage": "packed"
+        },
+        {
+          "path": "node_modules/react-dom/cjs/react-dom-client.production.js",
+          "bytes": 625168,
+          "group": "runtime_modules",
+          "storage": "packed"
+        },
+        {
+          "path": "node_modules/@maplibre/maplibre-gl-style-spec/dist/gl-style-validate.cjs.map",
+          "bytes": 575260,
+          "group": "runtime_modules",
+          "storage": "packed"
+        },
+        {
+          "path": "node_modules/@maplibre/maplibre-gl-style-spec/dist/gl-style-validate.mjs.map",
+          "bytes": 575232,
+          "group": "runtime_modules",
+          "storage": "packed"
+        }
+      ],
+      "runtimeModules": [
+        {
+          "path": "node_modules/maplibre-gl",
+          "name": "maplibre-gl",
+          "version": "6.19.0",
+          "files": 783,
+          "bytes": 29338051
+        },
+        {
+          "path": "node_modules/simple-icons",
+          "name": "simple-icons",
+          "version": "16.33.0",
+          "files": 3476,
+          "bytes": 15977615
+        },
+        {
+          "path": "node_modules/react-dom",
+          "name": "react-dom",
+          "version": "19.3.0",
+          "files": 42,
+          "bytes": 8062585
+        },
+        {
+          "path": "node_modules/@maplibre/maplibre-gl-style-spec",
+          "name": "@maplibre/maplibre-gl-style-spec",
+          "version": "26.8.0",
+          "files": 411,
+          "bytes": 6660416
+        },
+        {
+          "path": "node_modules/@fontsource/inter",
+          "name": "@fontsource/inter",
+          "version": "5.3.0",
+          "files": 418,
+          "bytes": 4265818
+        },
+        {
+          "path": "node_modules/@maplibre/mlt",
+          "name": "@maplibre/mlt",
+          "version": "1.3.0",
+          "files": 172,
+          "bytes": 1182311
+        },
+        {
+          "path": "node_modules/gl-matrix",
+          "name": "gl-matrix",
+          "version": "3.4.4",
+          "files": 35,
+          "bytes": 654204
+        },
+        {
+          "path": "node_modules/@maplibre/geojson-vt",
+          "name": "@maplibre/geojson-vt",
+          "version": "6.3.3",
+          "files": 56,
+          "bytes": 573112
+        },
+        {
+          "path": "node_modules/@fontsource-variable/instrument-sans",
+          "name": "@fontsource-variable/instrument-sans",
+          "version": "5.3.0",
+          "files": 26,
+          "bytes": 421126
+        },
+        {
+          "path": "node_modules/jsqr",
+          "name": "jsqr",
+          "version": "1.4.0",
+          "files": 3,
+          "bytes": 269401
+        },
+        {
+          "path": "node_modules/@fontsource-variable/jetbrains-mono",
+          "name": "@fontsource-variable/jetbrains-mono",
+          "version": "5.3.0",
+          "files": 22,
+          "bytes": 200877
+        },
+        {
+          "path": "node_modules/react",
+          "name": "react",
+          "version": "19.3.0",
+          "files": 26,
+          "bytes": 177421
+        },
+        {
+          "path": "node_modules/bidi-js",
+          "name": "bidi-js",
+          "version": "1.1.0",
+          "files": 16,
+          "bytes": 160100
+        },
+        {
+          "path": "node_modules/earcut",
+          "name": "earcut",
+          "version": "3.2.4",
+          "files": 5,
+          "bytes": 98021
+        },
+        {
+          "path": "node_modules/scheduler",
+          "name": "scheduler",
+          "version": "0.28.0",
+          "files": 14,
+          "bytes": 82212
+        },
+        {
+          "path": "node_modules/zustand",
+          "name": "zustand",
+          "version": "5.1.0",
+          "files": 35,
+          "bytes": 77791
+        },
+        {
+          "path": "node_modules/pbf",
+          "name": "pbf",
+          "version": "5.1.3",
+          "files": 7,
+          "bytes": 74305
+        },
+        {
+          "path": "node_modules/@mapbox/jsonlint-lines-primitives",
+          "name": "@mapbox/jsonlint-lines-primitives",
+          "version": "2.0.3",
+          "files": 9,
+          "bytes": 57652
+        },
+        {
+          "path": "node_modules/kdbush",
+          "name": "kdbush",
+          "version": "4.1.0",
+          "files": 5,
+          "bytes": 31469
+        },
+        {
+          "path": "node_modules/protocol-buffers-schema",
+          "name": "protocol-buffers-schema",
+          "version": "3.6.1",
+          "files": 8,
+          "bytes": 27838
+        },
+        {
+          "path": "node_modules/@maplibre/vt-pbf",
+          "name": "@maplibre/vt-pbf",
+          "version": "4.3.3",
+          "files": 4,
+          "bytes": 22998
+        },
+        {
+          "path": "node_modules/@mapbox/vector-tile",
+          "name": "@mapbox/vector-tile",
+          "version": "3.0.0",
+          "files": 3,
+          "bytes": 12433
+        },
+        {
+          "path": "node_modules/@mapbox/point-geometry",
+          "name": "@mapbox/point-geometry",
+          "version": "1.1.0",
+          "files": 3,
+          "bytes": 9875
+        },
+        {
+          "path": "node_modules/@mapbox/tiny-sdf",
+          "name": "@mapbox/tiny-sdf",
+          "version": "2.3.0",
+          "files": 3,
+          "bytes": 9382
+        },
+        {
+          "path": "node_modules/minimist",
+          "name": "minimist",
+          "version": "1.2.8",
+          "files": 4,
+          "bytes": 8745
+        },
+        {
+          "path": "node_modules/potpack",
+          "name": "potpack",
+          "version": "2.1.0",
+          "files": 3,
+          "bytes": 5276
+        },
+        {
+          "path": "node_modules/json-stringify-pretty-compact",
+          "name": "json-stringify-pretty-compact",
+          "version": "4.0.0",
+          "files": 3,
+          "bytes": 4180
+        },
+        {
+          "path": "node_modules/murmurhash-js",
+          "name": "murmurhash-js",
+          "version": "1.0.0",
+          "files": 4,
+          "bytes": 4081
+        },
+        {
+          "path": "node_modules/quickselect",
+          "name": "quickselect",
+          "version": "3.0.0",
+          "files": 3,
+          "bytes": 3414
+        },
+        {
+          "path": "node_modules/@mapbox/unitbezier",
+          "name": "@mapbox/unitbezier",
+          "version": "1.0.0",
+          "files": 3,
+          "bytes": 3267
+        },
+        {
+          "path": "node_modules/tinyqueue",
+          "name": "tinyqueue",
+          "version": "3.0.0",
+          "files": 3,
+          "bytes": 2963
+        },
+        {
+          "path": "node_modules/resolve-protobuf-schema",
+          "name": "resolve-protobuf-schema",
+          "version": "2.1.0",
+          "files": 3,
+          "bytes": 2848
+        },
+        {
+          "path": "node_modules/require-from-string",
+          "name": "require-from-string",
+          "version": "2.0.2",
+          "files": 3,
+          "bytes": 2436
+        },
+        {
+          "path": "node_modules/@types/geojson",
+          "name": "@types/geojson",
+          "version": "7946.0.16",
+          "files": 2,
+          "bytes": 1726
+        }
+      ],
+      "classification": "Groups follow shipped files. Maps, icons and locales bundled into JavaScript remain in the JS group; zero standalone map bytes do not indicate missing map content.",
+      "accounting": "packedBytes + metadataBytes = physical app.asar bytes. externalBytes are already counted in unpacked files. Links are aliases with no extra content bytes. Logical groups and runtimeModules must not be added to the physical package total. runtimeModules includes notices attributed to the notices group."
+    }
+  },
+  "android": [
+    {
+      "abi": "arm64-v8a",
+      "variant": "release-unsigned",
+      "versionName": "1.0.0",
+      "versionCode": 7,
+      "sha256": "a604aa5ef156ff7c0eb389708cf73a6651f02a24131cc9b3ab07f19d27c10a78",
+      "artifact": "waarp-android-1.0.0-arm64-v8a-release-unsigned.apk",
+      "archiveBytes": 100505181,
+      "compressedPayloadBytes": 100421689,
+      "uncompressedBytes": 102393505,
+      "containerOverheadBytes": 83492,
+      "groups": [
+        {
+          "name": "dex",
+          "entries": 1,
+          "compressedBytes": 3944328,
+          "uncompressedBytes": 3944328
+        },
+        {
+          "name": "resources",
+          "entries": 103,
+          "compressedBytes": 369690,
+          "uncompressedBytes": 400107
+        },
+        {
+          "name": "assets",
+          "entries": 23,
+          "compressedBytes": 583713,
+          "uncompressedBytes": 1949730
+        },
+        {
+          "name": "native_libraries",
+          "entries": 3,
+          "compressedBytes": 95252952,
+          "uncompressedBytes": 95252952
+        },
+        {
+          "name": "notices",
+          "entries": 127,
+          "compressedBytes": 236586,
+          "uncompressedBytes": 730397
+        },
+        {
+          "name": "metadata",
+          "entries": 65,
+          "compressedBytes": 21304,
+          "uncompressedBytes": 62508
+        },
+        {
+          "name": "remainder",
+          "entries": 10,
+          "compressedBytes": 13116,
+          "uncompressedBytes": 53483
+        }
+      ],
+      "top20ByUncompressedBytes": [
+        {
+          "path": "lib/arm64-v8a/libbox.so",
+          "compressedBytes": 84200784,
+          "uncompressedBytes": 84200784,
+          "compressionMethod": 0,
+          "group": "native_libraries"
+        },
+        {
+          "path": "lib/arm64-v8a/libmaplibre.so",
+          "compressedBytes": 11042072,
+          "uncompressedBytes": 11042072,
+          "compressionMethod": 0,
+          "group": "native_libraries"
+        },
+        {
+          "path": "classes.dex",
+          "compressedBytes": 3944328,
+          "uncompressedBytes": 3944328,
+          "compressionMethod": 0,
+          "group": "dex"
+        },
+        {
+          "path": "resources.arsc",
+          "compressedBytes": 238768,
+          "uncompressedBytes": 238768,
+          "compressionMethod": 0,
+          "group": "resources"
+        },
+        {
+          "path": "assets/atlas/world.json",
+          "compressedBytes": 62866,
+          "uncompressedBytes": 191212,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/PublicSuffixDatabase.list",
+          "compressedBytes": 42484,
+          "uncompressedBytes": 132737,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/hi.json",
+          "compressedBytes": 28303,
+          "uncompressedBytes": 128125,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/uk.json",
+          "compressedBytes": 28129,
+          "uncompressedBytes": 107821,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/fa.json",
+          "compressedBytes": 26619,
+          "uncompressedBytes": 102805,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/ja.json",
+          "compressedBytes": 26706,
+          "uncompressedBytes": 97083,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/ar.json",
+          "compressedBytes": 26757,
+          "uncompressedBytes": 95571,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/vi.json",
+          "compressedBytes": 25363,
+          "uncompressedBytes": 89975,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/ko.json",
+          "compressedBytes": 25888,
+          "uncompressedBytes": 88387,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/fr.json",
+          "compressedBytes": 26155,
+          "uncompressedBytes": 85501,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/de.json",
+          "compressedBytes": 26462,
+          "uncompressedBytes": 85382,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/es.json",
+          "compressedBytes": 25760,
+          "uncompressedBytes": 84115,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/pt-BR.json",
+          "compressedBytes": 25789,
+          "uncompressedBytes": 83968,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/it.json",
+          "compressedBytes": 25672,
+          "uncompressedBytes": 83232,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/pl.json",
+          "compressedBytes": 26235,
+          "uncompressedBytes": 81936,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/tr.json",
+          "compressedBytes": 25211,
+          "uncompressedBytes": 80554,
+          "compressionMethod": 8,
+          "group": "assets"
+        }
+      ],
+      "accounting": "compressedPayloadBytes + containerOverheadBytes = archiveBytes. Container overhead includes ZIP headers, alignment, signing block and archive metadata. Uncompressed entry bytes are a separate view, not installed Android disk usage."
+    },
+    {
+      "abi": "armeabi-v7a",
+      "variant": "release-unsigned",
+      "versionName": "1.0.0",
+      "versionCode": 7,
+      "sha256": "efd099b303df8b16c4e8ee934a8f325cb1aed6945c45ddc9a3e651dec5a301d3",
+      "artifact": "waarp-android-1.0.0-armeabi-v7a-release-unsigned.apk",
+      "archiveBytes": 89063579,
+      "compressedPayloadBytes": 88978293,
+      "uncompressedBytes": 90950109,
+      "containerOverheadBytes": 85286,
+      "groups": [
+        {
+          "name": "dex",
+          "entries": 1,
+          "compressedBytes": 3944328,
+          "uncompressedBytes": 3944328
+        },
+        {
+          "name": "resources",
+          "entries": 103,
+          "compressedBytes": 369690,
+          "uncompressedBytes": 400107
+        },
+        {
+          "name": "assets",
+          "entries": 23,
+          "compressedBytes": 583713,
+          "uncompressedBytes": 1949730
+        },
+        {
+          "name": "native_libraries",
+          "entries": 3,
+          "compressedBytes": 83809556,
+          "uncompressedBytes": 83809556
+        },
+        {
+          "name": "notices",
+          "entries": 127,
+          "compressedBytes": 236586,
+          "uncompressedBytes": 730397
+        },
+        {
+          "name": "metadata",
+          "entries": 65,
+          "compressedBytes": 21304,
+          "uncompressedBytes": 62508
+        },
+        {
+          "name": "remainder",
+          "entries": 10,
+          "compressedBytes": 13116,
+          "uncompressedBytes": 53483
+        }
+      ],
+      "top20ByUncompressedBytes": [
+        {
+          "path": "lib/armeabi-v7a/libbox.so",
+          "compressedBytes": 75747696,
+          "uncompressedBytes": 75747696,
+          "compressionMethod": 0,
+          "group": "native_libraries"
+        },
+        {
+          "path": "lib/armeabi-v7a/libmaplibre.so",
+          "compressedBytes": 8054608,
+          "uncompressedBytes": 8054608,
+          "compressionMethod": 0,
+          "group": "native_libraries"
+        },
+        {
+          "path": "classes.dex",
+          "compressedBytes": 3944328,
+          "uncompressedBytes": 3944328,
+          "compressionMethod": 0,
+          "group": "dex"
+        },
+        {
+          "path": "resources.arsc",
+          "compressedBytes": 238768,
+          "uncompressedBytes": 238768,
+          "compressionMethod": 0,
+          "group": "resources"
+        },
+        {
+          "path": "assets/atlas/world.json",
+          "compressedBytes": 62866,
+          "uncompressedBytes": 191212,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/PublicSuffixDatabase.list",
+          "compressedBytes": 42484,
+          "uncompressedBytes": 132737,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/hi.json",
+          "compressedBytes": 28303,
+          "uncompressedBytes": 128125,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/uk.json",
+          "compressedBytes": 28129,
+          "uncompressedBytes": 107821,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/fa.json",
+          "compressedBytes": 26619,
+          "uncompressedBytes": 102805,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/ja.json",
+          "compressedBytes": 26706,
+          "uncompressedBytes": 97083,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/ar.json",
+          "compressedBytes": 26757,
+          "uncompressedBytes": 95571,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/vi.json",
+          "compressedBytes": 25363,
+          "uncompressedBytes": 89975,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/ko.json",
+          "compressedBytes": 25888,
+          "uncompressedBytes": 88387,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/fr.json",
+          "compressedBytes": 26155,
+          "uncompressedBytes": 85501,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/de.json",
+          "compressedBytes": 26462,
+          "uncompressedBytes": 85382,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/es.json",
+          "compressedBytes": 25760,
+          "uncompressedBytes": 84115,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/pt-BR.json",
+          "compressedBytes": 25789,
+          "uncompressedBytes": 83968,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/it.json",
+          "compressedBytes": 25672,
+          "uncompressedBytes": 83232,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/pl.json",
+          "compressedBytes": 26235,
+          "uncompressedBytes": 81936,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/tr.json",
+          "compressedBytes": 25211,
+          "uncompressedBytes": 80554,
+          "compressionMethod": 8,
+          "group": "assets"
+        }
+      ],
+      "accounting": "compressedPayloadBytes + containerOverheadBytes = archiveBytes. Container overhead includes ZIP headers, alignment, signing block and archive metadata. Uncompressed entry bytes are a separate view, not installed Android disk usage."
+    },
+    {
+      "abi": "x86_64",
+      "variant": "release-unsigned",
+      "versionName": "1.0.0",
+      "versionCode": 7,
+      "sha256": "b4afb64bc20a03582c7072149413b704191ecc17857142d5d5a0241c7412a0ab",
+      "artifact": "waarp-android-1.0.0-x86_64-release-unsigned.apk",
+      "archiveBytes": 105670372,
+      "compressedPayloadBytes": 105591793,
+      "uncompressedBytes": 107563609,
+      "containerOverheadBytes": 78579,
+      "groups": [
+        {
+          "name": "dex",
+          "entries": 1,
+          "compressedBytes": 3944328,
+          "uncompressedBytes": 3944328
+        },
+        {
+          "name": "resources",
+          "entries": 103,
+          "compressedBytes": 369690,
+          "uncompressedBytes": 400107
+        },
+        {
+          "name": "assets",
+          "entries": 23,
+          "compressedBytes": 583713,
+          "uncompressedBytes": 1949730
+        },
+        {
+          "name": "native_libraries",
+          "entries": 3,
+          "compressedBytes": 100423056,
+          "uncompressedBytes": 100423056
+        },
+        {
+          "name": "notices",
+          "entries": 127,
+          "compressedBytes": 236586,
+          "uncompressedBytes": 730397
+        },
+        {
+          "name": "metadata",
+          "entries": 65,
+          "compressedBytes": 21304,
+          "uncompressedBytes": 62508
+        },
+        {
+          "name": "remainder",
+          "entries": 10,
+          "compressedBytes": 13116,
+          "uncompressedBytes": 53483
+        }
+      ],
+      "top20ByUncompressedBytes": [
+        {
+          "path": "lib/x86_64/libbox.so",
+          "compressedBytes": 88989152,
+          "uncompressedBytes": 88989152,
+          "compressionMethod": 0,
+          "group": "native_libraries"
+        },
+        {
+          "path": "lib/x86_64/libmaplibre.so",
+          "compressedBytes": 11423144,
+          "uncompressedBytes": 11423144,
+          "compressionMethod": 0,
+          "group": "native_libraries"
+        },
+        {
+          "path": "classes.dex",
+          "compressedBytes": 3944328,
+          "uncompressedBytes": 3944328,
+          "compressionMethod": 0,
+          "group": "dex"
+        },
+        {
+          "path": "resources.arsc",
+          "compressedBytes": 238768,
+          "uncompressedBytes": 238768,
+          "compressionMethod": 0,
+          "group": "resources"
+        },
+        {
+          "path": "assets/atlas/world.json",
+          "compressedBytes": 62866,
+          "uncompressedBytes": 191212,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/PublicSuffixDatabase.list",
+          "compressedBytes": 42484,
+          "uncompressedBytes": 132737,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/hi.json",
+          "compressedBytes": 28303,
+          "uncompressedBytes": 128125,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/uk.json",
+          "compressedBytes": 28129,
+          "uncompressedBytes": 107821,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/fa.json",
+          "compressedBytes": 26619,
+          "uncompressedBytes": 102805,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/ja.json",
+          "compressedBytes": 26706,
+          "uncompressedBytes": 97083,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/ar.json",
+          "compressedBytes": 26757,
+          "uncompressedBytes": 95571,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/vi.json",
+          "compressedBytes": 25363,
+          "uncompressedBytes": 89975,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/ko.json",
+          "compressedBytes": 25888,
+          "uncompressedBytes": 88387,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/fr.json",
+          "compressedBytes": 26155,
+          "uncompressedBytes": 85501,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/de.json",
+          "compressedBytes": 26462,
+          "uncompressedBytes": 85382,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/es.json",
+          "compressedBytes": 25760,
+          "uncompressedBytes": 84115,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/pt-BR.json",
+          "compressedBytes": 25789,
+          "uncompressedBytes": 83968,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/it.json",
+          "compressedBytes": 25672,
+          "uncompressedBytes": 83232,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/pl.json",
+          "compressedBytes": 26235,
+          "uncompressedBytes": 81936,
+          "compressionMethod": 8,
+          "group": "assets"
+        },
+        {
+          "path": "assets/locales/tr.json",
+          "compressedBytes": 25211,
+          "uncompressedBytes": 80554,
+          "compressionMethod": 8,
+          "group": "assets"
+        }
+      ],
+      "accounting": "compressedPayloadBytes + containerOverheadBytes = archiveBytes. Container overhead includes ZIP headers, alignment, signing block and archive metadata. Uncompressed entry bytes are a separate view, not installed Android disk usage."
+    }
+  ]
+}
