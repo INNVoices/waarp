@@ -1,0 +1,180 @@
+{
+  "schemaVersion": 1,
+  "checkedAtUtc": "2026-11-21T03:49:40.761768+00:00",
+  "scope": "Allowlisted host AVD metadata on an explicitly owned disposable Linux CI host; not guest or runtime acceptance.",
+  "collectionComplete": true,
+  "explicitDisposableHost": true,
+  "hostOrGuestModified": false,
+  "runtimeAcceptance": "not-assessed",
+  "effectiveEmulatorApiLevel": null,
+  "hostFeatureNegotiationVerified": false,
+  "avdName": "test",
+  "emulatorPort": 5554,
+  "processCollectionRequested": false,
+  "limits": {
+    "fileBytesExclusive": 65536,
+    "totalSeconds": 5,
+    "procEntries": 2048,
+    "ownedEmulatorProcesses": 8
+  },
+  "files": {
+    "avdRoot": {
+      "relativePath": "test.ini",
+      "available": true,
+      "optional": false,
+      "properties": {
+        "target": "android-0"
+      },
+      "omittedProperties": 2,
+      "bytes": 80,
+      "sha256": "83a1067292054b9ebcc9278916a33fbed90500f45618c32ba385903e18fecc53",
+      "resolvedRelativePath": "test.ini"
+    },
+    "avdConfig": {
+      "relativePath": "test.avd/config.ini",
+      "available": true,
+      "optional": false,
+      "properties": {
+        "abi.type": "x86_64",
+        "disk.dataPartition.size": "4096M",
+        "hw.cpu.arch": "x86_64",
+        "hw.cpu.ncore": "2",
+        "hw.gltransport": "pipe",
+        "hw.gltransport.asg.dataRingSize": "32768",
+        "hw.gltransport.asg.writeBufferSize": "1048576",
+        "hw.gltransport.asg.writeStepSize": "4096",
+        "hw.gpu.enabled": "no",
+        "hw.gpu.mode": "auto",
+        "hw.ramSize": "4096M",
+        "image.sysdir.1": "system-images/android-36.1/google_apis_ps16k/x86_64/",
+        "tag.id": "google_apis",
+        "vm.heapSize": "228M",
+        "hw.heapSize": "512M"
+      },
+      "omittedProperties": 124,
+      "bytes": 3612,
+      "sha256": "c169b30cc0061653afaa707cdc207b84720b5a6043989924b55683676803e85e",
+      "resolvedRelativePath": "test.avd/config.ini",
+      "repeatedPropertyValuesInFileOrder": {
+        "disk.dataPartition.size": [
+          "800M",
+          "4096M"
+        ],
+        "hw.cpu.ncore": [
+          "2",
+          "2"
+        ],
+        "hw.ramSize": [
+          "1536M",
+          "4096M"
+        ]
+      }
+    },
+    "avdHardware": {
+      "relativePath": "test.avd/hardware-qemu.ini",
+      "available": true,
+      "optional": false,
+      "properties": {
+        "hw.cpu.arch": "x86_64",
+        "hw.cpu.ncore": "2",
+        "hw.ramSize": "4096",
+        "hw.gltransport": "pipe",
+        "hw.gltransport.asg.writeBufferSize": "1048576",
+        "hw.gltransport.asg.writeStepSize": "4096",
+        "hw.gltransport.asg.dataRingSize": "32768",
+        "hw.gpu.enabled": "true",
+        "hw.gpu.mode": "lavapipe",
+        "vm.heapSize": "576",
+        "disk.dataPartition.size": "4g"
+      },
+      "omittedProperties": 121,
+      "bytes": 4194,
+      "sha256": "2cf993da8687fa6027845a76b1f1e114215bd55a57fec111cae35de3a9252e09",
+      "resolvedRelativePath": "test.avd/hardware-qemu.ini"
+    },
+    "emulatorVersion": {
+      "relativePath": "emulator/source.properties",
+      "available": true,
+      "optional": false,
+      "properties": {
+        "Pkg.Revision": "37.3.10",
+        "Pkg.BuildId": "16970787"
+      },
+      "omittedProperties": 3,
+      "bytes": 103,
+      "sha256": "399a3ad857aa3ba1d2983745f82d6c438221481c220c3bba0aec577adb313a03",
+      "resolvedRelativePath": "emulator/source.properties"
+    },
+    "commandLineToolsVersion": {
+      "relativePath": "cmdline-tools/latest/source.properties",
+      "available": true,
+      "optional": false,
+      "properties": {
+        "Pkg.Revision": "12.0"
+      },
+      "omittedProperties": 2,
+      "bytes": 86,
+      "sha256": "d4eb560d17731d9919dbb91bfecb2d90418cb60c21e07b6c02302a682fbb760e",
+      "resolvedRelativePath": "cmdline-tools/latest/source.properties"
+    },
+    "emulatorFeatures": {
+      "relativePath": "emulator/lib/advancedFeatures.ini",
+      "available": true,
+      "optional": true,
+      "properties": {
+        "GLAsyncSwap": "on",
+        "GLDMA": "on",
+        "GLDMA2": "on",
+        "GLDirectMem": "off",
+        "HasSharedSlotsHostMemoryAllocator": "on"
+      },
+      "omittedProperties": 108,
+      "bytes": 28490,
+      "sha256": "0f4532724ad5d666139607ab64bfb3eb42af140343ffb69c97afe72cb686d5f8",
+      "resolvedRelativePath": "emulator/lib/advancedFeatures.ini"
+    },
+    "emulatorCanaryFeatures": {
+      "relativePath": "emulator/lib/advancedFeaturesCanary.ini",
+      "available": false,
+      "optional": true,
+      "error": "missing"
+    },
+    "imageVersion": {
+      "relativePath": "system-images/android-36.1/google_apis_ps16k/x86_64/source.properties",
+      "available": true,
+      "optional": false,
+      "properties": {
+        "Pkg.Revision": "4",
+        "AndroidVersion.ApiLevel": "36.1",
+        "AndroidVersion.ExtensionLevel": "20",
+        "AndroidVersion.IsBaseSdk": "true",
+        "SystemImage.Abi": "x86_64",
+        "SystemImage.TagId": "google_apis,page_size_16kb",
+        "SystemImage.GpuSupport": "true"
+      },
+      "omittedProperties": 5,
+      "bytes": 402,
+      "sha256": "c54d726e02b6862fbf727529ce040aad70a878aa015f6e23a7a293ca4e20705f",
+      "resolvedRelativePath": "system-images/android-36.1/google_apis_ps16k/x86_64/source.properties"
+    },
+    "imageFeatures": {
+      "relativePath": "system-images/android-36.1/google_apis_ps16k/x86_64/advancedFeatures.ini",
+      "available": true,
+      "optional": true,
+      "properties": {
+        "GLDMA": "on",
+        "GLAsyncSwap": "on",
+        "GLDirectMem": "on"
+      },
+      "omittedProperties": 32,
+      "bytes": 791,
+      "sha256": "3a6a894957ccf0ca2dfcc12e3221fc80c3509282bb38d2f61ae54a10395b3575",
+      "resolvedRelativePath": "system-images/android-36.1/google_apis_ps16k/x86_64/advancedFeatures.ini"
+    }
+  },
+  "emulatorProcesses": [],
+  "errors": [],
+  "avdContentPathMatchesExpected": true,
+  "targetMajorMatchesImage": false,
+  "elapsedSeconds": 0.002569
+}
