@@ -64,6 +64,10 @@ jobs:
         run: npx electron-builder --win portable --publish never
       - name: Verify packaged runtime and engine checksums
         run: npm run package:verify
+      - name: Verify portable lifecycle ownership and evidence guards
+        run: node --test scripts/test-portable-lifecycle.test.mjs
+      - name: Exercise the built portable EXE, persisted profile and normal exit
+        run: node scripts/test-portable-lifecycle.mjs --disposable-windows
       - name: Retain feature previews and native evidence in the job log
         if: always()
         shell: pwsh
