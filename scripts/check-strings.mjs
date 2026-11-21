@@ -1,6 +1,6 @@
 // [D-ui-strings] Counts literal UI text in renderer .tsx (docs/design/57-strings.md): JSX text nodes,
 // string title/placeholder/aria-label/label props, and t('English literal') calls. UI text lives in
-// src/shared/strings/en.json and is read with s('area.id').
+// src/shared/strings/ru.json and is read with s('area.id').
 // Lines with `strings-ok: <reason>` are allowlisted (reason required): brand names, key caps, code samples.
 // Fails if any file goes above scripts/strings-baseline.json (new files must be 0). Baseline only shrinks.
 // `node scripts/check-strings.mjs --write` rewrites the baseline (only after burning down). `--list <file>` prints hits.
@@ -8,6 +8,7 @@ import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse } from '@babel/parser' // TS 7 has no JS API; babel's parser ships with the vite toolchain
+import { checkLocalization } from './localization-contract.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const src = join(root, 'src/renderer/src')
@@ -20,15 +21,6 @@ function walk(d, out = []) {
     const p = join(d, n)
     if (statSync(p).isDirectory()) walk(p, out)
     else if (p.endsWith('.tsx')) out.push(p)
-  }
-  return out
-}
-
-function walkTs(d, out = []) {
-  for (const n of readdirSync(d)) {
-    const p = join(d, n)
-    if (statSync(p).isDirectory()) walkTs(p, out)
-    else if (p.endsWith('.ts')) out.push(p)
   }
   return out
 }
@@ -87,30 +79,19 @@ if (isMain) {
     console.log(`strings baseline written: ${total} literal UI texts in ${Object.keys(sorted).length} files`)
     process.exit(0)
   }
-  // the table itself: every s('id') / sp('id') used exists in en.json; other languages carry only en ids
-  const strDir = join(root, 'src/shared/strings')
-  const en = JSON.parse(readFileSync(join(strDir, 'ru.json'), 'utf8'))
-  const tableBad = []
-  for (const f of walk(src, []).concat(walkTs(src)).filter((f) => !/lib[\\/]i18n\.ts$/.test(f))) { // i18n.ts: examples in comments
-    const text = readFileSync(f, 'utf8')
-    for (const m of text.matchAll(/\b(?:s|sp|str|S)\(\s*'([a-z][\w-]*(?:\.[\w-]+)+)'/g)) {
-      const id = m[1]
-      if (!(id in en) && !(id + '.other' in en) && !(id + '.one' in en)) tableBad.push(`${relative(src, f).replaceAll('\\', '/')}: unknown id ${id}`)
-    }
-  }
-  for (const n of readdirSync(strDir).filter((x) => /^[a-z]{2}(-[A-Z]{2})?\.json$/.test(x) && x !== 'en.json')) {
-    for (const id of Object.keys(JSON.parse(readFileSync(join(strDir, n), 'utf8')))) if (!(id in en)) tableBad.push(`${n}: id ${id} is not in en.json`)
-  }
-  if (tableBad.length) {
-    console.error('strings: table mismatch:\n  ' + tableBad.slice(0, 40).join('\n  ') + (tableBad.length > 40 ? `\n  … ${tableBad.length - 40} more` : ''))
+  const contract = checkLocalization(root)
+  if (contract.errors.length) {
+    const tableBad = contract.errors.map(error => `${error.path}: ${error.code}: ${error.detail}`)
+    console.error('strings: localization contract mismatch:\n  ' + tableBad.slice(0, 40).join('\n  ') + (tableBad.length > 40 ? `\n  … ${tableBad.length - 40} more` : ''))
     process.exit(1)
   }
+  console.log(`localization contract ok: ${contract.stats.locales} locales; ${contract.stats.windowsKeys} Windows IDs; ${contract.stats.androidKeys} Android literal IDs; ${contract.stats.windowsComputedCalls} computed Windows calls require runtime coverage`)
   const base = JSON.parse(readFileSync(basePath, 'utf8'))
   const bad = []
   for (const [f, n] of Object.entries(counts)) if (n > (base[f] ?? 0)) bad.push(`${f}: ${n} (baseline ${base[f] ?? 0})`)
   const shrunk = Object.entries(base).filter(([f, n]) => (counts[f] ?? 0) < n)
   if (bad.length) {
-    console.error('strings: new literal UI text, put it in src/shared/strings/en.json and use s(\'id\') (node scripts/check-strings.mjs --list <file>):\n  ' + bad.join('\n  '))
+    console.error('strings: new literal UI text, put it in src/shared/strings/ru.json and use s(\'id\') (node scripts/check-strings.mjs --list <file>):\n  ' + bad.join('\n  '))
     process.exit(1)
   }
   console.log(`strings ok: ${total} literal UI texts left${shrunk.length ? `; ${shrunk.length} file(s) below baseline, run with --write to lock it in` : ''}`)
