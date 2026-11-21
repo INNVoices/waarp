@@ -201,9 +201,10 @@
         "docs/production/evidence/2026-11-21-pr45-task-and-dns-refusals.json",
         "docs/production/evidence/2026-11-21-pr45-http-framing-and-metadata.json",
         "docs/production/evidence/2026-11-21-pr45-dns-diagnostics-accepted.json",
-        "docs/production/evidence/2026-11-21-pr45-bpf-load-and-inventory-refusal.json"
+        "docs/production/evidence/2026-11-21-pr45-bpf-load-and-inventory-refusal.json",
+        "docs/production/evidence/2026-11-21-pr45-fortify-and-first-fd-pass.json"
       ],
-      "evidence_note": "PR45 head0254958: actual guest BTF совпал и BPF_PROG_LOAD завершился по source-bound control flow. Preflight затем отказал на task-start metadata_open/ENOENT до FD streams/GLOBAL/resize. Original ZIP111files и86raw streams проверены независимо. Full build отдельно отказал при host cc fixture compilation до0tests; stderr отсутствует, localGCC14 проходит. Следующая правка уточняет диагностику обоих отказов, сохраняя gates; actual runtime acceptance не получена."
+      "evidence_note": "PR45 head3ac47b: host failure теперь причинно воспроизведён — fixture macro read переименовывал fortified libc wrapper; узкий include/prototype fix и fortify3 regression проходят. Actual preflight завершил initial inventory и весь первый descriptor pass по проверенному source/control flow, затем отказал known_thread_missing в middle. Original ZIP111files/86streams подтверждены; роль отсутствующегоTID неизвестна, secondpass/GLOBAL/resize не достигнуты. Следующий контекст различает representative/shared member, сохраняя отказ."
     },
     {
       "id": "REL-004",
@@ -242,7 +243,8 @@
         "docs/production/evidence/2026-11-21-pr45-task-and-dns-refusals.json",
         "docs/production/evidence/2026-11-21-pr45-http-framing-and-metadata.json",
         "docs/production/evidence/2026-11-21-pr45-dns-diagnostics-accepted.json",
-        "docs/production/evidence/2026-11-21-pr45-bpf-load-and-inventory-refusal.json"
+        "docs/production/evidence/2026-11-21-pr45-bpf-load-and-inventory-refusal.json",
+        "docs/production/evidence/2026-11-21-pr45-fortify-and-first-fd-pass.json"
       ]
     },
     {

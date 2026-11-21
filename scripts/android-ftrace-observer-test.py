@@ -17,7 +17,11 @@ DRIVER = r'''
 #define _GNU_SOURCE
 #include <dirent.h>
 #include <sys/types.h>
+/* Parse libc's fortified inline wrappers before intercepting observer calls. */
+#include <unistd.h>
 static ssize_t fixture_read(int descriptor, void *buffer, size_t size);
+long fixture_syscall(long number, ...);
+int fixture_getgroups(int size, gid_t groups[]);
 #define read fixture_read
 #define WAARP_OBSERVER_TEST
 #define syscall fixture_syscall
@@ -28,7 +32,6 @@ static ssize_t fixture_read(int descriptor, void *buffer, size_t size);
 #undef syscall
 #undef getgroups
 #undef read
-extern ssize_t read(int descriptor, void *buffer, size_t size);
 #include <stdarg.h>
 static int fixture_mode;
 static const char *fixture_case;
@@ -475,7 +478,17 @@ class NativeMetadataChecks(unittest.TestCase):
 
     def test_known_missing_member_is_distinct_from_start_change(self):
         self.two_processes()
-        self.assertEqual("known_thread_missing", self.run_case("old-thread-missing", success=False)["reason"])
+        result = self.run_case("old-thread-missing", success=False)
+        self.assertEqual(("known_thread_missing", "missing_positive_shared_member"),
+                         tuple(result[k] for k in ("reason", "context")))
+        self.assertEqual((111, 112), tuple(result[k] for k in ("pid", "tid")))
+
+    def test_missing_original_table_representative_has_distinct_context(self):
+        self.two_processes()
+        result = self.run_case("old-thread-missing", kcmp=1, success=False)
+        self.assertEqual(("known_thread_missing", "missing_original_table_representative"),
+                         tuple(result[k] for k in ("reason", "context")))
+        self.assertEqual((111, 112), tuple(result[k] for k in ("pid", "tid")))
 
     def test_known_start_change_is_not_new_member_permission(self):
         self.two_processes(); self.changed_start(112)
@@ -483,7 +496,9 @@ class NativeMetadataChecks(unittest.TestCase):
 
     def test_middle_newcomer_remains_mandatory_in_final(self):
         self.two_processes(); self.pending_thread()
-        self.assertEqual("known_thread_missing", self.run_case("new-disappear-final", success=False)["reason"])
+        result = self.run_case("new-disappear-final", success=False)
+        self.assertEqual(("known_thread_missing", "missing_positive_shared_member"),
+                         tuple(result[k] for k in ("reason", "context")))
 
     def test_middle_newcomer_identity_cannot_be_reused(self):
         self.two_processes(); self.pending_thread(); self.changed_start(113)
@@ -566,6 +581,17 @@ class NativeMetadataChecks(unittest.TestCase):
     def test_one_ahead_end_cannot_follow_a_pending_partial_record(self):
         self.two_processes(descriptors=64)
         self.assertEqual("bpf_end_prefetch_boundary", self.run_case("bpf-prefetch-fragment", success=False)["reason"])
+
+    def test_fortified_libc_keeps_the_fixture_partial_read_interception(self):
+        driver = self.root / "fortified-driver.c"
+        binary = self.root / "fortified-observer-fixture"
+        driver.write_text(DRIVER.replace("SOURCE_PATH", str(SOURCE)))
+        compile_fixture(["cc", "-O2", "-std=c11", "-Wall", "-Wextra", "-Werror", "-D_FORTIFY_SOURCE=3",
+                         str(driver), "-o", str(binary)])
+        self.two_processes(descriptors=64)
+        with mock.patch.object(self, "binary", binary):
+            self.assertEqual("bpf_end_prefetch_boundary",
+                             self.run_case("bpf-prefetch-fragment", success=False)["reason"])
 
     def test_second_iterator_classifies_added_nontrace_descriptor(self):
         self.two_processes(); self.pending(5)

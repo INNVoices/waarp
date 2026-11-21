@@ -303,6 +303,8 @@ static void verify_inventory(Inventory *inventory) {
             const Task *known = &inventory->tasks[i];
             if (known->pid == item.pid && !bsearch(&known->tid, tids.v, tids.n, sizeof(int), number_compare)) {
                 failure_tid = known->tid;
+                failure_context = inventory->tables[known->table].representative == i
+                    ? "missing_original_table_representative" : "missing_positive_shared_member";
                 refuse("known_thread_missing");
             }
         }
