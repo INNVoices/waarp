@@ -310,8 +310,9 @@ static bool observer_group_member(unsigned group) {
     read_text_at(scan_proc_fd, "self/status", status, sizeof(status));
     char *line = strstr(status, "\nGid:\t");
     unsigned real_gid, effective_gid, saved_gid, fs_gid;
-    must(line && sscanf(line + 1, "Gid:\t%u\t%u\t%u\t%u", &real_gid,
-                        &effective_gid, &saved_gid, &fs_gid) == 4, "observer_fsgid");
+    if (!line) refuse("observer_fsgid");
+    if (sscanf(line + 1, "Gid:\t%u\t%u\t%u\t%u", &real_gid,
+               &effective_gid, &saved_gid, &fs_gid) != 4) refuse("observer_fsgid");
     (void)real_gid; (void)effective_gid; (void)saved_gid;
     if (fs_gid == group) return true;
     gid_t groups[256];

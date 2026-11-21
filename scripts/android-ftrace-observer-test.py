@@ -177,6 +177,16 @@ class NativeMetadataChecks(unittest.TestCase):
         (self.root / "self/status").write_text("Name:\tPRIVATE\nGid:\t0\t0\t0\t3009\n")
         self.assertTrue(self.run_case("group", 3009)["member"])
 
+    def test_missing_gid_line_refuses_before_group_value_is_used(self):
+        (self.root / "self").mkdir()
+        (self.root / "self/status").write_text("Name:\tPRIVATE\nUid:\t0\t0\t0\t0\n")
+        self.assertEqual("observer_fsgid", self.run_case("group", 3009, success=False)["reason"])
+
+    def test_incomplete_gid_line_refuses_before_group_value_is_used(self):
+        (self.root / "self").mkdir()
+        (self.root / "self/status").write_text("Name:\tPRIVATE\nGid:\t0\t0\t0\n")
+        self.assertEqual("observer_fsgid", self.run_case("group", 3009, success=False)["reason"])
+
 
 if __name__ == "__main__":
     unittest.main()
