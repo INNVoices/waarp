@@ -101,7 +101,7 @@ Graphics hypothesis и независимый ftrace blocker требуют фа
 **Title:** Уточнить владение BPF trace event и допустимый путь подготовки 16 KiB
 
 - **Priority:** P0.
-- **Status:** `in_progress`: Подготовлен отдельный strict empty-buffer путь: exact kernel/IKCONFIG hashes, полный bounded native FD inventory, GLOBAL RCU grace-period barrier, свежие нулевые per-CPU stats и сохранение stopped BPF controls до/после единственного resize. 102 host tests прошли. Actual NDK compile/guest runtime ещё не получены; до них задача остаётся in_progress.
+- **Status:** `in_progress`: Strict empty-buffer путь и 104 адресных host tests готовы. Реальная сборка observer закреплённым NDK прошла в PR45 run 44867528265. Guest observer ещё не выполнялся: release API36 остановился до него на единственном adb root с transport closed; сохраняется отдельное исправление bounded reconnect. Полная матрица и 7200 s soak ещё не приняты.
 - **Dependencies:** нет.
 - **Files:** `scripts/android-ftrace-prepare.py`, его `-test.py`, `scripts/android-emulator-image.py`, `docs/ANDROID-PERFETTO-16K.md`; raw `ftrace-preparation` artifact.
 - **Change:** исследовать конкретный image/kernel и источник включённого события до любой tracefs mutation. Проверенный exact kernel revision и permalink приведены ниже. Helper lookup может асинхронно включить событие, поэтому `X` совместим с нулём Perfetto sessions. Это объяснение механизма, не атрибуция actual guest. Подготовить проверяемый вариант, сохраняющий чужое состояние; если безопасный resize при таком состоянии не доказан, оставить отказ.
@@ -115,7 +115,7 @@ Graphics hypothesis и независимый ftrace blocker требуют фа
 **Title:** Получить полный exact-source Android acceptance bundle
 
 - **Priority:** P0.
-- **Status:** `blocked`: текущий main не прошёл матрицу; checker уже реализован.
+- **Status:** `blocked`: текущий main не прошёл матрицу; checker уже реализован. PR45 head `56f403c` дал 5 success / 2 failure / 1 skipped: отдельные отказы root transport и UI/IME сохранены в [runtime ledger](evidence/2026-11-21-pr45-runtime-followup.json); этот частичный результат не является приёмкой.
 - **Dependencies:** REL-001, REL-002, REL-003, REL-009.
 - **Files:** `.github/workflows/android.yml`, `scripts/android-release-readiness.py`, `scripts/android-release-proof.py`, `docs/ANDROID_RELEASE_EVIDENCE.md`, `android/acceptance/README.md`. Не переписывать checker без конкретного воспроизводимого mismatch.
 - **Change:** на одном выбранном main commit выполнить существующую полную Android acceptance. Экспортировать raw run/jobs и отдельные artifact receipts, original ZIP и точные extracted files; сверить SHA256/CRC и связность выбранной попытки. Статические отчёты привязать к трём реальным unsigned APK; runtime — к реально использованному payload, а не только versionName/code или `passed=true`.

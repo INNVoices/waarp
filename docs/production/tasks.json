@@ -190,9 +190,11 @@
       "evidence": [
         "https://github.com/INNVoices/waarp/actions/runs/44829589582/job/136616804337",
         "docs/ANDROID-PERFETTO-16K.md",
-        "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926778"
+        "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926778",
+        "https://github.com/INNVoices/waarp/pull/45",
+        "docs/production/evidence/2026-11-21-pr45-runtime-followup.json"
       ],
-      "evidence_note": "Подготовлен отдельный strict empty-buffer путь: exact kernel/IKCONFIG hashes, полный bounded native FD inventory, GLOBAL RCU grace-period barrier, свежие нулевые per-CPU stats и сохранение stopped BPF controls до/после единственного resize. 102 host tests прошли. Actual NDK compile/guest runtime ещё не получены; до них задача остаётся in_progress."
+      "evidence_note": "Strict empty-buffer путь и 104 адресных host tests готовы. Реальная сборка observer закреплённым NDK прошла в PR45 run 44867528265. Guest observer ещё не выполнялся: release API36 остановился до него на единственном adb root с transport closed; сохраняется отдельное исправление bounded reconnect. Полная матрица и 7200 s soak ещё не приняты."
     },
     {
       "id": "REL-004",
@@ -225,7 +227,8 @@
       "spec": "docs/production/01-production-release.md#rel-004",
       "issue": "https://github.com/INNVoices/waarp/issues/33",
       "evidence": [
-        "https://github.com/INNVoices/waarp/actions/runs/44831610512"
+        "https://github.com/INNVoices/waarp/actions/runs/44831610512",
+        "docs/production/evidence/2026-11-21-pr45-runtime-followup.json"
       ]
     },
     {
