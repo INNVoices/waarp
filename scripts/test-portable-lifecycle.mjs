@@ -300,6 +300,35 @@ export async function run(args = process.argv.slice(2)) {
           await page.getByRole('checkbox', { name: strings[key], exact: true }).uncheck({ timeout: remaining() })
           await poll(`Persist ${setting}`, snapshot, s => s.settings[setting] === false, 10_000)
         }
+        // The expected paths come from the pinned build dependency in this test
+        // runner. Only ordinary UI navigation and DOM reads reach the packaged
+        // file:// renderer; no module or replacement icon is injected into it.
+        const icons = await import('simple-icons')
+        const brands = [['YouTube', 'siYoutube'], ['Discord', 'siDiscord'], ['Telegram', 'siTelegram'],
+          ['Claude', 'siClaude'], ['Gemini', 'siGooglegemini'], ['Instagram', 'siInstagram'],
+          ['X', 'siX'], ['Spotify', 'siSpotify'], ['Dev', 'siGithub']]
+        const beforeBrands = await bounded(snapshot(), remaining(10_000), 'State before brand navigation')
+        assertState(beforeBrands, profileId)
+        launch.brandIcons = { expectedIcons: brands.length, visibleIcons: 0, matchedPaths: 0, passed: false }
+        await page.getByRole('button', { name: strings['nav.lib'], exact: true }).click({ timeout: remaining() })
+        await page.locator('.page.lib').getByRole('button', { name: strings['route.add'], exact: true }).click({ timeout: remaining() })
+        await page.locator('.page.lib .toolbar .seg').getByRole('button')
+          .filter({ hasText: strings['lib.services'] }).click({ timeout: remaining() })
+        const services = page.locator('section.lib-sec').filter({ has: page.getByRole('heading', { name: strings['lib.services'], exact: true }) })
+        for (const [name, key] of brands) {
+          const icon = services.locator('.tile').filter({ has: page.getByText(name, { exact: true }) }).locator('.brand-ic > svg')
+          await icon.waitFor({ state: 'visible', timeout: remaining() })
+          launch.brandIcons.visibleIcons++
+          assert.equal(await icon.getAttribute('viewBox', { timeout: remaining() }), '0 0 24 24', `Packaged ${name} SVG geometry`)
+          assert.equal(await icon.locator('path').getAttribute('d', { timeout: remaining() }), icons[key].path, `Packaged ${name} brand path`)
+          launch.brandIcons.matchedPaths++
+        }
+        await page.getByRole('button', { name: strings['nav.settings'], exact: true }).click({ timeout: remaining() })
+        const afterBrands = await bounded(snapshot(), remaining(10_000), 'State after brand navigation')
+        assertState(afterBrands, profileId)
+        assert.deepEqual(afterBrands.profiles, beforeBrands.profiles, 'Brand navigation must not change profiles')
+        assert.deepEqual(afterBrands.settings, beforeBrands.settings, 'Brand navigation must not change settings or routes')
+        Object.assign(launch.brandIcons, { profilesUnchanged: true, settingsUnchanged: true, masterOff: true, passed: true })
       }
       const restored = await bounded(snapshot(), remaining(10_000), 'Final snapshot')
       assertState(restored, profileId)
