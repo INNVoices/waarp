@@ -1,0 +1,178 @@
+{
+  "schemaVersion": 1,
+  "checkedAtUtc": "2026-11-21T07:55:40.847787+00:00",
+  "repository": "INNVoices/waarp",
+  "pullRequest": 45,
+  "headSha": "3ac47b042b8e9e56bc88d38d8ea13d33862c23fa",
+  "testedMergeCheckout": "0802cc08dadff1859e768793ac106681ee69e743",
+  "runAttempt": 1,
+  "fullAndroidAcceptance": false,
+  "hostCompiler": {
+    "checkedAtUtc": "2026-11-21T07:51:15.766484+00:00",
+    "sourceBase": "3ac47b042b8e9e56bc88d38d8ea13d33862c23fa",
+    "ci": {
+      "runId": 44881798274,
+      "jobId": 136778482498,
+      "attempt": 1,
+      "jobUrl": "https://github.com/INNVoices/waarp/actions/runs/44881798274/job/136778482498",
+      "logFile": "job-136778482498.log",
+      "logSha256": "b5751b1af507dc175f6fe02f5676b1660522fd3802d762de8f0690cea92ac86d",
+      "logOrigin": "GitHub connector decoded job log; not original HTTP transport bytes",
+      "rawJobApiUrl": "https://api.github.com/repos/INNVoices/waarp/actions/jobs/136778482498",
+      "rawJobApiStatus": "SAVED_RAW_INDIVIDUAL_BYTES",
+      "diagnostic": "driver.c:48 redefinition of fixture_read; previous definition caused by #define read fixture_read at line 6; unused-function secondary.",
+      "nativeFixtureRuntime": "NOT_RUN; compiler failed before setUpClass completed; only 2 Python diagnostics tests ran.",
+      "actualPrMergeCheckoutSha": "0802cc08dadff1859e768793ac106681ee69e743",
+      "rawJobApiSha256": "d5e3b0dae04a0b51b87e6cb2d8d7224abc7067b221b107904091f57273a5c95b"
+    },
+    "cause": "The fixture read macro was active during the first unistd.h inclusion, renaming the glibc fortified inline read definition into fixture_read. This collides with the later fixture wrapper definition.",
+    "correction": "Load unistd.h before macro interception; explicitly declare the fixture syscall/getgroups prototypes. Scope only the test DRIVER and a fortified compile/runtime regression.",
+    "compilerVersion": "cc (Debian 14.2.0-19) 14.2.0",
+    "beforeFortifiedCompile": {
+      "args": [
+        "cc",
+        "-O2",
+        "-std=c11",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-D_FORTIFY_SOURCE=3",
+        "/workspace/scratch/d91ffc0d3936/waarp-execution/pr45-3ac-host-fortify/before-driver.c",
+        "-o",
+        "/workspace/scratch/d91ffc0d3936/waarp-execution/pr45-3ac-host-fortify/before-fixture"
+      ],
+      "returncode": 1
+    },
+    "afterFortifiedCompile": {
+      "returnCode": 0,
+      "stdoutBytes": 0,
+      "stderrBytes": 0,
+      "command": [
+        "cc",
+        "-O2",
+        "-std=c11",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-D_FORTIFY_SOURCE=3",
+        "/workspace/scratch/d91ffc0d3936/waarp-execution/pr45-3ac-host-fortify/after-driver.c",
+        "-o",
+        "/workspace/scratch/d91ffc0d3936/waarp-execution/pr45-3ac-host-fortify/after-fixture"
+      ]
+    },
+    "normalSuite": {
+      "returnCode": 0,
+      "output": "...............................................................\n----------------------------------------------------------------------\nRan 63 tests in 1.114s\n\nOK\n"
+    },
+    "fortifiedSuite": {
+      "returnCode": 0,
+      "output": "...............................................................\n----------------------------------------------------------------------\nRan 63 tests in 1.039s\n\nOK\n",
+      "localWrapper": "/workspace/scratch/d91ffc0d3936/waarp-execution/pr45-3ac-host-fortify/fortified-path/cc",
+      "scope": "Same full suite with local GCC14 + _FORTIFY_SOURCE=3; not an Ubuntu/GCC13 runtime claim."
+    },
+    "productionCUnchangedSha256": "5e6c3c5cc56286b91ff0d6b6af0fe05f326260caece7aa4b2815fb32c786d10c",
+    "diffCheckReturnCode": 0,
+    "limitations": [
+      "The CI compiler version and fortify level are not recorded; the exact same diagnostic is reproduced with local GCC14 + fortify3.",
+      "The corrected published CI run must confirm the runner environment. No rerun or remote write was performed.",
+      "No Android guest, BPF verifier, APK, or signing behavior is changed or accepted by these host fixtures."
+    ],
+    "patch": {
+      "commit": "d72103bae9e6d78c4110a0e5ae3d844f51a5cd70",
+      "file": "scripts/android-ftrace-observer-test.py",
+      "sha256": "1036eda8a51242267f2314465654a5533b7ed3edbe2d8cd010907984c2393cd1",
+      "patchFile": "fortified-read-fix.patch",
+      "patchSha256": "fb01eeca242b78216dc5504d063e0978c795bbb3f61af77a720882bf9d07c844",
+      "productionSourceChanged": false
+    }
+  },
+  "preflight": {
+    "schemaVersion": 1,
+    "artifactId": 14697754669,
+    "runId": 44881798296,
+    "headSha": "3ac47b042b8e9e56bc88d38d8ea13d33862c23fa",
+    "integrity": {
+      "zipApiCrc": "PASS",
+      "rawCommandStreamsVerified": 86,
+      "imageReplay": "PASS",
+      "topAndRetainedBuildReplay": "PASS",
+      "exactFailedFtracePrefixCommands": 28
+    },
+    "acceptance": {
+      "passed": false,
+      "fullValidatorRefusal": "Unverified or out-of-scope ftrace preparation",
+      "tracefsMutated": false,
+      "mutationAttempted": false,
+      "secondDescriptorPassReached": false,
+      "globalBarrierReached": false,
+      "zeroCpuStatsReached": false,
+      "resizeReached": false,
+      "apkOrAppRuntimeReached": false
+    },
+    "actual": {
+      "observer": {
+        "schemaVersion": 4,
+        "passed": false,
+        "reason": "known_thread_missing",
+        "stage": "task_inventory_middle",
+        "context": "none",
+        "errno": 0,
+        "pid": 1367,
+        "tid": 1397,
+        "fd": -1
+      },
+      "observerSeconds": 0.824779013,
+      "observerTimedOut": false,
+      "cleanupExitCode": 0,
+      "ftraceSeconds": 5.611963691,
+      "rootPassed": true,
+      "rootRequests": 1,
+      "rootTransportClosed": false,
+      "guestBtfSha256": "d9bad01cb909205a22d741adf6b9f5a907a6e805354a94d9012165f2002508fa",
+      "sourceSha256": "5e6c3c5cc56286b91ff0d6b6af0fe05f326260caece7aa4b2815fb32c786d10c",
+      "binarySha256": "cafa7a7aaee30d31b23540540d96ae05b5c6d284b5bd04975bdcc325c4ef1525",
+      "programSha256": "414aa1528b87692af4cfb9721d15ba14eba99f0890d0d1519df7e02061b08009",
+      "buildSourceCommit": "0802cc08dadff1859e768793ac106681ee69e743",
+      "buildSourceCommitScope": "GitHub pull-request merge checkout; source/BPF/header bytes independently match reviewed head."
+    },
+    "sourceBoundInference": {
+      "programLoadCompleted": true,
+      "initialInventoryCompleted": true,
+      "firstGlobalDescriptorPassCompleted": true,
+      "basis": "Exact executed-source main sets task_inventory_middle only after initial_inventory and every first-pass scan_table returns. Each completed scan requires actual link/iterator creation, validated metadata, exact END then EOF, cleanup, and S1/B or S2/B/C coverage.",
+      "knownThreadAbsentFromMiddleNumericList": true,
+      "unknowns": [
+        "Failure JSON contains no successful stream/table/descriptor counters or reconciliation count.",
+        "Missing retained task is not a proven benign exit or permitted departure.",
+        "An atomic snapshot or future file-table stability is not established.",
+        "Second descriptor pass, final task verification, GLOBAL, fresh zero counters and resize remain unperformed."
+      ]
+    },
+    "fullAndroid": {
+      "runId": 44881798274,
+      "optimized36Created": false,
+      "reason": "Build stopped at host fixture compilation; separate owner diagnosed fortified read macro redefinition."
+    },
+    "independentReview": {
+      "agent": "repo_audit",
+      "integrityReplay": "PASS",
+      "firstDescriptorPassInference": "AGREED from exact executed-source control flow",
+      "roleOfMissingThread": "UNKNOWN in this historical record",
+      "failureNotAccepted": true,
+      "noLiveRerun": true
+    }
+  },
+  "artifact": {
+    "id": 14697754669,
+    "bytes": 107869,
+    "sha256": "7a22ba02f212ccebe8b12e0f2979decd57607e29387fbae8a0a612f5e49373ac",
+    "rawIndividualApiSha256": "0ac0c293cf3c1bd27f70fead4bea107adc6862c3b823ab49460bb9e0db778a58",
+    "zipFilesVerified": 111
+  },
+  "nextCandidate": {
+    "hostCorrection": "Load libc fortified wrappers before fixture macro interception; explicitly declare test prototypes. Same baseline flags and20s; actual fortified compile/runtime regression.",
+    "guestDiagnostic": "Failure-only missing_positive_shared_member versus missing_original_table_representative; same refusal, no added reads, no departure allowance.",
+    "tests": "64nativefixturesPASS includingfortifiedregression; originalfortifycorrection63/63alsoPASSwithentirelocalsuiteunderfortify3.",
+    "guestAcceptance": "PENDING; historical missing-thread role remains unknown."
+  }
+}

@@ -14,7 +14,9 @@ import math
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
+import sys
 import time
 
 COMMAND_TIMEOUT_SECONDS = 10
@@ -22,6 +24,10 @@ TOTAL_TIMEOUT_SECONDS = 60
 OUTPUT_LIMIT = 64 * 1024
 IMAGE_PACKAGE = "system-images;android-36.1;google_apis_ps16k;x86_64"
 IMAGE_RELATIVE = Path("system-images/android-36.1/google_apis_ps16k/x86_64/source.properties")
+KERNEL_RELATIVE = IMAGE_RELATIVE.with_name("kernel-ranchu")
+KERNEL_BYTES = 22635520
+KERNEL_SHA256 = "8e673c5d9b9f5e44f056346eda93adf8b96d3c9f300ce7b4fcc209d6ada906a5"
+KERNEL_READ_LIMIT = 32 * 1024 * 1024
 IMAGE_PROPERTIES = {
     "Pkg.Revision": "4", "AndroidVersion.ApiLevel": "36.1", "AndroidVersion.ExtensionLevel": "20",
     "AndroidVersion.IsBaseSdk": "true", "SystemImage.Abi": "x86_64",
@@ -40,6 +46,8 @@ EXPECTED_IMAGE = {
     "originalSourcePropertiesSha256": "c54d726e02b6862fbf727529ce040aad70a878aa015f6e23a7a293ca4e20705f",
     "kernelSourceCommit": "bb9513914902b52a9751ea1126ad40518a38c89f",
     "archiveHashMeasuredByThisVerifier": False,
+    "installedKernelBytes": KERNEL_BYTES,
+    "installedKernelSha256": KERNEL_SHA256,
 }
 DEVICE_READS = (
     ("qemu", "getprop ro.kernel.qemu"), ("buildType", "getprop ro.build.type"),
@@ -68,6 +76,87 @@ def numeric(value, label):
     return int(value)
 
 
+def adb_arguments(command):
+    """Keep shell observations and one explicit, non-option file transfer distinct."""
+    if isinstance(command, str):
+        return ["shell", command]
+    require(type(command) is list and all(type(item) is str and item and "\0" not in item for item in command),
+            "Invalid explicit ADB argument list")
+    operands = command[2:] if command[:2] == ["push", "-q"] else command[1:] if command[:1] == ["push"] else []
+    require(len(operands) == 2 and Path(operands[0]).is_absolute()
+            and operands[1].startswith("/data/local/tmp/") and ".." not in Path(operands[1]).parts,
+            "Only an explicit owned observer push is supported")
+    return command
+
+
+def kernel_digest_worker(sdk_root):
+    """Hash a bounded regular kernel through pinned directory descriptors."""
+    root = Path(sdk_root).absolute()
+    require(".." not in root.parts and root != Path("/"), "Invalid installed SDK root")
+    directory = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    leaf = None
+    try:
+        for part in (*root.parts[1:], *KERNEL_RELATIVE.parts[:-1]):
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            os.close(directory)
+            directory = child
+        leaf = os.open(KERNEL_RELATIVE.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+        before = os.fstat(leaf)
+        require(stat.S_ISREG(before.st_mode) and 0 < before.st_size <= KERNEL_READ_LIMIT,
+                "Installed kernel must be a bounded regular file")
+        digest, count = hashlib.sha256(), 0
+        while chunk := os.read(leaf, 1024 * 1024):
+            count += len(chunk)
+            require(count <= KERNEL_READ_LIMIT, "Installed kernel grew beyond the fixed limit")
+            digest.update(chunk)
+        after = os.fstat(leaf)
+        identity = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns)
+        require(count == before.st_size and identity(before) == identity(after), "Installed kernel changed while hashing")
+        return {"bytes": count, "sha256": digest.hexdigest()}
+    finally:
+        if leaf is not None:
+            os.close(leaf)
+        os.close(directory)
+
+
+def inspect_installed_kernel(sdk_root, observation_started_ns):
+    """The child bounds even a blocked file read within the existing image deadline."""
+    started = time.monotonic_ns() - observation_started_ns
+    remaining = TOTAL_TIMEOUT_SECONDS * 1_000_000_000 - started
+    require(remaining > 0, "Image observation deadline expired before kernel hashing")
+    timeout = min(COMMAND_TIMEOUT_SECONDS, remaining / 1_000_000_000)
+    result = subprocess.run([sys.executable, "-I", str(Path(__file__).resolve()), "--hash-installed-kernel", str(Path(sdk_root).absolute())],
+                            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+    finished = time.monotonic_ns() - observation_started_ns
+    require(result.returncode == 0 and not result.stderr and 0 < len(result.stdout) <= 1024,
+            "Could not read the exact bounded installed kernel")
+    observed = json.loads(result.stdout)
+    require(type(observed) is dict and set(observed) == {"bytes", "sha256"}, "Invalid installed kernel digest output")
+    record = {"installedRelativePath": KERNEL_RELATIVE.as_posix(), "bytes": observed.get("bytes"),
+              "sha256": observed.get("sha256"), "startedOffsetNs": started, "finishedOffsetNs": finished,
+              "elapsedSeconds": (finished - started) / 1_000_000_000, "timeoutSeconds": timeout}
+    validate_kernel_record(record, 0)
+    return record
+
+
+def validate_kernel_record(record, previous_finish):
+    require(type(record) is dict and set(record) == {"installedRelativePath", "bytes", "sha256", "startedOffsetNs",
+            "finishedOffsetNs", "elapsedSeconds", "timeoutSeconds"}, "Missing exact installed kernel inventory")
+    require(record["installedRelativePath"] == KERNEL_RELATIVE.as_posix()
+            and type(record["bytes"]) is int and record["bytes"] == KERNEL_BYTES and record["sha256"] == KERNEL_SHA256,
+            "Installed kernel differs from the reviewed complete official kernel member")
+    started, finished = record["startedOffsetNs"], record["finishedOffsetNs"]
+    elapsed, timeout = record["elapsedSeconds"], record["timeoutSeconds"]
+    require(type(started) is int and type(finished) is int
+            and previous_finish <= started <= finished <= TOTAL_TIMEOUT_SECONDS * 1_000_000_000,
+            "Kernel inventory timing exceeds the existing image deadline")
+    require(type(elapsed) in (int, float) and math.isfinite(elapsed)
+            and type(timeout) in (int, float) and math.isfinite(timeout)
+            and timeout == min(COMMAND_TIMEOUT_SECONDS, (TOTAL_TIMEOUT_SECONDS * 1_000_000_000 - started) / 1_000_000_000)
+            and elapsed == (finished - started) / 1_000_000_000 and 0 <= elapsed <= timeout and timeout > 0,
+            "Kernel inventory did not preserve its bounded measured timeout")
+
+
 class AdbRecorder:
     """Bounded argv/exit/raw-output evidence, shared by the image and trace guard."""
     def __init__(self, prefix, directory):
@@ -88,7 +177,7 @@ class AdbRecorder:
         timeout = timeout_ns / 1_000_000_000
         stem = self.directory / f"{len(self.records):02d}-{name}"
         paths = {key: stem.with_suffix("." + key) for key in ("stdout", "stderr")}
-        arguments = self.prefix + ["shell", command]
+        arguments = self.prefix + adb_arguments(command)
         record = {"name": name, "arguments": arguments, "timeoutSeconds": timeout,
                   "perStreamLimitBytes": OUTPUT_LIMIT, "exitCode": None, "timedOut": False,
                   "startedOffsetNs": started_ns - self.started_ns}
@@ -130,7 +219,7 @@ def validate_commands(commands, directory, plan, binary_names=()):
     observed = {}
     previous_finish = 0
     for index, (command, (name, shell_command, exit_code)) in enumerate(zip(commands, plan)):
-        require(command["name"] == name and command["arguments"] == prefix + ["shell", shell_command]
+        require(command["name"] == name and command["arguments"] == prefix + adb_arguments(shell_command)
                 and type(command["exitCode"]) is int and command["exitCode"] == exit_code,
                 "Evidence command order, exact argv, serial or exit status differs from the allowed plan")
         started, finished = command["startedOffsetNs"], command["finishedOffsetNs"]
@@ -205,6 +294,7 @@ def capture(prefix, report_path, expected_page_size, disposable_emulator, sdk_ro
               "deviceModified": False, "commandTimeoutSeconds": COMMAND_TIMEOUT_SECONDS,
               "totalTimeoutSeconds": TOTAL_TIMEOUT_SECONDS, "perStreamOutputLimitBytes": OUTPUT_LIMIT,
               "maintenanceImageRequired": expected_page_size == 16384, "commands": []}
+    observation_started_ns = time.monotonic_ns()
     execute = recorder
     try:
         if execute is None:
@@ -227,6 +317,7 @@ def capture(prefix, report_path, expected_page_size, disposable_emulator, sdk_ro
             report["installedSourceProperties"] = {"file": saved.name, "installedRelativePath": IMAGE_RELATIVE.as_posix(),
                                                     "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
             report["installedSourceProperties"]["properties"] = parse_properties(raw)
+            report["installedKernel"] = inspect_installed_kernel(sdk_root, getattr(execute, "started_ns", observation_started_ns))
             report["expectedImage"] = EXPECTED_IMAGE
         report["passed"] = True
         return report
@@ -256,6 +347,7 @@ def validate_report(path, expected_page_size):
     require(device == proof["device"], "Raw image identity differs from the summary")
     check_device(device, expected_page_size)
     source_sha = None
+    kernel_sha, kernel_bytes = None, None
     if expected_page_size == 16384:
         require(proof["expectedImage"] == EXPECTED_IMAGE, "Reviewed system image provenance changed")
         source = proof["installedSourceProperties"]
@@ -267,11 +359,24 @@ def validate_report(path, expected_page_size):
         source_sha = hashlib.sha256(data).hexdigest()
         require(len(data) == source["bytes"] and source_sha == source["sha256"]
                 and parse_properties(data) == source["properties"], "Installed-image raw metadata differs from its proof")
+        kernel = proof.get("installedKernel")
+        validate_kernel_record(kernel, proof["commands"][-1]["finishedOffsetNs"])
+        kernel_sha, kernel_bytes = kernel["sha256"], kernel["bytes"]
     else:
-        require("expectedImage" not in proof and "installedSourceProperties" not in proof,
+        require("expectedImage" not in proof and "installedSourceProperties" not in proof and "installedKernel" not in proof,
                 "Unchanged 4 KiB image must not claim the 36.1 maintenance update")
     return {"passed": True, "reportSha256": hashlib.sha256(raw).hexdigest(), "device": device, "serial": prefix[2],
             "maintenanceImageRequired": expected_page_size == 16384,
             "package": IMAGE_PACKAGE if expected_page_size == 16384 else None,
             "revision": 4 if expected_page_size == 16384 else None,
-            "installedSourcePropertiesSha256": source_sha, "deviceModified": False}
+            "installedSourcePropertiesSha256": source_sha, "installedKernelSha256": kernel_sha,
+            "installedKernelBytes": kernel_bytes, "deviceModified": False}
+
+
+if __name__ == "__main__":
+    try:
+        require(len(sys.argv) == 3 and sys.argv[1] == "--hash-installed-kernel", "Unsupported image helper invocation")
+        print(json.dumps(kernel_digest_worker(sys.argv[2]), separators=(",", ":")))
+    except (OSError, ValueError):
+        print("Installed kernel inventory refused", file=sys.stderr)
+        raise SystemExit(1)

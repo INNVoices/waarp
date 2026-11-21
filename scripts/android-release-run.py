@@ -98,18 +98,15 @@ def main():
     require(serial in devices, "Select exactly one connected disposable emulator with --serial.")
     prefix = [adb, "-s", serial]
     shell = lambda *arguments: run(prefix + ["shell", *arguments])
-    require(shell("getprop", "ro.kernel.qemu") == "1", "Refusing fixture reset/root on a physical Android device.")
-    require(shell("getprop", "ro.build.type") in ("userdebug", "eng"), "Expected a disposable userdebug emulator image.")
-    run(prefix + ["root"])
-    run(prefix + ["wait-for-device"], timeout=60)
-    require(shell("id", "-u") == "0", "Root observation is required for real process/FD metrics in this isolated fixture.")
+    output = options.output.resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    root_observer = module("android_release_root", "android-release-root.py")
+    root_observer.establish_root(prefix, output / "root-readiness.json", options.disposable_emulator)
     page_size = int(shell("getconf", "PAGE_SIZE"))
     require(page_size == options.expect_page_size, "Actual emulator page size does not match the gate.")
     device = {"sdk": shell("getprop", "ro.build.version.sdk"), "release": shell("getprop", "ro.build.version.release"),
               "abi": shell("getprop", "ro.product.cpu.abi"), "pageSize": page_size,
               "observerUid": 0, "scope": "Disposable userdebug emulator; the target release APK remains non-debuggable."}
-    output = options.output.resolve()
-    output.mkdir(parents=True, exist_ok=True)
     verify = module("android_release_verify", "android-verify.py")
     instrumentation = module("android_instrument_result", "android-instrument.py")
     evidence_validator = module("android_release_proof", "android-release-proof.py")

@@ -178,6 +178,9 @@ class MobileUiInstrumentedTest {
         compose.onNode(hasText("Группы") and hasClickAction()).performClick()
         compose.onNode(hasText("Группа") and hasClickAction()).performClick()
         field("Название группы").enterText("UI ordered group")
+        // Finish editing before the selected-members block changes the outer viewport.
+        // Confirm the dialog's real IME insets before scrolling either nested list.
+        dismissKeyboard(field("Название группы"))
         compose.onNode(hasText("Первый доступный") and hasClickAction()).performClick()
         val checkbox = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Checkbox)
         selectGroupMember("UI Alpha", checkbox)

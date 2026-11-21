@@ -60,10 +60,10 @@ class FakeRecorder:
             "atrace-apps": (0, ""), "atrace-clients": (1, ""), "subbuffer-write": (0, ""),
             "subbuffer-before": (0, str(self.subbuffer)), "subbuffer-after": (0, str(self.subbuffer)),
         })
-        code, output = self.overrides.get(name, defaults[name])
+        code, output = self.overrides[name] if name in self.overrides else defaults[name]
         if name == "subbuffer-write" and code == 0 and self.write_changes:
             self.subbuffer = 16
-        row = {"name": name, "arguments": self.prefix + ["shell", command],
+        row = {"name": name, "arguments": self.prefix + IMAGE.adb_arguments(command),
                "timeoutSeconds": PREP.COMMAND_TIMEOUT_SECONDS, "perStreamLimitBytes": PREP.OUTPUT_LIMIT,
                "exitCode": code, "timedOut": False, "elapsedSeconds": 0.001,
                "startedOffsetNs": len(self.records) * 2_000_000,
@@ -87,8 +87,16 @@ class PreparationChecks(unittest.TestCase):
         self.properties = self.sdk / IMAGE.IMAGE_RELATIVE
         self.properties.parent.mkdir(parents=True)
         self.properties.write_text(SOURCE_PROPERTIES)
+        # Only the synthetic composition fixture stubs the host inventory.
+        # The separate kernel suite hashes actual files and rejects tampering.
+        self.kernel_patch = patch.object(IMAGE, "inspect_installed_kernel", return_value={
+            "installedRelativePath": IMAGE.KERNEL_RELATIVE.as_posix(), "bytes": IMAGE.KERNEL_BYTES,
+            "sha256": IMAGE.KERNEL_SHA256, "startedOffsetNs": 23000000, "finishedOffsetNs": 24000000,
+            "elapsedSeconds": 0.001, "timeoutSeconds": 10})
+        self.kernel_patch.start()
 
     def tearDown(self):
+        self.kernel_patch.stop()
         self.temporary.cleanup()
 
     def image(self, page=16384, **arguments):
@@ -99,7 +107,8 @@ class PreparationChecks(unittest.TestCase):
     def prepare(self, recorder, expected=16384, disposable=True):
         if not self.image_report.exists():
             self.image(page=expected)
-        return PREP.prepare(PREFIX, self.report, expected, disposable, recorder)
+        return PREP.prepare(PREFIX, self.report, expected, disposable, recorder,
+                            observer_directory=self.directory / "observer-not-built")
 
     def successful(self, page=16384):
         recorder = FakeRecorder(self.directory, page=page)

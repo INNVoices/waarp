@@ -1,0 +1,310 @@
+{
+  "schemaVersion": 1,
+  "checkedAtUtc": "2026-11-21T07:16:30.803038+00:00",
+  "repository": "INNVoices/waarp",
+  "pullRequest": 45,
+  "headSha": "e546275c1de88e2c8e308f3da99172fc75d98a36",
+  "testedMergeCheckout": "ac9e83148a343d9ecf7cf142072c600fa85bec71",
+  "runAttempt": 1,
+  "androidRunId": 44877647339,
+  "generalRunId": 44877647351,
+  "androidJobs": [
+    {
+      "id": 136765779618,
+      "name": "Build, unit, lint and APK integrity",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 136767609556,
+      "name": "Optimized release API 36 / 16384B",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 136767609569,
+      "name": "Native VPN API 29 / 4096B",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 136767609592,
+      "name": "Native VPN API 35 / 4096B",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 136767609593,
+      "name": "Optimized release API 29 / 4096B",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 136767609616,
+      "name": "Native VPN API 36 / 16384B",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 136767609619,
+      "name": "Optimized release API 35 / 4096B",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 136769515401,
+      "name": "Optimized release 2h AWG2 soak / API 36 / 16KB",
+      "status": "completed",
+      "conclusion": "skipped"
+    }
+  ],
+  "generalJobs": [
+    {
+      "id": 136765780017,
+      "name": "checks (windows)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 136765780258,
+      "name": "Dependency security audit",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 136765780301,
+      "name": "AWG protocol and crash (linux)",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "fullAndroidAcceptance": false,
+  "nativeApi36": {
+    "jobId": 136767609616,
+    "artifact": {
+      "artifactId": 14696129391,
+      "zipFile": "runtime-14696129391.zip",
+      "zipBytes": 1942050,
+      "zipSha256": "34db12e7d46f261216a44b05e32aca650ff49e2ca028429bca5d26327a51e2b9",
+      "artifactApiFile": "artifact-api-raw.json",
+      "artifactApiUrl": "https://api.github.com/repos/INNVoices/waarp/actions/artifacts/14696129391",
+      "artifactApiSha256": "74265345f2ea71b0109b694c6751a1cad356456a2dcec6909950c93bf0e83600",
+      "jobApiFile": "workflow-job-api-raw.json",
+      "jobApiUrl": "https://api.github.com/repos/INNVoices/waarp/actions/jobs/136767609616",
+      "jobApiSha256": "36a17114c84211a47eb6602e7f4a37f6dda7d51cd043b4e7caed0de898b2c32e",
+      "rawApiBytes": true,
+      "digestMatchesIndividualReceipt": true,
+      "runAndHeadBinding": true,
+      "artifactCreatedWithinJobWindow": true,
+      "zipCrc": "PASS",
+      "byteExactRegularFiles": 64,
+      "noExtraExtractedFiles": true
+    },
+    "instrumentation": {
+      "tests": 26,
+      "passed": 26,
+      "failed": 0,
+      "skipped": 0,
+      "wallSeconds": 249.43122590999997,
+      "rawStatusReconciliation": "All 26 case names, classes and completion status codes exactly match result.json; OK (26 tests), INSTRUMENTATION_CODE -1.",
+      "originalDnsTest": "encryptedAwg2DnsRoundTripSurvivesOffOn",
+      "originalDnsTestStatus": "passed"
+    },
+    "cycles": [
+      {
+        "cycle": 0,
+        "stage": "passed",
+        "probeCode": 204,
+        "backendGenerationOn": 3,
+        "backendGenerationAfterProbe": 3,
+        "backendAbsentAfterOff": true,
+        "interfaceIndexAtReady": 19,
+        "socketLocalInterfaceIndex": 19,
+        "localAddressMatchesReadyVpnLinkAddress": true,
+        "networkHandleAtReady": 441492361229,
+        "networkHandleAtProbeCompletion": 441492361229,
+        "availableCallbacks": 1,
+        "lostCallbacks": 0,
+        "ignoredCallbacks": 0,
+        "encryptedDnsRepliesBefore": 0,
+        "encryptedDnsRepliesAfter": 1,
+        "outerDatagramsReceivedBefore": 0,
+        "outerDatagramsReceivedAfter": 5,
+        "outerDatagramsSentBefore": 0,
+        "outerDatagramsSentAfter": 2,
+        "nativeEventLabels": [
+          "udp-bind-updated",
+          "synthetic-dns-exchange",
+          "synthetic-dns-dial",
+          "handshake-initiation",
+          "handshake-response",
+          "synthetic-dns-answer"
+        ],
+        "omittedNativeEvents": 0,
+        "protectedDnsSuccess": true
+      },
+      {
+        "cycle": 1,
+        "stage": "passed",
+        "probeCode": 204,
+        "backendGenerationOn": 5,
+        "backendGenerationAfterProbe": 5,
+        "backendAbsentAfterOff": true,
+        "interfaceIndexAtReady": 20,
+        "socketLocalInterfaceIndex": 20,
+        "localAddressMatchesReadyVpnLinkAddress": true,
+        "networkHandleAtReady": 445787328525,
+        "networkHandleAtProbeCompletion": 445787328525,
+        "availableCallbacks": 1,
+        "lostCallbacks": 0,
+        "ignoredCallbacks": 0,
+        "encryptedDnsRepliesBefore": 1,
+        "encryptedDnsRepliesAfter": 2,
+        "outerDatagramsReceivedBefore": 5,
+        "outerDatagramsReceivedAfter": 10,
+        "outerDatagramsSentBefore": 2,
+        "outerDatagramsSentAfter": 4,
+        "nativeEventLabels": [
+          "udp-bind-updated",
+          "synthetic-dns-exchange",
+          "synthetic-dns-dial",
+          "handshake-initiation",
+          "handshake-response",
+          "synthetic-dns-answer"
+        ],
+        "omittedNativeEvents": 0,
+        "protectedDnsSuccess": true
+      }
+    ],
+    "peerTrace": {
+      "schemaVersion": 1,
+      "events": 18,
+      "limit": 96,
+      "dropped": 0,
+      "observedOrder": "Monotonic host observation sequence, not an authenticated total wire order.",
+      "boundaryGroups": [
+        {
+          "cycle": 0,
+          "sequences": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "endpointId": 1,
+          "innerReadSequence": 7,
+          "innerWriteSequence": 8,
+          "outerTransportSendSequence": 9
+        },
+        {
+          "cycle": 1,
+          "sequences": [
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "endpointId": 2,
+          "innerReadSequence": 16,
+          "innerWriteSequence": 17,
+          "outerTransportSendSequence": 18
+        }
+      ]
+    },
+    "canonicalStoppedPeer": {
+      "file": "runtime/awg-proof.json",
+      "sha256": "80397eddfab653f7dae64b8962c778c7068c8b3d2e64e51fb93ab77b6cf7ca48",
+      "exactKeyCount": 20,
+      "stopped": true,
+      "passed": true,
+      "encryptedDnsReplies": 2,
+      "deviceErrorEvents": 0,
+      "scope": "Final canonical proof is a later snapshot; its total outer counters need not equal the earlier per-cycle trace snapshot."
+    },
+    "nativeCrashEvidence": {
+      "available": true,
+      "panicObserved": false,
+      "archiveCount": 0,
+      "currentLogBytes": 0
+    },
+    "diagnosticSha256": "cb0b059cb9ff4ff51cfe60851c5c44d11b14bbbaab4ee1f2e7abd2830a375f92"
+  },
+  "windows": {
+    "jobId": 136765780017,
+    "steps": [
+      {
+        "name": "Verify 50 native TUN lifecycle cycles",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 21
+      },
+      {
+        "name": "Build portable Windows package",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 22
+      },
+      {
+        "name": "Verify packaged runtime and engine checksums",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 23
+      },
+      {
+        "name": "Verify portable lifecycle ownership and evidence guards",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 24
+      },
+      {
+        "name": "Exercise the built portable EXE, persisted profile and normal exit",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 25
+      }
+    ],
+    "scope": "Job/step status only; no passed Windows artifact re-download"
+  },
+  "conclusions": [
+    "The Content-Length fix was exercised by all three native API jobs; API36 raw instrumentation confirms26/26 and both original DNS OFF/ON cycles completed.",
+    "Both cycles retained diagnostic boundaries through outer-send transport and independent Android probe204; no DNS retry, assertion or timeout changed.",
+    "This new pass does not explain the older b654 second-cycle UDP timeout. No claim that a VPN product bug was diagnosed or fixed follows.",
+    "OptimizedAPI36 remains failed; soak was skipped. Full exact-source main8/8 including7200s and offline APK/evidence replay remain required."
+  ],
+  "limitations": [
+    "Success in this new run does not establish the cause of the original b654 second-cycle UDP timeout or claim it fixed.",
+    "Host inner write proves gVisor accepted bytes; outer send proves the host UDP socket accepted bytes. Android probe 204 independently confirms the synthetic DNS response in this run.",
+    "Frame classification is not authentication; cross-thread event sequence is recorder observation order, not a total wire order.",
+    "Host and guest clocks are not explicitly synchronized; absolute timestamps across them are not evidence of latency.",
+    "Counter snapshots and trace snapshots are sampled independently during concurrent traffic. The retained trace is the after-second-probe snapshot, not the final stopped-peer history.",
+    "Optimized API 36 remains a separate failure; 2h soak was skipped. This run cannot satisfy full main 8/8 release acceptance.",
+    "Windows evidence here is job/step status only; passed PR artifacts were not downloaded again."
+  ],
+  "evidenceTrust": "Original ZIP/raw individual API receipt digest, source, time-window and CRC consistency; not cryptographic CI attestation or full release acceptance.",
+  "preflightSchema3": {
+    "runId": 44877647347,
+    "jobId": 136765780058,
+    "artifactId": 14696806102,
+    "zipBytes": 83182,
+    "zipSha256": "7cda1187c044e7a46a8c1828a8a6b61b1a248c2e252425e2a276a10d290d91a8",
+    "individualApiSha256": "09e0371483616921c2742919eed4b22bceca8c3d5c65e0c3d45c580c0b3d4ce0",
+    "digestSourceCrcAndSelectedRawStreamVerified": true,
+    "observerRefusal": {
+      "schemaVersion": 3,
+      "passed": false,
+      "reason": "process_directory",
+      "stage": "task_inventory_before",
+      "errno": 2,
+      "pid": 2112,
+      "tid": 2008,
+      "fd": -1
+    },
+    "interpretation": "Opening one enumerated process directory failed ENOENT before descriptor scans. tid2008 is a stale diagnostic field from the preceding iteration, not established identity for pid2112. No process-departure allowance added; the BPF FD change does not claim this failure fixed.",
+    "mutationAttempted": false,
+    "scope": "Primary failure only; no repeated complete preparation replay."
+  }
+}

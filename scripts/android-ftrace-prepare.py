@@ -3,8 +3,10 @@
 
 No page-size change, trace retry, app execution or acceptance-budget adjustment.
 Every command and failure is retained. Physical devices and active traces are
-refused before any mutation. The only writable path is an allowlisted tracefs
-buffer_subbuf_size_kb, with one 4 -> 16 KiB write and mandatory readback.
+refused before geometry mutation. The only writable tracefs path is the
+allowlisted buffer_subbuf_size_kb, with one 4 -> 16 KiB write and readback.
+The stopped-BPF branch stages one verified test observer in a fresh owned
+temporary directory; its transfer/execution/cleanup share the same bounds.
 """
 from __future__ import annotations
 
@@ -105,9 +107,12 @@ _IMAGE_SPEC = importlib.util.spec_from_file_location("android_emulator_image", P
 IMAGE = importlib.util.module_from_spec(_IMAGE_SPEC)
 _IMAGE_SPEC.loader.exec_module(IMAGE)
 AdbRecorder = IMAGE.AdbRecorder
+_EMPTY_SPEC = importlib.util.spec_from_file_location("android_ftrace_empty", Path(__file__).with_name("android-ftrace-empty-buffer.py"))
+EMPTY = importlib.util.module_from_spec(_EMPTY_SPEC)
+_EMPTY_SPEC.loader.exec_module(EMPTY)
 
 
-def prepare(prefix, report_path, expected_page_size, disposable_emulator, recorder=None):
+def prepare(prefix, report_path, expected_page_size, disposable_emulator, recorder=None, observer_directory=None):
     require(disposable_emulator is True, "Explicit disposable-emulator ownership is required")
     require(expected_page_size in (4096, 16384), "Unexpected expected page size")
     require(len(prefix) == 3 and Path(prefix[0]).name == "adb" and prefix[1] == "-s"
@@ -121,6 +126,7 @@ def prepare(prefix, report_path, expected_page_size, disposable_emulator, record
               "perStreamOutputLimitBytes": OUTPUT_LIMIT, "mutationAttempted": False, "mutated": False,
               "traceRetried": False, "pageSizeChanged": False, "commands": []}
     execute = recorder
+    enabled_events = None
     try:
         record["imageProof"] = IMAGE.validate_report(report_path.parent / "emulator-image.json", expected_page_size)
         require(record["imageProof"]["serial"] == prefix[2], "Image and ftrace evidence target different emulator serials")
@@ -186,12 +192,20 @@ def prepare(prefix, report_path, expected_page_size, disposable_emulator, record
             if state["eventsEnabled"] != "0":
                 record["failedGuard"] = {"field": "eventsEnabled", "observed": state["eventsEnabled"], "expected": "0"}
                 refusal += f"; eventsEnabled={state['eventsEnabled']!r} (expected '0')"
-            require(state["tracingOn"] in ("0", "1") and state["currentTracer"] == "nop"
-                    and state["eventsEnabled"] == "0" and code == 1 and not pids,
+            require(state["tracingOn"] in ("0", "1") and state["currentTracer"] == "nop" and code == 1 and not pids,
                     refusal)
             require(all(state[name] in ("", "0") for name in ("atraceUserInitiated", "atraceTags", "atraceApps"))
                     and atrace_code == 1 and not atrace_pids,
                     "Legacy atrace capture is active; refusing geometry mutation")
+            if state["eventsEnabled"] != "0":
+                candidate = Path(observer_directory) if observer_directory is not None else Path(__file__).resolve().parents[1] / "out/android/ci-observer"
+                require(state["eventsEnabled"] == "X" and state["tracingOn"] == "0" and candidate.is_dir(), refusal)
+                enabled_events = read("enabled-events", "cat " + root + "/set_event")
+                require(enabled_events.strip() == EMPTY.BPF_EVENT, refusal)
+                EMPTY.establish(execute, read, report_path.parent, record, root, candidate)
+                # A different, complete contract authorizes only an empty stopped
+                # buffer on this exact kernel. The enabled BPF event stays on.
+                record.pop("failedGuard")
             record["mutationAttempted"] = True
             # Both destination and value are source literals, never caller text.
             require(read("subbuffer-write", "printf '%s\\n' 16 > " + path) == "", "Unexpected tracefs write output")
@@ -204,6 +218,8 @@ def prepare(prefix, report_path, expected_page_size, disposable_emulator, record
             record["tracingOnAfter"] = read("tracing-on-after", "cat " + root + "/tracing_on")
             require(record["tracingOnAfter"] == record["beforeMutation"]["tracingOn"],
                     "Tracefs recording state changed unexpectedly during geometry preparation")
+            if "emptyBufferProof" in record:
+                EMPTY.after_write(read, record["emptyBufferProof"], root)
         record.update(passed=True, disposition="Observed 4 KiB sub-buffer corrected once to 16 KiB" if before == 4
                       else "Observed 16 KiB sub-buffer already matches; no mutation")
         return record
@@ -213,9 +229,10 @@ def prepare(prefix, report_path, expected_page_size, disposable_emulator, record
             # Preserve the rejection. Diagnostic reads on the same recorder
             # share its original deadline/output caps and never authorize resize.
             try:
-                enabled_events = read("enabled-events", "cat " + root + "/set_event")
+                if enabled_events is None:
+                    enabled_events = read("enabled-events", "cat " + root + "/set_event")
                 state = record.get("beforeMutation", {})
-                if (enabled_events.strip() == "bpf_trace:bpf_trace_printk"
+                if ("emptyBufferProof" not in record and enabled_events.strip() == "bpf_trace:bpf_trace_printk"
                         and state.get("tracingOn") == "0" and state.get("currentTracer") == "nop"):
                     diagnostics = record["readOnlyDiagnostics"] = {
                         "purpose": "Assess whether an empty-buffer preparation experiment is possible; never authorizes mutation.",
@@ -263,11 +280,17 @@ def command_plan(proof):
                      ("atrace-user", "getprop debug.atrace.user_initiated", 0),
                      ("atrace-tags", "getprop debug.atrace.tags.enableflags", 0),
                      ("atrace-apps", "getprop debug.atrace.app_number", 0),
-                     ("atrace-clients", "pidof atrace", 1),
-                     ("subbuffer-write", "printf '%s\\n' 16 > " + path, 0)])
+                     ("atrace-clients", "pidof atrace", 1)])
+        if "emptyBufferProof" in proof:
+            plan.append(("enabled-events", "cat " + root + "/set_event", 0))
+            plan.extend(EMPTY.command_plan(proof["emptyBufferProof"], root))
+        plan.append(("subbuffer-write", "printf '%s\\n' 16 > " + path, 0))
     plan.extend([("subbuffer-after", "cat " + path, 0), ("page-size-after", "getconf PAGE_SIZE", 0)])
     if proof["mutated"]:
         plan.append(("tracing-on-after", "cat " + root + "/tracing_on", 0))
+        if "emptyBufferProof" in proof:
+            plan.extend([("empty-controls-after-write", EMPTY.controls_command(root), 0),
+                         ("empty-stats-after-write", EMPTY.stats_command(root), 0)])
     return plan
 
 
@@ -300,7 +323,9 @@ def validate_report(path, expected_page_size):
             state = proof["beforeMutation"]
             require(proof["mutationAttempted"] is True and proof["mutated"] is True
                     and state["tracingOn"] in ("0", "1") and state["currentTracer"] == "nop"
-                    and state["eventsEnabled"] == "0" and state["perfettoClientPids"] == ""
+                    and state["eventsEnabled"] == ("X" if "emptyBufferProof" in proof else "0")
+                    and ("emptyBufferProof" not in proof or state["tracingOn"] == "0")
+                    and state["perfettoClientPids"] == ""
                     and state["perfettoPidofExitCode"] == 1 and state["atraceClientPids"] == ""
                     and state["atracePidofExitCode"] == 1
                     and all(state[name] in ("", "0") for name in ("atraceUserInitiated", "atraceTags", "atraceApps"))
@@ -331,13 +356,18 @@ def validate_report(path, expected_page_size):
         if proof["mutated"]:
             state = proof["beforeMutation"]
             require(observed["tracing-on"] == state["tracingOn"] and observed["current-tracer"] == "nop"
-                    and observed["events-enabled"] == "0" and observed["perfetto-clients"] == ""
+                    and observed["events-enabled"] == state["eventsEnabled"] and observed["perfetto-clients"] == ""
                     and service_state(observed["perfetto-service-state"]) == state["serviceState"]
                     and observed["atrace-user"] == state["atraceUserInitiated"]
                     and observed["atrace-tags"] == state["atraceTags"] and observed["atrace-apps"] == state["atraceApps"]
                     and observed["atrace-clients"] == "" and observed["subbuffer-write"] == ""
                     and observed["tracing-on-after"] == proof["tracingOnAfter"],
                     "Raw inactive-tracing / write evidence differs")
+            if "emptyBufferProof" in proof:
+                require(observed["enabled-events"] == EMPTY.BPF_EVENT and "failedGuard" not in proof,
+                        "Stopped BPF gate lacks exact event identity")
+                root = proof["tracefsPath"].removesuffix("/buffer_subbuf_size_kb")
+                EMPTY.validate_proof(proof["emptyBufferProof"], observed, path.parent, root, image_proof)
     return {"passed": True, "reportSha256": hashlib.sha256(raw).hexdigest(), "applicable": proof["applicable"],
             "mutated": proof["mutated"], "subBufferBeforeKb": proof.get("subBufferBeforeKb"),
             "subBufferAfterKb": proof.get("subBufferAfterKb"), "pageSize": expected_page_size,

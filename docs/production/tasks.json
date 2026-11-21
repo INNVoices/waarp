@@ -125,7 +125,7 @@
       "title": "Разобрать нестабильность framework API 29 без обхода PID/Binder guard",
       "corpus": "01",
       "priority": "P0",
-      "status": "in_progress",
+      "status": "done",
       "lane": "release",
       "platforms": [
         "Android"
@@ -146,9 +146,12 @@
       "evidence": [
         "https://github.com/INNVoices/waarp/actions/runs/44831610512/job/136621297539",
         "docs/production/evidence/2026-11-21-api29-binder.json",
-        "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926744"
+        "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926744",
+        "docs/production/evidence/2026-11-21-api29-accepted.json",
+        "https://github.com/INNVoices/waarp/actions/runs/44862192000/job/136719836384",
+        "https://github.com/INNVoices/waarp/actions/runs/44862192000/job/136719836439"
       ],
-      "evidence_note": "Подготовлен causal barrier: перед единственным start дождаться удаления activity/package/display в исходном 30 s stop deadline. 38 preparation и 10 installer tests прошли; новый runtime результат ещё не получен.",
+      "evidence_note": "PR42 прошёл native API29 26/26 и optimized release journey 1/1. Исходные ZIP/API receipts/hash/CRC проверены; raw commands показывают stale Binder registrations после исчезновения PID и их удаление до единственного start. Новый framework, 512m heap и возврат shell UID подтверждены. Доказательство: evidence/2026-11-21-api29-accepted.json.",
       "inputs": [
         "CI artifact: out/android/device-tests/emulator-preparation.json; use the exact path from the failed job receipt"
       ]
@@ -170,7 +173,18 @@
         "scripts/android-ftrace-prepare.py",
         "scripts/android-ftrace-prepare-test.py",
         "scripts/android-emulator-image.py",
-        "docs/ANDROID-PERFETTO-16K.md"
+        "docs/ANDROID-PERFETTO-16K.md",
+        "scripts/android-ftrace-empty-buffer.py",
+        "scripts/android-ftrace-empty-buffer-test.py",
+        "scripts/android-ftrace-observer.c",
+        "scripts/android-ftrace-observer-test.py",
+        "scripts/android-ftrace-observer-build.py",
+        "scripts/android-ftrace-observer-build-test.py",
+        "scripts/android-emulator-image-kernel-test.py",
+        "scripts/android-ftrace-preflight.py",
+        ".github/workflows/android-ftrace-preflight.yml",
+        "scripts/android-ftrace-observer.bpf.c",
+        "scripts/android-ftrace-observer-bpf.h"
       ],
       "scope": "исследовать конкретный image/kernel и источник включённого события до любой tracefs mutation. Проверенный exact kernel revision и permalink приведены ниже. Helper lookup может асинхронно включить событие, поэтому `X` совместим с нулём Perfetto sessions. Это объяснение механизма, не атрибуция actual guest. Подготовить проверяемый вариант, сохраняющий чужое состояние; если безопасный resize при таком состоянии не доказан, оставить отказ.",
       "acceptance": "различены факт enable, producer/helper lookup и текущий owner. Не считать `nop`, `tracing_on=0` и отсутствие perfetto PID доказательством отсутствия событий. Не выключать `bpf_trace_printk`, не разрешать произвольный `X`, не сбрасывать buffers/events. Итоговая корректировка должна иметь негативные tests активного/неизвестного owner, неизменённые 10 s/60 s/64 KiB budgets и реальные before/after records на согласованном образе.",
@@ -180,9 +194,17 @@
       "evidence": [
         "https://github.com/INNVoices/waarp/actions/runs/44829589582/job/136616804337",
         "docs/ANDROID-PERFETTO-16K.md",
-        "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926778"
+        "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926778",
+        "https://github.com/INNVoices/waarp/pull/45",
+        "docs/production/evidence/2026-11-21-pr45-runtime-followup.json",
+        "docs/production/evidence/2026-11-21-pr45-descriptor-refusal.json",
+        "docs/production/evidence/2026-11-21-pr45-task-and-dns-refusals.json",
+        "docs/production/evidence/2026-11-21-pr45-http-framing-and-metadata.json",
+        "docs/production/evidence/2026-11-21-pr45-dns-diagnostics-accepted.json",
+        "docs/production/evidence/2026-11-21-pr45-bpf-load-and-inventory-refusal.json",
+        "docs/production/evidence/2026-11-21-pr45-fortify-and-first-fd-pass.json"
       ],
-      "evidence_note": "Исходный events guard сохранён. Только после exact stopped-BPF refusal добавлены read-only CPU/snapshot/tracefs FD observations для следующей causal развилки; owner и quiescence пока не доказаны."
+      "evidence_note": "PR45 head3ac47b: host failure теперь причинно воспроизведён — fixture macro read переименовывал fortified libc wrapper; узкий include/prototype fix и fortify3 regression проходят. Actual preflight завершил initial inventory и весь первый descriptor pass по проверенному source/control flow, затем отказал known_thread_missing в middle. Original ZIP111files/86streams подтверждены; роль отсутствующегоTID неизвестна, secondpass/GLOBAL/resize не достигнуты. Следующий контекст различает representative/shared member, сохраняя отказ."
     },
     {
       "id": "REL-004",
@@ -215,7 +237,14 @@
       "spec": "docs/production/01-production-release.md#rel-004",
       "issue": "https://github.com/INNVoices/waarp/issues/33",
       "evidence": [
-        "https://github.com/INNVoices/waarp/actions/runs/44831610512"
+        "https://github.com/INNVoices/waarp/actions/runs/44831610512",
+        "docs/production/evidence/2026-11-21-pr45-runtime-followup.json",
+        "docs/production/evidence/2026-11-21-pr45-descriptor-refusal.json",
+        "docs/production/evidence/2026-11-21-pr45-task-and-dns-refusals.json",
+        "docs/production/evidence/2026-11-21-pr45-http-framing-and-metadata.json",
+        "docs/production/evidence/2026-11-21-pr45-dns-diagnostics-accepted.json",
+        "docs/production/evidence/2026-11-21-pr45-bpf-load-and-inventory-refusal.json",
+        "docs/production/evidence/2026-11-21-pr45-fortify-and-first-fd-pass.json"
       ]
     },
     {
@@ -301,7 +330,10 @@
         "scripts/verify-package.mjs",
         "docs/V1.md",
         "docs/INSTALL.md",
-        "engine/integrity.json"
+        "engine/integrity.json",
+        "scripts/test-portable-lifecycle.mjs",
+        "scripts/test-portable-lifecycle.test.mjs",
+        "docs/WINDOWS-PORTABLE-ACCEPTANCE.md"
       ],
       "scope": "связать текущий Windows job, packaged portable hash, shipped engine/DLL/notices и реальные native/TUN evidence. Существующее покрытие отметить `ALREADY_DONE`; адресно закрыть только отсутствующую последовательность: первый запуск, отказ UAC, штатный выход, повторный запуск, замена portable EXE при остановленном приложении, чтение сохранённого профиля, осмысленный rollback. Проверять только собственные child/TUN resources; соседний VPN не трогать.",
       "acceptance": "сохранены process/TUN ownership и профиль; упаковка соответствует конкретному commit; clean exit/оставшиеся процессы и адаптеры наблюдались на Windows, а не эмулированы Linux unit tests. Нет автоматического удаления по похожему имени и нет бесконечного restart. Portable removal не выдаётся за MSI/NSIS uninstall. Если EXE остаётся unsigned, это явно отражено в канале/инструкции; новая code-signing identity не выдумана. Ранее встречавшийся child-exit timeout считается устранённым только при подтверждённой причине и адресном результате.",
@@ -311,9 +343,11 @@
       "evidence": [
         "https://github.com/INNVoices/waarp/actions/runs/44831610520/job/136617659691",
         "docs/production/evidence/2026-11-21-windows-217.json",
-        "https://github.com/INNVoices/waarp/actions/runs/44859115697/job/136708138958"
+        "https://github.com/INNVoices/waarp/actions/runs/44859115697/job/136708138958",
+        "docs/production/evidence/2026-11-21-windows-portable-pr43.json",
+        "https://github.com/INNVoices/waarp/actions/runs/44863162870/job/136720864973"
       ],
-      "evidence_note": "Независимо проверен validation ZIP main217: 50 native TUN cycles, selector semantics, compiler and packaged payload reports. Portable/UAC/profile upgrade и физические сценарии этим не закрыты."
+      "evidence_note": "PR43: реальный portable EXE прошёл 3/3 запуска за 46.570 s, тот же зашифрованный профиль и настройки сохранены, все выходы штатные без оставшихся собственных процессов. ZIP/hash/CRC и ASAR bindings проверены. Это PR merge checkout; UAC, переход между версиями/rollback и физические сценарии остаются NOT_RUN. Доказательство: evidence/2026-11-21-windows-portable-pr43.json."
     },
     {
       "id": "REL-008",
@@ -357,7 +391,7 @@
       "title": "Разобрать graphics/framework crash API 36 до установки приложения",
       "corpus": "01",
       "priority": "P0",
-      "status": "in_progress",
+      "status": "done",
       "lane": "release",
       "platforms": [
         "Android"
@@ -372,7 +406,10 @@
         "docs/production/evidence/2026-11-21-pr30-install.json",
         "scripts/android-avd-receipt.py",
         "scripts/android-avd-receipt-test.py",
-        "docs/ANDROID-AVD-RECEIPT.md"
+        "docs/ANDROID-AVD-RECEIPT.md",
+        "scripts/android-avd-create-pinned.py",
+        "scripts/android-avd-create-pinned-test.py",
+        "docs/ANDROID-AVD-CAUSAL-CANDIDATE.md"
       ],
       "scope": "сопоставить точные emulator version, Android image revision, ABI/page size и graphics backend из job/provenance с assertion `GoldfishMapper::readFromHost` / `hasReadColorBufferDma`. Найти соответствующий AOSP/gfxstream код и допустимую конфигурацию или upstream исправление. Отделить SurfaceFlinger crash, последующий framework restart и отсутствие package/settings от независимого ftrace blocker REL-003. После source review предложить один ограниченный воспроизводимый эксперимент; менять только подтверждённую причину.",
       "acceptance": "timeline показывает, что crash предшествовал install; гипотеза привязана к фактическим версиям и исходникам. Если нужна правка — один minimal diff и before/after одинакового сценария с сохранением PAGE_SIZE, VPN/UI tests, test count, tracing guards и прежних deadlines. Отрицательный результат остаётся failure; нельзя отключить RegionSampling, UI rendering или проверку правильной страницы только ради прохождения CI.",
@@ -383,9 +420,11 @@
         "docs/production/evidence/2026-11-21-pr30-install.json",
         "https://github.com/INNVoices/waarp/actions/runs/44856329155/job/136701575165",
         "docs/ANDROID-AVD-RECEIPT.md",
-        "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926789"
+        "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926789",
+        "docs/production/evidence/2026-11-21-api36-sdk20-accepted.json",
+        "https://github.com/INNVoices/waarp/actions/runs/44864148533/job/136725912190"
       ],
-      "evidence_note": "Подготовлен bounded host AVD receipt с 18 tests; фактические target/SDK/argv следующего run нужны для проверки graphics hypothesis. Runtime crash пока не исправлен."
+      "evidence_note": "PR44 исправил подтверждённый target=android-0 через явные SDK tools20: оба AVD созданы с target=android-36.1, image/GPU/budgets сохранены. Native API36 прошёл 26/26, 0 failed/skipped; original ZIP/API receipts/hash/CRC проверены. Release36 отдельно остановлен прежним REL-003 ftrace guard; полная matrix/soak ещё обязательны. Доказательство: evidence/2026-11-21-api36-sdk20-accepted.json."
     },
     {
       "id": "NET-001",

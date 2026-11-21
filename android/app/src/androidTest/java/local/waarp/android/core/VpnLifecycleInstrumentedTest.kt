@@ -374,7 +374,8 @@ class VpnLifecycleInstrumentedTest {
 
     @Test fun encryptedAwg2DnsRoundTripSurvivesOffOn() = runBlocking {
         val keys = controller.generateWireGuardKeyPair()
-        val peer = fixtureJson("/register", JSONObject().put("public_key", keys.publicKey).toString())
+        val peer = fixtureJson("/register", JSONObject().put("public_key", keys.publicKey)
+            .put("diagnostics", true).toString())
         val profile = ProfileImporter.parse("""
             [Interface]
             PrivateKey = ${keys.privateKey}
@@ -418,19 +419,60 @@ class VpnLifecycleInstrumentedTest {
             }
         }
         ContextCompat.registerReceiver(context, receiver, IntentFilter("local.waarp.android.TEST_DNS_RESULT"), ContextCompat.RECEIVER_EXPORTED)
+        val cycles = org.json.JSONArray()
+        val evidence = JSONObject().put("schemaVersion", 1).put("cycles", cycles)
+            .put("scope", "Two original one-shot DNS cycles; no retry. Peer writes/sends are not proof of Android receipt. Host and Android clocks are not assumed synchronized.")
+        var testFailure: Throwable? = null
         try {
             repeat(2) { cycle ->
-                val before = fixtureJson("/proof").getLong("encrypted_dns_replies")
+                val record = JSONObject().put("cycle", cycle).put("stage", "before-start")
+                    .put("startedElapsedMs", SystemClock.elapsedRealtime())
+                    .put("backendGenerationBefore", RuntimeState.backend.get()?.generation ?: JSONObject.NULL)
+                cycles.put(record)
+                val beforeProof = fixtureJson("/proof")
+                record.put("hostBefore", JSONObject(beforeProof.toString()).apply { remove("diagnostics") })
+                val before = beforeProof.getLong("encrypted_dns_replies")
                 controller.start(configuration)
                 withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.ON || it.phase == RuntimePhase.ERROR } }
                 assertEquals(controller.status.value.message, RuntimePhase.ON, controller.status.value.phase)
+                record.put("stage", "probe").put("onElapsedMs", SystemClock.elapsedRealtime())
+                    .put("backendGenerationOn", RuntimeState.backend.get()?.generation ?: JSONObject.NULL)
                 statusCode.set(-2)
+                probeError.set("")
+                probeNetwork.set("")
                 answer = CountDownLatch(1)
                 context.startActivity(Intent().setComponent(ComponentName(testPackage, ProbeActivity::class.java.name))
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("dns", true).putExtra("destination", context.packageName))
-                assertTrue("Encrypted DNS cycle $cycle did not complete", answer.await(25, TimeUnit.SECONDS))
+                val completed = answer.await(25, TimeUnit.SECONDS)
+                record.put("probeCompleted", completed).put("probeCode", statusCode.get())
+                    .put("probeError", probeError.get().take(160)).put("probeFinishedElapsedMs", SystemClock.elapsedRealtime())
+                    .put("backendGenerationAfterProbe", RuntimeState.backend.get()?.generation ?: JSONObject.NULL)
+                if (probeNetwork.get().isNotBlank()) {
+                    runCatching { JSONObject(probeNetwork.get()) }
+                        .onSuccess { record.put("network", it) }
+                        .onFailure { record.put("networkDiagnosticError", it.javaClass.simpleName) }
+                }
+                record.put("nativeEvents", awgDnsNativeEvents(profile.id))
+                record.put("syntheticDns", org.json.JSONArray(controller.dnsQueries.value
+                    .filter { it.domain.removeSuffix(".").equals("example.com", true) }.takeLast(8).map { query ->
+                        JSONObject().put("timestampUnixMs", query.timestamp).put("queryType", query.queryType)
+                            .put("protectedServer", query.server == "dns-${profile.id}").put("failed", query.failed)
+                            .put("errorCategory", when {
+                                query.error.isBlank() -> "none"
+                                query.error.contains("context deadline exceeded", true) -> "deadline-exceeded"
+                                query.error.contains("closed", true) -> "closed"
+                                else -> "other"
+                            })
+                    }))
+                assertTrue("Encrypted DNS cycle $cycle did not complete", completed)
+                // Reuse the assertion's existing host read; do not add a request,
+                // delay, retry or new readiness condition to the test itself.
+                val afterProof = fixtureJson("/proof")
+                record.put("hostAfter", JSONObject(afterProof.toString()).apply { remove("diagnostics") })
+                evidence.put("peerTrace", afterProof.opt("diagnostics") ?: JSONObject.NULL)
+                record.put("stage", "assert-answer")
                 assertEquals("Synthetic inner DNS answer must traverse AWG2; cycle=$cycle; ${probeError.get()}; " +
-                    "network=${probeNetwork.get()}; DNS=${controller.dnsQueries.value}; host=${fixtureJson("/proof")}; " +
+                    "network=${probeNetwork.get()}; DNS=${controller.dnsQueries.value}; host=${record.getJSONObject("hostAfter")}; " +
                     "native=${fixtureLogs("example.com", "10.77.", "18081", profile.id)}", 204, statusCode.get())
                 withTimeout(10_000) {
                     controller.dnsQueries.first { list -> list.any { it.domain.startsWith("example.com") &&
@@ -446,8 +488,47 @@ class VpnLifecycleInstrumentedTest {
                 controller.stop()
                 withTimeout(20_000) { controller.status.first { it.phase == RuntimePhase.OFF } }
                 assertEquals(null, RuntimeState.backend.get())
+                record.put("stage", "passed").put("offElapsedMs", SystemClock.elapsedRealtime())
+                    .put("backendAbsentAfterOff", RuntimeState.backend.get() == null)
             }
-        } finally { context.unregisterReceiver(receiver) }
+        } catch (error: Throwable) {
+            testFailure = error
+            throw error
+        } finally {
+            val unregisterError = runCatching { context.unregisterReceiver(receiver) }.exceptionOrNull()
+            val evidenceError = runCatching {
+                val text = evidence.toString()
+                check(text.toByteArray(Charsets.UTF_8).size <= 64 * 1024) { "AWG DNS diagnostics exceed 64 KiB" }
+                val directory = File(context.getExternalFilesDir(null), "ui-screenshots").apply { mkdirs() }
+                File(directory, "vpn-awg-dns-off-on.json").writeText(text)
+            }.exceptionOrNull()
+            val cleanupError = unregisterError ?: evidenceError
+            if (unregisterError != null && evidenceError != null) unregisterError.addSuppressed(evidenceError)
+            if (cleanupError != null) {
+                if (testFailure != null) testFailure.addSuppressed(cleanupError) else throw cleanupError
+            }
+        }
+    }
+
+    /** Fixed event labels preserve timing without exporting keys, addresses or background DNS names. */
+    private fun awgDnsNativeEvents(profileId: String): JSONObject {
+        val markers = linkedMapOf(
+            "sending handshake initiation" to "handshake-initiation", "received handshake response" to "handshake-response",
+            "receiving keepalive packet" to "keepalive-received", "udp bind has been updated" to "udp-bind-updated",
+            "outbound packet connection to 10.77.0.1:53" to "synthetic-dns-dial",
+            "exchange example.com. IN A" to "synthetic-dns-exchange", "exchanged example.com" to "synthetic-dns-answer",
+            "discarded malformed UDP response" to "dns-malformed-response", "DNS connection pool reset" to "dns-pool-reset",
+            "failed to write packets to TUN" to "tun-write-failed", "received message with unknown type" to "unknown-wireguard-type",
+        )
+        val events = controller.logs.value.mapNotNull { entry ->
+            val message = RuntimeRedaction.redact(entry.message)
+            val marker = markers.entries.firstOrNull { message.contains(it.key, true) } ?: return@mapNotNull null
+            if (marker.value in setOf("handshake-initiation", "handshake-response", "keepalive-received", "udp-bind-updated",
+                    "tun-write-failed", "unknown-wireguard-type") && !message.contains(profileId)) return@mapNotNull null
+            JSONObject().put("timestampUnixMs", entry.timestamp).put("level", entry.level).put("event", marker.value)
+        }
+        return JSONObject().put("events", org.json.JSONArray(events.takeLast(64)))
+            .put("omittedMatchingEvents", (events.size - 64).coerceAtLeast(0))
     }
 
     @Test fun invalidConfigurationNeverReportsOn() = runBlocking {

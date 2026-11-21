@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "checkedAtUtc": "2026-11-21T05:04:48.967719+00:00",
+  "repository": "INNVoices/waarp",
+  "pullRequest": 45,
+  "headSha": "56f403c3eeaf1a9c37b0c1a1b712b9e2e6df73f2",
+  "testedMergeCheckout": "6c529b3f1c76a45daa59bbf59e5655daec86153d",
+  "androidRunId": 44867528265,
+  "runAttempt": 1,
+  "fullAndroidAcceptance": false,
+  "scope": "Historical PR observations before the root reconnect and group-test IME corrections. A later candidate must run the actual matrix again.",
+  "observations": [
+    {
+      "name": "NDK observer build",
+      "jobId": 136734441979,
+      "status": "PASS",
+      "evidence": "Actual pinned NDK compile and ELF verification passed after the explicit missing/incomplete Gid refusal fixed the Clang -Wsometimes-uninitialized failure. All warning flags remain."
+    },
+    {
+      "name": "Optimized API 36 preflight",
+      "jobId": 136736890732,
+      "status": "FAIL_BEFORE_RUNTIME",
+      "artifact": {
+        "id": 14692862790,
+        "name": "waarp-android-release-api-36-16384-runtime",
+        "bytes": 6555,
+        "sha256": "13ae096a0e90a345028e3940bb568a826d3c8bd40f5fa8ef8e5d79ba4453576e",
+        "rawApiReceiptSha256": "41b32f68a53f2b4c13975f537af90bbba5038f2a6db82fe282c1f4834ef3d8f9",
+        "apiDigestMatched": true,
+        "zipCrcPassed": true
+      },
+      "observed": [
+        "The image booted and df /data succeeded.",
+        "The single adb root invocation returned adb: unable to connect for root: closed at 04:56:37.315 UTC.",
+        "The runner raised before its existing wait-for-device and UID check.",
+        "The emulator action issued emu kill at 04:56:37.333 UTC; offline/not-found messages followed teardown.",
+        "No emulator-image.json, ftrace-preparation.json, installed APK or scenario result was produced."
+      ],
+      "interpretation": "The command outcome is unknown in this run. There is no evidence that root succeeded, that the guest crashed before teardown or that the new ftrace observer ran.",
+      "nextVerification": "One root invocation, narrowly recognized closure, bounded reconnect and observed UID 0 plus matching readable emulator identity; unknown errors and deadline expiry remain failures."
+    },
+    {
+      "name": "Native API 35 group UI",
+      "jobId": 136736890709,
+      "status": "FAIL",
+      "tests": 26,
+      "passed": 25,
+      "failed": 1,
+      "skipped": 0,
+      "wallSeconds": 209.17308736900003,
+      "artifact": {
+        "id": 14692479928,
+        "name": "waarp-android-api-35-4096-runtime",
+        "bytes": 2026752,
+        "sha256": "3975e9f8fb41ed7cf52c107b632a863341045ed26da8438f074424e16b4142b0",
+        "rawApiReceiptSha256": "31293beaa9649e89d75fc70e606a884148374907fa7025c076cc8fe8c63d68ab",
+        "apiDigestMatched": true,
+        "zipCrcPassed": true
+      },
+      "test": "MobileUiInstrumentedTest.groupMemberOrderAndExplicitDeletionReassignmentPersistThroughTheRealUi",
+      "observed": [
+        "UI Beta exists and is unchecked, but assertIsDisplayed fails before its click.",
+        "Failure screenshot shows the software keyboard still open after group-name input.",
+        "Focused form window is valid; IME visibility is true.",
+        "Outer form clip spans y=255..1265; UI Beta spans y=1631..1778. The inner candidate list has no remaining scroll range."
+      ],
+      "nextVerification": "Use the existing real keyboard-dismissal action and insets check after typing the group name. Preserve display/click/order/persistence assertions; rerun the complete scenario on the candidate."
+    },
+    {
+      "name": "Packaged Windows acceptance subset",
+      "runId": 44867528260,
+      "jobId": 136734441627,
+      "status": "PASS",
+      "artifact": {
+        "id": 14692902589,
+        "name": "waarp-validation-evidence",
+        "bytes": 6333,
+        "sha256": "5b21e4e3543bb05daa62e741648036088835e6043bc57ce0c189dc2eb9b2ef65",
+        "rawApiReceiptSha256": "2284dfdb9931942cf3a0775ffe019b6eecc2fcde061c5aa24eee202b31d6b704",
+        "apiDigestMatched": true,
+        "zipCrcPassed": true
+      },
+      "nativeTunCycles": 50,
+      "portableLaunches": 3,
+      "portableDurationMs": 41448,
+      "normalExits": 3,
+      "forcedCleanup": false,
+      "ownedProcessesRemaining": 0,
+      "scope": "Empty profile, restart and same-candidate EXE replacement; not a different-version migration, UAC, sleep/resume, other VPN, physical network or installer acceptance."
+    }
+  ],
+  "evidenceTrust": "Original CI ZIP bytes checked against original public individual artifact API response bytes and ZIP CRC. This is trusted CI evidence, not cryptographic CI attestation.",
+  "notRun": [
+    "Full main push acceptance for this candidate",
+    "7200-second API 36 optimized soak",
+    "Production signing and physical-device installation/upgrade"
+  ],
+  "androidJobSummary": {
+    "success": 5,
+    "failure": 2,
+    "skipped": 1,
+    "additionalPassingJobs": [
+      {
+        "name": "Native API 29 / 4096 B",
+        "id": 136736890813
+      },
+      {
+        "name": "Native API 36 / 16384 B",
+        "id": 136736890705
+      },
+      {
+        "name": "Optimized release API 29 / 4096 B",
+        "id": 136736890763
+      },
+      {
+        "name": "Optimized release API 35 / 4096 B",
+        "id": 136736890740
+      }
+    ],
+    "soak": "SKIPPED; not accepted"
+  }
+}

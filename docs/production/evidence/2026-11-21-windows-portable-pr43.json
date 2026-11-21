@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "pullRequest": "https://github.com/INNVoices/waarp/pull/43",
+  "runId": 44863162870,
+  "runAttempt": 1,
+  "jobId": 136720864973,
+  "event": "pull_request",
+  "apiReportedHeadSha": "baee7ef67c70669dcb3b059398b821854ffa6e30",
+  "testedMergeCheckout": "061106b99714b221f9b83909fcf03970dcc58915",
+  "status": "PASS",
+  "durationMs": 46570,
+  "plannedLaunches": 3,
+  "completedLaunches": 3,
+  "candidate": {
+    "version": "1.0.0",
+    "portableSha256": "290af4a98547daf69f50e25a6cba6f396a2e3a3ca9bb2089571e59e266ef07c9",
+    "portableBytes": 130906921,
+    "asarSha256": "c27568879e6e1b017be569813d48645812215abb66fa0ac44b4f1058e10092cf",
+    "asarBytes": 79509626,
+    "packageVerificationBound": true
+  },
+  "profileCountsBeforeLaunch": [
+    0,
+    1,
+    1
+  ],
+  "allProfilesIdentical": true,
+  "allExitCodesZero": true,
+  "allExitsNormal": true,
+  "allObservedOwnedProcessesExited": true,
+  "cleanup": {
+    "observedSurvivors": [],
+    "forced": false,
+    "remaining": []
+  },
+  "windowsHostGuardTests": {
+    "passed": 9,
+    "failed": 0,
+    "skipped": 1,
+    "skipReason": "Explicit non-Windows-only rejection fixture"
+  },
+  "notRun": [
+    {
+      "check": "UAC consent / refusal",
+      "reason": "No elevation is requested. A hosted runner can already be elevated; absence of a prompt proves neither consent nor refusal.",
+      "status": "NOT_RUN"
+    },
+    {
+      "check": "Different-version upgrade / migration / rollback",
+      "reason": "The stopped EXE is replaced with the same candidate bytes; no version transition is exercised.",
+      "status": "NOT_RUN"
+    },
+    {
+      "check": "Sleep / resume / real network change / another VPN",
+      "reason": "This bounded scenario does not control those environments.",
+      "status": "NOT_RUN"
+    },
+    {
+      "check": "VPN / TUN routing / public connectivity",
+      "reason": "The master remains OFF. Existing native acceptance is separate; ordinary background probes may still run.",
+      "status": "NOT_RUN"
+    },
+    {
+      "check": "Installer uninstall / ordinary-user ACLs",
+      "reason": "This is a portable wrapper on a disposable CI account, not an installer or a standard-user acceptance session.",
+      "status": "NOT_RUN"
+    }
+  ],
+  "validationArtifact": {
+    "id": 14690498629,
+    "name": "waarp-validation-evidence",
+    "bytes": 6315,
+    "digest": "sha256:d85df9ab65ece88db5ea6b05b11ba4100b4d02e5785e5102f01284905fe2cdaf",
+    "individualRawApiReceiptSha256": "3d8d42b2288fff809bcd55dd1d4c30b4245e3ccb6232eb6f5ea9fbbe9207cc91",
+    "portableLifecycleRecordSha256": "5248675d15f3880052e674fc73cfcaeb12f3514917e99af6ca7bada0bf266c53",
+    "zipDigestAndCrcVerified": true
+  },
+  "portableZipIndependentlyDownloaded": false,
+  "claimLimit": "Actual packaged EXE lifecycle on the PR merge checkout; EXE identity bound through verified CI reports. No main-push acceptance, UAC/upgrade/rollback or full routing claim."
+}
