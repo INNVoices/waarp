@@ -17,6 +17,11 @@ async function main() {
     const rules = new Intl.PluralRules(locale)
     for (const key of Object.keys(strings).filter(key => key.endsWith('.other') && strings[key].includes('{n}'))) {
       const group = key.slice(0, -6)
+      // Enumerate the locale's whole CLDR contract, including categories that a
+      // small numeric sample may miss (for example French/Portuguese "many").
+      for (const category of rules.resolvedOptions().pluralCategories) {
+        assert.equal(typeof strings[group + '.' + category], 'string', locale + '/' + group + '/' + category)
+      }
       for (const n of [0, 1, 2, 3, 5, 11, 21, 101, 1.5, 1000000]) {
         const form = strings[group + '.' + rules.select(n)]
         assert.equal(typeof form, 'string', locale + '/' + group)
@@ -27,6 +32,8 @@ async function main() {
   assert.equal(await loadLocale(['xx', 'zh-TW']), 'zh-Hant')
   assert.equal(await loadLocale(['pt-PT']), 'pt-BR')
   assert.equal(await loadLocale(['xx']), 'ru')
+  const ru = JSON.parse(readFileSync('src/shared/strings/ru.json', 'utf8'))
+  assert.equal(plural('conn.count', 1.5), ru['conn.count.many'].replaceAll('{n}', '1.5'), 'existing RU fraction fallback remains explicit')
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1 })
