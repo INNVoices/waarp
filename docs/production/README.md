@@ -2,7 +2,7 @@
 
 **Цель:** удобный локальный выбор пути `приложение/домен → Direct / Auto / личное подключение` на Windows и Android. Сначала доказанная надёжность и понятное управление; затем дальнейшее развитие интерфейса, языков, размера поставки, Android «липучки» и распространения. Уже работающие возможности сохраняются.
 
-**Аудит:** 21 ноября 2026; исходный SHA `63fc7930abfeac1b870e9c8e3fabc500768f419e`. Это snapshot, не утверждение о текущем HEAD навсегда. [Parent issue #32](https://github.com/INNVoices/waarp/issues/32) связывает последующие обновления. Карта содержит **8 корпусов и 60 задач**.
+**Аудит:** 21 ноября 2026; первоначальный SHA `63fc7930abfeac1b870e9c8e3fabc500768f419e`. **Продолжение:** сверка main `202c70125daf94bb8499c3b758420cd9ce90a52f`, исторических accepted records и открытых PR #46/#47/#48. Это snapshot, не утверждение о текущем HEAD навсегда. [Parent issue #32](https://github.com/INNVoices/waarp/issues/32) связывает последующие обновления. Карта содержит **8 корпусов и 60 задач**.
 
 ## Начать работу
 
@@ -55,7 +55,22 @@ flowchart TD
 
 Windows acceptance и routing/privacy gates проверяются отдельно и тоже входят в REL-008. Подпись не исправляет runtime, а успешный build не заменяет установку. Если retained key или physical environment недоступны, агент оформляет точный handoff и продолжает независимые ready задачи.
 
-## Что известно сейчас
+## Текущая волна и следующий шаг
+
+| Задача | Состояние этого snapshot | Что делать дальше |
+| --- | --- | --- |
+| REL-002 / REL-009 | Конкретные causal fixes приняты в main через PR #42/#44; [API 29](evidence/2026-11-21-api29-accepted.json) и [SDK 20 / API 36](evidence/2026-11-21-api36-sdk20-accepted.json) records сохранены | Не выполнять эти исправления заново; включить согласованный код в будущий exact-main candidate. |
+| REL-003 / REL-004 | [ec71 full run](evidence/2026-11-21-ec71-acceptance-recheck.json): 6 success, 1 failure, 1 skipped; `missing_positive_shared_member`, 0.626 s. Отдельный [main-based PR #48](evidence/2026-11-21-android-inventory-pr48.json) также завершён 6/1/1, с отказом на исходном `eventsEnabled=X` / `bpf_trace_printk` guard до APK install. В обоих full runs soak skipped | Сохранять различие двух candidates/этапов. Для advanced ec71 установить причину исчезновения task с failure-only диагностикой из уже имеющейся памяти. Не повторять неизменённый job и не ослаблять guard. Полная production acceptance остаётся blocked. |
+| REL-007 | [PR #43 lifecycle](evidence/2026-11-21-windows-portable-pr43.json) и новый [PR #47 receipt](evidence/2026-11-21-windows-cleanup-pr47.json) подтверждают три запуска, сохранение профиля и normal exit; новый candidate прошёл все 9 SVG и отдельные native 50 cycles | Сохранять NOT_RUN для UAC, смены версии/rollback, standard-user и физических сценариев. PR #47 merge pending. |
+| L10N-002 | [PR #46](https://github.com/INNVoices/waarp/pull/46) в review; технический review и все 3 jobs CI 44939689471 успешны; [19 negative mutations, 66 local suites и границы](evidence/2026-11-21-localization-contract-review.json) записаны | Merge ожидает подтверждения. После интеграции открыть L10N-003/004/006; L10N-008 ждёт также L10N-006. |
+| BLD-001 | [PR #47](https://github.com/INNVoices/waarp/pull/47) / [PR #48](https://github.com/INNVoices/waarp/pull/48) в review; общий required CI успешен. [Baseline одного Windows и трёх APK](evidence/2026-11-21-package-baseline-ec71.json), новый Windows receipt и [6 Android inventory sidecars](evidence/2026-11-21-android-inventory-pr48.json) проверены в своей области | Получить подтверждение на integration обоих inventory slices, сохранив Android strict evidence replay и отдельный blocked production gate. |
+| BLD-002 / BLD-004 | [Таблица 34 modules и Windows simple-icons slice](06-build-and-supply-chain.md): новый EXE по CI меньше на **2 915 009 B (2.226780%)**, ASAR — на 16 865 911 B; 9 SVG и 3 portable запуска прошли | Merge ожидает подтверждения. Продолжить остальные Windows consumer slices и Android inventory/cleanup отдельно; весь корпус не закрыт. |
+
+Исторические исходы, runtime-матрица и package baseline имеют собственные source/run identifiers. Их нельзя объединить в новый общий pass. Открытые PR и локальная проверка не означают merge, production-подпись или новый опубликованный binary.
+
+Готовые PR ожидают подтверждения владельца на merge; task statuses и зависимые ready до интеграции не меняются.
+
+## Историческое основание плана
 
 - `main` имеет source version **1.0.0**, Android version code 7. Публично доступны **Windows r6 0.4.1-rc.5** и **Android r5 0.5.0-rc.5 debug**, оба preview. Версия в исходниках не означает опубликованный stable binary. [Releases](../RELEASES.md).
 - Общий CI baseline успешен; полный Android run `44831610512` не прошёл: build/native29/native35/release35 успешны, native36/release29/release36 неуспешны, soak skipped. Точный job ledger — в [корпусе 01](01-production-release.md). [CI](https://github.com/INNVoices/waarp/actions/runs/44831610512).
@@ -86,8 +101,8 @@ Live статусы меняются через task registry и issues. Это�
 
 Старые инструкции о private visibility, WAIT_OWNER_START или docs-only skip-CI трактуются в их историческом контексте. Текущие разрешение пользователя и protected-main checks определяют нынешний workflow.
 
-## Первые независимые назначения
+## Следующие независимые назначения
 
-Release agent ведёт диагностику REL и отдельный Windows evidence review. Routing/security agent может взять NET-001 или NET-004. UI/localization agent продолжает после слитого PR31: UX-002/003 и L10N-002. Build agent начинает BLD-001 без удаления файлов. Sticky agent получает ADR и bounded spike после merge карты. Distribution agent завершает guide, поддерживает receipts и проверяет следующий подходящий channel без повторных закрытых intake. Координатор сводит registry, ownership и evidence. Актуальные незанятые задачи печатает `ready`.
+Release agent продолжает ограниченное расследование REL-003 и отдельно закрывает ещё не проверенные Windows lifecycle сценарии. Routing/security agent может взять NET-001 или NET-004. UI/localization agent ждёт интеграции PR #46 для L10N-003/004/006 либо берёт независимые UX-002/003. Build agent завершает PR #47/#48 и затем выбирает отдельный consumer/native slice по измеренной closure. Sticky agent может выполнить готовый bounded STK-003 spike. Distribution agent поддерживает guide, receipts и воспроизводимый feedback без повторных закрытых intake. Координатор сохраняет evidence и меняет статусы после фактической интеграции. Актуальные незанятые задачи печатает `ready`.
 
 Завершение текущей сессии не создаёт бессрочную фоновую службу. Реально запущенные PR checks выполняются в GitHub; дальнейшие агенты получают эту карту, конкретные issues и сохранённые доказательства.

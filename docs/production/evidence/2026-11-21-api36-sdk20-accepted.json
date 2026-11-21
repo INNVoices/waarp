@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "task": "REL-009",
+  "pullRequest": "https://github.com/INNVoices/waarp/pull/44",
+  "runId": 44864148533,
+  "runAttempt": 1,
+  "event": "pull_request",
+  "apiReportedHeadSha": "8c7fea0114ab03778212d259bf8c39d4c018fb03",
+  "native": {
+    "device": {
+      "sdk": "36",
+      "release": "16",
+      "abi": "x86_64",
+      "pageSize": 16384
+    },
+    "tests": 26,
+    "passed": 26,
+    "failed": 0,
+    "skipped": 0
+  },
+  "records": [
+    {
+      "artifactId": 14691129760,
+      "artifactName": "waarp-android-api-36-16384-runtime",
+      "archiveBytes": 1933980,
+      "archiveDigest": "sha256:93ecd0fedef0c215854128ee3d67cf8e78ea5c72665ad40e2201c16bcf5825a0",
+      "jobId": 136725912190,
+      "rawIndividualReceiptSha256": "5ce2b331611ae6ed9b1d6ee094792dcc023265bbaacf89c0d9f9e7fb2419c8e1",
+      "creationRecordSha256": "d3e80056bab8bc4ac9cad7cc1b8fe94ed099a3065b5cee3bfbfdadaf347991a5",
+      "creatorPassed": true,
+      "selectedTools": {
+        "relativePath": "cmdline-tools/20.0/source.properties",
+        "resolvedRelativePath": "cmdline-tools/20.0/source.properties",
+        "bytes": 86,
+        "sha256": "215e11e90893196549e86dfd6a024f20848322dc7a3d694bc4847b8e6d849ad1",
+        "properties": {
+          "Pkg.Revision": "20.0"
+        }
+      },
+      "createdRootIni": {
+        "relativePath": "test.ini",
+        "resolvedRelativePath": "test.ini",
+        "bytes": 83,
+        "sha256": "dd5596f38144fdfa836b368cfb514f712101d76bed96b2e615c0c91a2c3b8864",
+        "properties": {
+          "target": "android-36.1"
+        }
+      },
+      "image": {
+        "relativePath": "system-images/android-36.1/google_apis_ps16k/x86_64/source.properties",
+        "resolvedRelativePath": "system-images/android-36.1/google_apis_ps16k/x86_64/source.properties",
+        "bytes": 402,
+        "sha256": "c54d726e02b6862fbf727529ce040aad70a878aa015f6e23a7a293ca4e20705f",
+        "properties": {
+          "Pkg.Revision": "4",
+          "AndroidVersion.ApiLevel": "36.1",
+          "AndroidVersion.ExtensionLevel": "20",
+          "AndroidVersion.IsBaseSdk": "true",
+          "SystemImage.Abi": "x86_64",
+          "SystemImage.TagId": "google_apis,page_size_16kb",
+          "SystemImage.GpuSupport": "true"
+        }
+      },
+      "originalHostReceiptSha256": "6e6affd28d69df7b4b5cbd0002005162c8495e211fa64e100c777836a01b3ca1",
+      "targetEdited": false,
+      "existingAvdReplaced": false
+    },
+    {
+      "artifactId": 14691546970,
+      "artifactName": "waarp-android-release-api-36-16384-runtime",
+      "archiveBytes": 29124,
+      "archiveDigest": "sha256:6cfdcb6f729b6092bdcd6be7df7b79826e81588883dbb7899f88442d7807ae61",
+      "jobId": 136725912249,
+      "rawIndividualReceiptSha256": "48baa1e8adc50736a0ca56fb9dbb8e08cb85278a72539ff58eee35bbf27bf01a",
+      "creationRecordSha256": "70d9e002ed2c66588321f6c1201f6eed8501b5c44ccf8b3dc8a08d165e0b653d",
+      "creatorPassed": true,
+      "selectedTools": {
+        "relativePath": "cmdline-tools/20.0/source.properties",
+        "resolvedRelativePath": "cmdline-tools/20.0/source.properties",
+        "bytes": 86,
+        "sha256": "215e11e90893196549e86dfd6a024f20848322dc7a3d694bc4847b8e6d849ad1",
+        "properties": {
+          "Pkg.Revision": "20.0"
+        }
+      },
+      "createdRootIni": {
+        "relativePath": "test.ini",
+        "resolvedRelativePath": "test.ini",
+        "bytes": 83,
+        "sha256": "dd5596f38144fdfa836b368cfb514f712101d76bed96b2e615c0c91a2c3b8864",
+        "properties": {
+          "target": "android-36.1"
+        }
+      },
+      "image": {
+        "relativePath": "system-images/android-36.1/google_apis_ps16k/x86_64/source.properties",
+        "resolvedRelativePath": "system-images/android-36.1/google_apis_ps16k/x86_64/source.properties",
+        "bytes": 402,
+        "sha256": "c54d726e02b6862fbf727529ce040aad70a878aa015f6e23a7a293ca4e20705f",
+        "properties": {
+          "Pkg.Revision": "4",
+          "AndroidVersion.ApiLevel": "36.1",
+          "AndroidVersion.ExtensionLevel": "20",
+          "AndroidVersion.IsBaseSdk": "true",
+          "SystemImage.Abi": "x86_64",
+          "SystemImage.TagId": "google_apis,page_size_16kb",
+          "SystemImage.GpuSupport": "true"
+        }
+      },
+      "originalHostReceiptSha256": "6e6affd28d69df7b4b5cbd0002005162c8495e211fa64e100c777836a01b3ca1",
+      "targetEdited": false,
+      "existingAvdReplaced": false
+    }
+  ],
+  "originalTarget": "android-0",
+  "correctedTarget": "android-36.1",
+  "manualTargetEdit": false,
+  "archiveDigestSizeCrcAndSelectedRecordBytesVerified": true,
+  "nativeCrashEvidence": {
+    "recordSha256": "f9bea9cbcafd10c88252fdd101a2fa302b39b4825259a634081357c73631089c",
+    "crashBufferBytes": 0,
+    "appCrashCapturePassed": true,
+    "scope": "Retained scenario crash evidence; not an assertion about unretained boot history."
+  },
+  "remainingFailure": {
+    "task": "REL-003",
+    "releaseApi36Passed": false,
+    "failedGuard": "eventsEnabled=X, expected 0",
+    "mutationAttempted": false,
+    "mutated": false,
+    "dependentSoak": "skipped"
+  },
+  "claimLimit": "The original failing native scenario passed with the corrected AVD target on the unchanged image/backend. Full Android main-push release acceptance and soak are separate, still required gates."
+}

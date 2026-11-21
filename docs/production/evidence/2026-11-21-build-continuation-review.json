@@ -1,0 +1,924 @@
+{
+  "schemaVersion": 1,
+  "reviewedOn": "2026-11-21",
+  "taskIds": [
+    "BLD-001",
+    "BLD-002",
+    "BLD-004"
+  ],
+  "pullRequests": [
+    {
+      "number": 47,
+      "url": "https://github.com/INNVoices/waarp/pull/47",
+      "headCommit": "4ec8a9ecd2fe7b4ebbcc4718db7fa9e12ed8334e",
+      "status": "review",
+      "ciRun": "https://github.com/INNVoices/waarp/actions/runs/44940260860",
+      "ciConclusion": "success",
+      "ciSuccessfulJobs": 3,
+      "testedMergeCommit": "8e30505980337b6ba6d957f10d7c958d1ab08736",
+      "artifactEvidence": "docs/production/evidence/2026-11-21-windows-cleanup-pr47.json",
+      "merge": "pending owner confirmation"
+    },
+    {
+      "number": 48,
+      "url": "https://github.com/INNVoices/waarp/pull/48",
+      "headCommit": "53b02066a08d1d19f373c09aa29868f26be05a1a",
+      "status": "review",
+      "buildJob": "https://github.com/INNVoices/waarp/actions/runs/44940333222/job/136955906954",
+      "buildConclusion": "success",
+      "artifactEvidence": "docs/production/evidence/2026-11-21-android-inventory-pr48.json",
+      "merge": "pending owner confirmation",
+      "generalCiRun": "https://github.com/INNVoices/waarp/actions/runs/44940333205",
+      "generalCiConclusion": "success",
+      "androidCiConclusion": "failure",
+      "androidCounts": {
+        "success": 6,
+        "failure": 1,
+        "skipped": 1
+      },
+      "soak": "skipped; production acceptance incomplete"
+    }
+  ],
+  "baselineEvidence": "docs/production/evidence/2026-11-21-package-baseline-ec71.json",
+  "baselineSource": {
+    "pullRequestHead": "ec71e72d908b29d872d7ca63ae85498e51673270",
+    "ciMergeCheckout": "8266058a051f72a9f124a3485b23b7c148eb8bd7",
+    "windowsRun": "https://github.com/INNVoices/waarp/actions/runs/44882755093",
+    "androidRun": "https://github.com/INNVoices/waarp/actions/runs/44882755131"
+  },
+  "windowsLocalVerifierContext": {
+    "platform": "windows",
+    "variant": "portable",
+    "version": "1.0.0",
+    "runtimeExecutable": {
+      "file": "Waarp.exe",
+      "machine": 34404,
+      "architecture": "x64"
+    },
+    "sourceCommit": null,
+    "sourceCommitBasis": "not_recorded",
+    "tools": {
+      "node": "v24.22.3",
+      "asar": "3.4.1"
+    },
+    "installedBuildTools": {
+      "electron": "44.11.3",
+      "electronBuilder": "26.15.3"
+    }
+  },
+  "verification": {
+    "windowsFullPackageVerifier": "PASS on retained original EXE/unpacked files; original EXE SHA matches the retained CI report. Local GITHUB_SHA was unset, so the local report does not claim a new source binding.",
+    "windowsFocusedInventoryFixture": "PASS",
+    "windowsTypecheck": "PASS",
+    "androidInventoryFixtures": {
+      "passed": 6,
+      "scope": "Actual small ZIPs and one valid ELF; SDK command outputs substituted only in the environment-replay regression."
+    },
+    "existingAndroidReadinessSuites": {
+      "passed": 35
+    },
+    "androidBaseline": "Actual ZIP inventory and APK SHA match against retained validation reports for all three ABIs. A fresh local SDK verification was not run.",
+    "sourceTools": "Versions of the local inventory/verifier environment do not identify the original package build toolchain."
+  },
+  "runtimeClosure": {
+    "totals": {
+      "asarBytes": 79509626,
+      "asarSha256": "c27568879e6e1b017be569813d48645812215abb66fa0ac44b4f1058e10092cf",
+      "files": 5711,
+      "nodeModuleBytes": 68485949
+    },
+    "modules": [
+      [
+        "maplibre-gl",
+        {
+          "bytes": 29338051,
+          "files": 783
+        }
+      ],
+      [
+        "simple-icons",
+        {
+          "bytes": 15977615,
+          "files": 3476
+        }
+      ],
+      [
+        "react-dom",
+        {
+          "bytes": 8062585,
+          "files": 42
+        }
+      ],
+      [
+        "@maplibre/maplibre-gl-style-spec",
+        {
+          "bytes": 6660416,
+          "files": 411
+        }
+      ],
+      [
+        "@fontsource/inter",
+        {
+          "bytes": 4265818,
+          "files": 418
+        }
+      ],
+      [
+        "@maplibre/mlt",
+        {
+          "bytes": 1182311,
+          "files": 172
+        }
+      ],
+      [
+        "gl-matrix",
+        {
+          "bytes": 654204,
+          "files": 35
+        }
+      ],
+      [
+        "@maplibre/geojson-vt",
+        {
+          "bytes": 573112,
+          "files": 56
+        }
+      ],
+      [
+        "@fontsource-variable/instrument-sans",
+        {
+          "bytes": 421126,
+          "files": 26
+        }
+      ],
+      [
+        "jsqr",
+        {
+          "bytes": 269401,
+          "files": 3
+        }
+      ],
+      [
+        "@fontsource-variable/jetbrains-mono",
+        {
+          "bytes": 200877,
+          "files": 22
+        }
+      ],
+      [
+        "react",
+        {
+          "bytes": 177421,
+          "files": 26
+        }
+      ],
+      [
+        "bidi-js",
+        {
+          "bytes": 160100,
+          "files": 16
+        }
+      ],
+      [
+        "earcut",
+        {
+          "bytes": 98021,
+          "files": 5
+        }
+      ],
+      [
+        "scheduler",
+        {
+          "bytes": 82212,
+          "files": 14
+        }
+      ],
+      [
+        "zustand",
+        {
+          "bytes": 77791,
+          "files": 35
+        }
+      ],
+      [
+        "pbf",
+        {
+          "bytes": 74305,
+          "files": 7
+        }
+      ],
+      [
+        "@mapbox/jsonlint-lines-primitives",
+        {
+          "bytes": 57652,
+          "files": 9
+        }
+      ],
+      [
+        "kdbush",
+        {
+          "bytes": 31469,
+          "files": 5
+        }
+      ],
+      [
+        "protocol-buffers-schema",
+        {
+          "bytes": 27838,
+          "files": 8
+        }
+      ],
+      [
+        "@maplibre/vt-pbf",
+        {
+          "bytes": 22998,
+          "files": 4
+        }
+      ],
+      [
+        "@mapbox/vector-tile",
+        {
+          "bytes": 12433,
+          "files": 3
+        }
+      ],
+      [
+        "@mapbox/point-geometry",
+        {
+          "bytes": 9875,
+          "files": 3
+        }
+      ],
+      [
+        "@mapbox/tiny-sdf",
+        {
+          "bytes": 9382,
+          "files": 3
+        }
+      ],
+      [
+        "minimist",
+        {
+          "bytes": 8745,
+          "files": 4
+        }
+      ],
+      [
+        "potpack",
+        {
+          "bytes": 5276,
+          "files": 3
+        }
+      ],
+      [
+        "json-stringify-pretty-compact",
+        {
+          "bytes": 4180,
+          "files": 3
+        }
+      ],
+      [
+        "murmurhash-js",
+        {
+          "bytes": 4081,
+          "files": 4
+        }
+      ],
+      [
+        "quickselect",
+        {
+          "bytes": 3414,
+          "files": 3
+        }
+      ],
+      [
+        "@mapbox/unitbezier",
+        {
+          "bytes": 3267,
+          "files": 3
+        }
+      ],
+      [
+        "tinyqueue",
+        {
+          "bytes": 2963,
+          "files": 3
+        }
+      ],
+      [
+        "resolve-protobuf-schema",
+        {
+          "bytes": 2848,
+          "files": 3
+        }
+      ],
+      [
+        "require-from-string",
+        {
+          "bytes": 2436,
+          "files": 3
+        }
+      ],
+      [
+        "@types/geojson",
+        {
+          "bytes": 1726,
+          "files": 2
+        }
+      ]
+    ],
+    "runtimeImports": {
+      "out/main/index.js": [
+        "electron",
+        "node:child_process",
+        "node:crypto",
+        "node:fs",
+        "node:path",
+        "node:os",
+        "node:zlib",
+        "node:net",
+        "node:url",
+        "node:dns/promises",
+        "node:https",
+        "node:stream",
+        "node:perf_hooks",
+        "node:fs/promises",
+        "node:http",
+        "node:tls",
+        "node:events",
+        "jsqr",
+        "./en-BDbwM6ep.js",
+        "./de-Dv80_yI9.js",
+        "./fr-CvnuzIdk.js",
+        "./es-BJw87juc.js",
+        "./pt-BR-CJJB_ffI.js",
+        "./zh-Hans-BCccS510.js",
+        "./zh-Hant-DhQKF9Or.js",
+        "./ja-Co38YNw4.js",
+        "./ko-DS0BStLS.js",
+        "./uk-BtVftckz.js",
+        "./it-DzUGDCL7.js",
+        "./pl-87muIAr3.js",
+        "./tr-CeKXLk3b.js",
+        "./ar-CwY1K_f6.js",
+        "./hi-CGFHRRvK.js",
+        "./id-BoQRaSiv.js",
+        "./vi-CV00uI_4.js",
+        "./fa-CkSdZZxI.js"
+      ],
+      "out/preload/index.js": [
+        "electron"
+      ]
+    },
+    "nonliteralImports": [],
+    "assets": [
+      {
+        "path": "out/main/ar-CwY1K_f6.js",
+        "bytes": 132967
+      },
+      {
+        "path": "out/main/de-Dv80_yI9.js",
+        "bytes": 118392
+      },
+      {
+        "path": "out/main/en-BDbwM6ep.js",
+        "bytes": 103688
+      },
+      {
+        "path": "out/main/es-BJw87juc.js",
+        "bytes": 113782
+      },
+      {
+        "path": "out/main/fa-CkSdZZxI.js",
+        "bytes": 143666
+      },
+      {
+        "path": "out/main/fr-CvnuzIdk.js",
+        "bytes": 117023
+      },
+      {
+        "path": "out/main/hi-CGFHRRvK.js",
+        "bytes": 186962
+      },
+      {
+        "path": "out/main/id-BoQRaSiv.js",
+        "bytes": 107216
+      },
+      {
+        "path": "out/main/index.js",
+        "bytes": 680972
+      },
+      {
+        "path": "out/main/it-DzUGDCL7.js",
+        "bytes": 113574
+      },
+      {
+        "path": "out/main/ja-Co38YNw4.js",
+        "bytes": 135720
+      },
+      {
+        "path": "out/main/ko-DS0BStLS.js",
+        "bytes": 120823
+      },
+      {
+        "path": "out/main/pl-87muIAr3.js",
+        "bytes": 111450
+      },
+      {
+        "path": "out/main/pt-BR-CJJB_ffI.js",
+        "bytes": 113977
+      },
+      {
+        "path": "out/main/tr-CeKXLk3b.js",
+        "bytes": 109641
+      },
+      {
+        "path": "out/main/uk-BtVftckz.js",
+        "bytes": 153021
+      },
+      {
+        "path": "out/main/vi-CV00uI_4.js",
+        "bytes": 124873
+      },
+      {
+        "path": "out/main/zh-Hans-BCccS510.js",
+        "bytes": 99073
+      },
+      {
+        "path": "out/main/zh-Hant-DhQKF9Or.js",
+        "bytes": 100557
+      },
+      {
+        "path": "out/preload/index.js",
+        "bytes": 4301
+      },
+      {
+        "path": "out/renderer/assets/App-BVnCXAWn.css",
+        "bytes": 11761
+      },
+      {
+        "path": "out/renderer/assets/App-DIXDCWmO.js",
+        "bytes": 298674
+      },
+      {
+        "path": "out/renderer/assets/ar-BQzK1c-_.js",
+        "bytes": 132886
+      },
+      {
+        "path": "out/renderer/assets/atlas-canvas-BUWBlw7H.css",
+        "bytes": 71596
+      },
+      {
+        "path": "out/renderer/assets/atlas-canvas-Cc27TKC9.js",
+        "bytes": 1609800
+      },
+      {
+        "path": "out/renderer/assets/de-UE3ylwcB.js",
+        "bytes": 118311
+      },
+      {
+        "path": "out/renderer/assets/en-eVoAV3AS.js",
+        "bytes": 103607
+      },
+      {
+        "path": "out/renderer/assets/es-DbiyeYCd.js",
+        "bytes": 113701
+      },
+      {
+        "path": "out/renderer/assets/fa-B3oF5ooO.js",
+        "bytes": 143585
+      },
+      {
+        "path": "out/renderer/assets/fr-98lD2zJ6.js",
+        "bytes": 116942
+      },
+      {
+        "path": "out/renderer/assets/hi-hrQXUr_X.js",
+        "bytes": 186881
+      },
+      {
+        "path": "out/renderer/assets/id-Djr8JswP.js",
+        "bytes": 107135
+      },
+      {
+        "path": "out/renderer/assets/index-BnOSKZ2B.js",
+        "bytes": 795542
+      },
+      {
+        "path": "out/renderer/assets/index-QTOT4P9O.css",
+        "bytes": 77475
+      },
+      {
+        "path": "out/renderer/assets/instrument-sans-latin-ext-wght-normal-B5bTHO_g.woff2",
+        "bytes": 11144
+      },
+      {
+        "path": "out/renderer/assets/instrument-sans-latin-wght-normal-BbzFLZTg.woff2",
+        "bytes": 30092
+      },
+      {
+        "path": "out/renderer/assets/inter-cyrillic-400-normal-HOLc17fK.woff",
+        "bytes": 9780
+      },
+      {
+        "path": "out/renderer/assets/inter-cyrillic-400-normal-obahsSVq.woff2",
+        "bytes": 7712
+      },
+      {
+        "path": "out/renderer/assets/inter-cyrillic-500-normal-BasfLYem.woff2",
+        "bytes": 7900
+      },
+      {
+        "path": "out/renderer/assets/inter-cyrillic-500-normal-CxZf_p3X.woff",
+        "bytes": 9940
+      },
+      {
+        "path": "out/renderer/assets/inter-cyrillic-600-normal-4D_pXhcN.woff",
+        "bytes": 9936
+      },
+      {
+        "path": "out/renderer/assets/inter-cyrillic-600-normal-CWCymEST.woff2",
+        "bytes": 7972
+      },
+      {
+        "path": "out/renderer/assets/inter-cyrillic-ext-400-normal-BQZuk6qB.woff2",
+        "bytes": 10232
+      },
+      {
+        "path": "out/renderer/assets/inter-cyrillic-ext-400-normal-DQukG94-.woff",
+        "bytes": 13336
+      },
+      {
+        "path": "out/renderer/assets/inter-cyrillic-ext-500-normal-B0yAr1jD.woff2",
+        "bytes": 10432
+      },
+      {
+        "path": "out/renderer/assets/inter-cyrillic-ext-500-normal-BmqWE9Dz.woff",
+        "bytes": 13452
+      },
+      {
+        "path": "out/renderer/assets/inter-cyrillic-ext-600-normal-Bcila6Z-.woff",
+        "bytes": 13464
+      },
+      {
+        "path": "out/renderer/assets/inter-cyrillic-ext-600-normal-Dfes3d0z.woff2",
+        "bytes": 10484
+      },
+      {
+        "path": "out/renderer/assets/inter-greek-400-normal-B4URO6DV.woff2",
+        "bytes": 7776
+      },
+      {
+        "path": "out/renderer/assets/inter-greek-400-normal-q2sYcFCs.woff",
+        "bytes": 9924
+      },
+      {
+        "path": "out/renderer/assets/inter-greek-500-normal-BIZE56-Y.woff2",
+        "bytes": 7920
+      },
+      {
+        "path": "out/renderer/assets/inter-greek-500-normal-Xzm54t5V.woff",
+        "bytes": 9980
+      },
+      {
+        "path": "out/renderer/assets/inter-greek-600-normal-BZpKdvQh.woff",
+        "bytes": 10032
+      },
+      {
+        "path": "out/renderer/assets/inter-greek-600-normal-plRanbMR.woff2",
+        "bytes": 7944
+      },
+      {
+        "path": "out/renderer/assets/inter-greek-ext-400-normal-DGGRlc-M.woff2",
+        "bytes": 5264
+      },
+      {
+        "path": "out/renderer/assets/inter-greek-ext-400-normal-KugGGMne.woff",
+        "bytes": 7064
+      },
+      {
+        "path": "out/renderer/assets/inter-greek-ext-500-normal-2j5mBUwD.woff",
+        "bytes": 7192
+      },
+      {
+        "path": "out/renderer/assets/inter-greek-ext-500-normal-C4iEst2y.woff2",
+        "bytes": 5428
+      },
+      {
+        "path": "out/renderer/assets/inter-greek-ext-600-normal-B8X0CLgF.woff",
+        "bytes": 7212
+      },
+      {
+        "path": "out/renderer/assets/inter-greek-ext-600-normal-DRtmH8MT.woff2",
+        "bytes": 5432
+      },
+      {
+        "path": "out/renderer/assets/inter-latin-400-normal-C38fXH4l.woff2",
+        "bytes": 23664
+      },
+      {
+        "path": "out/renderer/assets/inter-latin-400-normal-CyCys3Eg.woff",
+        "bytes": 30696
+      },
+      {
+        "path": "out/renderer/assets/inter-latin-500-normal-BL9OpVg8.woff",
+        "bytes": 31284
+      },
+      {
+        "path": "out/renderer/assets/inter-latin-500-normal-Cerq10X2.woff2",
+        "bytes": 24272
+      },
+      {
+        "path": "out/renderer/assets/inter-latin-600-normal-CiBQ2DWP.woff",
+        "bytes": 31260
+      },
+      {
+        "path": "out/renderer/assets/inter-latin-600-normal-LgqL8muc.woff2",
+        "bytes": 24452
+      },
+      {
+        "path": "out/renderer/assets/inter-latin-ext-400-normal-77YHD8bZ.woff",
+        "bytes": 47560
+      },
+      {
+        "path": "out/renderer/assets/inter-latin-ext-400-normal-C1nco2VV.woff2",
+        "bytes": 35000
+      },
+      {
+        "path": "out/renderer/assets/inter-latin-ext-500-normal-BxGbmqWO.woff",
+        "bytes": 48492
+      },
+      {
+        "path": "out/renderer/assets/inter-latin-ext-500-normal-CV4jyFjo.woff2",
+        "bytes": 36024
+      },
+      {
+        "path": "out/renderer/assets/inter-latin-ext-600-normal-CIVaiw4L.woff",
+        "bytes": 48668
+      },
+      {
+        "path": "out/renderer/assets/inter-latin-ext-600-normal-D2bJ5OIk.woff2",
+        "bytes": 36260
+      },
+      {
+        "path": "out/renderer/assets/inter-vietnamese-400-normal-Bbgyi5SW.woff",
+        "bytes": 6500
+      },
+      {
+        "path": "out/renderer/assets/inter-vietnamese-400-normal-DMkecbls.woff2",
+        "bytes": 4972
+      },
+      {
+        "path": "out/renderer/assets/inter-vietnamese-500-normal-DOriooB6.woff2",
+        "bytes": 5112
+      },
+      {
+        "path": "out/renderer/assets/inter-vietnamese-500-normal-mJboJaSs.woff",
+        "bytes": 6596
+      },
+      {
+        "path": "out/renderer/assets/inter-vietnamese-600-normal-BuLX-rYi.woff",
+        "bytes": 6640
+      },
+      {
+        "path": "out/renderer/assets/inter-vietnamese-600-normal-Cc8MFFhd.woff2",
+        "bytes": 5100
+      },
+      {
+        "path": "out/renderer/assets/it-DBdjiG75.js",
+        "bytes": 113493
+      },
+      {
+        "path": "out/renderer/assets/ja-Ss1PFz1C.js",
+        "bytes": 135639
+      },
+      {
+        "path": "out/renderer/assets/jetbrains-mono-cyrillic-ext-wght-normal-EocZY2iu.woff2",
+        "bytes": 2028
+      },
+      {
+        "path": "out/renderer/assets/jetbrains-mono-cyrillic-wght-normal-D73BlboJ.woff2",
+        "bytes": 12108
+      },
+      {
+        "path": "out/renderer/assets/jetbrains-mono-greek-wght-normal-Bw9x6K1M.woff2",
+        "bytes": 9004
+      },
+      {
+        "path": "out/renderer/assets/jetbrains-mono-latin-ext-wght-normal-DBQx-q_a.woff2",
+        "bytes": 15196
+      },
+      {
+        "path": "out/renderer/assets/jetbrains-mono-latin-wght-normal-B9CIFXIH.woff2",
+        "bytes": 40404
+      },
+      {
+        "path": "out/renderer/assets/jetbrains-mono-vietnamese-wght-normal-Bt-aOZkq.woff2",
+        "bytes": 7504
+      },
+      {
+        "path": "out/renderer/assets/ko-TEMZ-lSt.js",
+        "bytes": 120742
+      },
+      {
+        "path": "out/renderer/assets/maplibre-gl-worker-B0SrbRYT.js",
+        "bytes": 777626
+      },
+      {
+        "path": "out/renderer/assets/pl-DuVFJCIx.js",
+        "bytes": 111369
+      },
+      {
+        "path": "out/renderer/assets/pt-BR-oSeGuNm1.js",
+        "bytes": 113896
+      },
+      {
+        "path": "out/renderer/assets/tr-CYCzphO-.js",
+        "bytes": 109560
+      },
+      {
+        "path": "out/renderer/assets/uk-CBCqf0pg.js",
+        "bytes": 152940
+      },
+      {
+        "path": "out/renderer/assets/vi-yphFL3V-.js",
+        "bytes": 124792
+      },
+      {
+        "path": "out/renderer/assets/zh-Hans-CPRPuZi5.js",
+        "bytes": 98992
+      },
+      {
+        "path": "out/renderer/assets/zh-Hant-BmNGlExV.js",
+        "bytes": 100476
+      },
+      {
+        "path": "out/renderer/index.html",
+        "bytes": 490
+      }
+    ]
+  },
+  "rendererConsumers": {
+    "icons": [
+      {
+        "name": "siClaude",
+        "pathSha256": "0442033dcc3824e52ffb0a07849c46becbeeacd75d1287f9081c00510e3bbf84",
+        "bundledIn": [
+          "out/renderer/assets/App-DIXDCWmO.js"
+        ]
+      },
+      {
+        "name": "siDiscord",
+        "pathSha256": "6806ec0e2319eb7f7d9f5d02636a197d42903ff8f8e9bab0c267c8fabc1b03fe",
+        "bundledIn": [
+          "out/renderer/assets/App-DIXDCWmO.js"
+        ]
+      },
+      {
+        "name": "siGithub",
+        "pathSha256": "d82e21f6c9bfbfd889fed4b8d8604121be1d364ef75b7fe42cc9c0b8737ae529",
+        "bundledIn": [
+          "out/renderer/assets/App-DIXDCWmO.js"
+        ]
+      },
+      {
+        "name": "siGooglegemini",
+        "pathSha256": "a27790dcbe07c23d88893d72097191599ebac4883fba370ea021f952fb75237f",
+        "bundledIn": [
+          "out/renderer/assets/App-DIXDCWmO.js"
+        ]
+      },
+      {
+        "name": "siInstagram",
+        "pathSha256": "acf15f9fb76fd2bda63eabbd917408607f4a8d4b40b332601765c83fb875ae73",
+        "bundledIn": [
+          "out/renderer/assets/App-DIXDCWmO.js"
+        ]
+      },
+      {
+        "name": "siSpotify",
+        "pathSha256": "f8560b9a4343d3ef42b58018d90f3b2d9635f69563ee15c755cc7c5effd6eefd",
+        "bundledIn": [
+          "out/renderer/assets/App-DIXDCWmO.js"
+        ]
+      },
+      {
+        "name": "siTelegram",
+        "pathSha256": "1ffe322eb915bb2dc505d6244e7c55c98349a464c266ea6e5b594539c14ad522",
+        "bundledIn": [
+          "out/renderer/assets/App-DIXDCWmO.js"
+        ]
+      },
+      {
+        "name": "siX",
+        "pathSha256": "a0a8e4521f2dc70e9a6fb8b860dedf3cd0e67bdf279c607ed45b341811025cab",
+        "bundledIn": [
+          "out/renderer/assets/App-DIXDCWmO.js"
+        ]
+      },
+      {
+        "name": "siYoutube",
+        "pathSha256": "8142fbc0e697bc1b23da1342009a4d68d4f9cdc3bfa55c292e0f4f00f5e1c9bf",
+        "bundledIn": [
+          "out/renderer/assets/App-DIXDCWmO.js"
+        ]
+      }
+    ],
+    "allNineIconsBundled": true,
+    "worker": {
+      "path": "out/renderer/assets/maplibre-gl-worker-B0SrbRYT.js",
+      "bytes": 777626,
+      "referencedBy": "out/renderer/assets/atlas-canvas-Cc27TKC9.js",
+      "referencePresent": true
+    },
+    "fonts": {
+      "files": 50,
+      "bytes": 795840,
+      "cssReferences": 50,
+      "allReferencesExist": true
+    },
+    "offlineMap": {
+      "source": "src/shared/atlas-world.json",
+      "consumer": "src/renderer/src/ui/atlas-canvas.tsx",
+      "bundle": "out/renderer/assets/atlas-canvas-Cc27TKC9.js",
+      "bundleBytes": 1609800,
+      "featureCollections": true,
+      "externalMapTilesConfigured": false
+    },
+    "license": {
+      "path": "resources/licenses/simple-icons/LICENSE.md",
+      "bytes": 6569,
+      "sha256": "9046848b63a5c92bff14e4accca80bd987e0623b74adf9226ce5198d312b79d5",
+      "matchesSource": true
+    }
+  },
+  "cleanupValidation": {
+    "sourceCommit": "202c70125daf94bb8499c3b758420cd9ce90a52f",
+    "buildBeforePassed": true,
+    "buildAfterPassed": true,
+    "equality": {
+      "main": {
+        "files": 19,
+        "bytes": 2887377,
+        "byteIdentical": true
+      },
+      "preload": {
+        "files": 1,
+        "bytes": 4301,
+        "byteIdentical": true
+      },
+      "renderer": {
+        "files": 76,
+        "bytes": 6642815,
+        "byteIdentical": true
+      }
+    },
+    "onlyManifestCategoryChanged": true,
+    "packageVersionResolvedIntegrityUnchanged": true,
+    "productionDependencies": [
+      "@fontsource-variable/instrument-sans",
+      "@fontsource-variable/jetbrains-mono",
+      "@fontsource/inter",
+      "jsqr",
+      "maplibre-gl",
+      "react-dom",
+      "react"
+    ],
+    "allNineBrandPathsStillBundled": true,
+    "licenseResourceRuleUnchanged": true,
+    "windowsPackageAcceptance": "PASS for the limited Windows simple-icons slice; see windowsAfterCiEvidence.",
+    "savings": {
+      "measuredBaselineSimpleIconsAsarBytes": 15977615,
+      "measuredBaselineSimpleIconsAsarFiles": 3476,
+      "compressedPortableReduction": {
+        "status": "CI measured",
+        "savedBytes": 2915009,
+        "reductionPercent": 2.22678,
+        "newExeDownloadedLocally": false
+      }
+    },
+    "measurementScope": "Local before/after runtime-output equality, followed by separately retained PR47 CI package/lifecycle measurements."
+  },
+  "limits": [
+    "This baseline is read-only measurement of earlier PR packages, not a new exact-main runtime acceptance.",
+    "A full component table is available; broader QR/map/language packaged smoke for the whole Windows closure is still pending.",
+    "Only simple-icons is moved to a build dependency in the current Windows cleanup slice. Existing licenses and the nine bundled SVG paths remain.",
+    "New PR47 CI reports measure 2,915,009 fewer raw portable EXE bytes (2.226780%) with candidate-bound actual lifecycle receipts. The validation ZIP was independently verified locally; the new EXE was not downloaded locally. The former 15,977,615 logical ASAR bytes are a separate non-additive view.",
+    "No Android native library, ABI, locale, protocol or production signing identity is removed or changed."
+  ],
+  "androidLocalInventoryContext": {
+    "platform": "android",
+    "variant": "release-unsigned",
+    "abi": "arm64-v8a",
+    "versionName": "1.0.0",
+    "versionCode": 7,
+    "sha256": "a604aa5ef156ff7c0eb389708cf73a6651f02a24131cc9b3ab07f19d27c10a78",
+    "sourceCommit": "8266058a051f72a9f124a3485b23b7c148eb8bd7",
+    "sourceCommitBasis": "selected original CI run with retained API/artifact receipts; not embedded APK attestation",
+    "tools": {
+      "python": "3.12.14"
+    },
+    "staticVerifier": "prior retained validation report; current inventory reads ZIP only"
+  },
+  "windowsAfterCiEvidence": "docs/production/evidence/2026-11-21-windows-cleanup-pr47.json"
+}

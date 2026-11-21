@@ -8,7 +8,7 @@
 
 **Scope:** убрать конкретные слепые зоны CI; получить полный результат одного кандидата; связать исходники, артефакты, runtime и подпись; проверить установку и передачу в публикацию. **Non-goals:** новая транспортная архитектура, уменьшение длительности soak, выключение проверок tracing/страниц/подписи, автоматическое удаление чужих процессов/адаптеров, новый signing identity, изменение версий ради зелёного статуса, обещание принятия сторонним каталогом. Vendor/dependency-переработка ведётся отдельно.
 
-Первый полезный PR — **REL-001**: сохранить bounded read-only сведения об Android framework при отказе установки до teardown. Он не исправляет предполагаемую причину `Broken pipe` и не объявляет APK прошедшим приёмку.
+Первый диагностический PR этой карты — **REL-001** (уже слит): сохранить bounded read-only сведения об Android framework при отказе установки до teardown. Он не исправляет предполагаемую причину `Broken pipe` и не объявляет APK прошедшим приёмку.
 
 ## Проверенная исходная точка
 
@@ -25,9 +25,9 @@
 
 Уже выполненные [V1 code acceptance](../V1.md), [Э0–Э8](../TZ-NEXT-2026-11.md) и [WN-00…08](../planning/WAARP-NEXT-2026-11-18/task-status.json) сохраняются как история своего среза. Они не обнуляются новым планом. Исторические ограничения доставки Actions artifacts не заменяют свежую причину текущих failures.
 
-## Проверенный срез перед runtime wave 21 ноября
+## Исторический срез перед runtime wave 21 ноября
 
-Текущий исходный main — `217870599b3ab1913f68bade5bebf8eb44b192f8`.
+Исходный main этого исторического среза — `217870599b3ab1913f68bade5bebf8eb44b192f8`.
 Его [общий CI 44859115697](https://github.com/INNVoices/waarp/actions/runs/44859115697)
 прошёл Windows checks, оба dependency audits и Linux AWG protocol/crash. Независимо
 скачан validation artifact `14689192296`: ZIP size/digest/CRC совпадают, четыре
@@ -38,7 +38,7 @@ CI report: `6bc77280f61b22f214353b674f71ac3773d7a4c6a694ef76bfeeb49f81378b8e`.
 Сам portable ZIP в этом baseline review отдельно не скачивался. Эти сценарии не
 закрывают реальный UAC, portable upgrade с профилем, физический sleep и другой VPN.
 
-Последний [Android run 44857532546](https://github.com/INNVoices/waarp/actions/runs/44857532546)
+На этом историческом срезе [Android run 44857532546](https://github.com/INNVoices/waarp/actions/runs/44857532546)
 принадлежит более раннему `35c3b2e11d0001f482dbae22abccbed4db8769bf`: build,
 native29/native35/release35 — success; release29/native36/release36 — failure;
 soak — skipped. Этот результат не переносится на main217.
@@ -48,20 +48,42 @@ Binder owner и новый system_server в kernel logs. Предложенны�
 исчезновение PID строгим отсутствием activity/package/display registrations
 перед единственным start, в прежнем stop deadline. Display startup path основан
 на exact AOSP source; конкретный сервис fatal transaction по скрытому Java stack
-не доказан. 38 preparation и 10 installer regression tests прошли; новый emulator
-run ещё требуется.
+не доказан. 38 preparation и 10 installer regression tests прошли; на том этапе ожидался новый emulator
+run. Результат PR #42 сохранён в следующем разделе.
 
 [Host AVD receipt](../ANDROID-AVD-RECEIPT.md) собирается на API36 до guest tests и
 отдельно после teardown. Он читает только allowlisted SDK/AVD metadata и параметры
 собственного emulator process, не меняет конфигурацию. Частичный diagnostic receipt
 остаётся частичным и не останавливает или заменяет настоящие runtime gates.
-Graphics hypothesis и независимый ftrace blocker требуют фактических новых данных.
+На том этапе graphics hypothesis и независимый ftrace blocker ещё требовали новых данных. Результаты PR #44 и PR #45 ниже не объединяются в общий pass.
 
 ## Новое наблюдение после baseline: PR30
 
 [PR30](https://github.com/INNVoices/waarp/pull/30) слит как `35c3b2e11d0001f482dbae22abccbed4db8769bf` после успешного общего CI. Его [native API36 job](https://github.com/INNVoices/waarp/actions/runs/44856329155/job/136701575165) впервые сохранил install failure bundle: package/settings отсутствуют; до неудачной установки трижды падает системный SurfaceFlinger, `RegionSampling`, assertion в `GoldfishMapper::readFromHost`. Collector завершился за 0.524 s; исходный отказ не изменён, CRC ZIP и 22 raw hashes/bytes проверены независимо. [Сохранённый derived record](evidence/2026-11-21-pr30-install.json) содержит source/job/artifact binding и пределы вывода.
 
 Это новое свидетельство графического/framework отказа гостя, а не доказанная полная первопричина feature mismatch и не Android acceptance. Следующий read-only шаг — сопоставить точную emulator/image/graphics конфигурацию с этой assertion; не отключать UI, `RegionSampling`, tracing или проверки ради pass. Другие неуспешные jobs имеют собственные причины и требуют отдельного разбора.
+
+## Продолжение 21 ноября: принятые исправления и оставшийся отказ
+
+Исходная точка этой сверки — main `202c70125daf94bb8499c3b758420cd9ce90a52f`, после PR #42/#43/#44. Ни один результат в таблице не назван новой полной приёмкой main.
+
+| Область | Проверенное свидетельство | Вывод и граница |
+| --- | --- | --- |
+| REL-002, API 29 | [PR #42](https://github.com/INNVoices/waarp/pull/42), [run 44862192000](https://github.com/INNVoices/waarp/actions/runs/44862192000), [оригинальный accepted record](evidence/2026-11-21-api29-accepted.json) | Barrier дождался исчезновения activity/package/display перед единственным start; native 26/26 и release journey прошли. Закрыто исследование конкретного stale-Binder отказа; частота стабильности не измерялась. |
+| REL-009, API 36 AVD | [PR #44](https://github.com/INNVoices/waarp/pull/44), [run 44864148533](https://github.com/INNVoices/waarp/actions/runs/44864148533), [SDK 20 record](evidence/2026-11-21-api36-sdk20-accepted.json) | Штатное создание AVD через cmdline-tools 20.0 дало target android-36.1 вместо android-0 на прежнем image/backend; native 26/26. Отдельный trace guard продолжил отказывать. |
+| REL-007, Windows portable | [PR #43](https://github.com/INNVoices/waarp/pull/43), [run 44863162870](https://github.com/INNVoices/waarp/actions/runs/44863162870), [portable record](evidence/2026-11-21-windows-portable-pr43.json) | Три запуска настоящего EXE за 46.570 s: import, normal exit, restart и остановленная замена тем же candidate. Профиль сохранён, owned processes завершились. UAC, смена версии, rollback и физические сценарии остаются NOT_RUN. |
+| REL-007, новый Windows candidate | [PR #47](https://github.com/INNVoices/waarp/pull/47), [run 44940260860](https://github.com/INNVoices/waarp/actions/runs/44940260860), [проверенный validation receipt](evidence/2026-11-21-windows-cleanup-pr47.json) | Три запуска EXE за 49.745 s и девять SVG прошли; profile/settings/master OFF и normal exit/cleanup сохранены. Отдельный native lifecycle — 50/50. Новый EXE локально не скачивался; его измерения и hashes связаны с actual CI lifecycle. Merge ожидает подтверждения владельца. |
+| REL-003, отдельный preflight | [run 44882755101](https://github.com/INNVoices/waarp/actions/runs/44882755101), ec71e72 / PR merge 8266058a | Trace preparation прошла: 307 таблиц, 614 завершённых iterator streams, GLOBAL, свежие нулевые counters и один 4→16 KiB write/readback. Это подтверждение подготовки tracefs, без APK journey или soak. |
+| REL-003/004, полный Android | [run 44882755131](https://github.com/INNVoices/waarp/actions/runs/44882755131), тот же ec71e72 / PR merge 8266058a | 6 success, 1 failure, 1 skipped. Optimized API 36 отказал в `task_inventory_middle`: `known_thread_missing`, `missing_positive_shared_member`, 0.626 s. Второй descriptor pass, GLOBAL, resize и приложение не достигнуты; 7 200 s soak пропущен. |
+| REL-003/004, main-based PR #48 | [run 44940333222 / job 136958307750](https://github.com/INNVoices/waarp/actions/runs/44940333222/job/136958307750), head 53b0206 / PR merge ba9497f9 | 6 success, 1 failure, 1 skipped. Прежний main guard отказал на `eventsEnabled=X` / `bpf_trace_printk` до mutation и APK install; 7 200 s soak skipped. Advanced observer PR #45 здесь отсутствует. Native API 29/35/36 и release API 29/35 прошли; общий CI отдельно успешен. |
+
+[Повторная проверка исходных ZIP и raw receipts](evidence/2026-11-21-ec71-acceptance-recheck.json) сохранила оба исхода отдельно. У failed bundle проверены 104 ZIP files и 86 raw streams; у preflight — 127 files и 102 streams. Native/BPF bytes в двух запусках совпадают с ec71. Различие результата не объясняется установленным build mismatch.
+
+В failed record есть PID/TID и ранее положительно подтверждённое совместное владение file table, но нет имени или start time исчезнувшей задачи. Её роль и причина завершения неизвестны. Следующий допустимый диагностический шаг — вывести при том же отказе уже удерживаемые numeric identity/progress fields; без новых proc reads, ожиданий, повторных попыток или исключения для исчезнувшего task. Диагностика не является causal fix. Неизменённый failed job повторно не запускался.
+
+Для отдельного PR #48 [проверены failed ZIP и 66 raw streams](evidence/2026-11-21-android-inventory-pr48.json); полное SHA256 этого небольшого failure archive пересчитано. Это более полная локальная проверка самого failed bundle, чем range-only чтение большого APK artifact в том же record. Новый inventory build/SDK verification успешен, legacy static fields трёх release reports совпадают с ec71, а исходный main trace guard остановил job до приложения. Этот отказ не свидетельствует об inventory regression и не заменяет investigation advanced PR #45.
+
+Полный release gate REL-004 остаётся blocked. Нужны причинно обоснованная корректировка и один полный прогон согласованного main candidate с обязательными 7 200 s soak. Подпись, физическая установка и публикация по-прежнему следуют своим зависимостям. PR #46/#47/#48 в этой волне относятся к статическим locale/package проверкам и Windows cleanup; они не закрывают Android runtime отказ.
 
 ## Волны работы
 
@@ -87,7 +109,7 @@ Graphics hypothesis и независимый ftrace blocker требуют фа
 **Title:** Разобрать нестабильность framework API 29 без обхода PID/Binder guard
 
 - **Priority:** P0.
-- **Status:** `in_progress`: Подготовлен causal barrier: перед единственным start дождаться удаления activity/package/display в исходном 30 s stop deadline. 38 preparation и 10 installer tests прошли; новый runtime результат ещё не получен.
+- **Status:** `done` — PR #42 слит как f68e64ab63177afa00e96fd1d2d7cb7d6b895d8d. В run 44862192000 подтверждены service-drain barrier, новые PID, heap и shell identity, native 26/26 и release journey API 29. Это одна историческая PR-пара, не общая гарантия стабильности и не полный main acceptance.
 - **Dependencies:** нет.
 
 **Dependency notes:** нет; собственные failure diagnostics у подготовки уже существуют.
@@ -101,7 +123,7 @@ Graphics hypothesis и независимый ftrace blocker требуют фа
 **Title:** Уточнить владение BPF trace event и допустимый путь подготовки 16 KiB
 
 - **Priority:** P0.
-- **Status:** `in_progress`: Исходный events guard сохранён. Только после exact stopped-BPF refusal добавлены read-only CPU/snapshot/tracefs FD observations для следующей causal развилки; owner и quiescence пока не доказаны.
+- **Status:** `in_progress` — PR #45 ec71e72: preflight 44882755101 прошёл; full run 44882755131 имеет 6 success, 1 failure, 1 skipped. Его advanced observer отказал за 0.626 s: known_thread_missing / task_inventory_middle / missing_positive_shared_member, до second pass, GLOBAL и resize; причина исчезновения task неизвестна. Отдельный main-based PR #48 job 136958307750 отказал на прежнем eventsEnabled X / bpf_trace_printk guard до mutation и установки APK; PR45 observer в нём отсутствует. Следующий causal шаг — failure-only numeric metadata из уже имеющейся памяти; без новых reads, retries или ослабления guard.
 - **Dependencies:** нет.
 - **Files:** `scripts/android-ftrace-prepare.py`, его `-test.py`, `scripts/android-emulator-image.py`, `docs/ANDROID-PERFETTO-16K.md`; raw `ftrace-preparation` artifact.
 - **Change:** исследовать конкретный image/kernel и источник включённого события до любой tracefs mutation. Проверенный exact kernel revision и permalink приведены ниже. Helper lookup может асинхронно включить событие, поэтому `X` совместим с нулём Perfetto sessions. Это объяснение механизма, не атрибуция actual guest. Подготовить проверяемый вариант, сохраняющий чужое состояние; если безопасный resize при таком состоянии не доказан, оставить отказ.
@@ -115,7 +137,7 @@ Graphics hypothesis и независимый ftrace blocker требуют фа
 **Title:** Получить полный exact-source Android acceptance bundle
 
 - **Priority:** P0.
-- **Status:** `blocked`: текущий main не прошёл матрицу; checker уже реализован.
+- **Status:** `blocked` — Полный ec71 / merge 8266058a run 44882755131 содержит failed optimized API 36 и skipped soak 7 200 s. Новый main-based PR #48 / merge ba9497f9: Android run 44940333222 также завершился 6 success, 1 failure, 1 skipped; API 36 отказал на прежнем events guard до APK install, soak 136960519754 skipped. Общий CI PR #48 успешен, но full production acceptance не выполнена. Требуются причинная корректировка REL-003 и полная exact-main матрица/soak; исторические successes и package build не складываются в приёмку.
 - **Dependencies:** REL-001, REL-002, REL-003, REL-009.
 - **Files:** `.github/workflows/android.yml`, `scripts/android-release-readiness.py`, `scripts/android-release-proof.py`, `docs/ANDROID_RELEASE_EVIDENCE.md`, `android/acceptance/README.md`. Не переписывать checker без конкретного воспроизводимого mismatch.
 - **Change:** на одном выбранном main commit выполнить существующую полную Android acceptance. Экспортировать raw run/jobs и отдельные artifact receipts, original ZIP и точные extracted files; сверить SHA256/CRC и связность выбранной попытки. Статические отчёты привязать к трём реальным unsigned APK; runtime — к реально использованному payload, а не только versionName/code или `passed=true`.
@@ -151,7 +173,7 @@ Graphics hypothesis и независимый ftrace blocker требуют фа
 **Title:** Зафиксировать Windows portable runtime и жизненный цикл обновления
 
 - **Priority:** P0.
-- **Status:** `in_progress`: Независимо проверен validation ZIP main217: 50 native TUN cycles, selector semantics, compiler and packaged payload reports. Portable/UAC/profile upgrade и физические сценарии этим не закрыты.
+- **Status:** `in_progress` — PR #43 уже слит (702112bcb0b93ab1c53f99d66970b544ecf37ce8): три portable запуска за 46.570 s на merge 061106b9. Новый PR #47 / tested merge 8e305059 прошёл три запуска за 49.745 s и все девять SVG; encrypted profile, settings и master OFF сохранены, normal exit/owned cleanup успешны. Его merge ожидает подтверждения владельца. Не проверены UAC, different-version upgrade/rollback, standard-user ACLs, физические sleep/network/other VPN; отдельный native test прошёл 50/50, OFF portable lifecycle не заменяет routing acceptance.
 - **Dependencies:** нет.
 - **Files:** `.github/workflows/ci.yml`, `.github/workflows/release-preview.yml`, `scripts/verify-package.mjs`, Windows native/lifecycle harness, `docs/V1.md`, `docs/INSTALL.md`, `engine/integrity.json`.
 - **Change:** связать текущий Windows job, packaged portable hash, shipped engine/DLL/notices и реальные native/TUN evidence. Существующее покрытие отметить `ALREADY_DONE`; адресно закрыть только отсутствующую последовательность: первый запуск, отказ UAC, штатный выход, повторный запуск, замена portable EXE при остановленном приложении, чтение сохранённого профиля, осмысленный rollback. Проверять только собственные child/TUN resources; соседний VPN не трогать.
@@ -179,7 +201,7 @@ Graphics hypothesis и независимый ftrace blocker требуют фа
 **Title:** Разобрать graphics/framework crash API 36 до установки приложения
 
 - **Priority:** P0.
-- **Status:** `in_progress`: Подготовлен bounded host AVD receipt с 18 tests; фактические target/SDK/argv следующего run нужны для проверки graphics hypothesis. Runtime crash пока не исправлен.
+- **Status:** `done` — PR #44 слит как 202c70125daf94bb8499c3b758420cd9ce90a52f. Run 44864148533 подтвердил создание AVD cmdline-tools 20.0 с target android-36.1 на прежнем image/backend и native API 36: 26/26. Старый android-0 target не правили вручную; tracing REL-003 и полный candidate/soak остаются отдельными незакрытыми gates.
 - **Dependencies:** нет.
 - **Files:** `.github/workflows/android.yml`, `docs/ANDROID.md`, `docs/ANDROID-PERFETTO-16K.md`, `docs/production/evidence/2026-11-21-pr30-install.json`; upstream source только как read-only evidence.
 - **Change:** сопоставить точные emulator version, Android image revision, ABI/page size и graphics backend из job/provenance с assertion `GoldfishMapper::readFromHost` / `hasReadColorBufferDma`. Найти соответствующий AOSP/gfxstream код и допустимую конфигурацию или upstream исправление. Отделить SurfaceFlinger crash, последующий framework restart и отсутствие package/settings от независимого ftrace blocker REL-003. После source review предложить один ограниченный воспроизводимый эксперимент; менять только подтверждённую причину.

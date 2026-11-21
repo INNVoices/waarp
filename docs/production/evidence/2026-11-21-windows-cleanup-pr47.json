@@ -1,0 +1,386 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-11-21T19:37:26.339649+00:00",
+  "repository": "INNVoices/waarp",
+  "pullRequest": 47,
+  "source": {
+    "pullHead": "4ec8a9ecd2fe7b4ebbcc4718db7fa9e12ed8334e",
+    "testedCommit": "8e30505980337b6ba6d957f10d7c958d1ab08736",
+    "testedCommitKind": "pull_request synthetic merge checkout",
+    "mergeParents": [
+      "202c70125daf94bb8499c3b758420cd9ce90a52f",
+      "4ec8a9ecd2fe7b4ebbcc4718db7fa9e12ed8334e"
+    ],
+    "sourceCommitFieldsAgree": true,
+    "baselinePullHead": "ec71e72d908b29d872d7ca63ae85498e51673270",
+    "baselineTestedCommit": "8266058a051f72a9f124a3485b23b7c148eb8bd7",
+    "basis": "GitHub run/artifact API receipts + merge commit API parents + package, inventory and lifecycle source fields. This is evidence for this merge checkout, not for current main."
+  },
+  "ci": {
+    "runId": 44940260860,
+    "runAttempt": 1,
+    "url": "https://github.com/INNVoices/waarp/actions/runs/44940260860",
+    "status": "completed",
+    "conclusion": "success",
+    "windowsJobId": 136955684685,
+    "windowsJobUrl": "https://github.com/INNVoices/waarp/actions/runs/44940260860/job/136955684685",
+    "jobs": [
+      {
+        "id": 136955684430,
+        "name": "AWG protocol and crash (linux)",
+        "conclusion": "success"
+      },
+      {
+        "id": 136955684616,
+        "name": "Dependency security audit",
+        "conclusion": "success"
+      },
+      {
+        "id": 136955684685,
+        "name": "checks (windows)",
+        "conclusion": "success"
+      }
+    ],
+    "windowsSteps": [
+      {
+        "name": "Check local APK builder with Windows PowerShell",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 4
+      },
+      {
+        "name": "Run npm run build",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 11
+      },
+      {
+        "name": "Verify route changes preserve the native process and unrelated TCP stream",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 20
+      },
+      {
+        "name": "Verify 50 native TUN lifecycle cycles",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 21
+      },
+      {
+        "name": "Build portable Windows package",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 22
+      },
+      {
+        "name": "Verify packaged runtime and engine checksums",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 23
+      },
+      {
+        "name": "Verify portable lifecycle ownership and evidence guards",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 24
+      },
+      {
+        "name": "Exercise the built portable EXE, persisted profile and normal exit",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 25
+      },
+      {
+        "name": "Retain feature previews and native evidence in the job log",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 26
+      },
+      {
+        "name": "Retain native and performance evidence",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 28
+      },
+      {
+        "name": "Retain portable build",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 29
+      }
+    ]
+  },
+  "artifact": {
+    "id": 14721747440,
+    "name": "waarp-validation-evidence",
+    "bytes": 34172,
+    "sha256": "0392a8ed8947e259dc56285c3dd17f59b958d7d9454ab5b15d63a3428ad5b2d1",
+    "apiDigestMatched": true,
+    "crcVerified": true,
+    "originalZipRetained": true,
+    "unmodifiedExtractionVerified": true,
+    "members": [
+      {
+        "path": "compiler-performance.json",
+        "bytes": 1378,
+        "sha256": "11b86a0a45fd001861e349ecb5a38d129f74e54be5788ebd9e402b4dfde06ef7"
+      },
+      {
+        "path": "continuity-native.json",
+        "bytes": 8283,
+        "sha256": "bcf2fe06446ae338aeb8748b8e35843eb9f59acc7a5f3a661dad65ab20553ea9"
+      },
+      {
+        "path": "native-lifecycle.json",
+        "bytes": 18677,
+        "sha256": "367a6c010d1eac3318a4042fe732330df3467cedc87cbaaf6068bea68fb38ce9"
+      },
+      {
+        "path": "package-integrity.json",
+        "bytes": 469177,
+        "sha256": "5900b051e133fa9e3c47a27ebeebf585c5a25764ce659259d782e4e4d398d7aa"
+      },
+      {
+        "path": "package-inventory.txt",
+        "bytes": 2923,
+        "sha256": "55d168120c2dcbec8c647b37ee8b00511f28efdc16d43b95100b2fef09897cfd"
+      },
+      {
+        "path": "portable-lifecycle.json",
+        "bytes": 11872,
+        "sha256": "17479588f6417e8b757d287a8cfb9304defb944cc6ebc32d6d36bfa13f290f35"
+      }
+    ],
+    "originalZip": "waarp-pr47-windows-validation.zip",
+    "apiReceipt": "windows-after-artifact-receipt.json",
+    "expiresAt": "2026-11-28T19:32:36Z"
+  },
+  "comparison": {
+    "asar": {
+      "beforeBytes": 79509626,
+      "afterBytes": 62643715,
+      "savedBytes": 16865911,
+      "reductionPercent": 21.212414
+    },
+    "rawPortableExe": {
+      "beforeBytes": 130906923,
+      "afterBytes": 127991914,
+      "savedBytes": 2915009,
+      "reductionPercent": 2.22678
+    },
+    "unpacked": {
+      "beforeBytes": 544017044,
+      "afterBytes": 527151133,
+      "savedBytes": 16865911,
+      "reductionPercent": 3.100254
+    }
+  },
+  "measurementBasis": {
+    "baseline": "Locally retained original portable EXE receipt and extracted app.asar/unpacked files. Baseline ASAR SHA-256 rechecked; logical files read from its original header.",
+    "after": "Actual Windows CI package verifier measured bytes/digests. The lifecycle ran the same portable EXE three times and checked the extracted ASAR digest each time.",
+    "afterExeDownloadedLocally": false,
+    "afterExeSha256": "2d2337cc9e77727a96730b8f49ebde3da450e2b167984677db5fac58ededb57e",
+    "afterAsarSha256": "467e081aa3a7ebf25d3a463491440b134c6003d16275114ffa531d82f312d978",
+    "baselineExeSha256": "b678bcfdade52aa2e10aaeb6401034b0875761525d8de96d6b73d2fc2032267a",
+    "baselineAsarSha256": "c27568879e6e1b017be569813d48645812215abb66fa0ac44b4f1058e10092cf",
+    "viewsAreNonAdditive": true,
+    "portableDownloadView": "The raw portable EXE is a compressed deliverable. Its byte delta is separate from the compressed GitHub artifact wrapper and the raw logical ASAR payload."
+  },
+  "asarReductionDecomposition": {
+    "removedSimpleIconsFiles": 3476,
+    "removedSimpleIconsLogicalBytes": 15977615,
+    "packageJsonBytes": {
+      "before": 922,
+      "after": 890,
+      "saved": 32
+    },
+    "metadataBytes": {
+      "before": 1483392,
+      "after": 595128,
+      "saved": 888264
+    },
+    "physicalAsarSavedBytes": 16865911,
+    "sumVerified": true,
+    "onlyOtherLogicalSizeChange": "package.json",
+    "noAddedLogicalFiles": true
+  },
+  "runtimeClosure": {
+    "simpleIconsRuntimeFiles": 0,
+    "simpleIconsRuntimeModuleAbsent": true,
+    "jsqr": {
+      "path": "node_modules/jsqr",
+      "name": "jsqr",
+      "version": "1.4.0",
+      "files": 3,
+      "bytes": 269401
+    },
+    "jsqrEntryBytes": 256885,
+    "brandNotice": {
+      "path": "resources/licenses/simple-icons/LICENSE.md",
+      "bytes": 6569,
+      "packageVerifierGuardPassed": true,
+      "newNoticeBytesIndependentlyDownloaded": false
+    },
+    "bundledAssetPathAndSizeComparison": {
+      "main": {
+        "files": 19,
+        "bytes": 2887377,
+        "pathsAndSizesUnchanged": true
+      },
+      "preload": {
+        "files": 1,
+        "bytes": 4301,
+        "pathsAndSizesUnchanged": true
+      },
+      "renderer": {
+        "files": 76,
+        "bytes": 6643751,
+        "pathsAndSizesUnchanged": true
+      }
+    },
+    "localBeforeAfterByteEqualityReceipt": "cleanup-validation.json",
+    "physicalOutsideAsar": {
+      "files": 91,
+      "pathsAndSizesUnchanged": true
+    },
+    "packageGuards": {
+      "passed": true,
+      "noTestBundlesOrReports": true,
+      "runtimeEntriesPresent": true,
+      "windowIconPresent": true,
+      "packagedEngineMatchesPin": true,
+      "rendererOnlyIconsExcluded": true,
+      "brandNoticePresent": true
+    },
+    "inventoryAccountingVerified": true
+  },
+  "portableLifecycle": {
+    "status": "PASS",
+    "passed": true,
+    "durationMs": 49745,
+    "budgetMs": 240000,
+    "launchesPassed": 3,
+    "launches": [
+      {
+        "name": "first-launch",
+        "passed": true,
+        "masterOff": true,
+        "packagedAsarShaMatched": true,
+        "normalExit": true,
+        "remainingOwnedProcesses": 0
+      },
+      {
+        "name": "restart",
+        "passed": true,
+        "masterOff": true,
+        "packagedAsarShaMatched": true,
+        "normalExit": true,
+        "remainingOwnedProcesses": 0
+      },
+      {
+        "name": "same-candidate-replacement",
+        "passed": true,
+        "masterOff": true,
+        "packagedAsarShaMatched": true,
+        "normalExit": true,
+        "remainingOwnedProcesses": 0
+      }
+    ],
+    "candidateBound": true,
+    "allThreeExtractedAsarDigestsMatched": true,
+    "brandIcons": {
+      "expectedIcons": 9,
+      "visibleIcons": 9,
+      "matchedPaths": 9,
+      "passed": true,
+      "profilesUnchanged": true,
+      "settingsUnchanged": true,
+      "masterOff": true
+    },
+    "brandNames": [
+      "YouTube",
+      "Discord",
+      "Telegram",
+      "Claude",
+      "Gemini",
+      "Instagram",
+      "X",
+      "Spotify",
+      "Dev"
+    ],
+    "brandScope": "First launch, normal UI Library > Add route > Services; visible SVG viewBox and exact path from pinned icon definitions.",
+    "productHooks": false,
+    "changedApplicationBytes": false,
+    "vpnActivationRequested": false,
+    "sameCandidateReplacement": {
+      "stoppedProcessesVerified": true,
+      "sameCandidate": true,
+      "beforeSha256": "2d2337cc9e77727a96730b8f49ebde3da450e2b167984677db5fac58ededb57e",
+      "afterSha256": "2d2337cc9e77727a96730b8f49ebde3da450e2b167984677db5fac58ededb57e",
+      "completed": true
+    },
+    "cleanup": {
+      "observedSurvivors": [],
+      "forced": false,
+      "remaining": []
+    },
+    "encryptedProfilePersistedAllLaunches": true,
+    "plaintextSyntheticCredentialAbsentAllLaunches": true,
+    "changedApplicationBytesMeaning": "No application runtime source change was made for the SVG check. Separate local before/after builds proved byte-identical runtime outputs; actual CI candidates were compared by asset paths and sizes. Packaged package.json changed by 32 bytes and ASAR metadata changed, as recorded in the decomposition."
+  },
+  "nativeLifecycle": {
+    "passed": true,
+    "completedCycles": 50,
+    "requestedCycles": 50,
+    "allCycleResultsPassed": true,
+    "elapsedMs": 326410,
+    "budgetMs": 600000,
+    "engineVersion": "1.14.2-lx.11",
+    "engineSha256": "1bf6c329963fbb6e4e80079f28e2079c0a6c3a860e8bdecf9a4dfc7f5bfa6b0f",
+    "engineIntegrityVerified": true,
+    "protocolCompileChecks": 9,
+    "cleanup": {
+      "childExited": true,
+      "adapterAndRoutesRemoved": true,
+      "foreignNetworkUnchanged": true,
+      "temporaryFilesRemoved": true
+    },
+    "noExternalProbes": true,
+    "autoRoute": false,
+    "dnsMode": "disabled",
+    "sourceBinding": "Original same-run validation artifact and successful Windows job; this native JSON does not independently record sourceCommit/runId."
+  },
+  "scopeLimits": [
+    "Windows hosted CI x64 portable acceptance only.",
+    "After-package numbers are CI measurements with matching candidate lifecycle receipts; the new raw EXE was not downloaded locally.",
+    "Actual baseline/candidate bundled assets were compared by paths and sizes; separate local before/after builds proved full byte equality for the dependency category move.",
+    "Packaged SVG check applies to all nine brands on first launch.",
+    "Same-candidate replacement does not prove cross-version upgrade/migration/rollback.",
+    "UAC consent / refusal: NOT_RUN",
+    "Different-version upgrade / migration / rollback: NOT_RUN",
+    "Sleep / resume / real network change / another VPN: NOT_RUN",
+    "VPN / TUN routing / public connectivity in the portable EXE lifecycle: NOT_RUN; the separate native lifecycle completed 50/50 cycles",
+    "Installer uninstall / ordinary-user ACLs: NOT_RUN"
+  ],
+  "retainedReceipts": [
+    "windows-after-run.json",
+    "windows-after-jobs.json",
+    "windows-after-source-commit.json",
+    "windows-after-artifact-receipt.json",
+    "waarp-pr47-windows-validation.zip",
+    "windows-after-validation/package-integrity.json",
+    "windows-after-validation/portable-lifecycle.json",
+    "windows-after-validation/native-lifecycle.json"
+  ],
+  "measurementStatus": "PASS",
+  "taskIds": [
+    "BLD-001",
+    "BLD-002",
+    "BLD-004"
+  ],
+  "taskSlice": "Windows simple-icons cleanup and its measured package/SVG consumer acceptance only; whole BLD-002 and BLD-004 remain in_progress.",
+  "integration": {
+    "status": "review",
+    "merge": "pending owner confirmation"
+  }
+}
