@@ -64,7 +64,7 @@ Secrets, подписывающие ключи, live credentials, полный �
 
 - **title:** Опубликовать единую карту корпусов и исполняемый registry.
 - **priority:** P0.
-- **status:** `review`.
+- **status:** `done`: документ принят и слит через [PR41](https://github.com/INNVoices/waarp/pull/41), main `217870599b3ab1913f68bade5bebf8eb44b192f8`; required CI успешен.
 - **Dependencies:** нет.
 - **files:** `ROADMAP.md`, `AGENTS.md`, `docs/production/`, `scripts/production-roadmap.py`.
 - **change:** связать концепцию, старые Э/WN задачи и новый backlog; дать выбор ready tasks, валидатор ID/dependencies/spec links и GitHub issues по корпусам. Не копировать правила других проектов.
@@ -75,7 +75,7 @@ Secrets, подписывающие ключи, live credentials, полный �
 
 - **title:** Поддерживать task/evidence ledger при интеграции каждой волны.
 - **priority:** P1.
-- **status:** `planned`.
+- **status:** `in_progress`: Сверены delivered document tasks PR41; новая runtime wave сохраняет baseline evidence и ограниченные выводы до свежего exact-source acceptance.
 - **Dependencies:** OPS-001.
 - **files:** `docs/production/tasks.json`, затронутые corpus cards, соответствующие issues/PR.
 - **change:** после merge обновить статус и ссылку, пересчитать readiness, снять ownership, выбрать следующую задачу. Записать новый blocker и точный вариант его проверки. Не переписывать историю неуспешных CI.

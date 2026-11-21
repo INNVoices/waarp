@@ -125,7 +125,7 @@
       "title": "Разобрать нестабильность framework API 29 без обхода PID/Binder guard",
       "corpus": "01",
       "priority": "P0",
-      "status": "ready",
+      "status": "in_progress",
       "lane": "release",
       "platforms": [
         "Android"
@@ -144,9 +144,11 @@
       "spec": "docs/production/01-production-release.md#rel-002",
       "issue": "https://github.com/INNVoices/waarp/issues/33",
       "evidence": [
-        "https://github.com/INNVoices/waarp/actions/runs/44831610512/job/136621297539"
+        "https://github.com/INNVoices/waarp/actions/runs/44831610512/job/136621297539",
+        "docs/production/evidence/2026-11-21-api29-binder.json",
+        "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926744"
       ],
-      "evidence_note": "Observed infrastructure refusal; root cause unknown. Not a confirmed application defect.",
+      "evidence_note": "Подготовлен causal barrier: перед единственным start дождаться удаления activity/package/display в исходном 30 s stop deadline. 38 preparation и 10 installer tests прошли; новый runtime результат ещё не получен.",
       "inputs": [
         "CI artifact: out/android/device-tests/emulator-preparation.json; use the exact path from the failed job receipt"
       ]
@@ -156,7 +158,7 @@
       "title": "Уточнить владение BPF trace event и допустимый путь подготовки 16 KiB",
       "corpus": "01",
       "priority": "P0",
-      "status": "ready",
+      "status": "in_progress",
       "lane": "release",
       "platforms": [
         "Android"
@@ -176,9 +178,11 @@
       "spec": "docs/production/01-production-release.md#rel-003",
       "issue": "https://github.com/INNVoices/waarp/issues/33",
       "evidence": [
-        "https://github.com/INNVoices/waarp/actions/runs/44829589582/job/136616804337"
+        "https://github.com/INNVoices/waarp/actions/runs/44829589582/job/136616804337",
+        "docs/ANDROID-PERFETTO-16K.md",
+        "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926778"
       ],
-      "evidence_note": "Observed infrastructure refusal; root cause unknown. Not a confirmed application defect."
+      "evidence_note": "Исходный events guard сохранён. Только после exact stopped-BPF refusal добавлены read-only CPU/snapshot/tracefs FD observations для следующей causal развилки; owner и quiescence пока не доказаны."
     },
     {
       "id": "REL-004",
@@ -283,7 +287,7 @@
       "title": "Зафиксировать Windows portable runtime и жизненный цикл обновления",
       "corpus": "01",
       "priority": "P0",
-      "status": "ready",
+      "status": "in_progress",
       "lane": "release",
       "platforms": [
         "Windows"
@@ -305,9 +309,11 @@
       "spec": "docs/production/01-production-release.md#rel-007",
       "issue": "https://github.com/INNVoices/waarp/issues/33",
       "evidence": [
-        "https://github.com/INNVoices/waarp/actions/runs/44831610520/job/136617659691"
+        "https://github.com/INNVoices/waarp/actions/runs/44831610520/job/136617659691",
+        "docs/production/evidence/2026-11-21-windows-217.json",
+        "https://github.com/INNVoices/waarp/actions/runs/44859115697/job/136708138958"
       ],
-      "evidence_note": "Bounded task ready for implementation/reconciliation; existing implementation must be marked ALREADY_DONE where covered."
+      "evidence_note": "Независимо проверен validation ZIP main217: 50 native TUN cycles, selector semantics, compiler and packaged payload reports. Portable/UAC/profile upgrade и физические сценарии этим не закрыты."
     },
     {
       "id": "REL-008",
@@ -351,7 +357,7 @@
       "title": "Разобрать graphics/framework crash API 36 до установки приложения",
       "corpus": "01",
       "priority": "P0",
-      "status": "ready",
+      "status": "in_progress",
       "lane": "release",
       "platforms": [
         "Android"
@@ -363,7 +369,10 @@
         ".github/workflows/android.yml",
         "docs/ANDROID.md",
         "docs/ANDROID-PERFETTO-16K.md",
-        "docs/production/evidence/2026-11-21-pr30-install.json"
+        "docs/production/evidence/2026-11-21-pr30-install.json",
+        "scripts/android-avd-receipt.py",
+        "scripts/android-avd-receipt-test.py",
+        "docs/ANDROID-AVD-RECEIPT.md"
       ],
       "scope": "сопоставить точные emulator version, Android image revision, ABI/page size и graphics backend из job/provenance с assertion `GoldfishMapper::readFromHost` / `hasReadColorBufferDma`. Найти соответствующий AOSP/gfxstream код и допустимую конфигурацию или upstream исправление. Отделить SurfaceFlinger crash, последующий framework restart и отсутствие package/settings от независимого ftrace blocker REL-003. После source review предложить один ограниченный воспроизводимый эксперимент; менять только подтверждённую причину.",
       "acceptance": "timeline показывает, что crash предшествовал install; гипотеза привязана к фактическим версиям и исходникам. Если нужна правка — один minimal diff и before/after одинакового сценария с сохранением PAGE_SIZE, VPN/UI tests, test count, tracing guards и прежних deadlines. Отрицательный результат остаётся failure; нельзя отключить RegionSampling, UI rendering или проверку правильной страницы только ради прохождения CI.",
@@ -372,8 +381,11 @@
       "issue": "https://github.com/INNVoices/waarp/issues/33",
       "evidence": [
         "docs/production/evidence/2026-11-21-pr30-install.json",
-        "https://github.com/INNVoices/waarp/actions/runs/44856329155/job/136701575165"
-      ]
+        "https://github.com/INNVoices/waarp/actions/runs/44856329155/job/136701575165",
+        "docs/ANDROID-AVD-RECEIPT.md",
+        "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926789"
+      ],
+      "evidence_note": "Подготовлен bounded host AVD receipt с 18 tests; фактические target/SDK/argv следующего run нужны для проверки graphics hypothesis. Runtime crash пока не исправлен."
     },
     {
       "id": "NET-001",
@@ -848,7 +860,7 @@
       "title": "ADR исходной Android-липучки и первого этапа",
       "corpus": "04",
       "priority": "P1",
-      "status": "review",
+      "status": "done",
       "lane": "sticky",
       "platforms": [
         "Android"
@@ -869,8 +881,12 @@
       "spec": "docs/production/04-sticky-companion.md#stk-001",
       "issue": "https://github.com/INNVoices/waarp/issues/36",
       "evidence": [
-        "https://github.com/INNVoices/waarp/issues/32"
-      ]
+        "https://github.com/INNVoices/waarp/issues/32",
+        "https://github.com/INNVoices/waarp/pull/41",
+        "https://github.com/INNVoices/waarp/commit/217870599b3ab1913f68bade5bebf8eb44b192f8",
+        "https://github.com/INNVoices/waarp/actions/runs/44857892691"
+      ],
+      "evidence_note": "Document/registry delivery accepted and merged through PR41 with required CI; this is not runtime or physical-device acceptance."
     },
     {
       "id": "STK-002",
@@ -1654,7 +1670,7 @@
       "title": "Source-backed first-routes guide",
       "corpus": "07",
       "priority": "P1",
-      "status": "review",
+      "status": "done",
       "lane": "distribution-growth",
       "platforms": [
         "Windows",
@@ -1672,8 +1688,12 @@
       "spec": "docs/production/07-distribution-and-growth.md#grow-001",
       "issue": "https://github.com/INNVoices/waarp/issues/39",
       "evidence": [
-        "https://github.com/INNVoices/waarp/issues/32"
-      ]
+        "https://github.com/INNVoices/waarp/issues/32",
+        "https://github.com/INNVoices/waarp/pull/41",
+        "https://github.com/INNVoices/waarp/commit/217870599b3ab1913f68bade5bebf8eb44b192f8",
+        "https://github.com/INNVoices/waarp/actions/runs/44857892691"
+      ],
+      "evidence_note": "Document/registry delivery accepted and merged through PR41 with required CI; this is not runtime or physical-device acceptance."
     },
     {
       "id": "GROW-002",
@@ -1846,7 +1866,7 @@
       "title": "Опубликовать единую карту корпусов и исполняемый registry",
       "corpus": "08",
       "priority": "P0",
-      "status": "review",
+      "status": "done",
       "lane": "coordination",
       "platforms": [
         "Windows",
@@ -1867,15 +1887,19 @@
       "spec": "docs/production/08-agent-execution.md#ops-001",
       "issue": "https://github.com/INNVoices/waarp/issues/40",
       "evidence": [
-        "https://github.com/INNVoices/waarp/issues/32"
-      ]
+        "https://github.com/INNVoices/waarp/issues/32",
+        "https://github.com/INNVoices/waarp/pull/41",
+        "https://github.com/INNVoices/waarp/commit/217870599b3ab1913f68bade5bebf8eb44b192f8",
+        "https://github.com/INNVoices/waarp/actions/runs/44857892691"
+      ],
+      "evidence_note": "Document/registry delivery accepted and merged through PR41 with required CI; this is not runtime or physical-device acceptance."
     },
     {
       "id": "OPS-002",
       "title": "Поддерживать task/evidence ledger при интеграции каждой волны",
       "corpus": "08",
       "priority": "P1",
-      "status": "planned",
+      "status": "in_progress",
       "lane": "coordination",
       "platforms": [
         "Windows",
@@ -1894,7 +1918,8 @@
       "verification": "validator + свежая read-only сверка затронутых GitHub objects; проверять все run attempts при утверждении о конкретном candidate. Один follow-up в issue вместо серии дублирующих комментариев.",
       "spec": "docs/production/08-agent-execution.md#ops-002",
       "issue": "https://github.com/INNVoices/waarp/issues/40",
-      "evidence": []
+      "evidence": [],
+      "evidence_note": "Сверены delivered document tasks PR41; новая runtime wave сохраняет baseline evidence и ограниченные выводы до свежего exact-source acceptance."
     },
     {
       "id": "OPS-003",

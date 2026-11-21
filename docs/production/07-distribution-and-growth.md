@@ -141,7 +141,7 @@ Login-only площадки остаются отдельной очередью
 
 ### GROW-001
 
-**Название:** Опубликовать практическое руководство первого маршрута. **Priority:** P1. **Status:** `review` — текст подготовлен в этом PR, требуется independent review. **Owner:** documentation/growth agent. **Dependencies:** нет.
+**Название:** Опубликовать практическое руководство первого маршрута. **Priority:** P1. **Status:** `done` — source review завершён; руководство опубликовано через [PR41](https://github.com/INNVoices/waarp/pull/41), main `217870599b3ab1913f68bade5bebf8eb44b192f8`. Это принятие текста, а не выполненные физические сценарии GROW-002. **Owner:** documentation/growth agent. **Dependencies:** нет.
 
 **Dependency notes:** нет production-зависимости.
 

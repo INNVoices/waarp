@@ -152,6 +152,17 @@ refusal, permit a write or trigger a retry. These names describe a sampled event
 configuration, not its owner or boot-time origin. This adds failure diagnostics
 and does not fix or approve the rejected preparation.
 
+When `set_event` contains exactly `bpf_trace:bpf_trace_printk`, the already
+observed `tracing_on` is `0` and `current_tracer` is `nop`, the failed path also
+attempts three read-only observations: CPU topology and all per-CPU statistics;
+strict numeric/allocated/freed snapshot headers; and tracefs file-descriptor
+paths, targets and access flags. Snapshot event payload and process argv are
+excluded. These reads share the unchanged 10-second command, 60-second sequence
+and 64 KiB stream limits. The `/proc` scan is not atomic; missing files, access
+errors or `UNKNOWN` markers cannot establish ownership. `allReadsCompleted`
+reports command completion only. `quiescenceEstablished` and `ownerEstablished`
+remain false, and the original rejection and prohibition on mutation remain.
+
 ## Recorder startup acknowledgement
 
 The historical API 35 traces contain useful scheduling data, but scheduling

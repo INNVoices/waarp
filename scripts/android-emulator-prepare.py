@@ -24,6 +24,9 @@ HEAP_PROPERTY = "dalvik.vm.heapsize"
 HEAP_VALUE = "512m"
 HEAP_BYTES = 512 * 1024 * 1024
 PROCESS_NAMES = ("zygote", "zygote64", "system_server")
+# API 29 startup reads display before publishing fresh system_server services;
+# activity/package are the Binder endpoints used by our readiness proof.
+FRAMEWORK_SERVICES = ("activity", "package", "display")
 ZYGOTES = {
     "zygote32": ("zygote",),
     "zygote64": ("zygote64",),
@@ -217,11 +220,32 @@ class Preparation:
         self.report["remainingOldPids"] = remaining
         return not remaining
 
+    def service_registrations(self):
+        registrations = {}
+        for name in FRAMEWORK_SERVICES:
+            result = self.shell("service", "check", name)
+            output = result.stdout.strip()
+            require(not result.stderr.strip()
+                    and output in (f"Service {name}: found", f"Service {name}: not found"),
+                    f"Could not determine Binder registration for {name}")
+            registrations[name] = output == f"Service {name}: found"
+        return registrations
+
     def stopped(self):
         current = self.pids()
         self.report["lastStoppedPids"] = current
         old_gone = self.old_processes_gone()
-        return not any(current.values()) and old_gone
+        if any(current.values()) or not old_gone:
+            return False
+        # /proc disappearance precedes asynchronous Binder death processing.
+        # Android 10 ServiceManager clears handles in svcinfo_death; starting
+        # here while a stale display handle remains can kill the fresh server
+        # in DisplayManagerGlobal's constructor. Observe removal, never sleep
+        # for an assumed cleanup interval or retry a framework mutation.
+        registrations = self.service_registrations()
+        self.report["lastStoppedServiceRegistrations"] = registrations
+        self.report["serviceDrainPolls"] = self.report.get("serviceDrainPolls", 0) + 1
+        return not any(registrations.values())
 
     def poll(self, predicate, message):
         while True:
@@ -275,11 +299,16 @@ class Preparation:
         require(uid == "0", "ADB did not obtain UID 0")
         pids = self.unique_pids("oldPids", "Framework processes did not become unique before the planned stop")
         self.old_ids = {pid for group in pids.values() for pid in group}
+        registrations = self.service_registrations()
+        self.report["beforeServiceRegistrations"] = registrations
+        require(all(registrations.values()),
+                "Initial framework Binder services are not registered before the planned stop")
 
     def stop(self):
         self.shell("stop", mutation=True)
-        self.poll(self.stopped, "Old zygote/system_server processes did not stop")
+        self.poll(self.stopped, "Old framework processes or Binder registrations did not stop")
         self.report["allFrameworkProcessesStoppedSeconds"] = self.elapsed()
+        self.report["binderServicesUnregisteredSeconds"] = self.elapsed()
 
     def set_heap(self):
         self.shell("setprop", HEAP_PROPERTY, HEAP_VALUE, mutation=True)
@@ -289,7 +318,7 @@ class Preparation:
         growth_limit = self.prop("dalvik.vm.heapgrowthlimit")
         require(growth_limit == self.report["beforeProperties"]["dalvik.vm.heapgrowthlimit"],
                 "Heap growth limit changed during preparation")
-        require(self.stopped(), "A framework process appeared before the planned start")
+        require(self.stopped(), "A framework process or Binder registration appeared before the planned start")
         self.report["appliedBeforeZygote"] = True
         self.report["heapAppliedSeconds"] = self.elapsed()
 

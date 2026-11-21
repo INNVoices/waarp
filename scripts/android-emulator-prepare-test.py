@@ -36,6 +36,9 @@ class FakeAdb:
         self.stop_polls = 0
         self.pid_polls = {"original": 0, "started": 0}
         self.pid_sequences = {"original": [], "started": []}
+        self.service_baseline = {name: True for name in prepare.FRAMEWORK_SERVICES}
+        self.service_sequences = {name: [] for name in prepare.FRAMEWORK_SERVICES}
+        self.service_reads = {name: 0 for name in prepare.FRAMEWORK_SERVICES}
         self.events = []
         self.restoring = False
         self.restore_waits = 0
@@ -170,6 +173,22 @@ class FakeAdb:
         if args[:3] == ("shell", "test", "-d"):
             pid = int(args[3].rsplit("/", 1)[1])
             return self.result(arguments, 0 if self.old_pid_exists(pid) else 1)
+        if args[:3] == ("shell", "service", "check"):
+            assert self.uid == 0
+            name = args[3]
+            if self.stage == "original":
+                state = self.service_baseline[name]
+            else:
+                self.service_reads[name] += 1
+                sequence = self.service_sequences[name]
+                state = sequence[min(self.service_reads[name] - 1, len(sequence) - 1)] if sequence else False
+            if isinstance(state, tuple):
+                return self.result(arguments, *state)
+            if state == "timeout":
+                self.clock.sleep(timeout - 0.01)
+                raise subprocess.TimeoutExpired(arguments, timeout)
+            assert type(state) is bool
+            return self.result(arguments, stdout=f"Service {name}: {'found' if state else 'not found'}\n")
         if args == ("shell", "stop"):
             assert self.uid == 0
             assert self.stage == "original", "Framework stop was repeated"
@@ -300,6 +319,104 @@ class EmulatorPreparationTests(unittest.TestCase):
                 report = self.execute(fake, serial=serial, disposable=disposable)
                 self.assertFalse(report["passed"])
                 self.assertEqual(fake.events, [])
+
+    def test_stale_binder_registrations_outlive_absent_pids_and_prevent_early_start(self):
+        fake = FakeAdb()
+        # Synthetic service-check observations model the raw API29 failure:
+        # the old process is absent while Binder still exposes its services.
+        # Activity/package clearing alone must not release a stale display.
+        fake.service_sequences = {
+            "activity": [True, False],
+            "package": [True, True, False],
+            "display": [True, True, True, False],
+        }
+        report = self.execute(fake)
+        self.assertTrue(report["passed"], report.get("error"))
+        self.assertEqual(report["beforeServiceRegistrations"], dict.fromkeys(prepare.FRAMEWORK_SERVICES, True))
+        self.assertEqual(report["lastStoppedServiceRegistrations"], dict.fromkeys(prepare.FRAMEWORK_SERVICES, False))
+        commands = fake.commands()
+        stop = commands.index(("shell", "stop"))
+        heap = commands.index(("shell", "setprop", "dalvik.vm.heapsize", "512m"))
+        start = commands.index(("shell", "start"))
+        for name in prepare.FRAMEWORK_SERVICES:
+            self.assertEqual(commands[stop:heap].count(("shell", "service", "check", name)), 4)
+            self.assertEqual(commands[heap:start].count(("shell", "service", "check", name)), 1)
+        self.assertLessEqual(report["binderServicesUnregisteredSeconds"], report["heapAppliedSeconds"])
+        self.assertEqual(report["serviceDrainPolls"], 5)
+        self.assertEqual(commands.count(("shell", "stop")), 1)
+        self.assertEqual(commands.count(("shell", "start")), 1)
+
+    def test_service_visibility_is_proven_under_root_before_the_planned_stop(self):
+        for name in prepare.FRAMEWORK_SERVICES:
+            with self.subTest(service=name):
+                fake = FakeAdb()
+                fake.service_baseline[name] = False
+                report = self.execute(fake)
+                self.assertFalse(report["passed"])
+                self.assertEqual(report["phase"], "root")
+                self.assertIn("not registered before the planned stop", report["error"])
+                self.assertEqual(fake.mutations(), [("root",)])
+                self.assert_no_start(fake)
+
+    def test_each_persistent_old_registration_uses_only_the_original_stop_deadline(self):
+        for name in prepare.FRAMEWORK_SERVICES:
+            with self.subTest(service=name):
+                fake = FakeAdb()
+                fake.service_sequences[name] = [True]
+                report = self.execute(fake)
+                self.assertFalse(report["passed"])
+                phase = report["phases"][-1]
+                self.assertEqual((phase["name"], phase["timeoutSeconds"]), ("stop", 30))
+                self.assertAlmostEqual(phase["seconds"], 30, places=2)
+                self.assertEqual(report["remainingOldPids"], [])
+                self.assertTrue(report["lastStoppedServiceRegistrations"][name])
+                self.assertNotIn("binderServicesUnregisteredSeconds", report)
+                self.assertEqual(fake.mutations(), [("root",), ("shell", "stop")])
+                self.assert_no_start(fake)
+
+    def test_malformed_or_failed_service_lookup_never_means_unregistered(self):
+        replies = (
+            (0, "", ""),
+            (0, "Service display: not found\n", ""),
+            (0, "Service activity: found\nService activity: not found\n", ""),
+            (0, "Service activity: not found\n", "permission denied\n"),
+            (224, "Service activity: not found\n", ""),
+            (224, "", "cmd: Failure calling service activity: Broken pipe (32)\n"),
+        )
+        for reply in replies:
+            with self.subTest(reply=reply):
+                fake = FakeAdb()
+                fake.service_sequences["activity"] = [reply, False]
+                report = self.execute(fake)
+                self.assertFalse(report["passed"])
+                self.assertEqual(report["phase"], "stop")
+                self.assertEqual(fake.service_reads["activity"], 1)
+                self.assertEqual(fake.mutations(), [("root",), ("shell", "stop")])
+                self.assert_no_start(fake)
+
+    def test_service_lookup_timeout_does_not_retry_or_extend_stop(self):
+        fake = FakeAdb()
+        fake.service_sequences["display"] = ["timeout", False]
+        report = self.execute(fake)
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["phase"], "stop")
+        self.assertEqual(report["phases"][-1]["timeoutSeconds"], 30)
+        self.assertLessEqual(report["phases"][-1]["seconds"], 30)
+        self.assertEqual(fake.service_reads["display"], 1)
+        self.assertEqual(fake.mutations(), [("root",), ("shell", "stop")])
+        self.assert_no_start(fake)
+
+    def test_registration_reappearing_after_heap_readback_prevents_start(self):
+        fake = FakeAdb()
+        fake.service_sequences["display"] = [False, True]
+        report = self.execute(fake)
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["phase"], "set-heap-before-zygote")
+        self.assertIn("Binder registration appeared", report["error"])
+        self.assertFalse(report["appliedBeforeZygote"])
+        self.assertEqual(fake.mutations(), [("root",), ("shell", "stop"),
+                                           ("shell", "setprop", "dalvik.vm.heapsize", "512m")])
+        self.assert_no_start(fake)
 
     def test_api_qemu_debuggable_and_zygote_guards_precede_all_mutations(self):
         for name, value in (("ro.build.version.sdk", "35"), ("ro.kernel.qemu", "0"),
