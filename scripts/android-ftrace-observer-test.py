@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Host-only synthetic /proc fixtures. No ADB, tracefs or membarrier syscall."""
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
+from unittest import mock
 
 SOURCE = Path(__file__).with_name("android-ftrace-observer.c").resolve()
 DRIVER = r'''
@@ -154,6 +158,11 @@ long fixture_syscall(long number, ...) {
     va_list arguments; va_start(arguments, number);
     int first = va_arg(arguments, int), second = va_arg(arguments, int);
     va_end(arguments);
+    if (!strcmp(fixture_case, "initial-post-kcmp-missing") && first == 112 && second == 111)
+        must(unlinkat(scan_proc_fd, "111/task/112/stat", 0) == 0, "fixture_remove_post_kcmp_stat");
+    if (!strcmp(fixture_case, "initial-kcmp-missing") && first == 112 && second == 111) {
+        errno = ESRCH; return -1;
+    }
     if (first == 113 || second == 113) {
         fixture_new_kcmp_calls++;
         if (!strcmp(fixture_case, "new-denied")) { errno = EPERM; return -1; }
@@ -272,6 +281,51 @@ int main(int argc, char **argv) {
 '''
 
 
+def compile_fixture(arguments):
+    try:
+        subprocess.run(arguments, capture_output=True, timeout=20, check=True)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        # CalledProcessError's traceback omits captured output. Keep the original
+        # refusal and expose a bounded diagnostic without changing compiler flags.
+        for label, data in (("stdout", error.stdout), ("stderr", error.stderr)):
+            if not data:
+                continue
+            raw = data.encode("utf-8") if isinstance(data, str) else data
+            limit = 16384
+            print(f"Host fixture compiler {label} ({len(raw)} bytes):", file=sys.stderr)
+            if len(raw) > limit:
+                part = limit // 2
+                raw = raw[:part] + f"\n[omitted {len(raw) - limit} bytes]\n".encode() + raw[-part:]
+            print(raw.decode("utf-8", errors="replace"), file=sys.stderr)
+        raise
+
+
+class CompilerDiagnostics(unittest.TestCase):
+    def test_compile_failure_keeps_original_error_and_bounds_both_streams(self):
+        error = subprocess.CalledProcessError(1, ["cc"], output=b"first" + b"x" * 40000 + b"last",
+                                             stderr=b"actual warning" + b"y" * 40000 + b"final diagnostic")
+        captured = io.StringIO()
+        with mock.patch.object(subprocess, "run", side_effect=error) as runner, contextlib.redirect_stderr(captured):
+            with self.assertRaises(subprocess.CalledProcessError) as raised:
+                compile_fixture(["cc", "-Werror"])
+        self.assertIs(raised.exception, error)
+        runner.assert_called_once_with(["cc", "-Werror"], capture_output=True, timeout=20, check=True)
+        text = captured.getvalue()
+        self.assertIn("actual warning", text)
+        self.assertIn("final diagnostic", text)
+        self.assertEqual(text.count("[omitted "), 2)
+        self.assertLess(len(text), 33000)
+
+    def test_compile_timeout_keeps_original_error_and_partial_diagnostic(self):
+        error = subprocess.TimeoutExpired(["cc"], 20, stderr=b"partial compiler diagnostic")
+        captured = io.StringIO()
+        with mock.patch.object(subprocess, "run", side_effect=error), contextlib.redirect_stderr(captured):
+            with self.assertRaises(subprocess.TimeoutExpired) as raised:
+                compile_fixture(["cc"])
+        self.assertIs(raised.exception, error)
+        self.assertIn("partial compiler diagnostic", captured.getvalue())
+
+
 class NativeMetadataChecks(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -280,8 +334,7 @@ class NativeMetadataChecks(unittest.TestCase):
         driver = directory / "driver.c"
         driver.write_text(DRIVER.replace("SOURCE_PATH", str(SOURCE)))
         cls.binary = directory / "observer-fixture"
-        subprocess.run(["cc", "-O2", "-std=c11", "-Wall", "-Wextra", "-Werror", str(driver), "-o", str(cls.binary)],
-                       capture_output=True, timeout=20, check=True)
+        compile_fixture(["cc", "-O2", "-std=c11", "-Wall", "-Wextra", "-Werror", str(driver), "-o", str(cls.binary)])
 
     @classmethod
     def tearDownClass(cls):
@@ -349,7 +402,29 @@ class NativeMetadataChecks(unittest.TestCase):
         result = self.run_case("scan", success=False)
         self.assertEqual("process_directory", result["reason"])
         self.assertEqual("task_inventory_before", result["stage"])
+        self.assertEqual("none", result["context"])
         self.assertEqual((999, 0, -1), tuple(result[k] for k in ("pid", "tid", "fd")))
+
+    def test_initial_task_stat_open_failure_has_first_read_context(self):
+        self.two_processes()
+        (self.root / "111/task/111/stat").unlink()
+        result = self.run_case("scan", success=False)
+        self.assertEqual(("metadata_open", "task_inventory_before", "initial_task_start"),
+                         tuple(result[k] for k in ("reason", "stage", "context")))
+        self.assertEqual((111, 111, -1, 2), tuple(result[k] for k in ("pid", "tid", "fd", "errno")))
+
+    def test_initial_task_stat_open_failure_after_kcmp_has_recheck_context(self):
+        self.two_processes()
+        result = self.run_case("initial-post-kcmp-missing", success=False)
+        self.assertEqual(("metadata_open", "task_inventory_before", "post_kcmp_task_start"),
+                         tuple(result[k] for k in ("reason", "stage", "context")))
+        self.assertEqual((111, 112, -1, 2), tuple(result[k] for k in ("pid", "tid", "fd", "errno")))
+
+    def test_initial_read_context_is_cleared_before_kcmp(self):
+        self.two_processes()
+        result = self.run_case("initial-kcmp-missing", success=False)
+        self.assertEqual(("kcmp_unknown_task", "task_inventory_before", "none"),
+                         tuple(result[k] for k in ("reason", "stage", "context")))
 
     def test_kcmp_denied_scans_every_thread_table(self):
         self.two_processes(threads=4)

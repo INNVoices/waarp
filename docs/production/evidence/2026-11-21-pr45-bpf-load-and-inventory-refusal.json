@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "checkedAtUtc": "2026-11-21T07:41:59.170779+00:00",
+  "repository": "INNVoices/waarp",
+  "pullRequest": 45,
+  "headSha": "0254958659792d5b22f0edada0d25468d7fa451c",
+  "runAttempt": 1,
+  "fullAndroidAcceptance": false,
+  "hostBuild": {
+    "runId": 44880619519,
+    "jobId": 136774893538,
+    "jobUrl": "https://github.com/INNVoices/waarp/actions/runs/44880619519/job/136774893538",
+    "logSha256": "da13d5e418331f26dfff75a63debd2d6c51fe87c1e02d4e45ab1dceef227bac6",
+    "observed": "cc returned exit 1 in NativeMetadataChecks.setUpClass; 0 tests ran; CalledProcessError omitted captured compiler stderr.",
+    "compilerVersion": "NOT_RECORDED_IN_CI_LOG",
+    "os": "Ubuntu 24.04.5; runner image ubuntu24/20261116.133",
+    "runnerImageManifestUrl": "https://api.github.com/repos/actions/runner-images/contents/images/ubuntu/Ubuntu2404-Readme.md?ref=ubuntu24%2F20261116.133",
+    "runnerImageManifestRetrieval": "404 No commit found for the exact ref; not used to assert a CI compiler version."
+  },
+  "localHostReproduction": {
+    "os": "Debian GNU/Linux 13.7",
+    "compilerVersion": "cc (Debian 14.2.0-19) 14.2.0",
+    "compilerPath": "/usr/bin/x86_64-linux-gnu-gcc-14",
+    "compilerSha256": "a23ecab8ff08f09ad8c80602c2c5df7f49e09c25905cb8975902e101bf72635f",
+    "sourceSha256": "410af6f3b1a2ceba1c04597bd2012662c1f0d4423681b007a4929bb17dbfe5c9",
+    "driverSha256": "68349a2732fa6f0549d7c2206af581d7306c627b1c84d2a921dcbb0d10e9d843",
+    "compileReturnCode": 0,
+    "stdoutBytes": 0,
+    "stderrBytes": 0,
+    "suiteReturnCode": 0,
+    "diffCheckReturnCode": 0
+  },
+  "preflight": {
+    "schemaVersion": 1,
+    "artifactId": 14698096681,
+    "runId": 44880619531,
+    "headSha": "0254958659792d5b22f0edada0d25468d7fa451c",
+    "integrity": {
+      "zipApiCrc": "PASS",
+      "rawCommandStreamsVerified": 86,
+      "imageReplay": "PASS",
+      "topAndRetainedBuildReplay": "PASS",
+      "exactFailedFtracePrefixCommands": 28
+    },
+    "acceptance": {
+      "passed": false,
+      "fullValidatorRefusal": "Unverified or out-of-scope ftrace preparation",
+      "tracefsMutated": false,
+      "mutationAttempted": false,
+      "globalBarrierReached": false,
+      "zeroCpuStatsReached": false,
+      "resizeReached": false,
+      "apkOrAppRuntimeReached": false
+    },
+    "actual": {
+      "observer": {
+        "schemaVersion": 4,
+        "passed": false,
+        "reason": "metadata_open",
+        "stage": "task_inventory_before",
+        "errno": 2,
+        "pid": 771,
+        "tid": 2195,
+        "fd": -1
+      },
+      "observerSeconds": 0.118950529,
+      "observerTimedOut": false,
+      "cleanupExitCode": 0,
+      "ftraceSeconds": 1.606266031,
+      "rootPassed": true,
+      "rootRequests": 1,
+      "rootTransportClosed": false,
+      "guestBtfSha256": "d9bad01cb909205a22d741adf6b9f5a907a6e805354a94d9012165f2002508fa",
+      "binarySha256": "1c8f81bbdef6f4744842a152c4dee9b95c19cf3c4ffa874df151249431981954",
+      "programSha256": "414aa1528b87692af4cfb9721d15ba14eba99f0890d0d1519df7e02061b08009"
+    },
+    "sourceBoundInference": {
+      "programLoadCompleted": true,
+      "basis": "Exact executed-source main calls load_iterator_program before initial_inventory; reported task_inventory_before is set only in latter. Load or prerequisites failure would exit before that stage.",
+      "programLinkOrIteratorReadReached": false,
+      "unknowns": [
+        "No separate syscall receipt or BPF success counters exist in this failure record.",
+        "metadata_open is a task stat open inside initial_inventory; first versus repeated identity read is not distinguished.",
+        "ENOENT does not establish harmless exit, prior complete metadata, or a permitted missing member.",
+        "Actual iterator link/stream paths beyond program load remain untested."
+      ]
+    },
+    "independentReview": {
+      "agent": "repo_audit",
+      "integrityReplay": "PASS",
+      "programLoadInference": "AGREED from exact executed-source control flow",
+      "failureNotAccepted": true,
+      "noLiveRerun": true
+    }
+  },
+  "artifact": {
+    "id": 14698096681,
+    "jobId": 136774893325,
+    "bytes": 107553,
+    "sha256": "5e2118f26dc972600235532d1fc745770b2363ef1127b0a528da60c1ea4a4261",
+    "rawIndividualApiSha256": "e7008e646600a65b4ae132a1fc8e9ec170beea52a0a1a549cfcc081b42d6293e",
+    "zipFilesVerified": 111
+  },
+  "nextDiagnosticScope": [
+    "Preserve the original cc failure/timeout and print bounded captured diagnostics; no flag or timeout relaxation.",
+    "Distinguish the first task-start read from the post-KCMP identity recheck using source literals only; no additional proc reads or missing-thread allowance."
+  ],
+  "limitations": [
+    "The host CI compiler diagnostic/version was not retained; local GCC14 passes do not identify the CI cause.",
+    "Actual BPF load/verifier success is inferred from exact executed source and stage, not an independent syscall counter.",
+    "No iterator link/stream, GLOBAL, freshzero counters, resize or app runtime was reached by this preflight.",
+    "No process/thread departure is reclassified harmless; no full runtime or7200s soak result exists for this head."
+  ]
+}

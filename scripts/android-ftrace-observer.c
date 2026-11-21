@@ -66,6 +66,7 @@ typedef struct {
 
 static uint64_t started_ns;
 static const char *failure_stage = "startup";
+static const char *failure_context = "none";
 static int failure_pid, failure_tid, failure_fd = -1;
 static int scan_proc_fd = -1;
 static uint64_t trace_dev, marker_ino;
@@ -83,8 +84,8 @@ static _Noreturn void refuse(const char *reason) {
     /* Only source literals and numeric metadata; no path/argv/event payload. */
     int error = errno;
     printf("{\"schemaVersion\":4,\"passed\":false,\"reason\":\"%s\","
-           "\"stage\":\"%s\",\"errno\":%d,\"pid\":%d,\"tid\":%d,\"fd\":%d}\n",
-           reason, failure_stage, error, failure_pid, failure_tid, failure_fd);
+           "\"stage\":\"%s\",\"context\":\"%s\",\"errno\":%d,\"pid\":%d,\"tid\":%d,\"fd\":%d}\n",
+           reason, failure_stage, failure_context, error, failure_pid, failure_tid, failure_fd);
     exit(1);
 }
 
@@ -169,6 +170,7 @@ static long same_files(int first, int second) {
 
 static void initial_inventory(Inventory *inventory) {
     failure_stage = "task_inventory_before";
+    failure_context = "none";
     Numbers pids = numeric_entries(scan_proc_fd, ".", MAX_PROCESSES + 1);
     for (size_t p = 0; p < pids.n; ++p) {
         int pid = pids.v[p];
@@ -188,7 +190,9 @@ static void initial_inventory(Inventory *inventory) {
             must(inventory->task_count < MAX_TASKS, "task_limit");
             size_t index = inventory->task_count++;
             Task *task = &inventory->tasks[index];
+            failure_context = "initial_task_start";
             *task = (Task){pid, tids.v[t], task_start(directory, tids.v[t]), process, SIZE_MAX};
+            failure_context = "none";
             for (size_t g = first_table; g < inventory->table_count; ++g) {
                 Task *representative = &inventory->tasks[inventory->tables[g].representative];
                 long equal = same_files(task->tid, representative->tid);
@@ -200,7 +204,9 @@ static void initial_inventory(Inventory *inventory) {
                 }
                 must(equal <= 3, "kcmp_result");
             }
+            failure_context = "post_kcmp_task_start";
             must(task_start(directory, task->tid) == task->start, "task_identity_changed");
+            failure_context = "none";
             if (task->table == SIZE_MAX) {
                 task->table = inventory->table_count;
                 inventory->tables[inventory->table_count++] = (Table){index, NULL, 0};

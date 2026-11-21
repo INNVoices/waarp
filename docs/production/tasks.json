@@ -200,9 +200,10 @@
         "docs/production/evidence/2026-11-21-pr45-descriptor-refusal.json",
         "docs/production/evidence/2026-11-21-pr45-task-and-dns-refusals.json",
         "docs/production/evidence/2026-11-21-pr45-http-framing-and-metadata.json",
-        "docs/production/evidence/2026-11-21-pr45-dns-diagnostics-accepted.json"
+        "docs/production/evidence/2026-11-21-pr45-dns-diagnostics-accepted.json",
+        "docs/production/evidence/2026-11-21-pr45-bpf-load-and-inventory-refusal.json"
       ],
-      "evidence_note": "PR45 head e546: native API29/35/36, optimized API29/35 и build прошли; API36 raw26/26, оба DNS OFF/ON цикла и peerTrace проверены по original ZIP. HTTP Content-Length fix подтверждён. Исходный b654 UDP timeout этим не объяснён. Optimized36 остаётся заблокирован строгим metadata guard; готовится source-bound BPF task_file iterator с прежними tracefs proc/stat/full-flags и конечной numeric coverage, без повторов до успеха. Actual guest BPF acceptance ещё отсутствует."
+      "evidence_note": "PR45 head0254958: actual guest BTF совпал и BPF_PROG_LOAD завершился по source-bound control flow. Preflight затем отказал на task-start metadata_open/ENOENT до FD streams/GLOBAL/resize. Original ZIP111files и86raw streams проверены независимо. Full build отдельно отказал при host cc fixture compilation до0tests; stderr отсутствует, localGCC14 проходит. Следующая правка уточняет диагностику обоих отказов, сохраняя gates; actual runtime acceptance не получена."
     },
     {
       "id": "REL-004",
@@ -240,7 +241,8 @@
         "docs/production/evidence/2026-11-21-pr45-descriptor-refusal.json",
         "docs/production/evidence/2026-11-21-pr45-task-and-dns-refusals.json",
         "docs/production/evidence/2026-11-21-pr45-http-framing-and-metadata.json",
-        "docs/production/evidence/2026-11-21-pr45-dns-diagnostics-accepted.json"
+        "docs/production/evidence/2026-11-21-pr45-dns-diagnostics-accepted.json",
+        "docs/production/evidence/2026-11-21-pr45-bpf-load-and-inventory-refusal.json"
       ]
     },
     {
