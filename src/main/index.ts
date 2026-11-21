@@ -52,6 +52,7 @@ import { reconcileSubscription, subscriptionEntryKey } from './subscription'
 import { trayPresentation } from './tray-view'
 import { confirmedRoutes, moodOf } from '../shared/effective'
 import { bridgeStatus, companionEditsOk, companionPatchSafe, createPending, ensureIntent, listCompanion, parseTarget, routeFor, routeOf, safeVia, sameTarget } from '../shared/companion'
+import { companionSafetyMessage } from './companion-view'
 import { AUTO_BUDGET, AUTO_ID, autoMembers, checkSample } from '../shared/groups'
 import { classify } from '../shared/evidence'
 import { parseProbe, probeLayers } from './layered'
@@ -613,7 +614,7 @@ function ipc() {
     // companion routes: never created or redefined by the renderer, never a public / unsafe path or fallback
     if (patch.routes && !companionEditsOk(patch.routes, store.settings.routes)) { send('toast', localized("winInline.index.c2186ff7d321")); return { ...snapshot(), saved: false } }
     if (patch.routes) patch.routes = dedupeApps(patch.routes)
-    if (('routes' in patch || 'groups' in patch) && !companionPatchSafe({ routes: patch.routes ?? store.settings.routes, groups: patch.groups ?? store.settings.groups }, store.settings, store.profiles)) { send('toast', COMPANION_SAFE); return { ...snapshot(), saved: false } }
+    if (('routes' in patch || 'groups' in patch) && !companionPatchSafe({ routes: patch.routes ?? store.settings.routes, groups: patch.groups ?? store.settings.groups }, store.settings, store.profiles)) { send('toast', companionSafetyMessage()); return { ...snapshot(), saved: false } }
     const routing = ['rest', 'routes', 'ruDirect', 'dnsAll', 'lanDirect', 'groups'].some(k => k in patch)
     const previous = store.settings
     const next = { ...previous, ...patch }
@@ -651,7 +652,7 @@ function ipc() {
     if (!known) return { ok: false, error: localized("winInline.index.835ab93fd6b4") }
     const at = store.settings.routes.findIndex(r => r.id === routeId)
     if (at < 0) return { ok: false, error: localized("winInline.index.3839b2a99351") }
-    if (store.settings.routes[at].owner === 'companion' && !safeVia(via, store.settings, store.profiles)) return { ok: false, error: COMPANION_SAFE }
+    if (store.settings.routes[at].owner === 'companion' && !safeVia(via, store.settings, store.profiles)) return { ok: false, error: companionSafetyMessage() }
     // RC2 B: one card changes its own path only; the whole-computer intent (rest) is never touched here
     const r = await applyRouting(selectVia(store.settings, at, via))
     // closed stays closed: choosing a path only saves it; the orb is the one explicit way to open Waarp (W2 final)
@@ -662,7 +663,7 @@ function ipc() {
     const blocked = writeError(); if (blocked) return { ok: false, error: blocked }
     const t = typeof id === 'string' ? pendingPicks.get(id, Date.now()) : undefined
     if (!t) return { ok: false, error: localized("winInline.index.bc96a1542e61") }
-    if (typeof via !== 'string' || via === 'direct' || via === AUTO_ID || !store.profiles.some(p => p.id === via || store.settings.groups.some(g => g.id === via)) || !safeVia(via, store.settings, store.profiles)) return { ok: false, error: COMPANION_SAFE }
+    if (typeof via !== 'string' || via === 'direct' || via === AUTO_ID || !store.profiles.some(p => p.id === via || store.settings.groups.some(g => g.id === via)) || !safeVia(via, store.settings, store.profiles)) return { ok: false, error: companionSafetyMessage() }
     const cur = routeOf(store.settings, t.id)
     if (cur && !sameTarget(cur, t)) return { ok: false, error: localized("winInline.index.cb03144fdc84") }
     const next = routeFor(t, via)
@@ -897,7 +898,7 @@ function ipc() {
     }
     // Missing companion targets may stay blocked. A replacement must never turn one into a public route.
     const unsafeReplacement = ok && nextSettings.routes.some((r, i) => r.owner === 'companion' && r.via !== store.settings.routes[i]?.via && !safeVia(r.via, nextSettings, remaining))
-    if (unsafeReplacement) return { ok: false, error: COMPANION_SAFE }
+    if (unsafeReplacement) return { ok: false, error: companionSafetyMessage() }
     const previousProfiles = store.profiles, previousSettings = store.settings
     const revision = master.revision
     const wasOn = engine.status.phase === 'on'
@@ -1549,7 +1550,6 @@ app.on('before-quit', e => {
 })
 app.on('window-all-closed', () => { if (!store?.settings.tray) app.quit() })
 
-const COMPANION_SAFE = localized("winInline.index.1580625feb57")
 /** companion targets waiting for a path chosen in the picker (bridge routes.open); bounded, in memory only */
 const pendingPicks = createPending()
 let diagnoseRun = 0
