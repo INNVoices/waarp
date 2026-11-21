@@ -182,7 +182,9 @@
         "scripts/android-ftrace-observer-build-test.py",
         "scripts/android-emulator-image-kernel-test.py",
         "scripts/android-ftrace-preflight.py",
-        ".github/workflows/android-ftrace-preflight.yml"
+        ".github/workflows/android-ftrace-preflight.yml",
+        "scripts/android-ftrace-observer.bpf.c",
+        "scripts/android-ftrace-observer-bpf.h"
       ],
       "scope": "исследовать конкретный image/kernel и источник включённого события до любой tracefs mutation. Проверенный exact kernel revision и permalink приведены ниже. Helper lookup может асинхронно включить событие, поэтому `X` совместим с нулём Perfetto sessions. Это объяснение механизма, не атрибуция actual guest. Подготовить проверяемый вариант, сохраняющий чужое состояние; если безопасный resize при таком состоянии не доказан, оставить отказ.",
       "acceptance": "различены факт enable, producer/helper lookup и текущий owner. Не считать `nop`, `tracing_on=0` и отсутствие perfetto PID доказательством отсутствия событий. Не выключать `bpf_trace_printk`, не разрешать произвольный `X`, не сбрасывать buffers/events. Итоговая корректировка должна иметь негативные tests активного/неизвестного owner, неизменённые 10 s/60 s/64 KiB budgets и реальные before/after records на согласованном образе.",
@@ -197,9 +199,10 @@
         "docs/production/evidence/2026-11-21-pr45-runtime-followup.json",
         "docs/production/evidence/2026-11-21-pr45-descriptor-refusal.json",
         "docs/production/evidence/2026-11-21-pr45-task-and-dns-refusals.json",
-        "docs/production/evidence/2026-11-21-pr45-http-framing-and-metadata.json"
+        "docs/production/evidence/2026-11-21-pr45-http-framing-and-metadata.json",
+        "docs/production/evidence/2026-11-21-pr45-dns-diagnostics-accepted.json"
       ],
-      "evidence_note": "PR45 head abce: original tracefs guards отказали на descriptor_stat/ENOENT и в отдельном preflight, и в optimized API36; текущая FD identity неизвестна, GLOBAL/resize/trace не достигнуты. Изучается kernel task_file iterator для удерживаемой file reference; все tracefs candidates сохранят прежний proc/stat/full-flags guard. Это design research, ещё не actual guest acceptance. Native matrix отдельно выявила HTTP chunk-framing ошибку новой диагностики; адресный Content-Length fix готов к проверке."
+      "evidence_note": "PR45 head e546: native API29/35/36, optimized API29/35 и build прошли; API36 raw26/26, оба DNS OFF/ON цикла и peerTrace проверены по original ZIP. HTTP Content-Length fix подтверждён. Исходный b654 UDP timeout этим не объяснён. Optimized36 остаётся заблокирован строгим metadata guard; готовится source-bound BPF task_file iterator с прежними tracefs proc/stat/full-flags и конечной numeric coverage, без повторов до успеха. Actual guest BPF acceptance ещё отсутствует."
     },
     {
       "id": "REL-004",
@@ -236,7 +239,8 @@
         "docs/production/evidence/2026-11-21-pr45-runtime-followup.json",
         "docs/production/evidence/2026-11-21-pr45-descriptor-refusal.json",
         "docs/production/evidence/2026-11-21-pr45-task-and-dns-refusals.json",
-        "docs/production/evidence/2026-11-21-pr45-http-framing-and-metadata.json"
+        "docs/production/evidence/2026-11-21-pr45-http-framing-and-metadata.json",
+        "docs/production/evidence/2026-11-21-pr45-dns-diagnostics-accepted.json"
       ]
     },
     {

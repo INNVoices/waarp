@@ -101,7 +101,7 @@ Graphics hypothesis и независимый ftrace blocker требуют фа
 **Title:** Уточнить владение BPF trace event и допустимый путь подготовки 16 KiB
 
 - **Priority:** P0.
-- **Status:** `in_progress`: PR45 head abce: original tracefs guards отказали на descriptor_stat/ENOENT и в отдельном preflight, и в optimized API36; текущая FD identity неизвестна, GLOBAL/resize/trace не достигнуты. Изучается kernel task_file iterator для удерживаемой file reference; все tracefs candidates сохранят прежний proc/stat/full-flags guard. Это design research, ещё не actual guest acceptance. Native matrix отдельно выявила HTTP chunk-framing ошибку новой диагностики; адресный Content-Length fix готов к проверке.
+- **Status:** `in_progress`: PR45 head e546: native API29/35/36, optimized API29/35 и build прошли; API36 raw26/26, оба DNS OFF/ON цикла и peerTrace проверены по original ZIP. HTTP Content-Length fix подтверждён. Исходный b654 UDP timeout этим не объяснён. Optimized36 остаётся заблокирован строгим metadata guard; готовится source-bound BPF task_file iterator с прежними tracefs proc/stat/full-flags и конечной numeric coverage, без повторов до успеха. Actual guest BPF acceptance ещё отсутствует.
 - **Dependencies:** нет.
 - **Files:** `scripts/android-ftrace-prepare.py`, его `-test.py`, `scripts/android-emulator-image.py`, `docs/ANDROID-PERFETTO-16K.md`; raw `ftrace-preparation` artifact.
 - **Change:** исследовать конкретный image/kernel и источник включённого события до любой tracefs mutation. Проверенный exact kernel revision и permalink приведены ниже. Helper lookup может асинхронно включить событие, поэтому `X` совместим с нулём Perfetto sessions. Это объяснение механизма, не атрибуция actual guest. Подготовить проверяемый вариант, сохраняющий чужое состояние; если безопасный resize при таком состоянии не доказан, оставить отказ.
@@ -115,7 +115,7 @@ Graphics hypothesis и независимый ftrace blocker требуют фа
 **Title:** Получить полный exact-source Android acceptance bundle
 
 - **Priority:** P0.
-- **Status:** `blocked`: PR45 head `abce5c3` дал 3 success / 4 failure / 1 skipped. Сборка и optimized API29/35 прошли; native29/35/36 остановлены новой ошибкой HTTP framing в диагностике, optimized36 — неизвестными FD metadata до установки APK. [Evidence](evidence/2026-11-21-pr45-http-framing-and-metadata.json) сохраняет оба отказа и причинный HTTP fix. Исходный второй DNS цикл и полный 7200 s soak ещё не приняты.
+- **Status:** `blocked`: PR45 head `e546275` дал 6 success / 1 failure / 1 skipped. Все native API и optimized API29/35 прошли; оба API36 DNS OFF/ON цикла подтверждены original ZIP и raw instrumentation. [Evidence](evidence/2026-11-21-pr45-dns-diagnostics-accepted.json) сохраняет результаты и ограничения. Optimized36 и полный main 7200 s soak ещё не приняты.
 - **Dependencies:** REL-001, REL-002, REL-003, REL-009.
 - **Files:** `.github/workflows/android.yml`, `scripts/android-release-readiness.py`, `scripts/android-release-proof.py`, `docs/ANDROID_RELEASE_EVIDENCE.md`, `android/acceptance/README.md`. Не переписывать checker без конкретного воспроизводимого mismatch.
 - **Change:** на одном выбранном main commit выполнить существующую полную Android acceptance. Экспортировать raw run/jobs и отдельные artifact receipts, original ZIP и точные extracted files; сверить SHA256/CRC и связность выбранной попытки. Статические отчёты привязать к трём реальным unsigned APK; runtime — к реально использованному payload, а не только versionName/code или `passed=true`.

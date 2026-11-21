@@ -15,6 +15,8 @@ ROOTS = ("/sys/kernel/tracing", "/sys/kernel/debug/tracing")
 CONFIG_GZIP_SHA256 = "f4caa7dbe4722eb5b2d3f711f92a73e2115dc4071d72846e61fde52b3698d71a"
 KERNEL_SHA256 = "8e673c5d9b9f5e44f056346eda93adf8b96d3c9f300ce7b4fcc209d6ada906a5"
 KERNEL_BYTES = 22635520
+BTF_SHA256 = "d9bad01cb909205a22d741adf6b9f5a907a6e805354a94d9012165f2002508fa"
+BTF_BYTES = 7167898
 BPF_EVENT = "bpf_trace:bpf_trace_printk"
 REMOTE_PREFIX = "/data/local/tmp/waarp-ftrace-observer-"
 COUNTERS = ("entries", "overrun", "commit overrun", "bytes", "oldest event ts",
@@ -98,13 +100,15 @@ def parse_observer(raw):
     require(isinstance(raw, str) and 0 < len(raw.encode()) < OUTPUT_LIMIT, "Missing bounded observer result")
     value = json.loads(raw, object_pairs_hook=unique_object)
     require(isinstance(value, dict) and type(value.get("schemaVersion")) is int
-            and value["schemaVersion"] == 3 and value.get("passed") is True,
+            and value["schemaVersion"] == 4 and value.get("passed") is True,
             "Native descriptor observation was incomplete or refused")
     exact = {"uid": 0, "selinuxEnforcing": True, "selinuxContext": "u:r:su:s0",
              "pidNamespacesCompiledOut": True, "procVisibilityVerified": True, "passes": 2,
              "taskInventoryObservations": 3, "stableProcessInventories": 5,
              "stableTaskIdentities": True, "stableTableRepresentatives": True,
              "stableTracefsProjection": True,
+             "descriptorSource": "bpf-iter/task_file", "endNumericCoverageVerified": True, "kernelBtfSha256": BTF_SHA256,
+             "bpfAttachTypeId": 97052, "bpfReadChunkBytes": 4096, "bpfRecordBytes": 64, "seccompMode": 0,
              "unknownDescriptors": 0, "forbiddenTracefsDescriptors": 0,
              "cpuPossible": "0-1", "cpuPresent": "0-1", "cpuOnline": "0-1",
              "deadlineNs": 9000000000, "tracefsWritten": False,
@@ -129,11 +133,29 @@ def parse_observer(raw):
             and all(type(count) is int and count >= 0 for count in added)
             and added == [threads[1] - threads[0], threads[2] - threads[1]],
             "Unverified shared-thread additions or loss of retained members")
-    counts, reads = value.get("descriptorCounts"), value.get("descriptorMetadataReads")
-    require(isinstance(counts, list) and isinstance(reads, list) and len(counts) == len(reads) == 2
-            and all(type(count) is int and value["markerWriters"] <= count <= 262144 for count in counts)
-            and all(type(read) is int and count <= read <= 524288 for count, read in zip(counts, reads)),
+    counts = value.get("descriptorCounts")
+    require(isinstance(counts, list) and len(counts) == 2
+            and all(type(count) is int and value["markerWriters"] <= count <= 262144 for count in counts),
             "Missing or unbounded per-pass descriptor observations")
+    reads, streams = value.get("bpfRecordCounts"), value.get("bpfStreamsCompleted")
+    require(isinstance(reads, list) and isinstance(streams, list) and len(reads) == len(streams) == 2
+            and all(type(item) is int and value["uniqueTables"] <= item <= 2 * value["uniqueTables"] for item in streams)
+            and sum(streams) == 2 * value["uniqueTables"] + value["descriptorReconciliations"]
+            and all(type(read) is int and count <= read <= min(524288, count + 65536 * (stream - value["uniqueTables"]))
+                    for count, read, stream in zip(counts, reads, streams)),
+            "Missing or unbounded complete samples/reconciliations")
+    checks, sizes, advances = value.get("tracefsProcChecks"), value.get("bpfStreamBytes"), value.get("bpfEndPrefetchAdvances")
+    require(isinstance(checks, list) and len(checks) == 2
+            and all(type(item) is int and value["markerWriters"] <= item <= min(2 * value["markerWriters"], read)
+                    and (stream > value["uniqueTables"] or item == value["markerWriters"])
+                    for item, read, stream in zip(checks, reads, streams)), "Incomplete strict tracefs candidate checks")
+    require(isinstance(sizes, list) and len(sizes) == 2 and all(type(item) is int for item in sizes)
+            and sizes == [64 * (read + stream) for read, stream in zip(reads, streams)],
+            "Incomplete iterator EOF/record observations")
+    require(isinstance(advances, list) and len(advances) == 2
+            and all(type(item) is int and 0 <= item <= stream and 64 * item <= read
+                    for item, stream, read in zip(advances, streams, reads)),
+            "Invalid bounded final prefetch cursor counters")
     differences = value.get("nonTraceComparisonDifferences")
     require(isinstance(differences, dict) and set(differences) == {"withinPass", "betweenPass"}
             and all(isinstance(item, dict) and set(item) == {"added", "removed", "replaced"}
@@ -146,8 +168,22 @@ def parse_observer(raw):
             and within["removed"] + within["replaced"] <= sum(reads) - sum(counts)
             and within["added"] + within["replaced"] <= sum(counts) - 2 * value["markerWriters"]
             and ((value["descriptorReconciliations"] == 0 and not any(within.values()) and counts == reads)
-                 or (0 < value["descriptorReconciliations"] <= within["added"] + within["removed"])),
-            "Descriptor comparison counts disagree with the bounded observation protocol")
+                 or 0 < value["descriptorReconciliations"] <= within["added"] + within["removed"]),
+            "Descriptor counts disagree with bounded S1/B/S2/C observations")
+    program = value.get("bpfProgram")
+    expected_program = {"loads": 1, "linkCreates": sum(streams), "iteratorCreates": sum(streams),
+                        "closedLinks": sum(streams), "closedIterators": sum(streams), "programClosed": True}
+    require(isinstance(program, dict) and set(program) == {*expected_program, "sha256", "bytes"}
+            and all(type(program.get(key)) is type(expected) and program[key] == expected
+                    for key, expected in expected_program.items())
+            and isinstance(program["sha256"], str) and re.fullmatch(r"[0-9a-f]{64}", program["sha256"])
+            and type(program["bytes"]) is int and 0 < program["bytes"] <= 4096 * 8 and program["bytes"] % 8 == 0,
+            "BPF program/iterator lifecycle was incomplete before GLOBAL")
+    caps = value.get("bpfEffectiveCapabilities")
+    require(isinstance(caps, str) and re.fullmatch(r"[0-9a-f]{16}", caps), "Missing actual BPF capabilities")
+    mask = int(caps, 16)
+    require(bool(mask & (1 << 21)) or (mask & ((1 << 38) | (1 << 39))) == ((1 << 38) | (1 << 39)),
+            "BPF/PERFMON or SYS_ADMIN capability is required")
     barrier = value.get("membarrier")
     require(isinstance(barrier, dict) and set(barrier) == {"query", "command", "flags", "result", "calls"}
             and all(type(item) is int for item in barrier.values()) and barrier["query"] >= 0
@@ -159,7 +195,8 @@ def parse_observer(raw):
     for raw_stats in value["cpuStatsAfterBarrier"]:
         parse_stats(raw_stats)
     require(set(value) == {"schemaVersion", "passed", *exact, *integer_names, "procHidepid", "membarrier",
-                          "cpuStatsAfterBarrier", "descriptorCounts", "descriptorMetadataReads",
+                          "cpuStatsAfterBarrier", "descriptorCounts", "bpfRecordCounts", "tracefsProcChecks", "bpfStreamsCompleted",
+                          "bpfStreamBytes", "bpfEndPrefetchAdvances", "bpfProgram", "bpfEffectiveCapabilities",
                           "nonTraceComparisonDifferences", "threadCounts", "sharedThreadsAdded"},
             "Unexpected native observer fields")
     return value
@@ -188,6 +225,7 @@ def staged_paths(proof):
 def command_plan(proof, root):
     local, remote, binary = staged_paths(proof)
     return [("kernel-config-digest", "sha256sum /proc/config.gz", 0),
+            ("kernel-btf-digest", "sha256sum /sys/kernel/btf/vmlinux", 0),
             ("snapshot-not-compiled", "test ! -e " + root + "/snapshot", 0),
             ("observer-create", "umask 077; mkdir " + remote, 0),
             ("observer-push", ["push", "-q", local, binary], 0),
@@ -203,11 +241,14 @@ def establish(execute, read, report_directory, record, root, observer_directory)
     image = record["imageProof"]
     require(image.get("installedKernelSha256") == KERNEL_SHA256
             and image.get("installedKernelBytes") == KERNEL_BYTES, "Missing exact installed-kernel binding")
-    proof = record["emptyBufferProof"] = {"schemaVersion": 1, "enabledEventPreserved": BPF_EVENT,
+    proof = record["emptyBufferProof"] = {"schemaVersion": 2, "enabledEventPreserved": BPF_EVENT,
                                          "bpfProducerOwnerEstablished": False}
     digest = read("kernel-config-digest", "sha256sum /proc/config.gz")
     require(digest == CONFIG_GZIP_SHA256 + "  /proc/config.gz", "Runtime kernel config differs from reviewed embedded IKCONFIG")
     proof["kernelConfigGzipSha256"] = CONFIG_GZIP_SHA256
+    require(read("kernel-btf-digest", "sha256sum /sys/kernel/btf/vmlinux") == BTF_SHA256 + "  /sys/kernel/btf/vmlinux",
+            "Runtime kernel BTF differs from the exact reviewed reachable type/layout graph")
+    proof["kernelBtfSha256"] = BTF_SHA256
     # Exact config: MAX_TRACE hidden bool is n; SNAPSHOT=n; PID_NS/USER_NS=n;
     # MEMBARRIER/PREEMPT_RCU/KCMP=y. Missing snapshot alone is never proof.
     require(read("snapshot-not-compiled", "test ! -e " + root + "/snapshot") == "", "Unexpected snapshot state")
@@ -216,7 +257,7 @@ def establish(execute, read, report_directory, record, root, observer_directory)
     builder.validate_build(observer_directory, source_path=source)
     retained = report_directory / "empty-buffer-observer"
     retained.mkdir()
-    for name in ("build.json", "tracefs-observer", "android-ftrace-observer.c"):
+    for name in builder.RETAINED_FILES:
         shutil.copyfile(observer_directory / name, retained / name)
     proof["observerBuild"] = builder.validate_build(retained, source_path=source)
     proof["hostBinaryPath"] = str((retained / "tracefs-observer").resolve())
@@ -233,6 +274,11 @@ def establish(execute, read, report_directory, record, root, observer_directory)
                 "Transferred observer bytes differ")
         require(read("observer-mode", "chmod 500 " + binary) == "", "Unexpected observer mode output")
         proof["observerResult"] = parse_observer(read("observer-scan", "exec " + binary + " " + root))
+        require(proof["observerResult"]["bpfProgram"]["sha256"] == proof["observerBuild"]["bpfProgramSha256"]
+                and proof["observerResult"]["bpfProgram"]["bytes"] == proof["observerBuild"]["bpfProgramBytes"]
+                and proof["observerBuild"]["kernelBtfSha256"] == BTF_SHA256
+                and proof["observerBuild"]["kernelBtfBytes"] == BTF_BYTES,
+                "Executed BPF instructions/layout differ from the retained build")
     except Exception as error:
         primary_error = error
         raise
@@ -256,12 +302,12 @@ def after_write(read, proof, root):
 
 
 def validate_proof(proof, observed, report_directory, root, image):
-    require(type(proof["schemaVersion"]) is int and proof["schemaVersion"] == 1
+    require(type(proof["schemaVersion"]) is int and proof["schemaVersion"] == 2
             and "cleanupError" not in proof and proof["enabledEventPreserved"] == BPF_EVENT
             and proof["bpfProducerOwnerEstablished"] is False
             and image.get("installedKernelSha256") == KERNEL_SHA256
             and image.get("installedKernelBytes") == KERNEL_BYTES
-            and proof["kernelConfigGzipSha256"] == CONFIG_GZIP_SHA256,
+            and proof["kernelConfigGzipSha256"] == CONFIG_GZIP_SHA256 and proof["kernelBtfSha256"] == BTF_SHA256,
             "Missing exact kernel/config/BPF-preservation contract")
     builder = build_module()
     require(proof["observerBuild"] == builder.validate_build(report_directory / "empty-buffer-observer",
@@ -269,11 +315,17 @@ def validate_proof(proof, observed, report_directory, root, image):
             "Retained observer build differs from executed proof")
     _, _, binary = staged_paths(proof)
     require(observed["kernel-config-digest"] == CONFIG_GZIP_SHA256 + "  /proc/config.gz"
+            and observed["kernel-btf-digest"] == BTF_SHA256 + "  /sys/kernel/btf/vmlinux"
             and observed["observer-digest"] == proof["observerBuild"]["binarySha256"] + "  " + binary,
             "Raw kernel config or observer digest differs")
     for name in ("snapshot-not-compiled", "observer-create", "observer-mode", "observer-cleanup"):
         require(observed[name] == "", "Unexpected output from observer staging probe")
     require(parse_observer(observed["observer-scan"]) == proof["observerResult"], "Raw descriptor/barrier proof differs")
+    require(proof["observerResult"]["bpfProgram"]["sha256"] == proof["observerBuild"]["bpfProgramSha256"]
+            and proof["observerResult"]["bpfProgram"]["bytes"] == proof["observerBuild"]["bpfProgramBytes"]
+            and proof["observerBuild"]["kernelBtfSha256"] == BTF_SHA256
+            and proof["observerBuild"]["kernelBtfBytes"] == BTF_BYTES,
+            "Executed BPF instructions/layout differ from the retained build")
     for suffix, size, field in (("before-write", 4, "BeforeWrite"), ("after-write", 16, "AfterWrite")):
         require(validate_controls(observed["empty-controls-" + suffix], size) == proof["controls" + field]
                 and parse_cpu_observation(observed["empty-stats-" + suffix], root) == proof["stats" + field],

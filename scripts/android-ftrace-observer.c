@@ -3,8 +3,9 @@
  * tracefs, signals another process, changes credentials or stops BPF. A single
  * GLOBAL membarrier supplies the reviewed kernel's RCU grace period. Every
  * incomplete/unknown/denied observation is a refusal, not an omitted owner.
- * One bounded reconciliation may classify non-tracefs descriptor changes;
- * these samples are not an atomic snapshot of another process's file table.
+ * Two complete BPF iterator streams hold each sampled file reference while
+ * collecting metadata. Tracefs entries also require strict proc metadata.
+ * These observations are not atomic snapshots of another process's table.
  */
 #define _GNU_SOURCE
 #include <dirent.h>
@@ -12,6 +13,7 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <linux/bpf.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -24,6 +26,14 @@
 #include <sys/sysmacros.h>
 #include <time.h>
 #include <unistd.h>
+#include "android-ftrace-observer-bpf.h"
+#ifdef WAARP_OBSERVER_TEST
+static const unsigned char WAARP_BPF_PROGRAM[8] __attribute__((aligned(8))) = {0};
+#define WAARP_BPF_PROGRAM_BYTES 8
+#define WAARP_BPF_PROGRAM_SHA256 "0000000000000000000000000000000000000000000000000000000000000000"
+#else
+#include "android-ftrace-observer-program.h"
+#endif
 
 #define MAX_PROCESSES 1024
 #define MAX_TASKS 8192
@@ -46,8 +56,11 @@ typedef struct {
     Process processes[MAX_PROCESSES]; size_t process_count;
     Task tasks[MAX_TASKS]; size_t task_count;
     Table tables[MAX_TASKS]; size_t table_count;
-    size_t descriptors[2], metadata_reads[2], markers, shared, kcmp_denied, reconciliations;
+    size_t descriptors[2], bpf_records[2], tracefs_checks[2], streams[2], stream_bytes[2], markers, shared, kcmp_denied;
+    size_t prefetch_ends[2];
+    size_t reconciliations;
     size_t thread_counts[3], shared_added[2], verification_phases;
+    size_t links, iterators, closed_links, closed_iterators;
     Differences within_pass, between_pass;
 } Inventory;
 
@@ -57,6 +70,8 @@ static int failure_pid, failure_tid, failure_fd = -1;
 static int scan_proc_fd = -1;
 static uint64_t trace_dev, marker_ino;
 static int observer_pid;
+static int iterator_program_fd = -1;
+static uint64_t observer_capabilities;
 
 static uint64_t monotonic_ns(void) {
     struct timespec value;
@@ -67,7 +82,7 @@ static uint64_t monotonic_ns(void) {
 static _Noreturn void refuse(const char *reason) {
     /* Only source literals and numeric metadata; no path/argv/event payload. */
     int error = errno;
-    printf("{\"schemaVersion\":3,\"passed\":false,\"reason\":\"%s\","
+    printf("{\"schemaVersion\":4,\"passed\":false,\"reason\":\"%s\","
            "\"stage\":\"%s\",\"errno\":%d,\"pid\":%d,\"tid\":%d,\"fd\":%d}\n",
            reason, failure_stage, error, failure_pid, failure_tid, failure_fd);
     exit(1);
@@ -158,7 +173,7 @@ static void initial_inventory(Inventory *inventory) {
     for (size_t p = 0; p < pids.n; ++p) {
         int pid = pids.v[p];
         if (pid == observer_pid) continue;  /* This single-thread observer only. */
-        failure_pid = pid;
+        failure_pid = pid; failure_tid = 0; failure_fd = -1;
         must(inventory->process_count < MAX_PROCESSES, "process_limit");
         char path[32]; snprintf(path, sizeof(path), "%d", pid);
         int directory = openat(scan_proc_fd, path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
@@ -389,21 +404,184 @@ static void compare_samples(const Descriptor *before, size_t before_count,
     }
 }
 
-static bool same_numbers(Numbers a, Numbers b) {
-    return a.n == b.n && !memcmp(a.v, b.v, a.n * sizeof(int));
+/* Only this observer's anonymous BPF program/link/iterator objects are
+ * created. Nothing is pinned, no trace hook is attached, and close releases
+ * every successful object before the GLOBAL barrier. Exit also closes them.
+ */
+static void load_iterator_program(void) {
+    failure_stage = "bpf_program_setup";
+    char status[16384], extra;
+    read_text_at(scan_proc_fd, "self/status", status, sizeof(status));
+    char *caps = strstr(status, "\nCapEff:\t"), *seccomp = strstr(status, "\nSeccomp:\t");
+    unsigned long long mask;
+    if (!caps || strspn(caps + 9, "0123456789abcdefABCDEF") != 16
+        || caps[25] != '\n' || sscanf(caps + 1, "CapEff:\t%16llx%c", &mask, &extra) != 2 || extra != '\n')
+        refuse("observer_capabilities_format");
+    observer_capabilities = (uint64_t)mask;
+    unsigned mode;
+    if (!seccomp || sscanf(seccomp + 1, "Seccomp:\t%u%c", &mode, &extra) != 2 || extra != '\n')
+        refuse("observer_seccomp_format");
+    must(mode == 0, "observer_seccomp_unknown_filter");
+    const uint64_t admin = UINT64_C(1) << 21, bpf = UINT64_C(1) << 39, perfmon = UINT64_C(1) << 38;
+    must((observer_capabilities & admin) || ((observer_capabilities & (bpf | perfmon)) == (bpf | perfmon)),
+         "observer_bpf_capabilities");
+    must(iterator_program_fd < 0 && WAARP_BPF_PROGRAM_BYTES > 0
+         && WAARP_BPF_PROGRAM_BYTES % sizeof(struct bpf_insn) == 0
+         && WAARP_BPF_PROGRAM_BYTES / sizeof(struct bpf_insn) <= 4096, "bpf_program_bytes");
+    union bpf_attr attr = {0};
+    char log[8192] = {0};
+    static const char license[] = "GPL";
+    attr.prog_type = BPF_PROG_TYPE_TRACING;
+    attr.expected_attach_type = BPF_TRACE_ITER;
+    attr.attach_btf_id = ATTACH_BTF_ID;
+    attr.insn_cnt = WAARP_BPF_PROGRAM_BYTES / sizeof(struct bpf_insn);
+    attr.insns = (uintptr_t)WAARP_BPF_PROGRAM;
+    attr.license = (uintptr_t)license;
+    attr.log_buf = (uintptr_t)log;
+    attr.log_size = sizeof(log);
+    attr.log_level = 1;
+    bounded();
+    iterator_program_fd = (int)syscall(SYS_bpf, BPF_PROG_LOAD, &attr, sizeof(attr));
+    if (iterator_program_fd < 0) {
+        int saved = errno;
+        /* Verifier diagnostics describe this fixed program before execution;
+         * no foreign task/file data has been provided to the program yet. */
+        size_t length = strnlen(log, sizeof(log));
+        if (length) (void)fwrite(log, 1, length, stderr);
+        errno = saved;
+        refuse("bpf_program_load");
+    }
+    bounded();
 }
 
-static Descriptor *sample_metadata(Inventory *inventory, int fds, int directory,
-                                   Numbers numbers, size_t pass) {
-    must(inventory->metadata_reads[pass] + numbers.n <= 2 * MAX_TOTAL_FDS,
-         "descriptor_metadata_limit");
-    Descriptor *sample = calloc(numbers.n ? numbers.n : 1, sizeof(Descriptor));
-    must(sample != NULL, "allocation");
-    for (size_t n = 0; n < numbers.n; ++n) {
-        sample[n] = descriptor_metadata(fds, directory, numbers.v[n]);
-        inventory->metadata_reads[pass]++;
+typedef struct {
+    uint64_t session;
+    size_t count, capacity;
+    Descriptor *sample;
+    bool ended, end_next_allowed;
+} IteratorStream;
+
+static void accept_iterator_record(Inventory *inventory, size_t pass, const Task *task,
+                                   int task_directory, const struct WaarpBpfRecord *item,
+                                   IteratorStream *stream) {
+    bounded();
+    must(!stream->ended && item->magic == WAARP_BPF_RECORD_MAGIC
+         && item->version == WAARP_BPF_RECORD_VERSION && item->session > 0, "bpf_record_header");
+    if (!stream->session) stream->session = item->session;
+    must(stream->session == item->session, "bpf_session_changed");
+    must(item->kind != WAARP_BPF_RECORD_ERROR && item->error == 0, "bpf_metadata_error");
+    if (item->kind == WAARP_BPF_RECORD_END) {
+        if (stream->count && item->sequence == stream->count) {
+            must(stream->end_next_allowed, "bpf_end_prefetch_boundary");
+            inventory->prefetch_ends[pass]++;
+        } else {
+            must(item->sequence == (stream->count ? stream->count - 1 : 0), "bpf_end_sequence");
+        }
+        must(!item->inode && !item->tgid && !item->tid && !item->fd && !item->device_major
+             && !item->device_minor && !item->file_status_flags && !item->file_type, "bpf_end_record");
+        stream->ended = true;
+        return;
     }
-    return sample;
+    must(item->kind == WAARP_BPF_RECORD_DATA && item->sequence == stream->count
+         && item->tid == (unsigned)task->tid && item->tgid == (unsigned)task->pid,
+         "bpf_record_target_or_sequence");
+    stream->end_next_allowed = false;
+    must(item->fd <= INT_MAX && (!stream->count || item->fd > (unsigned)stream->sample[stream->count - 1].number),
+         "bpf_descriptor_order");
+    failure_fd = (int)item->fd;
+    must(item->device_major < (1U << 12) && item->device_minor < (1U << 20)
+         && !(item->file_type & ~(unsigned)S_IFMT), "bpf_metadata_encoding");
+    must(stream->count < MAX_FDS && inventory->bpf_records[pass] < 2 * MAX_TOTAL_FDS,
+         "descriptor_metadata_limit");
+    Descriptor value = {(int)item->fd, (uint64_t)makedev(item->device_major, item->device_minor),
+                        item->inode, item->file_type, item->file_status_flags};
+    if (value.dev == trace_dev) {
+        /* Keep full proc flags (including CLOEXEC) and unchanged strict
+         * stat/fdinfo/restat checks for EVERY tracefs candidate. A disappeared,
+         * replaced or unknown tracefs entry cannot become non-tracefs. */
+        int fds = openat(task_directory, "fd", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+        must(fds >= 0, "descriptor_directory");
+        Descriptor exact = descriptor_metadata(fds, task_directory, value.number);
+        must(exact.dev == value.dev && exact.ino == value.ino && exact.mode == value.mode
+             && (exact.flags & ~(uint64_t)O_CLOEXEC) == value.flags, "bpf_tracefs_identity_mismatch");
+        must(close(fds) == 0, "descriptor_directory_close");
+        value = exact;
+        inventory->tracefs_checks[pass]++;
+    }
+    if (stream->count == stream->capacity) {
+        size_t next = stream->capacity ? stream->capacity * 2 : 16;
+        must(next <= MAX_FDS, "descriptor_capacity");
+        Descriptor *larger = realloc(stream->sample, next * sizeof(Descriptor));
+        must(larger != NULL, "allocation");
+        stream->sample = larger; stream->capacity = next;
+    }
+    stream->sample[stream->count++] = value;
+    inventory->bpf_records[pass]++;
+}
+
+static Descriptor *iterator_sample(Inventory *inventory, size_t pass, const Task *task,
+                                    int directory, size_t *count) {
+    must(iterator_program_fd >= 0, "bpf_program_missing");
+    union bpf_iter_link_info info = {0};
+    union bpf_attr attr = {0};
+    info.task.tid = (unsigned)task->tid;
+    attr.link_create.prog_fd = (unsigned)iterator_program_fd;
+    attr.link_create.attach_type = BPF_TRACE_ITER;
+    attr.link_create.iter_info = (uintptr_t)&info;
+    attr.link_create.iter_info_len = sizeof(info);
+    bounded();
+    int link = (int)syscall(SYS_bpf, BPF_LINK_CREATE, &attr, sizeof(attr));
+    must(link >= 0, "bpf_iterator_link"); inventory->links++;
+    memset(&attr, 0, sizeof(attr)); attr.iter_create.link_fd = (unsigned)link;
+    bounded();
+    int descriptor = (int)syscall(SYS_bpf, BPF_ITER_CREATE, &attr, sizeof(attr));
+    must(descriptor >= 0, "bpf_iterator_create"); inventory->iterators++;
+    IteratorStream stream = {0};
+    unsigned char buffer[WAARP_BPF_READ_BYTES], pending[sizeof(struct WaarpBpfRecord)];
+    size_t pending_bytes = 0, bytes = 0;
+    bool previous_full_read = false;
+    for (;;) {
+        bounded();
+        stream.end_next_allowed = previous_full_read && pending_bytes == 0 && stream.count > 0 && !stream.ended;
+        ssize_t got = read(descriptor, buffer, sizeof(buffer));
+        must(got >= 0, "bpf_iterator_read");
+        if (!got) {
+            must(stream.ended && pending_bytes == 0, "bpf_iterator_incomplete");
+            break;
+        }
+        must(!stream.ended, "bpf_data_after_end");
+        bytes += (size_t)got;
+        must(bytes <= (MAX_FDS + 1UL) * sizeof(struct WaarpBpfRecord), "bpf_iterator_size");
+        size_t used = 0;
+        while (used < (size_t)got) {
+            size_t take = sizeof(pending) - pending_bytes;
+            if (take > (size_t)got - used) take = (size_t)got - used;
+            memcpy(pending + pending_bytes, buffer + used, take);
+            pending_bytes += take; used += take;
+            if (pending_bytes == sizeof(pending)) {
+                struct WaarpBpfRecord item; memcpy(&item, pending, sizeof(item));
+                accept_iterator_record(inventory, pass, task, directory, &item, &stream);
+                pending_bytes = 0;
+            }
+        }
+        previous_full_read = (size_t)got == sizeof(buffer) && pending_bytes == 0 && !stream.ended;
+    }
+    must(bytes == (stream.count + 1) * sizeof(struct WaarpBpfRecord), "bpf_iterator_record_count");
+    must(close(descriptor) == 0, "bpf_iterator_close"); inventory->closed_iterators++;
+    must(close(link) == 0, "bpf_link_close"); inventory->closed_links++;
+    inventory->streams[pass]++; inventory->stream_bytes[pass] += bytes;
+    *count = stream.count;
+    return stream.sample;
+}
+
+static bool sample_numbers_equal(const Descriptor *sample, size_t count, Numbers numbers) {
+    if (count != numbers.n) return false;
+    for (size_t i = 0; i < count; ++i) if (sample[i].number != numbers.v[i]) return false;
+    return true;
+}
+
+static bool same_numbers(Numbers first, Numbers second) {
+    return first.n == second.n && !memcmp(first.v, second.v, first.n * sizeof(int));
 }
 
 static void scan_table(Inventory *inventory, size_t index, bool second) {
@@ -415,26 +593,25 @@ static void scan_table(Inventory *inventory, size_t index, bool second) {
     char path[64]; snprintf(path, sizeof(path), "task/%d", task->tid);
     int directory = openat(process_directory, path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
     must(directory >= 0, "task_directory");
-    int fds = openat(directory, "fd", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
-    must(fds >= 0, "descriptor_directory");
-    size_t pass = second ? 1 : 0;
-    Numbers first = numeric_entries(fds, ".", MAX_FDS);
-    Descriptor *sample = sample_metadata(inventory, fds, directory, first, pass);
-    size_t count = first.n;
-    Numbers next = numeric_entries(fds, ".", MAX_FDS);
-    if (!same_numbers(first, next)) {
-        /* Exactly one fresh complete sample of B after A -> metadata(A) -> B.
-         * Every missing/denied metadata read still refuses. The final numeric
-         * inventory C must equal B; no third sample, retry or quieting delay. */
+    size_t pass = second ? 1 : 0, count = 0;
+    Descriptor *sample = iterator_sample(inventory, pass, task, directory, &count);
+    Numbers after = numeric_entries(directory, "fd", MAX_FDS);
+    if (!sample_numbers_equal(sample, count, after)) {
+        /* Preserve the previous end-number coverage gate. S1 itself now
+         * combines enumeration+referenced metadata. If S1 != B, exactly one
+         * fresh stream S2 must cover B, and the following C must still equal B.
+         * An emitted ERROR, unknown S2 member or missing B member refuses. */
         inventory->reconciliations++;
-        Descriptor *reconciled = sample_metadata(inventory, fds, directory, next, pass);
-        Numbers final = numeric_entries(fds, ".", MAX_FDS);
-        must(same_numbers(next, final), "descriptor_reconciliation_changed");
-        compare_samples(sample, count, reconciled, next.n, &inventory->within_pass);
+        size_t replacement_count = 0;
+        Descriptor *replacement = iterator_sample(inventory, pass, task, directory, &replacement_count);
+        must(sample_numbers_equal(replacement, replacement_count, after), "descriptor_reconciliation_coverage");
+        Numbers final = numeric_entries(directory, "fd", MAX_FDS);
+        must(same_numbers(after, final), "descriptor_reconciliation_changed");
+        compare_samples(sample, count, replacement, replacement_count, &inventory->within_pass);
         free(final.v); free(sample);
-        sample = reconciled; count = next.n;
+        sample = replacement; count = replacement_count;
     }
-    free(next.v); free(first.v);
+    free(after.v);
     must(inventory->descriptors[pass] + count <= MAX_TOTAL_FDS, "descriptor_total_limit");
     inventory->descriptors[pass] += count;
     if (second) {
@@ -444,7 +621,7 @@ static void scan_table(Inventory *inventory, size_t index, bool second) {
         table->fds = sample; table->count = count;
         for (size_t n = 0; n < count; ++n) if (sample[n].dev == trace_dev) inventory->markers++;
     }
-    must(close(fds) == 0 && close(directory) == 0, "task_directory_close");
+    must(close(directory) == 0, "task_directory_close");
     must(task_start(process_directory, task->tid) == task->start, "task_identity_changed");
 }
 
@@ -578,6 +755,7 @@ int main(int argc, char **argv) {
     stopped_bpf_controls(trace_directory);
     Inventory *inventory = calloc(1, sizeof(*inventory));
     must(inventory != NULL, "allocation");
+    load_iterator_program();
     initial_inventory(inventory);
     failure_stage = "descriptor_pass_one";
     for (size_t i = 0; i < inventory->table_count; ++i) scan_table(inventory, i, false);
@@ -586,6 +764,15 @@ int main(int argc, char **argv) {
     for (size_t i = 0; i < inventory->table_count; ++i) scan_table(inventory, i, true);
     failure_stage = "task_inventory_after"; verify_inventory(inventory);
     failure_pid = failure_tid = 0; failure_fd = -1;
+    failure_stage = "bpf_program_cleanup";
+    must(inventory->streams[0] >= inventory->table_count && inventory->streams[0] <= 2 * inventory->table_count
+         && inventory->streams[1] >= inventory->table_count && inventory->streams[1] <= 2 * inventory->table_count
+         && inventory->links == inventory->streams[0] + inventory->streams[1]
+         && inventory->links == 2 * inventory->table_count + inventory->reconciliations
+         && inventory->iterators == inventory->links
+         && inventory->closed_links == inventory->links && inventory->closed_iterators == inventory->iterators,
+         "bpf_observation_incomplete");
+    must(close(iterator_program_fd) == 0, "bpf_program_close"); iterator_program_fd = -1;
     failure_stage = "rcu_barrier";
     stopped_bpf_controls(trace_directory);
     exact_text(AT_FDCWD, "/sys/devices/system/cpu/possible", "0-1\n");
@@ -606,18 +793,27 @@ int main(int argc, char **argv) {
     }
     stopped_bpf_controls(trace_directory);
     bounded();
-    printf("{\"schemaVersion\":3,\"passed\":true,\"uid\":0,\"selinuxEnforcing\":true,"
+    printf("{\"schemaVersion\":4,\"passed\":true,\"uid\":0,\"selinuxEnforcing\":true,"
            "\"selinuxContext\":\"u:r:su:s0\",\"pidNamespacesCompiledOut\":true,"
            "\"procHidepid\":%u,\"procGid\":%u,\"procVisibilityVerified\":true,"
            "\"processes\":%zu,\"threads\":%zu,\"uniqueTables\":%zu,"
            "\"sharedThreads\":%zu,\"kcmpDeniedFullScans\":%zu,"
            "\"threadCounts\":[%zu,%zu,%zu],\"sharedThreadsAdded\":[%zu,%zu],"
-           "\"descriptorCounts\":[%zu,%zu],\"descriptorMetadataReads\":[%zu,%zu],"
-           "\"descriptorReconciliations\":%zu,\"markerWriters\":%zu,\"passes\":2,"
-           "\"stableTracefsProjection\":true,"
+           "\"descriptorSource\":\"bpf-iter/task_file\","
+           "\"descriptorCounts\":[%zu,%zu],\"tracefsProcChecks\":[%zu,%zu],"
+           "\"bpfRecordCounts\":[%zu,%zu],\"descriptorReconciliations\":%zu,\"endNumericCoverageVerified\":true,"
+           "\"bpfStreamsCompleted\":[%zu,%zu],\"bpfStreamBytes\":[%zu,%zu],"
+           "\"bpfEndPrefetchAdvances\":[%zu,%zu],"
+           "\"markerWriters\":%zu,\"passes\":2,\"stableTracefsProjection\":true,"
            "\"nonTraceComparisonDifferences\":{"
            "\"withinPass\":{\"added\":%zu,\"removed\":%zu,\"replaced\":%zu},"
            "\"betweenPass\":{\"added\":%zu,\"removed\":%zu,\"replaced\":%zu}},"
+           "\"bpfProgram\":{\"loads\":1,\"linkCreates\":%zu,\"iteratorCreates\":%zu,"
+           "\"closedLinks\":%zu,\"closedIterators\":%zu,\"programClosed\":true,"
+           "\"sha256\":\"" WAARP_BPF_PROGRAM_SHA256 "\",\"bytes\":%u},"
+           "\"kernelBtfSha256\":\"" WAARP_KERNEL_BTF_SHA256 "\","
+           "\"bpfAttachTypeId\":97052,\"bpfReadChunkBytes\":4096,\"bpfRecordBytes\":64,"
+           "\"bpfEffectiveCapabilities\":\"%016" PRIx64 "\",\"seccompMode\":0,"
            "\"taskInventoryObservations\":3,\"stableProcessInventories\":5,"
            "\"stableTaskIdentities\":true,\"stableTableRepresentatives\":true,"
            "\"unknownDescriptors\":0,\"forbiddenTracefsDescriptors\":0,"
@@ -628,11 +824,14 @@ int main(int argc, char **argv) {
            inventory->shared, inventory->kcmp_denied,
            inventory->thread_counts[0], inventory->thread_counts[1], inventory->thread_counts[2],
            inventory->shared_added[0], inventory->shared_added[1],
-           inventory->descriptors[0], inventory->descriptors[1],
-           inventory->metadata_reads[0], inventory->metadata_reads[1],
-           inventory->reconciliations, inventory->markers,
-           inventory->within_pass.added, inventory->within_pass.removed, inventory->within_pass.replaced,
-           inventory->between_pass.added, inventory->between_pass.removed, inventory->between_pass.replaced, query);
+           inventory->descriptors[0], inventory->descriptors[1], inventory->tracefs_checks[0], inventory->tracefs_checks[1],
+           inventory->bpf_records[0], inventory->bpf_records[1], inventory->reconciliations,
+           inventory->streams[0], inventory->streams[1], inventory->stream_bytes[0], inventory->stream_bytes[1],
+           inventory->prefetch_ends[0], inventory->prefetch_ends[1],
+           inventory->markers, inventory->within_pass.added, inventory->within_pass.removed, inventory->within_pass.replaced,
+           inventory->between_pass.added, inventory->between_pass.removed, inventory->between_pass.replaced,
+           inventory->links, inventory->iterators, inventory->closed_links, inventory->closed_iterators,
+           (unsigned)WAARP_BPF_PROGRAM_BYTES, observer_capabilities, query);
     json_string(stats[0]); putchar(','); json_string(stats[1]);
     printf("],\"elapsedNs\":%" PRIu64 ",\"deadlineNs\":%" PRIu64 ","
            "\"tracefsWritten\":false,\"foreignDescriptorsOpened\":false,\"tracePayloadRead\":false}\n",

@@ -203,14 +203,21 @@ config or an unexpected snapshot interface rejects the candidate.
 
 `scripts/android-ftrace-observer.c` is a test-only native observer, built with
 the already pinned NDK `28.2.13676358` for `x86_64-linux-android29` with 16 KiB ELF
-alignment. It is outside the APK. The deterministic builder retains source,
-compiler identity/version, exact arguments, binary SHA-256 and independently
-checked ELF metadata in `out/android/ci-observer/build.json`. The verifier
+alignment. It is outside the APK. Builder schema 2 additionally compiles the
+small `android-ftrace-observer.bpf.c` with that NDK's `clang -target bpfel`.
+It needs no libbpf, CO-RE, bpftool, kernel rebuild or additional toolchain.
+It extracts the single relocatable ELF's exact `iter/task_file` instructions,
+rejects relocations/maps/unexpected helpers, and embeds the verified bytes in
+the native observer. The seven retained files are `build.json`, the native
+binary and C source, BPF C source, shared wire/layout header, BPF object, and
+the generated instruction header. The receipt records both source identities,
+compiler identity/version, exact arguments, program/native hashes and checked
+ELF metadata in `out/android/ci-observer/build.json`. The verifier
 compares the retained source with the checked-out source before execution and
 during replay. Build receipts are consistency evidence, not independent
 authentication of CI or the installed compiler.
 
-Only after the disposable/root/image/config guards pass, the bounded ADB
+Only after the disposable/root/image/config/BTF guards pass, the bounded ADB
 recorder creates a fresh private `/data/local/tmp/waarp-ftrace-observer-...`
 directory, transfers the exact binary, checks its guest hash, runs it once and
 removes only that owned binary/directory. Exact transfer argv, timings, raw
@@ -218,8 +225,8 @@ output and hashes use the same 10-second command, 60-second total and 64 KiB
 stream limits. The observer itself has a 9-second deadline. A cleanup failure
 is retained separately and cannot replace the primary observation failure.
 
-The observer requires the existing root `su` SELinux context with SELinux
-enforcing, a real procfs root, and visibility through `hidepid=0` or the actual
+The observer requires the existing root `su` SELinux context with the global
+SELinux enforcing switch unchanged, a real procfs root, and visibility through `hidepid=0` or the actual
 filesystem GID/supplementary-group bypass for `hidepid=1/2`. Real/effective GID
 alone is insufficient. `hidepid=4`, unknown modes, a restricted proc subset or
 any unreadable data refuse observation. The exact kernel's disabled PID
@@ -236,7 +243,7 @@ is checked again during both later task observations. In the initial inventory,
 a denied/unavailable comparison causes a full scan of that TID; it does not
 omit it. The resulting table representatives remain fixed.
 
-Schema 3 permits only positively covered **additional threads** within the
+Schema 4 retains schema 3's permission only for positively covered **additional threads** within the
 unchanged original process set. All original TID/start-time identities remain
 mandatory; a thread accepted during the middle observation also remains
 mandatory in the final one. A new TID requires fresh start time before and
@@ -259,45 +266,97 @@ shared members in each phase and five matching process-list observations;
 accepted task set remains limited to 8,192. This attests observed table
 coverage and retained identities, not a stable whole thread population.
 
-Descriptor observation still has two complete passes and the same fixed
-tables. Only positively classified
-non-tracefs differences can be reconciled; every observed tracefs descriptor's
-number, device/inode/type/access flags and owning table must remain identical.
-An unreadable, unclassified or disappearing-before-metadata descriptor still
-refuses the scan. There is no signal to another process.
+Descriptor observation retains two global passes and the fixed table
+representatives. The exact image's embedded `.BTF` is 7,167,898 bytes, SHA-256
+`d9bad01cb909205a22d741adf6b9f5a907a6e805354a94d9012165f2002508fa`.
+The live `/sys/kernel/btf/vmlinux` must match before the program is transferred.
+Offline type review follows the reachable function/context/pointer graph,
+including `__bpf_md_ptr` anonymous unions; duplicate named structures are not
+selected by name alone. The exact attach function is BTF ID 97052, context ID 17948.
+The retained shared header binds the reviewed type widths and offsets to this
+digest. Another kernel, BTF graph, missing export or changed hash refuses.
 
-For each table in each pass, the observer enumerates list A, reads complete
-metadata for every A entry, then enumerates list B. If the lists differ, it
-performs exactly one reconciliation: fresh complete metadata for **all** B
-entries, then final list C. C must equal B; another numeric inventory change
-refuses without a third sample, retry or delay. The two classified samples are
-compared as follows: a removed entry must have been non-tracefs; an added entry
-must now be non-tracefs; a replacement or changed flags requires both samples
-to be non-tracefs. A reused FD number never inherits its former classification.
-The same comparison applies between the two passes. Newly added markers,
-readers, controls and any change to the observed tracefs projection refuse.
-The exact kernel's [proc FD enumeration](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/fs/proc/fd.c)
-walks a live file table, so unrelated Android file activity does not by itself
-establish a tracefs consumer.
+The native observer first checks its actual effective capabilities and requires
+`CAP_SYS_ADMIN` or both `CAP_BPF` and `CAP_PERFMON`, and `Seccomp:0`. UID 0 alone
+is insufficient. The [exact program-load checks](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/kernel/bpf/syscall.c#L2624-L2710)
+and [capability fallback](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/kernel/bpf/token.c#L11-L27)
+define these requirements. AOSP's userdebug [su policy](https://android.googlesource.com/platform/system/sepolicy/+/refs/heads/android16-release/private/su.te)
+marks that domain permissive; the observed global enforcing flag is not proof
+that `su` itself enforces every SELinux rule. The observer changes no SELinux
+policy, capability, seccomp filter or credential. A denied load/link/read fails;
+bounded verifier diagnostics are retained for the fixed program before any
+foreign file is supplied to it. Static policy/source review is not a successful
+guest load or a substitute for actual acceptance.
 
-The retained schema records separate final descriptor counts and metadata-read
-counts for each pass, the number of reconciliations, and added/removed/replaced
-**comparison differences**, separated into within-pass and between-pass
-comparisons. These are not counts of unique operating-system mutations and do
-not claim a stable whole FD inventory. Final descriptor counts retain the
-262,144 limit per pass; at most one extra complete sample per table bounds
-metadata reads to twice that limit. The existing 9-second observer, 10-second
-command and 60-second total limits remain unchanged.
+One anonymous `BPF_PROG_TYPE_TRACING`/`BPF_TRACE_ITER` program is loaded. Each
+observation creates a link selecting the **explicit representative TID** and
+its iterator; it does not use ALL/TGID iteration's implicit shared-table skip.
+The exact [iterator](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/kernel/bpf/task_iter.c#L259-L382)
+retains a task/file reference through its callback. The
+[lookup/refcount implementation](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/fs/file.c#L933-L1090)
+revalidates the slot/table after obtaining a reference. The callback reads only
+TID/TGID, FD number, inode, normalized device major/minor, file type and
+`file->f_flags`, using checked metadata reads. It exports no kernel pointer,
+path, argv, device-specific fdinfo tail or file contents. This temporary kernel
+reference is not a userspace open/dup of a foreign target. The only BPF helpers
+are metadata `probe_read_kernel` and output `seq_write`; no trace-print helper,
+trace hook, persistent pin, map or modification of an existing BPF program is
+used. All program/link/iterator descriptors close before the GLOBAL barrier.
 
-`fstatat` follows the proc descriptor reference for metadata without opening
-its target. Classification uses the tracefs superblock device and the exact
-top-level `trace_marker` inode: only write-only marker descriptors are allowed.
-An unknown `mnt_id` is never treated as a non-tracefs file. In this exact kernel,
+Every emitted tracefs candidate still goes through the prior strict
+`fstatat`/`fdinfo`/`fstatat` checks and must match the BPF device/inode/type.
+Only the exact write-only top-level `trace_marker` descriptor is allowed;
+readers, controls, O_PATH, changed or disappeared tracefs entries refuse.
+The proc flags, including descriptor-slot `O_CLOEXEC`, remain in the compared
+tracefs projection, with `(procFlags & ~O_CLOEXEC) == fileStatusFlags` required.
+Non-tracefs records describe file status flags, not the live CLOEXEC bitmap;
+non-tracefs flag differences were already permitted. A newly read FD number
+never inherits an earlier classification. See the
+[fdinfo flag construction](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/fs/proc/fd.c#L23-L59).
+
+For each table in each pass, a complete referenced metadata stream S1 supplies
+both FD numbers and their classifications, then the observer reads the numeric
+proc FD list B. If S1's numbers equal B, that pass is covered. Otherwise exactly
+one complete stream S2 is allowed, followed by numeric list C. Both
+**S2.numbers == B and C == B** are required. S1/S2 comparisons permit only
+positively non-tracefs additions, removals or replacements; any tracefs
+projection change refuses. A missing B member, unknown/error record, changed
+C or incomplete stream refuses without a third sample or quieting delay.
+Thus the new iterator replaces the old split enumeration-to-fstat metadata
+race while preserving the separate end-number coverage gate. The same strict
+tracefs projection comparison remains between the two global passes.
+
+The private wire protocol uses fixed 64-byte records, explicit ERROR/END kinds,
+strict session/sequence/TID checks, increasing FD numbers and a subsequent
+actual EOF. Each userspace read requests at most 4096 bytes. The exact kernel's
+`CONFIG_PAGE_SHIFT=12` makes [its iterator buffer](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/kernel/bpf/bpf_iter.c#L88-L235)
+32768 bytes; one 64-byte record per callback plus an END fits that bound. This
+kernel page fact is separate from the observed 16384-byte userspace page value.
+Callback return 1 means retrying an object, not a durable error, so failed
+metadata reads emit ERROR records. No host EAGAIN/read-error retry is used.
+The reviewed kernel can prefetch a final un-emitted object after a full 4096-byte
+read. A one-ahead END cursor is accepted only as the first complete record of
+the next read, with no pending fragment and a prior full read without END;
+all other END sequence mismatches refuse. This describes the kernel cursor,
+not a skipped emitted metadata record or evidence of stable file slots.
+
+Schema 4 retains final counts and within/between-pass comparison differences;
+it separately records all BPF metadata records, complete streams and bytes,
+strict tracefs cross-checks, reconciliations, source-bound END cursor advances,
+actual capability bits, and successful closing of all anonymous BPF objects.
+These are observed comparison counts, not unique operating-system mutations.
+At most two samples per table per pass retain the limits of 65536 descriptors
+per table, 262144 final descriptors and 524288 metadata records per pass. BPF
+loading, reads, cross-checks, closes and all old task/barrier checks remain in
+the same 9-second observer, 10-second command and 60-second total deadlines;
+stdout/stderr remain bounded to 64 KiB.
+
+Classification still uses the actual tracefs superblock device and exact
+marker inode, never an unknown `mnt_id`. In this exact kernel,
 [tracefs uses one superblock](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/fs/tracefs/inode.c),
-so aliases, detached mounts and cross-namespace descriptors retain that device
-identity. The reason to avoid a mountinfo-only test is visible in the exact
-[fdinfo implementation](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/fs/proc/fd.c)
-and [mountinfo's path filtering](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/fs/proc_namespace.c).
+so aliases, detached mounts and cross-namespace descriptors keep that device
+identity. [Mountinfo can omit entries outside a task's root](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/fs/proc_namespace.c);
+its absence is not a non-tracefs classification.
 
 This is a bounded observation of forbidden tracefs **descriptors**, not an
 atomic ownership proof or an assertion that no mmap can outlive `close(fd)`.
@@ -325,6 +384,14 @@ Its combined condition could fail on membership before reading start time;
 the recorded PID/TID therefore establishes neither a changed start time nor
 a harmless new thread. That failure is retained. Schema 3 requires new
 positive shared-table evidence and does not reinterpret that old result.
+
+The later [abce5c37 optimized API36 job](https://github.com/INNVoices/waarp/actions/runs/44875422019/job/136761225141)
+and its diagnostic preflight both failed on `descriptor_stat`/ENOENT before
+GLOBAL or any resize. That was the first fstatat of the current sample; it did
+not prove that the FD was non-tracefs or harmlessly closed. Those failures are
+not reinterpreted as accepted observations. Schema 4 needs fresh runtime
+records from its guarded iterator path; host compilation and fixtures do not
+establish verifier/permission success, runtime acceptance or a production APK.
 
 ### Complete prior writers, then check empty counters and preserve controls
 

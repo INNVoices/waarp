@@ -17,14 +17,21 @@ ZERO_STATS = "entries: 0\noverrun: 0\ncommit overrun: 0\nbytes: 0\noldest event 
 
 
 def observer_result():
-    return {"schemaVersion": 3, "passed": True, "uid": 0, "selinuxEnforcing": True,
+    return {"schemaVersion": 4, "passed": True, "uid": 0, "selinuxEnforcing": True,
             "selinuxContext": "u:r:su:s0", "pidNamespacesCompiledOut": True,
             "procHidepid": 2, "procGid": 3009, "procVisibilityVerified": True,
             "processes": 100, "threads": 900, "uniqueTables": 110, "sharedThreads": 790,
             "threadCounts": [900, 900, 900], "sharedThreadsAdded": [0, 0],
             "kcmpDeniedFullScans": 2, "descriptorCounts": [3000, 3000],
-            "descriptorMetadataReads": [3000, 3000], "descriptorReconciliations": 0, "markerWriters": 66,
-            "stableTracefsProjection": True,
+            "bpfRecordCounts": [3000, 3000], "descriptorReconciliations": 0, "markerWriters": 66,
+            "stableTracefsProjection": True, "descriptorSource": "bpf-iter/task_file", "endNumericCoverageVerified": True,
+            "tracefsProcChecks": [66, 66], "bpfStreamsCompleted": [110, 110],
+            "bpfStreamBytes": [64 * 3110, 64 * 3110], "bpfEndPrefetchAdvances": [0, 0],
+            "kernelBtfSha256": EMPTY.BTF_SHA256, "bpfAttachTypeId": 97052, "bpfReadChunkBytes": 4096,
+            "bpfRecordBytes": 64, "bpfEffectiveCapabilities": "0000000000200000", "seccompMode": 0,
+            "bpfProgram": {"loads": 1, "linkCreates": 220, "iteratorCreates": 220,
+                           "closedLinks": 220, "closedIterators": 220, "programClosed": True,
+                           "sha256": "2" * 64, "bytes": 888},
             "nonTraceComparisonDifferences": {"withinPass": {"added": 0, "removed": 0, "replaced": 0},
                                              "betweenPass": {"added": 0, "removed": 0, "replaced": 0}},
             "passes": 2, "taskInventoryObservations": 3, "stableProcessInventories": 5,
@@ -51,6 +58,7 @@ class StrictRecorder(FIXTURE.FakeRecorder):
         values = {"tracing-on": (0, "0"), "tracing-on-after": (0, "0"), "events-enabled": (0, "X"),
                   "enabled-events": (0, EMPTY.BPF_EVENT),
                   "kernel-config-digest": (0, EMPTY.CONFIG_GZIP_SHA256 + "  /proc/config.gz"),
+                  "kernel-btf-digest": (0, EMPTY.BTF_SHA256 + "  /sys/kernel/btf/vmlinux"),
                   "snapshot-not-compiled": (0, ""), "observer-create": (0, ""), "observer-push": (0, ""),
                   "observer-mode": (0, ""), "observer-scan": (0, json.dumps(observer_result())),
                   "observer-cleanup": (0, ""), "empty-controls-before-write": (0, raw_controls(4)),
@@ -67,8 +75,11 @@ class StrictRecorder(FIXTURE.FakeRecorder):
 
 class FixtureBuild:
     """Composition seam only; actual compiler/ELF validation has its own suite."""
-    def __init__(self, expected_source, expected_binary):
-        self.expected_source, self.expected_binary = expected_source, expected_binary
+    RETAINED_FILES = ("build.json", "tracefs-observer", "android-ftrace-observer.c", "android-ftrace-observer.bpf.c",
+                      "android-ftrace-observer-bpf.h", "tracefs-observer.bpf.o", "android-ftrace-observer-program.h")
+
+    def __init__(self, expected_source, expected_binary, extras):
+        self.expected_source, self.expected_binary, self.extras = expected_source, expected_binary, extras
 
     def validate_build(self, directory, source_path=None):
         raw = (directory / "build.json").read_bytes()
@@ -76,11 +87,19 @@ class FixtureBuild:
         binary = (directory / "tracefs-observer").read_bytes()
         if source != self.expected_source or binary != self.expected_binary or raw != b'{"syntheticFixture":true}\n':
             raise ValueError("Retained observer fixture bytes differ")
+        for name, expected in self.extras.items():
+            if (directory / name).read_bytes() != expected:
+                raise ValueError("Retained BPF fixture bytes differ")
         if source_path and source_path.read_bytes() != source:
             raise ValueError("Current observer source differs")
         return {"sourceSha256": hashlib.sha256(source).hexdigest(), "binarySha256": hashlib.sha256(binary).hexdigest(),
                 "binaryBytes": len(binary), "ndkVersion": "28.2.13676358", "target": "x86_64-linux-android29",
-                "receiptSha256": hashlib.sha256(raw).hexdigest()}
+                "receiptSha256": hashlib.sha256(raw).hexdigest(),
+                "bpfSourceSha256": hashlib.sha256(self.extras["android-ftrace-observer.bpf.c"]).hexdigest(),
+                "bpfHeaderSha256": hashlib.sha256(self.extras["android-ftrace-observer-bpf.h"]).hexdigest(),
+                "bpfObjectSha256": hashlib.sha256(self.extras["tracefs-observer.bpf.o"]).hexdigest(),
+                "bpfProgramSha256": "2" * 64, "bpfProgramBytes": 888,
+                "kernelBtfSha256": EMPTY.BTF_SHA256, "kernelBtfBytes": EMPTY.BTF_BYTES}
 
 
 class EmptyBufferChecks(unittest.TestCase):
@@ -97,8 +116,13 @@ class EmptyBufferChecks(unittest.TestCase):
         (self.observer / "tracefs-observer").write_bytes(self.binary_bytes)
         (self.observer / "android-ftrace-observer.c").write_bytes(self.source_bytes)
         (self.observer / "build.json").write_bytes(b'{"syntheticFixture":true}\n')
+        self.extra_files = {"android-ftrace-observer.bpf.c": Path(__file__).with_name("android-ftrace-observer.bpf.c").read_bytes(),
+                            "android-ftrace-observer-bpf.h": Path(__file__).with_name("android-ftrace-observer-bpf.h").read_bytes(),
+                            "tracefs-observer.bpf.o": b"synthetic BPF object: never loaded",
+                            "android-ftrace-observer-program.h": b"synthetic generated program: never loaded"}
+        for name, data in self.extra_files.items(): (self.observer / name).write_bytes(data)
         self.binary_hash = hashlib.sha256(self.binary_bytes).hexdigest()
-        self.builder_patch = patch.object(EMPTY, "build_module", return_value=FixtureBuild(self.source_bytes, self.binary_bytes))
+        self.builder_patch = patch.object(EMPTY, "build_module", return_value=FixtureBuild(self.source_bytes, self.binary_bytes, self.extra_files))
         self.builder_patch.start()
 
     def tearDown(self):
@@ -132,6 +156,50 @@ class EmptyBufferChecks(unittest.TestCase):
         self.assertFalse(proof["mutationAttempted"])
         self.assertNotIn("observer-push", [row["name"] for row in proof["commands"]])
 
+    def test_wrong_runtime_btf_refuses_before_program_transfer_or_resize(self):
+        with self.assertRaisesRegex(ValueError, "Runtime kernel BTF"):
+            self.prepare({"kernel-btf-digest": (0, "0" * 64 + "  /sys/kernel/btf/vmlinux")})
+        proof = json.loads(self.report.read_text())
+        self.assertFalse(proof["mutationAttempted"])
+        self.assertNotIn("observer-push", [row["name"] for row in proof["commands"]])
+
+    def test_executed_program_identity_must_match_retained_build(self):
+        result = observer_result(); result["bpfProgram"]["sha256"] = "3" * 64
+        with self.assertRaisesRegex(ValueError, "Executed BPF"):
+            self.prepare({"observer-scan": (0, json.dumps(result))})
+        self.assertFalse(json.loads(self.report.read_text())["mutationAttempted"])
+
+    def test_incomplete_stream_lifecycle_or_coverage_refuses(self):
+        changes = [
+            {"endNumericCoverageVerified": False}, {"bpfStreamsCompleted": [109, 110]},
+            {"bpfStreamsCompleted": [111, 110]}, {"bpfStreamBytes": [198976, 199040]},
+            {"tracefsProcChecks": [65, 66]}, {"bpfEndPrefetchAdvances": [111, 0]},
+            {"kernelBtfSha256": "0" * 64}, {"bpfReadChunkBytes": 65536},
+            {"bpfEffectiveCapabilities": "0000000000000000"}, {"seccompMode": 2}]
+        for change in changes:
+            result = observer_result(); result.update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError): EMPTY.parse_observer(json.dumps(result))
+        for key, value in (("loads", 2), ("closedLinks", 219), ("closedIterators", True), ("programClosed", False)):
+            result = observer_result(); result["bpfProgram"][key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError): EMPTY.parse_observer(json.dumps(result))
+
+    def test_prefetch_advance_requires_a_full_64_record_read(self):
+        result = observer_result(); result["bpfEndPrefetchAdvances"] = [48, 0]
+        with self.assertRaisesRegex(ValueError, "prefetch"):
+            EMPTY.parse_observer(json.dumps(result))
+
+    def test_strict_tracefs_checks_cannot_exceed_referenced_records(self):
+        result = observer_result()
+        result.update(descriptorCounts=[100, 100], bpfRecordCounts=[101, 100], markerWriters=100,
+                      tracefsProcChecks=[102, 100], bpfStreamsCompleted=[111, 110],
+                      bpfStreamBytes=[64 * 212, 64 * 210], descriptorReconciliations=1,
+                      nonTraceComparisonDifferences={"withinPass": {"added": 0, "removed": 1, "replaced": 0},
+                                                     "betweenPass": {"added": 0, "removed": 0, "replaced": 0}})
+        for key in ("linkCreates", "iteratorCreates", "closedLinks", "closedIterators"):
+            result["bpfProgram"][key] = 221
+        with self.assertRaisesRegex(ValueError, "tracefs candidate"):
+            EMPTY.parse_observer(json.dumps(result))
+
     def test_snapshot_feature_appearance_is_not_assumed_empty(self):
         with self.assertRaisesRegex(ValueError, "snapshot-not-compiled"):
             self.prepare({"snapshot-not-compiled": (1, "")})
@@ -164,11 +232,14 @@ class EmptyBufferChecks(unittest.TestCase):
 
     def test_classified_nontrace_reconciliation_keeps_full_empty_buffer_gates(self):
         result = observer_result()
-        result.update(descriptorCounts=[3000, 3002], descriptorMetadataReads=[3005, 3010],
-                      descriptorReconciliations=2,
+        result.update(descriptorCounts=[3000, 3002], bpfRecordCounts=[3005, 3010],
+                      descriptorReconciliations=2, bpfStreamsCompleted=[111, 111],
+                      bpfStreamBytes=[64 * 3116, 64 * 3121],
                       nonTraceComparisonDifferences={
                           "withinPass": {"added": 6, "removed": 3, "replaced": 1},
                           "betweenPass": {"added": 3, "removed": 1, "replaced": 2}})
+        for key in ("linkCreates", "iteratorCreates", "closedLinks", "closedIterators"):
+            result["bpfProgram"][key] = 222
         recorder, proof = self.prepare({"observer-scan": (0, json.dumps(result))})
         self.assertTrue(PREP.validate_report(self.report, 16384)["passed"])
         self.assertEqual(result, proof["emptyBufferProof"]["observerResult"])
@@ -223,7 +294,7 @@ class EmptyBufferChecks(unittest.TestCase):
     def test_forbidden_or_incomplete_observer_fields_refuse(self):
         for key, value in (("procHidepid", 4), ("procVisibilityVerified", False), ("unknownDescriptors", 1),
                            ("forbiddenTracefsDescriptors", 1), ("passes", 1), ("taskInventoryObservations", 2),
-                           ("sharedThreads", 999), ("schemaVersion", True), ("schemaVersion", 1), ("schemaVersion", 2),
+                           ("sharedThreads", 999), ("schemaVersion", True), ("schemaVersion", 1), ("schemaVersion", 2), ("schemaVersion", 3),
                            ("stableTracefsProjection", False), ("elapsedNs", 9000000001)):
             result = observer_result(); result[key] = value
             with self.subTest(key=key), self.assertRaises(ValueError):
@@ -234,8 +305,8 @@ class EmptyBufferChecks(unittest.TestCase):
             {"descriptorCounts": [3000]},
             {"descriptorCounts": [3000, 3001]},
             {"descriptorCounts": [True, 3000]},
-            {"descriptorMetadataReads": [2999, 3000]},
-            {"descriptorMetadataReads": [524289, 3000]},
+            {"bpfRecordCounts": [2999, 3000]},
+            {"bpfRecordCounts": [524289, 3000]},
             {"descriptorReconciliations": 221},
             {"descriptorReconciliations": 1},
             {"markerWriters": 3000,

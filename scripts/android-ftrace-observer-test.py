@@ -12,8 +12,10 @@ SOURCE = Path(__file__).with_name("android-ftrace-observer.c").resolve()
 DRIVER = r'''
 #define _GNU_SOURCE
 #include <dirent.h>
-static int fixture_closedir(DIR *stream);
-#define closedir fixture_closedir
+#include <sys/types.h>
+static ssize_t fixture_read(int descriptor, void *buffer, size_t size);
+#define read fixture_read
+#define WAARP_OBSERVER_TEST
 #define syscall fixture_syscall
 #define getgroups fixture_getgroups
 #define main observer_main
@@ -21,13 +23,14 @@ static int fixture_closedir(DIR *stream);
 #undef main
 #undef syscall
 #undef getgroups
-#undef closedir
+#undef read
+extern ssize_t read(int descriptor, void *buffer, size_t size);
 #include <stdarg.h>
 static int fixture_mode;
 static const char *fixture_case;
-static ino_t fixture_fd_inode;
-static dev_t fixture_fd_dev;
-static unsigned fixture_fd_lists;
+static unsigned fixture_bpf_streams;
+static int fixture_iterator_read_fd = -1;
+static bool fixture_partial_read;
 static unsigned fixture_new_kcmp_calls;
 static bool fixture_new_unshared;
 static void move_pending_task(int tid) {
@@ -53,24 +56,100 @@ static void move_pending(int number, bool info) {
         must(renameat(scan_proc_fd, source, scan_proc_fd, destination) == 0, "fixture_move_info");
     }
 }
-static int fixture_closedir(DIR *stream) {
-    struct stat info;
-    bool target = fstat(dirfd(stream), &info) == 0
-                  && info.st_dev == fixture_fd_dev && info.st_ino == fixture_fd_inode;
-    int result = closedir(stream);
-    if (result || !target) return result;
-    fixture_fd_lists++;
-    if (!strcmp(fixture_case, "unclassified-disappear") && fixture_fd_lists == 1)
-        must(unlinkat(scan_proc_fd, "111/task/111/fd/3", 0) == 0, "fixture_remove");
-    if (!strncmp(fixture_case, "reconcile", 9)) {
-        if (fixture_fd_lists == 1) move_pending(5, strcmp(fixture_case, "reconcile-unclassified") != 0);
-        if (fixture_fd_lists == 2 && !strcmp(fixture_case, "reconcile-second-change")) move_pending(6, true);
-        if (fixture_fd_lists == 2 && !strcmp(fixture_case, "reconcile-disappear"))
-            must(unlinkat(scan_proc_fd, "111/task/111/fd/5", 0) == 0, "fixture_remove");
+static ssize_t fixture_read(int descriptor, void *buffer, size_t size) {
+    if (descriptor == fixture_iterator_read_fd && !fixture_partial_read
+        && !strcmp(fixture_case, "bpf-prefetch-fragment")) {
+        fixture_partial_read = true; size = 4095;
     }
-    return result;
+    return read(descriptor, buffer, size);
+}
+static int fixture_bpf_link(const union bpf_attr *attr) {
+    const union bpf_iter_link_info *info = (const void *)(uintptr_t)attr->link_create.iter_info;
+    must(attr->link_create.prog_fd == (unsigned)iterator_program_fd
+         && attr->link_create.attach_type == BPF_TRACE_ITER && !attr->link_create.flags
+         && attr->link_create.iter_info_len == sizeof(*info) && !info->task.pid && !info->task.pid_fd,
+         "fixture_exact_tid_attach");
+    int tid = (int)info->task.tid, pid = tid == 999 ? 999 : 111;
+    char task_path[64]; snprintf(task_path, sizeof(task_path), "%d/task/%d", pid, tid);
+    int task = openat(scan_proc_fd, task_path, O_RDONLY | O_DIRECTORY);
+    int fds = openat(task, "fd", O_RDONLY | O_DIRECTORY);
+    must(task >= 0 && fds >= 0, "fixture_bpf_task");
+    if (!strcmp(fixture_case, "reconcile-disappear") && fixture_bpf_streams == 1)
+        must(unlinkat(fds, "5", 0) == 0, "fixture_remove_B_before_S2");
+    if (!strcmp(fixture_case, "reconcile-extra") && fixture_bpf_streams == 1) move_pending(6, true);
+    Numbers numbers = numeric_entries(fds, ".", MAX_FDS);
+    int output = openat(scan_proc_fd, "fixture-bpf-stream", O_CREAT | O_TRUNC | O_RDWR, 0600);
+    must(output >= 0, "fixture_bpf_output");
+    fixture_bpf_streams++;
+    uint64_t session = fixture_bpf_streams;
+    for (size_t i = 0; i < numbers.n; ++i) {
+        char path[64], data[256]; struct stat st;
+        snprintf(path, sizeof(path), "%d", numbers.v[i]);
+        must(fstatat(fds, path, &st, 0) == 0, "fixture_bpf_stat");
+        snprintf(path, sizeof(path), "fdinfo/%d", numbers.v[i]);
+        read_text_at(task, path, data, sizeof(data));
+        unsigned long long flags; long long pos;
+        must(sscanf(data, "pos:\t%lld\nflags:\t%llo", &pos, &flags) == 2, "fixture_bpf_flags");
+        struct WaarpBpfRecord row = { .magic = WAARP_BPF_RECORD_MAGIC, .version = 1, .kind = 1,
+            .session = session, .sequence = i, .inode = st.st_ino, .tgid = (u32)pid, .tid = (u32)tid,
+            .fd = (u32)numbers.v[i], .device_major = major(st.st_dev), .device_minor = minor(st.st_dev),
+            .file_status_flags = (u32)(flags & ~O_CLOEXEC), .file_type = st.st_mode & S_IFMT };
+        if (!strcmp(fixture_case, "bpf-error")
+            || (!strcmp(fixture_case, "reconcile-unknown") && fixture_bpf_streams == 2)) {
+            row.kind = 3; row.error = 2;
+        }
+        if (!strcmp(fixture_case, "bpf-foreign")) row.tid++;
+        if (!strcmp(fixture_case, "bpf-session") && i == 1) row.session++;
+        if (!strcmp(fixture_case, "bpf-sequence") && i == 1) row.sequence++;
+        if (!strcmp(fixture_case, "bpf-duplicate") && i == 1) row.fd--;
+        if (!strcmp(fixture_case, "bpf-trace-mismatch")) row.inode++;
+        must(write(output, &row, sizeof(row)) == sizeof(row), "fixture_bpf_write");
+    }
+    struct WaarpBpfRecord end = { .magic = WAARP_BPF_RECORD_MAGIC, .version = 1, .kind = 2,
+        .session = session, .sequence = numbers.n ? numbers.n - 1 : 0 };
+    if (!strncmp(fixture_case, "bpf-prefetch", 12)) end.sequence = numbers.n;
+    if (!strcmp(fixture_case, "bpf-prefetch-too-far")) end.sequence++;
+    if (strcmp(fixture_case, "bpf-no-end")) {
+        size_t bytes = sizeof(end) - (!strcmp(fixture_case, "bpf-truncated") ? 1 : 0);
+        must(write(output, &end, bytes) == (ssize_t)bytes, "fixture_bpf_end");
+        if (!strcmp(fixture_case, "bpf-after-end"))
+            must(write(output, &end, sizeof(end)) == sizeof(end), "fixture_bpf_duplicate_end");
+    }
+    if ((!strcmp(fixture_case, "nontrace-disappear") || !strcmp(fixture_case, "tracefs-disappear"))
+        && fixture_bpf_streams == 1)
+        must(unlinkat(fds, "3", 0) == 0, "fixture_bpf_remove_after_reference");
+    if (!strncmp(fixture_case, "reconcile-", 10)) {
+        if (fixture_bpf_streams == 1) move_pending(5, true);
+        if (!strcmp(fixture_case, "reconcile-second-change") && fixture_bpf_streams == 2) move_pending(6, true);
+    }
+    free(numbers.v);
+    must(close(task) == 0 && close(fds) == 0 && lseek(output, 0, SEEK_SET) == 0, "fixture_bpf_rewind");
+    return output;
 }
 long fixture_syscall(long number, ...) {
+    if (number == SYS_bpf) {
+        va_list args; va_start(args, number);
+        int command = va_arg(args, int); const union bpf_attr *attr = va_arg(args, const union bpf_attr *);
+        va_end(args);
+        if (command == BPF_PROG_LOAD) {
+            must(attr->prog_type == BPF_PROG_TYPE_TRACING && attr->expected_attach_type == BPF_TRACE_ITER
+                 && attr->attach_btf_id == ATTACH_BTF_ID && !attr->prog_btf_fd && !attr->func_info_cnt
+                 && !attr->line_info_cnt && !attr->prog_flags, "fixture_load_attributes");
+            if (!strcmp(fixture_case, "load-denied")) { errno = EPERM; return -1; }
+            return open("/dev/null", O_RDONLY);
+        }
+        if (command == BPF_LINK_CREATE) {
+            if (!strcmp(fixture_case, "bpf-link-denied")) { errno = EPERM; return -1; }
+            return fixture_bpf_link(attr);
+        }
+        if (command == BPF_ITER_CREATE) {
+            if (!strcmp(fixture_case, "bpf-read-error"))
+                return openat(scan_proc_fd, "fixture-bpf-stream", O_WRONLY);
+            fixture_iterator_read_fd = dup((int)attr->iter_create.link_fd);
+            return fixture_iterator_read_fd;
+        }
+        errno = ENOSYS; return -1;
+    }
     if (number != SYS_kcmp) { errno = ENOSYS; return -1; }
     va_list arguments; va_start(arguments, number);
     int first = va_arg(arguments, int), second = va_arg(arguments, int);
@@ -100,6 +179,13 @@ int main(int argc, char **argv) {
         return 0;
     }
     fixture_mode = atoi(argv[3]);
+    if (!strncmp(argv[1], "load", 4)) {
+        load_iterator_program();
+        must(close(iterator_program_fd) == 0, "fixture_program_close");
+        printf("{\"passed\":true,\"capabilities\":%llu}\n", (unsigned long long)observer_capabilities);
+        return 0;
+    }
+    iterator_program_fd = open("/dev/null", O_RDONLY);
     if (!strcmp(argv[1], "compare")) {
         trace_dev = 100;
         Descriptor before = {3, 10, 1000, S_IFREG, O_RDONLY}, after = before;
@@ -130,9 +216,9 @@ int main(int argc, char **argv) {
     trace_dev = UINT64_MAX; marker_ino = UINT64_MAX;
     struct stat watched;
     must(fstatat(scan_proc_fd, "111/task/111/fd", &watched, 0) == 0, "fixture_watch");
-    fixture_fd_dev = watched.st_dev; fixture_fd_inode = watched.st_ino;
-    if (!strcmp(argv[1], "reconcile-marker") || !strcmp(argv[1], "reconcile-reader")
-        || !strcmp(argv[1], "reconcile-control")) {
+    if (!strcmp(argv[1], "bpf-add-marker") || !strcmp(argv[1], "bpf-add-reader")
+        || !strcmp(argv[1], "bpf-add-control") || !strcmp(argv[1], "tracefs-disappear")
+        || !strcmp(argv[1], "bpf-trace-mismatch") || !strcmp(argv[1], "bpf-trace-flags")) {
         must(fstatat(scan_proc_fd, "marker", &watched, 0) == 0, "fixture_marker");
         trace_dev = watched.st_dev; marker_ino = watched.st_ino;
     }
@@ -157,6 +243,7 @@ int main(int argc, char **argv) {
         must(unlinkat(d, "task/111/fd/3", 0) == 0, "fixture_remove");
     }
     if (!strcmp(argv[1], "fd-replace")) move_pending(3, true);
+    if (!strncmp(argv[1], "bpf-add", 7)) move_pending(5, true);
     verify_inventory(inventory);
     for (size_t i = 0; i < inventory->table_count; ++i) scan_table(inventory, i, true);
     if (!strcmp(argv[1], "new-final") || !strcmp(argv[1], "new-final-unshare")) move_pending_task(113);
@@ -166,15 +253,17 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "new-unshare-final")) fixture_new_unshared = true;
     verify_inventory(inventory);
     printf("{\"passed\":true,\"processes\":%zu,\"threads\":%zu,\"tables\":%zu,"
-           "\"shared\":%zu,\"denied\":%zu,\"fds\":[%zu,%zu],\"reads\":[%zu,%zu],"
-           "\"reconciliations\":%zu,\"within\":[%zu,%zu,%zu],\"between\":[%zu,%zu,%zu],"
+           "\"shared\":%zu,\"denied\":%zu,\"fds\":[%zu,%zu],"
+           "\"streams\":[%zu,%zu],\"prefetch\":[%zu,%zu],\"between\":[%zu,%zu,%zu],"
+           "\"reconciliations\":%zu,\"within\":[%zu,%zu,%zu],\"reads\":[%zu,%zu],"
            "\"threadCounts\":[%zu,%zu,%zu],\"sharedAdded\":[%zu,%zu],\"newKcmpCalls\":%u,"
            "\"elapsedNs\":%" PRIu64 "}\n",
            inventory->process_count, inventory->task_count, inventory->table_count,
            inventory->shared, inventory->kcmp_denied, inventory->descriptors[0], inventory->descriptors[1],
-           inventory->metadata_reads[0], inventory->metadata_reads[1], inventory->reconciliations,
-           inventory->within_pass.added, inventory->within_pass.removed, inventory->within_pass.replaced,
+           inventory->streams[0], inventory->streams[1], inventory->prefetch_ends[0], inventory->prefetch_ends[1],
            inventory->between_pass.added, inventory->between_pass.removed, inventory->between_pass.replaced,
+           inventory->reconciliations, inventory->within_pass.added, inventory->within_pass.removed,
+           inventory->within_pass.replaced, inventory->bpf_records[0], inventory->bpf_records[1],
            inventory->thread_counts[0], inventory->thread_counts[1], inventory->thread_counts[2],
            inventory->shared_added[0], inventory->shared_added[1], fixture_new_kcmp_calls,
            monotonic_ns() - started_ns);
@@ -252,6 +341,15 @@ class NativeMetadataChecks(unittest.TestCase):
         self.two_processes(threads=4)
         result = self.run_case("scan")
         self.assertEqual((2, 5, 2, 3), tuple(result[k] for k in ("processes", "threads", "tables", "shared")))
+
+    def test_new_process_open_failure_does_not_report_previous_thread(self):
+        self.two_processes()
+        shutil.rmtree(self.root / "999")
+        (self.root / "999").write_text("")
+        result = self.run_case("scan", success=False)
+        self.assertEqual("process_directory", result["reason"])
+        self.assertEqual("task_inventory_before", result["stage"])
+        self.assertEqual((999, 0, -1), tuple(result[k] for k in ("pid", "tid", "fd")))
 
     def test_kcmp_denied_scans_every_thread_table(self):
         self.two_processes(threads=4)
@@ -339,9 +437,17 @@ class NativeMetadataChecks(unittest.TestCase):
         self.two_processes()
         self.assertEqual("metadata_open", self.run_case("disappear", success=False)["reason"])
 
-    def test_unclassified_descriptor_disappearance_still_refuses(self):
+    def test_tracefs_disappearance_still_refuses_after_bpf_reference(self):
         self.two_processes()
-        self.assertEqual("descriptor_stat", self.run_case("unclassified-disappear", success=False)["reason"])
+        self.assertEqual("descriptor_stat", self.run_case("tracefs-disappear", success=False)["reason"])
+
+    def test_referenced_nontrace_file_closure_is_still_classified(self):
+        self.two_processes()
+        result = self.run_case("nontrace-disappear")
+        self.assertEqual([3, 3], result["fds"])
+        self.assertEqual([0, 1, 0], result["within"])
+        self.assertEqual(1, result["reconciliations"])
+        self.assertEqual([3, 2], result["streams"])
 
     def test_classified_nontrace_removal_is_explicitly_counted(self):
         self.two_processes()
@@ -357,41 +463,133 @@ class NativeMetadataChecks(unittest.TestCase):
         result = self.run_case("fd-replace")
         self.assertEqual([0, 0, 1], result["between"])
 
-    def test_one_complete_reconciliation_classifies_new_nontrace_descriptor(self):
+    def test_one_bounded_reconciliation_keeps_end_number_coverage(self):
         self.two_processes(); self.pending(5)
-        result = self.run_case("reconcile")
+        result = self.run_case("reconcile-add")
         self.assertEqual([5, 5], result["fds"])
         self.assertEqual([7, 5], result["reads"])
-        self.assertEqual(1, result["reconciliations"])
+        self.assertEqual([3, 2], result["streams"])
         self.assertEqual([1, 0, 0], result["within"])
+        self.assertEqual(1, result["reconciliations"])
 
-    def test_reconciliation_refuses_new_descriptor_without_metadata(self):
-        self.two_processes(); self.pending(5, metadata=False)
-        self.assertEqual("descriptor_info_open", self.run_case("reconcile-unclassified", success=False)["reason"])
-
-    def test_reconciliation_refuses_descriptor_disappearing_before_metadata(self):
+    def test_reconciliation_must_cover_every_number_in_B(self):
         self.two_processes(); self.pending(5)
-        self.assertEqual("descriptor_stat", self.run_case("reconcile-disappear", success=False)["reason"])
+        self.assertEqual("descriptor_reconciliation_coverage", self.run_case("reconcile-disappear", success=False)["reason"])
 
-    def test_second_inventory_change_is_not_retried(self):
+    def test_reconciliation_cannot_add_unrequested_numbers_or_repeat_until_stable(self):
         self.two_processes(); self.pending(5); self.pending(6)
-        self.assertEqual("descriptor_reconciliation_changed",
-                         self.run_case("reconcile-second-change", success=False)["reason"])
+        self.assertEqual("descriptor_reconciliation_coverage", self.run_case("reconcile-extra", success=False)["reason"])
+
+    def test_final_C_must_equal_B_after_the_one_reconciliation(self):
+        self.two_processes(); self.pending(5); self.pending(6)
+        self.assertEqual("descriptor_reconciliation_changed", self.run_case("reconcile-second-change", success=False)["reason"])
+
+    def test_reconciliation_unknown_metadata_is_not_skipped(self):
+        self.two_processes(); self.pending(5)
+        self.assertEqual("bpf_metadata_error", self.run_case("reconcile-unknown", success=False)["reason"])
+
+    def test_one_ahead_end_cannot_follow_a_pending_partial_record(self):
+        self.two_processes(descriptors=64)
+        self.assertEqual("bpf_end_prefetch_boundary", self.run_case("bpf-prefetch-fragment", success=False)["reason"])
+
+    def test_second_iterator_classifies_added_nontrace_descriptor(self):
+        self.two_processes(); self.pending(5)
+        result = self.run_case("bpf-add")
+        self.assertEqual([4, 5], result["fds"])
+        self.assertEqual([2, 2], result["streams"])
+        self.assertEqual([1, 0, 0], result["between"])
+
+    def test_kernel_metadata_error_is_never_silently_skipped(self):
+        self.two_processes()
+        self.assertEqual("bpf_metadata_error", self.run_case("bpf-error", success=False)["reason"])
+
+    def test_missing_or_truncated_end_is_not_a_complete_inventory(self):
+        self.two_processes()
+        for name in ("bpf-no-end", "bpf-truncated"):
+            with self.subTest(name=name):
+                self.assertEqual("bpf_iterator_incomplete", self.run_case(name, success=False)["reason"])
+
+    def test_iterator_read_error_is_not_retried(self):
+        self.two_processes()
+        self.assertEqual("bpf_iterator_read", self.run_case("bpf-read-error", success=False)["reason"])
+
+    def test_denied_link_is_not_a_complete_inventory(self):
+        self.two_processes()
+        self.assertEqual("bpf_iterator_link", self.run_case("bpf-link-denied", success=False)["reason"])
+
+    def test_wrong_tid_session_or_sequence_cannot_claim_coverage(self):
+        self.two_processes()
+        for name, reason in (("bpf-foreign", "bpf_record_target_or_sequence"),
+                             ("bpf-session", "bpf_session_changed"),
+                             ("bpf-sequence", "bpf_record_target_or_sequence"),
+                             ("bpf-duplicate", "bpf_descriptor_order"),
+                             ("bpf-after-end", "bpf_record_header")):
+            with self.subTest(name=name): self.assertEqual(reason, self.run_case(name, success=False)["reason"])
+
+    def test_tracefs_bpf_identity_must_match_strict_proc_metadata(self):
+        self.two_processes()
+        self.assertEqual("bpf_tracefs_identity_mismatch", self.run_case("bpf-trace-mismatch", success=False)["reason"])
+
+    def test_cloexec_is_preserved_in_strict_tracefs_projection(self):
+        for tid in (111, 112): self.task(111, tid, flags=oct(os.O_CLOEXEC | os.O_WRONLY | 0o100000)[2:])
+        self.task(999, 999, flags=oct(os.O_CLOEXEC | os.O_WRONLY | 0o100000)[2:])
+        self.assertTrue(self.run_case("bpf-trace-flags")["passed"])
+
+    def test_one_ahead_end_requires_exact_full_read_prefetch_boundary(self):
+        self.two_processes(descriptors=64)
+        result = self.run_case("bpf-prefetch")
+        self.assertEqual([2, 2], result["prefetch"])
+
+    def test_one_ahead_end_after_short_read_is_refused(self):
+        self.two_processes(descriptors=63)
+        self.assertEqual("bpf_end_prefetch_boundary", self.run_case("bpf-prefetch", success=False)["reason"])
+
+    def test_one_ahead_end_after_new_data_in_current_read_is_refused(self):
+        self.two_processes(descriptors=65)
+        self.assertEqual("bpf_end_prefetch_boundary", self.run_case("bpf-prefetch", success=False)["reason"])
+
+    def test_end_more_than_one_ahead_is_refused(self):
+        self.two_processes(descriptors=64)
+        self.assertEqual("bpf_end_sequence", self.run_case("bpf-prefetch-too-far", success=False)["reason"])
+
+    def test_empty_table_ends_at_zero(self):
+        self.two_processes(descriptors=0)
+        self.assertEqual([0, 0], self.run_case("scan")["fds"])
+        self.assertEqual("bpf_end_sequence", self.run_case("bpf-prefetch-too-far", success=False)["reason"])
+
+    def capability_status(self, caps="0000000000200000", seccomp="0"):
+        (self.root / "self").mkdir(exist_ok=True)
+        (self.root / "self/status").write_text(f"Name:\tPRIVATE\nCapEff:\t{caps}\nSeccomp:\t{seccomp}\n")
+
+    def test_actual_capability_and_seccomp_gates_before_single_program_load(self):
+        self.capability_status()
+        self.assertTrue(self.run_case("load")["passed"])
+        self.capability_status(caps="000000c000000000")
+        self.assertTrue(self.run_case("load")["passed"])
+        for mask in ("0000000000000000", "0000008000000000", "0000004000000000"):
+            self.capability_status(caps=mask)
+            self.assertEqual("observer_bpf_capabilities", self.run_case("load", success=False)["reason"])
+        self.capability_status(seccomp="2")
+        self.assertEqual("observer_seccomp_unknown_filter", self.run_case("load", success=False)["reason"])
+
+    def test_failed_program_load_does_not_proceed_to_enumeration(self):
+        self.capability_status()
+        self.assertEqual("bpf_program_load", self.run_case("load-denied", success=False)["reason"])
 
     def test_added_marker_changes_observed_tracefs_projection(self):
         self.two_processes(); self.pending(5)
-        self.assertEqual("tracefs_projection_changed", self.run_case("reconcile-marker", success=False)["reason"])
+        self.assertEqual("tracefs_projection_changed", self.run_case("bpf-add-marker", success=False)["reason"])
 
-    def test_added_trace_reader_cannot_use_nontrace_reconciliation(self):
+    def test_added_trace_reader_cannot_use_nontrace_classification(self):
         self.two_processes(); self.pending(5, flags="0100000")
-        self.assertEqual("tracefs_consumer_or_control", self.run_case("reconcile-reader", success=False)["reason"])
+        self.assertEqual("tracefs_consumer_or_control", self.run_case("bpf-add-reader", success=False)["reason"])
 
-    def test_added_trace_control_cannot_use_nontrace_reconciliation(self):
+    def test_added_trace_control_cannot_use_nontrace_classification(self):
         self.two_processes()
         control = self.root / "control"
         control.write_text("PRIVATE")
         self.pending(5, target=control)
-        self.assertEqual("tracefs_consumer_or_control", self.run_case("reconcile-control", success=False)["reason"])
+        self.assertEqual("tracefs_consumer_or_control", self.run_case("bpf-add-control", success=False)["reason"])
 
     def test_any_tracefs_side_of_a_comparison_is_protected(self):
         for case in (1, 2, 3, 4, 5):
