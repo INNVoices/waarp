@@ -47,6 +47,7 @@ typedef struct {
     Task tasks[MAX_TASKS]; size_t task_count;
     Table tables[MAX_TASKS]; size_t table_count;
     size_t descriptors[2], metadata_reads[2], markers, shared, kcmp_denied, reconciliations;
+    size_t thread_counts[3], shared_added[2], verification_phases;
     Differences within_pass, between_pass;
 } Inventory;
 
@@ -66,7 +67,7 @@ static uint64_t monotonic_ns(void) {
 static _Noreturn void refuse(const char *reason) {
     /* Only source literals and numeric metadata; no path/argv/event payload. */
     int error = errno;
-    printf("{\"schemaVersion\":2,\"passed\":false,\"reason\":\"%s\","
+    printf("{\"schemaVersion\":3,\"passed\":false,\"reason\":\"%s\","
            "\"stage\":\"%s\",\"errno\":%d,\"pid\":%d,\"tid\":%d,\"fd\":%d}\n",
            reason, failure_stage, error, failure_pid, failure_tid, failure_fd);
     exit(1);
@@ -195,38 +196,125 @@ static void initial_inventory(Inventory *inventory) {
     free(pids.v);
     must(inventory->process_count > 1 && inventory->task_count >= inventory->process_count,
          "incomplete_process_inventory");
+    inventory->thread_counts[0] = inventory->task_count;
 }
 
-static void verify_inventory(const Inventory *inventory) {
+static size_t known_task(const Inventory *inventory, int pid, int tid) {
+    for (size_t i = 0; i < inventory->task_count; ++i)
+        if (inventory->tasks[i].pid == pid && inventory->tasks[i].tid == tid) return i;
+    return SIZE_MAX;
+}
+
+static void verify_member(const Inventory *inventory, size_t index) {
+    const Task *task = &inventory->tasks[index];
+    const Task *representative = &inventory->tasks[inventory->tables[task->table].representative];
+    int directory = inventory->processes[task->process].directory;
+    failure_pid = task->pid; failure_tid = task->tid; failure_fd = -1;
+    must(representative->pid == task->pid && representative->process == task->process,
+         "thread_table_owner_changed");
+    must(task_start(directory, task->tid) == task->start, "thread_start_changed");
+    must(task_start(directory, representative->tid) == representative->start, "representative_start_changed");
+    if (representative != task)
+        must(same_files(task->tid, representative->tid) == 0, "shared_files_changed");
+    must(task_start(directory, task->tid) == task->start, "thread_start_changed");
+    must(task_start(directory, representative->tid) == representative->start, "representative_start_changed");
+}
+
+static size_t bind_new_shared_thread(Inventory *inventory, size_t process, int tid) {
+    Process owner = inventory->processes[process];
+    failure_pid = owner.pid; failure_tid = tid; failure_fd = -1;
+    must(inventory->task_count < MAX_TASKS, "task_limit");
+    uint64_t start = task_start(owner.directory, tid);
+    size_t table = SIZE_MAX;
+    /* Table representatives are fixed by the initial inventory. A newcomer
+     * cannot represent another newcomer or introduce an unobserved table. */
+    for (size_t g = 0; g < inventory->table_count; ++g) {
+        const Task *representative = &inventory->tasks[inventory->tables[g].representative];
+        if (representative->pid != owner.pid) continue;
+        must(task_start(owner.directory, representative->tid) == representative->start,
+             "representative_start_changed");
+        long relation = same_files(tid, representative->tid);
+        must(relation >= 0 && relation <= 3, "new_thread_kcmp_refused");
+        must(task_start(owner.directory, representative->tid) == representative->start,
+             "representative_start_changed");
+        must(task_start(owner.directory, tid) == start, "new_thread_start_changed");
+        if (relation == 0) { table = g; break; }
+    }
+    must(table != SIZE_MAX, "new_thread_unique_table");
+    size_t index = inventory->task_count++;
+    inventory->tasks[index] = (Task){owner.pid, tid, start, process, table};
+    inventory->shared++;
+    return index;
+}
+
+static void verify_process_list(const Inventory *inventory) {
     Numbers pids = numeric_entries(scan_proc_fd, ".", MAX_PROCESSES + 1);
-    size_t process = 0, task_index = 0;
+    size_t process = 0;
+    for (size_t p = 0; p < pids.n; ++p) {
+        if (pids.v[p] == observer_pid) continue;
+        failure_pid = pids.v[p]; failure_tid = 0; failure_fd = -1;
+        must(process < inventory->process_count && pids.v[p] == inventory->processes[process].pid,
+             "process_inventory_changed");
+        process++;
+    }
+    free(pids.v);
+    must(process == inventory->process_count, "process_inventory_changed");
+}
+
+static void verify_inventory(Inventory *inventory) {
+    must(inventory->verification_phases < 2, "task_inventory_phase");
+    size_t prior_count = inventory->task_count;
+    bool *seen = calloc(MAX_TASKS, sizeof(bool));
+    must(seen != NULL, "allocation");
+    Numbers pids = numeric_entries(scan_proc_fd, ".", MAX_PROCESSES + 1);
+    size_t process = 0;
     for (size_t p = 0; p < pids.n; ++p) {
         if (pids.v[p] == observer_pid) continue;
         must(process < inventory->process_count && pids.v[p] == inventory->processes[process].pid,
              "process_inventory_changed");
         Process item = inventory->processes[process];
-        failure_pid = item.pid;
+        failure_pid = item.pid; failure_tid = 0; failure_fd = -1;
         Numbers tids = numeric_entries(item.directory, "task", MAX_TASKS);
-        for (size_t t = 0; t < tids.n; ++t) {
-            must(task_index < inventory->task_count, "task_inventory_changed");
-            const Task *task = &inventory->tasks[task_index++];
-            failure_tid = tids.v[t];
-            must(task->pid == item.pid && task->tid == tids.v[t]
-                 && task->start == task_start(item.directory, tids.v[t]), "task_identity_changed");
-            size_t representative = inventory->tables[task->table].representative;
-            if (representative != task_index - 1) {
-                must(same_files(task->tid, inventory->tasks[representative].tid) == 0,
-                     "shared_files_changed");
+        must(tids.n > 0, "empty_task_inventory");
+        /* Check membership before binding any newcomer, so a missing original
+         * representative cannot be mislabeled as a new-thread start failure. */
+        for (size_t i = 0; i < prior_count; ++i) {
+            const Task *known = &inventory->tasks[i];
+            if (known->pid == item.pid && !bsearch(&known->tid, tids.v, tids.n, sizeof(int), number_compare)) {
+                failure_tid = known->tid;
+                refuse("known_thread_missing");
             }
         }
+        for (size_t t = 0; t < tids.n; ++t) {
+            failure_tid = tids.v[t];
+            size_t index = known_task(inventory, item.pid, tids.v[t]);
+            if (index == SIZE_MAX) index = bind_new_shared_thread(inventory, process, tids.v[t]);
+            must(!seen[index], "duplicate_thread_observation");
+            seen[index] = true;
+            verify_member(inventory, index);
+        }
+        Numbers final = numeric_entries(item.directory, "task", MAX_TASKS);
+        must(final.n == tids.n && !memcmp(final.v, tids.v, tids.n * sizeof(int)),
+             "thread_list_changed_during_observation");
+        free(final.v);
+        /* This second identity/sharing check also covers final-phase newcomers,
+         * for which there will be no later whole inventory observation. */
+        for (size_t t = 0; t < tids.n; ++t) {
+            size_t index = known_task(inventory, item.pid, tids.v[t]);
+            must(index != SIZE_MAX, "unclassified_thread");
+            verify_member(inventory, index);
+        }
         free(tids.v);
-        must(task_index == inventory->task_count || inventory->tasks[task_index].pid != item.pid,
-             "task_inventory_changed");
         process++;
     }
     free(pids.v);
-    must(process == inventory->process_count && task_index == inventory->task_count,
-         "process_inventory_changed");
+    must(process == inventory->process_count, "process_inventory_changed");
+    for (size_t i = 0; i < inventory->task_count; ++i) must(seen[i], "unclassified_thread");
+    free(seen);
+    verify_process_list(inventory);
+    size_t phase = inventory->verification_phases++;
+    inventory->shared_added[phase] = inventory->task_count - prior_count;
+    inventory->thread_counts[phase + 1] = inventory->task_count;
 }
 
 static Descriptor descriptor_metadata(int fd_directory, int task_directory, int number) {
@@ -518,23 +606,28 @@ int main(int argc, char **argv) {
     }
     stopped_bpf_controls(trace_directory);
     bounded();
-    printf("{\"schemaVersion\":2,\"passed\":true,\"uid\":0,\"selinuxEnforcing\":true,"
+    printf("{\"schemaVersion\":3,\"passed\":true,\"uid\":0,\"selinuxEnforcing\":true,"
            "\"selinuxContext\":\"u:r:su:s0\",\"pidNamespacesCompiledOut\":true,"
            "\"procHidepid\":%u,\"procGid\":%u,\"procVisibilityVerified\":true,"
            "\"processes\":%zu,\"threads\":%zu,\"uniqueTables\":%zu,"
            "\"sharedThreads\":%zu,\"kcmpDeniedFullScans\":%zu,"
+           "\"threadCounts\":[%zu,%zu,%zu],\"sharedThreadsAdded\":[%zu,%zu],"
            "\"descriptorCounts\":[%zu,%zu],\"descriptorMetadataReads\":[%zu,%zu],"
            "\"descriptorReconciliations\":%zu,\"markerWriters\":%zu,\"passes\":2,"
            "\"stableTracefsProjection\":true,"
            "\"nonTraceComparisonDifferences\":{"
            "\"withinPass\":{\"added\":%zu,\"removed\":%zu,\"replaced\":%zu},"
            "\"betweenPass\":{\"added\":%zu,\"removed\":%zu,\"replaced\":%zu}},"
-           "\"stableTaskInventories\":3,\"unknownDescriptors\":0,\"forbiddenTracefsDescriptors\":0,"
+           "\"taskInventoryObservations\":3,\"stableProcessInventories\":5,"
+           "\"stableTaskIdentities\":true,\"stableTableRepresentatives\":true,"
+           "\"unknownDescriptors\":0,\"forbiddenTracefsDescriptors\":0,"
            "\"membarrier\":{\"query\":%ld,\"command\":1,\"flags\":0,\"result\":0,\"calls\":1},"
            "\"cpuPossible\":\"0-1\",\"cpuPresent\":\"0-1\",\"cpuOnline\":\"0-1\","
            "\"cpuStatsAfterBarrier\":[",
            hidepid, proc_gid, inventory->process_count, inventory->task_count, inventory->table_count,
            inventory->shared, inventory->kcmp_denied,
+           inventory->thread_counts[0], inventory->thread_counts[1], inventory->thread_counts[2],
+           inventory->shared_added[0], inventory->shared_added[1],
            inventory->descriptors[0], inventory->descriptors[1],
            inventory->metadata_reads[0], inventory->metadata_reads[1],
            inventory->reconciliations, inventory->markers,

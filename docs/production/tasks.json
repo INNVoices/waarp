@@ -180,7 +180,9 @@
         "scripts/android-ftrace-observer-test.py",
         "scripts/android-ftrace-observer-build.py",
         "scripts/android-ftrace-observer-build-test.py",
-        "scripts/android-emulator-image-kernel-test.py"
+        "scripts/android-emulator-image-kernel-test.py",
+        "scripts/android-ftrace-preflight.py",
+        ".github/workflows/android-ftrace-preflight.yml"
       ],
       "scope": "исследовать конкретный image/kernel и источник включённого события до любой tracefs mutation. Проверенный exact kernel revision и permalink приведены ниже. Helper lookup может асинхронно включить событие, поэтому `X` совместим с нулём Perfetto sessions. Это объяснение механизма, не атрибуция actual guest. Подготовить проверяемый вариант, сохраняющий чужое состояние; если безопасный resize при таком состоянии не доказан, оставить отказ.",
       "acceptance": "различены факт enable, producer/helper lookup и текущий owner. Не считать `nop`, `tracing_on=0` и отсутствие perfetto PID доказательством отсутствия событий. Не выключать `bpf_trace_printk`, не разрешать произвольный `X`, не сбрасывать buffers/events. Итоговая корректировка должна иметь негативные tests активного/неизвестного owner, неизменённые 10 s/60 s/64 KiB budgets и реальные before/after records на согласованном образе.",
@@ -193,9 +195,10 @@
         "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926778",
         "https://github.com/INNVoices/waarp/pull/45",
         "docs/production/evidence/2026-11-21-pr45-runtime-followup.json",
-        "docs/production/evidence/2026-11-21-pr45-descriptor-refusal.json"
+        "docs/production/evidence/2026-11-21-pr45-descriptor-refusal.json",
+        "docs/production/evidence/2026-11-21-pr45-task-and-dns-refusals.json"
       ],
-      "evidence_note": "В PR45 head daf9 реальный root/image/NDK/observer выполнен; observer отказал до записи из-за изменения списка FD. Новый bounded reconciliation разрешает только положительно классифицированные non-tracefs изменения при неизменной tracefs projection, сохраняет остальные guards и бюджеты. 99 адресных host tests и реальная локальная сборка тем же NDK прошли; независимое ревью завершено. Actual guest resize/trace и 7200 s soak для нового кандидата ещё ожидаются."
+      "evidence_note": "PR45 head b654: root/image/NDK и первый FD pass выполнены; observer отказал в middle thread inventory. Combined predicate не позволяет отличить изменение TID membership от starttime. Mutation/GLOBAL/trace не достигнуты. Следующий ограниченный protocol сохраняет все известные identities и допускает только положительно доказанные shared-table additions; отдельный preflight ускоряет обратную связь. Native API36 отдельно дал DNS timeout второго OFF/ON; общая matrix 5 success / 2 failure / 1 skipped, soak не принят."
     },
     {
       "id": "REL-004",
@@ -230,7 +233,8 @@
       "evidence": [
         "https://github.com/INNVoices/waarp/actions/runs/44831610512",
         "docs/production/evidence/2026-11-21-pr45-runtime-followup.json",
-        "docs/production/evidence/2026-11-21-pr45-descriptor-refusal.json"
+        "docs/production/evidence/2026-11-21-pr45-descriptor-refusal.json",
+        "docs/production/evidence/2026-11-21-pr45-task-and-dns-refusals.json"
       ]
     },
     {

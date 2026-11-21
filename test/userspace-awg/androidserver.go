@@ -58,6 +58,7 @@ type androidPeer struct {
 	uniqueMu     sync.Mutex
 	dnsNames     map[string]struct{}
 	httpNonces   map[string]struct{}
+	trace        androidTrace
 }
 
 type androidProof struct {
@@ -81,6 +82,8 @@ type androidProof struct {
 	HTTPBytes             uint64 `json:"encrypted_http_bytes"`
 	FirstRequest          int64  `json:"first_encrypted_request_unix_ms"`
 	LastRequest           int64  `json:"last_encrypted_request_unix_ms"`
+
+	Diagnostics *androidTraceSnapshot `json:"diagnostics,omitempty"`
 }
 
 func (p *androidPeer) observe(packet []byte) {
@@ -123,6 +126,7 @@ func (p *androidPeer) proof() androidProof {
 		HTTPStarted: p.httpStarted.Load(), UniqueDNS: uint64(uniqueDNS), HTTPRequests: p.httpRequests.Load(),
 		UniqueHTTP: uint64(uniqueHTTP), HTTPBytes: p.httpBytes.Load(),
 		FirstRequest: p.firstRequest.Load(), LastRequest: p.lastRequest.Load(),
+		Diagnostics: p.trace.snapshot(),
 	}
 	result.Passed = result.Registered && result.Handshake && result.DNSReplies >= 2 &&
 		result.AWGHandshakeOnWire && result.AWGTransportOnWire && result.PlaintextAbsentOnWire &&
@@ -136,7 +140,8 @@ func (p *androidPeer) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		PublicKey string `json:"public_key"`
+		PublicKey   string `json:"public_key"`
+		Diagnostics bool   `json:"diagnostics"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
 	decoder.DisallowUnknownFields()
@@ -165,6 +170,9 @@ func (p *androidPeer) register(w http.ResponseWriter, r *http.Request) {
 		}
 		p.clientKey = input.PublicKey
 		p.registered.Store(true)
+	}
+	if input.Diagnostics {
+		p.trace.enable()
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"server_public_key": p.publicKey, "endpoint_port": p.port})
@@ -269,7 +277,7 @@ func executeAndroidServerFor(port int, reportPath string, duration time.Duration
 	}
 	p.tun = adaptAndroidNetTUN(stackTUN)
 	p.bind = &udpBind{family: "udp4", listenIP: net.IPv4(127, 0, 0, 1), observe: p.observe}
-	p.dev = device.NewDevice(ctx, p.tun, p.bind,
+	p.dev = device.NewDevice(ctx, p.tun, &androidTraceBind{udpBind: p.bind, trace: &p.trace},
 		&device.Logger{Verbosef: device.DiscardLogf, Errorf: func(string, ...any) { p.errorCount.Add(1) }}, 1)
 	defer func() {
 		p.proof() // Remember successful authentication before closing the device.
@@ -281,7 +289,11 @@ func executeAndroidServerFor(port int, reportPath string, duration time.Duration
 		case <-time.After(5 * time.Second):
 		}
 		if report, openErr := os.OpenFile(reportPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600); openErr == nil {
-			json.NewEncoder(report).Encode(p.proof())
+			proof := p.proof()
+			// Keep the existing strict on-disk counter schema. Opt-in HTTP
+			// diagnostics are retained by the Android per-cycle record only.
+			proof.Diagnostics = nil
+			json.NewEncoder(report).Encode(proof)
 			report.Close()
 		}
 	}()
@@ -307,7 +319,22 @@ func executeAndroidServerFor(port int, reportPath string, duration time.Duration
 			if response == nil {
 				continue
 			}
-			if written, writeErr := dnsListener.WriteTo(response, address); writeErr == nil && written == len(response) && valid && p.markRequest(name, false) {
+			// Only the fixed synthetic example.com probe is recorded, never a
+			// background app's question name, address, or DNS payload.
+			synthetic := valid && name == "example.com."
+			queryID := binary.BigEndian.Uint16(buffer[:2])
+			if synthetic {
+				p.trace.dns("inner-dns-received", queryID, n)
+			}
+			written, writeErr := dnsListener.WriteTo(response, address)
+			if synthetic {
+				stage := "inner-dns-write-ok"
+				if writeErr != nil || written != len(response) {
+					stage = "inner-dns-write-error"
+				}
+				p.trace.dns(stage, queryID, written)
+			}
+			if writeErr == nil && written == len(response) && valid && p.markRequest(name, false) {
 				p.replies.Add(1)
 			}
 		}

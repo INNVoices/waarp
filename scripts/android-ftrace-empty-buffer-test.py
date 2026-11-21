@@ -17,16 +17,19 @@ ZERO_STATS = "entries: 0\noverrun: 0\ncommit overrun: 0\nbytes: 0\noldest event 
 
 
 def observer_result():
-    return {"schemaVersion": 2, "passed": True, "uid": 0, "selinuxEnforcing": True,
+    return {"schemaVersion": 3, "passed": True, "uid": 0, "selinuxEnforcing": True,
             "selinuxContext": "u:r:su:s0", "pidNamespacesCompiledOut": True,
             "procHidepid": 2, "procGid": 3009, "procVisibilityVerified": True,
             "processes": 100, "threads": 900, "uniqueTables": 110, "sharedThreads": 790,
+            "threadCounts": [900, 900, 900], "sharedThreadsAdded": [0, 0],
             "kcmpDeniedFullScans": 2, "descriptorCounts": [3000, 3000],
             "descriptorMetadataReads": [3000, 3000], "descriptorReconciliations": 0, "markerWriters": 66,
             "stableTracefsProjection": True,
             "nonTraceComparisonDifferences": {"withinPass": {"added": 0, "removed": 0, "replaced": 0},
                                              "betweenPass": {"added": 0, "removed": 0, "replaced": 0}},
-            "passes": 2, "stableTaskInventories": 3, "unknownDescriptors": 0, "forbiddenTracefsDescriptors": 0,
+            "passes": 2, "taskInventoryObservations": 3, "stableProcessInventories": 5,
+            "stableTaskIdentities": True, "stableTableRepresentatives": True,
+            "unknownDescriptors": 0, "forbiddenTracefsDescriptors": 0,
             "membarrier": {"query": 511, "command": 1, "flags": 0, "result": 0, "calls": 1},
             "cpuPossible": "0-1", "cpuPresent": "0-1", "cpuOnline": "0-1",
             "cpuStatsAfterBarrier": [ZERO_STATS, ZERO_STATS], "elapsedNs": 1000000, "deadlineNs": 9000000000,
@@ -171,6 +174,31 @@ class EmptyBufferChecks(unittest.TestCase):
         self.assertEqual(result, proof["emptyBufferProof"]["observerResult"])
         self.assertEqual(1, sum(row["name"] == "subbuffer-write" for row in recorder.records))
 
+    def test_positive_shared_thread_additions_preserve_all_geometry_gates(self):
+        result = observer_result()
+        result.update(threads=905, sharedThreads=795, threadCounts=[900, 903, 905], sharedThreadsAdded=[3, 2])
+        recorder, proof = self.prepare({"observer-scan": (0, json.dumps(result))})
+        self.assertTrue(PREP.validate_report(self.report, 16384)["passed"])
+        self.assertEqual(result, proof["emptyBufferProof"]["observerResult"])
+        self.assertEqual(1, sum(row["name"] == "subbuffer-write" for row in recorder.records))
+
+    def test_thread_loss_unknown_coverage_and_inconsistent_additions_refuse(self):
+        changes = [
+            {"threadCounts": [900, 899, 900], "sharedThreadsAdded": [0, 1]},
+            {"threadCounts": [900, 901, 901], "sharedThreadsAdded": [1, 0]},
+            {"threadCounts": [900, 900], "sharedThreadsAdded": [0, 0]},
+            {"threadCounts": [900, True, 900]},
+            {"sharedThreadsAdded": [True, 0]},
+            {"sharedThreadsAdded": [1, 0]},
+            {"stableTaskIdentities": False},
+            {"stableTableRepresentatives": False},
+            {"stableProcessInventories": 3},
+        ]
+        for change in changes:
+            result = observer_result(); result.update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                EMPTY.parse_observer(json.dumps(result))
+
     def test_missing_offline_or_extra_cpu_refuses(self):
         for raw in (raw_cpu().replace("CPU_ONLINE\n0-1", "CPU_ONLINE\n0"),
                     raw_cpu().split(ROOT + "/per_cpu/cpu1/stats")[0], raw_cpu() + "/cpu2/stats\n" + ZERO_STATS):
@@ -194,8 +222,8 @@ class EmptyBufferChecks(unittest.TestCase):
 
     def test_forbidden_or_incomplete_observer_fields_refuse(self):
         for key, value in (("procHidepid", 4), ("procVisibilityVerified", False), ("unknownDescriptors", 1),
-                           ("forbiddenTracefsDescriptors", 1), ("passes", 1), ("stableTaskInventories", 2),
-                           ("sharedThreads", 999), ("schemaVersion", True), ("schemaVersion", 1),
+                           ("forbiddenTracefsDescriptors", 1), ("passes", 1), ("taskInventoryObservations", 2),
+                           ("sharedThreads", 999), ("schemaVersion", True), ("schemaVersion", 1), ("schemaVersion", 2),
                            ("stableTracefsProjection", False), ("elapsedNs", 9000000001)):
             result = observer_result(); result[key] = value
             with self.subTest(key=key), self.assertRaises(ValueError):

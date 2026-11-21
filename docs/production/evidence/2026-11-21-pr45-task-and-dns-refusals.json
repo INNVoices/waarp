@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "checkedAtUtc": "2026-11-21T06:12:42.296724+00:00",
+  "repository": "INNVoices/waarp",
+  "pullRequest": 45,
+  "headSha": "b6544eb173785af8d83bf657ad86ede0656e3dca",
+  "androidRunId": 44872198520,
+  "generalRunId": 44872198540,
+  "runAttempt": 1,
+  "fullAndroidAcceptance": false,
+  "androidJobSummary": {
+    "success": 5,
+    "failure": 2,
+    "skipped": 1,
+    "soak": "SKIPPED"
+  },
+  "optimizedApi36": {
+    "jobId": 136750879686,
+    "artifact": {
+      "id": 14695145618,
+      "name": "waarp-android-release-api-36-16384-runtime",
+      "bytes": 54530,
+      "sha256": "fc8da3e0d3ee27c017c4c3186150d8701ba68a14ef855afa8ed0734be34874bc",
+      "rawIndividualApiReceiptSha256": "ca8e360c80f9923fe8f74d9724e804098747c864a3d6eecfbcca7f2172a150a6",
+      "digestMatched": true,
+      "crcPassed": true
+    },
+    "root": {
+      "passed": true,
+      "requests": 1,
+      "transportClosed": false,
+      "uid": 0,
+      "elapsedSeconds": 1.8381165049999026,
+      "observedIdentityUnchanged": true,
+      "continuousBootVerified": false,
+      "rawHashesAndBoundsReplayed": true
+    },
+    "imageAndObserverBuild": "Exact reviewed image/kernel/config, current source, NDK28.2 and retained 24360-byte ELF matched; raw command hashes/order and replay passed.",
+    "observerSourceSha256": "2e12ef1260a26674bdab9f4a7cd6966e326678562209e2a232827215573916c0",
+    "observerBinarySha256": "4ac88f221c228e38d2e2ea0268680de61c069446708a32b58eaa97b7972ec7ba",
+    "observerRefusal": {
+      "schemaVersion": 2,
+      "passed": false,
+      "reason": "task_identity_changed",
+      "stage": "task_inventory_middle",
+      "errno": 0,
+      "pid": 1273,
+      "tid": 2380,
+      "fd": -1
+    },
+    "observerCommandSeconds": 0.622024734,
+    "descriptorPassOneCompleted": true,
+    "descriptorComparisonCountersAvailable": false,
+    "mutationAttempted": false,
+    "globalMembarrierReached": false,
+    "releaseTracesAvailable": false,
+    "interpretation": "The compound task_identity_changed condition can short-circuit on PID/TID membership before reading current start time. PID1273/TID2380 therefore does not establish a changed start time, new thread or removed thread. Complete first FD pass was reached, but its counters are absent in this failed output. No absence, shared table or harmlessness is inferred."
+  },
+  "nativeApi36": {
+    "jobId": 136750879731,
+    "artifact": {
+      "id": 14695165502,
+      "name": "waarp-android-api-36-16384-runtime",
+      "bytes": 2021674,
+      "sha256": "4c50b84f3ca5406ef4c4d80ce03235a19a4b2456add9714bb5425005c6b0c03c",
+      "zipCrcPassed": true,
+      "extractedFilesByteExact": 66,
+      "rawIndividualApiReceiptSha256": "45e66515b114af197104f989c31a6b9a453f2c0fffedf6ee5c86f2b5b6d263ec",
+      "digestMatched": true
+    },
+    "runtime": {
+      "sdk": "36",
+      "abi": "x86_64",
+      "pageSize": 16384,
+      "tests": 26,
+      "passed": 25,
+      "failed": 1,
+      "skipped": 0,
+      "timedOut": false,
+      "wallSeconds": 252.425775263,
+      "passedGate": false
+    },
+    "failure": {
+      "stage": "native instrumentation, encrypted AWG2 DNS OFF/ON acceptance",
+      "test": "encryptedAwg2DnsRoundTripSurvivesOffOn",
+      "cycle": 1,
+      "category": "DNS response timeout; return-path loss boundary unresolved",
+      "assertionsPreserved": true,
+      "rootCauseProven": false,
+      "observationsFile": "dns-cycle1-observations.json"
+    },
+    "observations": [
+      "Failure is cycle=1, the second OFF to ON cycle; only this test failed.",
+      "Probe ready interface and sending socket interface both index20; the available VPN network handle did not change during the recorded receive interval. These records do not establish a stale network.",
+      "The synthetic peer recorded two successful inner UDP response writes. The second host timestamp lies inside the recorded device receive window, but host/device clock synchronization was not independently measured. This counter is not proof of encrypted outer send, timing latency or client delivery.",
+      "The original full logcat tail no longer retains this earlier test. Return-path loss remains unlocalized; no product cause is claimed."
+    ]
+  },
+  "additionalSuccessJobs": [
+    {
+      "id": 136748992169,
+      "name": "Build, unit, lint and APK integrity"
+    },
+    {
+      "id": 136750879668,
+      "name": "Optimized release API29 /4096B"
+    },
+    {
+      "id": 136750879677,
+      "name": "Optimized release API35 /4096B"
+    },
+    {
+      "id": 136750879697,
+      "name": "Native VPN API29 /4096B"
+    },
+    {
+      "id": 136750879704,
+      "name": "Native VPN API35 /4096B"
+    }
+  ],
+  "generalCi": {
+    "runId": 44872198540,
+    "success": 3,
+    "windowsJobId": 136748992010,
+    "windowsNativeTunAndPortableLifecycle": "SUCCESS; job steps checked, archives not downloaded again for this head"
+  },
+  "nextVerification": "Review a bounded additions-only thread inventory protocol with every original task/table representative retained; missing identities, unknown sharing or changed start times remain refusals. Add test-only DNS packet-stage diagnostics without changing requests, assertions or budgets. A separate no-APK tracefs preflight provides earlier diagnostic feedback; the original full matrix and7200s soak remain required.",
+  "evidenceTrust": "Original trusted CI ZIP/API bytes, receipt digest/size/source/run checks and local CRC/replay; not cryptographic CI attestation or release acceptance.",
+  "replacementProtocolLocalValidation": {
+    "scope": "Separate local candidate validation, not a change to the failed historical runtime outcome.",
+    "localCommit": "1e596003efa37d0c69724707e8d0bd7eec1f7f1d",
+    "observerSchema": 3,
+    "observerSourceSha256": "264a9be27d215a5524363324b5d335a1c877bd2aed851da95b770e7f2961ec54",
+    "nativeHostTests": 38,
+    "emptyBufferHostTests": 22,
+    "existingPreparationHostTests": 54,
+    "review": "LGTM; independently read five paths and executed60hosttests plus4compiled-C boundary probes",
+    "additionalCompiledProbes": 4,
+    "actualPinnedNdkCompile": "PASS",
+    "ndkVersion": "28.2.13676358",
+    "binaryBytes": 26368,
+    "binarySha256": "ca35bfd6d3972f8e339c94f2385a2427c70d0cbc641b9395a585ea29b02dbf86",
+    "actualGuestRuntime": "NOT_RUN",
+    "protocol": "Only positively proven additions sharing a fully scanned original representative table. All original and previously accepted tasks remain mandatory; unknown sharing, missing identities, changed starts, new TGIDs or new tables refuse. All former budgets/controls/barrier/zero-counter requirements remain."
+  },
+  "separatePreflight": {
+    "review": "LGTM; same15emulator settings and existing root/image/ftrace helpers",
+    "releaseAcceptance": false,
+    "originalAndroidWorkflowChanged": false
+  },
+  "dnsDiagnosticLocalValidation": {
+    "localCommit": "a8127c3551c5720e5529f133fa73863981c459ba",
+    "review": "LGTM by coordinator; all4test-owned paths reviewed",
+    "newTraceTestsPassed": 3,
+    "existingEncryptedEdnsAndFreshClientRecreation": "PASS; actual local AWG fixture, two client sessions, EDNS andTCP",
+    "goVersion": "go1.26.11",
+    "goOfficialArchiveSha256": "9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec",
+    "androidCompileAndRuntime": "NOT_RUN locally; fresh CI required",
+    "productCauseEstablished": false,
+    "scope": "Opt-in bounded synthetic fixture metadata and per-cycle state; no DNS retry, extra readiness condition or changed assertion/deadline; no keys/payloads/address map exported.",
+    "canonicalProofContract": "Actual owned start, opt-in diagnostics registration, UDP canary and stop passed unchanged Python read_proof with exactly20canonical keys. HTTP diagnostics remained available and did not expose the canary. Counter verdict false was expected without traffic acceptance; no require-passed claim.",
+    "traceRetention": "Per-cycle HTTP trace is retained in app vpn-awg-dns-off-on.json after a completed probe; an earlier failure may have no peer trace. No unuploaded sidecar is claimed."
+  }
+}

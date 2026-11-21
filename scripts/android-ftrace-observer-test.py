@@ -28,6 +28,20 @@ static const char *fixture_case;
 static ino_t fixture_fd_inode;
 static dev_t fixture_fd_dev;
 static unsigned fixture_fd_lists;
+static unsigned fixture_new_kcmp_calls;
+static bool fixture_new_unshared;
+static void move_pending_task(int tid) {
+    char source[64], destination[64];
+    snprintf(source, sizeof(source), "pending-task-%d", tid);
+    snprintf(destination, sizeof(destination), "111/task/%d", tid);
+    must(renameat(scan_proc_fd, source, scan_proc_fd, destination) == 0, "fixture_move_task");
+}
+static void replace_start(int tid) {
+    char source[64], destination[64];
+    snprintf(source, sizeof(source), "pending-stat-%d", tid);
+    snprintf(destination, sizeof(destination), "111/task/%d/stat", tid);
+    must(renameat(scan_proc_fd, source, scan_proc_fd, destination) == 0, "fixture_replace_start");
+}
 static void move_pending(int number, bool info) {
     char source[64], destination[64];
     snprintf(source, sizeof(source), "pending-fd-%d", number);
@@ -58,6 +72,18 @@ static int fixture_closedir(DIR *stream) {
 }
 long fixture_syscall(long number, ...) {
     if (number != SYS_kcmp) { errno = ENOSYS; return -1; }
+    va_list arguments; va_start(arguments, number);
+    int first = va_arg(arguments, int), second = va_arg(arguments, int);
+    va_end(arguments);
+    if (first == 113 || second == 113) {
+        fixture_new_kcmp_calls++;
+        if (!strcmp(fixture_case, "new-denied")) { errno = EPERM; return -1; }
+        if (!strcmp(fixture_case, "new-missing-kcmp")) { errno = ESRCH; return -1; }
+        if (!strcmp(fixture_case, "new-unique") || fixture_new_unshared
+            || (!strcmp(fixture_case, "new-final-unshare") && fixture_new_kcmp_calls == 3)) return 1;
+        if (!strcmp(fixture_case, "new-start-change") && fixture_new_kcmp_calls == 1) replace_start(113);
+        if (!strcmp(fixture_case, "new-during-verification") && fixture_new_kcmp_calls == 1) move_pending_task(114);
+    }
     if (fixture_mode == 2) { errno = EPERM; return -1; }
     return fixture_mode == 1 ? 1 : 0;
 }
@@ -113,6 +139,14 @@ int main(int argc, char **argv) {
     Inventory *inventory = calloc(1, sizeof(*inventory));
     initial_inventory(inventory);
     for (size_t i = 0; i < inventory->table_count; ++i) scan_table(inventory, i, false);
+    if (!strncmp(argv[1], "new-", 4) && strcmp(argv[1], "new-process")
+        && strcmp(argv[1], "new-final") && strcmp(argv[1], "new-final-unshare")) move_pending_task(113);
+    if (!strcmp(argv[1], "new-process"))
+        must(renameat(scan_proc_fd, "pending-pid-888", scan_proc_fd, "888") == 0, "fixture_move_process");
+    if (!strcmp(argv[1], "old-thread-missing"))
+        must(renameat(scan_proc_fd, "111/task/112", scan_proc_fd, "removed-task-112") == 0, "fixture_remove_task");
+    if (!strcmp(argv[1], "old-start-change")) replace_start(112);
+    if (!strcmp(argv[1], "new-cap")) inventory->task_count = MAX_TASKS;
     if (!strcmp(argv[1], "unshare")) fixture_mode = 1;
     if (!strcmp(argv[1], "disappear")) {
         int d = inventory->processes[0].directory;
@@ -125,16 +159,24 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "fd-replace")) move_pending(3, true);
     verify_inventory(inventory);
     for (size_t i = 0; i < inventory->table_count; ++i) scan_table(inventory, i, true);
+    if (!strcmp(argv[1], "new-final") || !strcmp(argv[1], "new-final-unshare")) move_pending_task(113);
+    if (!strcmp(argv[1], "new-disappear-final"))
+        must(renameat(scan_proc_fd, "111/task/113", scan_proc_fd, "removed-task-113") == 0, "fixture_remove_task");
+    if (!strcmp(argv[1], "new-reuse-final")) replace_start(113);
+    if (!strcmp(argv[1], "new-unshare-final")) fixture_new_unshared = true;
     verify_inventory(inventory);
     printf("{\"passed\":true,\"processes\":%zu,\"threads\":%zu,\"tables\":%zu,"
            "\"shared\":%zu,\"denied\":%zu,\"fds\":[%zu,%zu],\"reads\":[%zu,%zu],"
            "\"reconciliations\":%zu,\"within\":[%zu,%zu,%zu],\"between\":[%zu,%zu,%zu],"
+           "\"threadCounts\":[%zu,%zu,%zu],\"sharedAdded\":[%zu,%zu],\"newKcmpCalls\":%u,"
            "\"elapsedNs\":%" PRIu64 "}\n",
            inventory->process_count, inventory->task_count, inventory->table_count,
            inventory->shared, inventory->kcmp_denied, inventory->descriptors[0], inventory->descriptors[1],
            inventory->metadata_reads[0], inventory->metadata_reads[1], inventory->reconciliations,
            inventory->within_pass.added, inventory->within_pass.removed, inventory->within_pass.replaced,
            inventory->between_pass.added, inventory->between_pass.removed, inventory->between_pass.replaced,
+           inventory->thread_counts[0], inventory->thread_counts[1], inventory->thread_counts[2],
+           inventory->shared_added[0], inventory->shared_added[1], fixture_new_kcmp_calls,
            monotonic_ns() - started_ns);
     return 0;
 }
@@ -191,6 +233,14 @@ class NativeMetadataChecks(unittest.TestCase):
             (self.root / f"pending-info-{number}").write_text(
                 f"pos:\t0\nflags:\t{flags}\nmnt_id:\t999999\nino:\t{target.stat().st_ino}\n")
 
+    def pending_thread(self, tid=113):
+        path = self.task(111, tid, descriptors=2)
+        path.rename(self.root / f"pending-task-{tid}")
+
+    def changed_start(self, tid):
+        fields = [str(tid), "(PRIVATE)", "S"] + ["0"] * 18 + ["54321"] + ["0"] * 4
+        (self.root / f"pending-stat-{tid}").write_text(" ".join(fields) + "\n")
+
     def run_case(self, mode, kcmp=0, success=True):
         result = subprocess.run([str(self.binary), mode, str(self.root), str(kcmp)], capture_output=True, text=True, timeout=10)
         self.assertEqual(0 if success else 1, result.returncode, result.stdout + result.stderr)
@@ -216,6 +266,74 @@ class NativeMetadataChecks(unittest.TestCase):
     def test_unshare_after_deduplication_is_rejected(self):
         self.two_processes()
         self.assertEqual("shared_files_changed", self.run_case("unshare", success=False)["reason"])
+
+    def test_new_thread_requires_positive_existing_table_coverage(self):
+        self.two_processes(); self.pending_thread()
+        result = self.run_case("new-shared")
+        self.assertEqual([3, 4, 4], result["threadCounts"])
+        self.assertEqual([1, 0], result["sharedAdded"])
+        self.assertEqual(2, result["tables"])
+        self.assertEqual(5, result["newKcmpCalls"])
+
+    def test_final_phase_newcomer_is_checked_after_final_list(self):
+        self.two_processes(); self.pending_thread()
+        result = self.run_case("new-final")
+        self.assertEqual([3, 3, 4], result["threadCounts"])
+        self.assertEqual([0, 1], result["sharedAdded"])
+        self.assertEqual(3, result["newKcmpCalls"])
+
+    def test_final_newcomer_cannot_unshare_after_initial_binding(self):
+        self.two_processes(); self.pending_thread()
+        self.assertEqual("shared_files_changed", self.run_case("new-final-unshare", success=False)["reason"])
+
+    def test_denied_missing_or_unique_new_table_is_not_omitted(self):
+        self.two_processes()
+        for case, expected in (("new-denied", "new_thread_kcmp_refused"),
+                               ("new-missing-kcmp", "new_thread_kcmp_refused"),
+                               ("new-unique", "new_thread_unique_table")):
+            with self.subTest(case=case):
+                self.pending_thread()
+                self.assertEqual(expected, self.run_case(case, success=False)["reason"])
+                shutil.rmtree(self.root / "111/task/113")
+
+    def test_new_thread_start_must_remain_exact_during_binding(self):
+        self.two_processes(); self.pending_thread(); self.changed_start(113)
+        self.assertEqual("new_thread_start_changed", self.run_case("new-start-change", success=False)["reason"])
+
+    def test_known_missing_member_is_distinct_from_start_change(self):
+        self.two_processes()
+        self.assertEqual("known_thread_missing", self.run_case("old-thread-missing", success=False)["reason"])
+
+    def test_known_start_change_is_not_new_member_permission(self):
+        self.two_processes(); self.changed_start(112)
+        self.assertEqual("thread_start_changed", self.run_case("old-start-change", success=False)["reason"])
+
+    def test_middle_newcomer_remains_mandatory_in_final(self):
+        self.two_processes(); self.pending_thread()
+        self.assertEqual("known_thread_missing", self.run_case("new-disappear-final", success=False)["reason"])
+
+    def test_middle_newcomer_identity_cannot_be_reused(self):
+        self.two_processes(); self.pending_thread(); self.changed_start(113)
+        self.assertEqual("thread_start_changed", self.run_case("new-reuse-final", success=False)["reason"])
+
+    def test_middle_newcomer_cannot_later_unshare_its_table(self):
+        self.two_processes(); self.pending_thread()
+        self.assertEqual("shared_files_changed", self.run_case("new-unshare-final", success=False)["reason"])
+
+    def test_thread_list_change_during_observation_is_not_retried(self):
+        self.two_processes(); self.pending_thread(); self.pending_thread(114)
+        self.assertEqual("thread_list_changed_during_observation",
+                         self.run_case("new-during-verification", success=False)["reason"])
+
+    def test_new_process_remains_out_of_scope_even_with_shared_files(self):
+        self.two_processes()
+        self.task(888, 888)
+        (self.root / "888").rename(self.root / "pending-pid-888")
+        self.assertEqual("process_inventory_changed", self.run_case("new-process", success=False)["reason"])
+
+    def test_cumulative_accepted_tasks_cannot_exceed_cap(self):
+        self.two_processes(); self.pending_thread()
+        self.assertEqual("task_limit", self.run_case("new-cap", success=False)["reason"])
 
     def test_disappearing_task_is_not_assumed_exited(self):
         self.two_processes()

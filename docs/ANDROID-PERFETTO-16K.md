@@ -232,10 +232,35 @@ and [compiled namespace entries](https://github.com/aosp-mirror/kernel_common/bl
 
 All `/proc/TGID/task/TID/fd` tables are covered, including threads that unshared
 their file table. `KCMP_FILES` deduplicates only proven-equal tables, and equality
-is checked again during both later task inventories. A denied/unavailable
-comparison causes a full scan of that TID; it does not omit it. Process/thread
-inventories and start times must agree across three observations. Descriptor
-observation has two complete passes. In schema 2, only positively classified
+is checked again during both later task observations. In the initial inventory,
+a denied/unavailable comparison causes a full scan of that TID; it does not
+omit it. The resulting table representatives remain fixed.
+
+Schema 3 permits only positively covered **additional threads** within the
+unchanged original process set. All original TID/start-time identities remain
+mandatory; a thread accepted during the middle observation also remains
+mandatory in the final one. A new TID requires fresh start time before and
+after a successful KCMP comparison to an original representative of the same
+TGID whose table was already completely observed. The representative's start
+time is checked around the binding. A newcomer cannot represent another
+newcomer or add an unobserved table. Denied, missing, unique or unknown new
+tables refuse; missing known threads, changed start times and changed sharing
+are separate refusal reasons. There is no departure allowance or signal call.
+The exact [KCMP implementation](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/kernel/kcmp.c#L137-L227)
+compares the tasks' file-table pointers after task lookup and access checks.
+
+In each of the two later phases, the TID list must match an exact repeat
+after its members have been checked. Fresh identity and sharing checks follow
+that repeat for every member, including final-phase newcomers. The process
+list must also remain identical at the end of each phase. There is no retry
+or quieting delay. Evidence records three monotone thread counts, the added
+shared members in each phase and five matching process-list observations;
+`threads` and `sharedThreads` describe the final observation. The cumulative
+accepted task set remains limited to 8,192. This attests observed table
+coverage and retained identities, not a stable whole thread population.
+
+Descriptor observation still has two complete passes and the same fixed
+tables. Only positively classified
 non-tracefs differences can be reconciled; every observed tracefs descriptor's
 number, device/inode/type/access flags and owning table must remain identical.
 An unreadable, unclassified or disappearing-before-metadata descriptor still
@@ -292,6 +317,14 @@ FD was not evidence identifying which entry changed or whether it was
 non-tracefs. That failure remains a failure: no GLOBAL barrier, buffer resize
 or accepted release trace was reached. Schema 2 requires fresh classified
 evidence before allowing its narrower non-tracefs reconciliation.
+
+The following
+[head b6544eb1 run](https://github.com/INNVoices/waarp/actions/runs/44872198520/job/136750879686)
+completed the first FD pass, then refused at the middle task observation.
+Its combined condition could fail on membership before reading start time;
+the recorded PID/TID therefore establishes neither a changed start time nor
+a harmless new thread. That failure is retained. Schema 3 requires new
+positive shared-table evidence and does not reinterpret that old result.
 
 ### Complete prior writers, then check empty counters and preserve controls
 

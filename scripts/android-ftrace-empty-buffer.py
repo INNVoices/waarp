@@ -98,11 +98,13 @@ def parse_observer(raw):
     require(isinstance(raw, str) and 0 < len(raw.encode()) < OUTPUT_LIMIT, "Missing bounded observer result")
     value = json.loads(raw, object_pairs_hook=unique_object)
     require(isinstance(value, dict) and type(value.get("schemaVersion")) is int
-            and value["schemaVersion"] == 2 and value.get("passed") is True,
+            and value["schemaVersion"] == 3 and value.get("passed") is True,
             "Native descriptor observation was incomplete or refused")
     exact = {"uid": 0, "selinuxEnforcing": True, "selinuxContext": "u:r:su:s0",
              "pidNamespacesCompiledOut": True, "procVisibilityVerified": True, "passes": 2,
-             "stableTaskInventories": 3, "stableTracefsProjection": True,
+             "taskInventoryObservations": 3, "stableProcessInventories": 5,
+             "stableTaskIdentities": True, "stableTableRepresentatives": True,
+             "stableTracefsProjection": True,
              "unknownDescriptors": 0, "forbiddenTracefsDescriptors": 0,
              "cpuPossible": "0-1", "cpuPresent": "0-1", "cpuOnline": "0-1",
              "deadlineNs": 9000000000, "tracefsWritten": False,
@@ -119,6 +121,14 @@ def parse_observer(raw):
             and value["kcmpDeniedFullScans"] <= value["uniqueTables"]
             and value["descriptorReconciliations"] <= 2 * value["uniqueTables"]
             and 0 < value["elapsedNs"] < value["deadlineNs"], "Incomplete or unbounded descriptor inventory")
+    threads, added = value.get("threadCounts"), value.get("sharedThreadsAdded")
+    require(isinstance(threads, list) and len(threads) == 3
+            and all(type(count) is int and value["uniqueTables"] <= count <= 8192 for count in threads)
+            and threads[0] <= threads[1] <= threads[2] == value["threads"]
+            and isinstance(added, list) and len(added) == 2
+            and all(type(count) is int and count >= 0 for count in added)
+            and added == [threads[1] - threads[0], threads[2] - threads[1]],
+            "Unverified shared-thread additions or loss of retained members")
     counts, reads = value.get("descriptorCounts"), value.get("descriptorMetadataReads")
     require(isinstance(counts, list) and isinstance(reads, list) and len(counts) == len(reads) == 2
             and all(type(count) is int and value["markerWriters"] <= count <= 262144 for count in counts)
@@ -150,7 +160,7 @@ def parse_observer(raw):
         parse_stats(raw_stats)
     require(set(value) == {"schemaVersion", "passed", *exact, *integer_names, "procHidepid", "membarrier",
                           "cpuStatsAfterBarrier", "descriptorCounts", "descriptorMetadataReads",
-                          "nonTraceComparisonDifferences"},
+                          "nonTraceComparisonDifferences", "threadCounts", "sharedThreadsAdded"},
             "Unexpected native observer fields")
     return value
 

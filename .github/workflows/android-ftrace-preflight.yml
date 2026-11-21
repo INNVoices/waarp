@@ -1,0 +1,90 @@
+name: Android tracefs preflight
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/android-ftrace-*'
+      - 'scripts/android-release-root*'
+      - 'scripts/android-emulator-*'
+      - 'scripts/android-avd-*'
+      - 'scripts/android-verify.py'
+      - 'android/native-source.json'
+      - 'docs/production/evidence/2026-11-21-pr42-api36-host.json'
+      - '.github/workflows/android.yml'
+      - '.github/workflows/android-ftrace-preflight.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-tracefs-preflight-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    name: API 36 trace preparation without APK installation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17.0.21+9'
+      - name: Install the pinned observer compiler and SDK tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;28.2.13676358' 'cmdline-tools;20.0' 'platform-tools'
+      - name: Build the exact test-only observer
+        run: python3 scripts/android-ftrace-observer-build.py --sdk-root "$ANDROID_HOME"
+      - name: Enable KVM on the disposable GitHub runner
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Create the exact API 36.1 AVD with SDK tools 20.0
+        run: |
+          "$ANDROID_HOME/cmdline-tools/20.0/bin/sdkmanager" --install 'system-images;android-36.1;google_apis_ps16k;x86_64' --channel=0
+          python3 scripts/android-avd-create-pinned.py \
+            --sdk-root "$ANDROID_HOME" --avd-home "$HOME/.android/avd" \
+            --observed-host-receipt docs/production/evidence/2026-11-21-pr42-api36-host.json \
+            --disposable-ci-host --report out/android/tracefs-preflight/avd-create.json
+      - name: Prepare the pinned emulator action without boot key injection
+        run: python3 scripts/android-emulator-action-prepare.py --report out/android/tracefs-preflight/emulator-action-provenance.json
+      - name: Run the existing bounded root, image and trace preparation guards
+        uses: ./out/android-emulator-action
+        with:
+          api-level: 36
+          system-image-api-level: '36.1'
+          target: google_apis_ps16k
+          arch: x86_64
+          avd-name: test
+          force-avd-creation: false
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          heap-size: 512M
+          disk-size: 4096M
+          disable-animations: true
+          emulator-boot-timeout: 600
+          emulator-port: 5554
+          emulator-options: -no-window -gpu software -noaudio -no-boot-anim -camera-back none -no-snapshot
+          script: |
+            python3 scripts/android-avd-receipt.py --sdk-root "$ANDROID_HOME" --avd-home "${ANDROID_AVD_HOME:-$HOME/.android/avd}" --avd-name test --port 5554 --disposable-ci-host --report out/android/tracefs-preflight/host-avd-live.json || echo "::warning::Host AVD live receipt incomplete; preparation guards still run."
+            python3 scripts/android-ftrace-preflight.py --sdk-root "$ANDROID_HOME" --serial emulator-5554 --output out/android/tracefs-preflight --disposable-emulator
+      - name: Preserve host AVD metadata after teardown
+        if: always()
+        run: |
+          python3 scripts/android-avd-receipt.py --sdk-root "$ANDROID_HOME" --avd-home "${ANDROID_AVD_HOME:-$HOME/.android/avd}" --avd-name test --port 5554 --disposable-ci-host --metadata-only --report out/android/tracefs-preflight/host-avd-after.json || echo "::warning::Host AVD metadata receipt incomplete; original preparation result is retained."
+      - name: Preserve diagnostic preparation evidence including failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: waarp-android-tracefs-preflight-api-36-16384
+          path: |
+            out/android/tracefs-preflight/
+            out/android/ci-observer/
+          if-no-files-found: error
+          retention-days: 14
