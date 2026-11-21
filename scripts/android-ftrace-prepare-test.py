@@ -53,6 +53,9 @@ class FakeRecorder:
             "tracing-on": (0, "1"), "tracing-on-after": (0, "1"), "current-tracer": (0, "nop"),
             "events-enabled": (0, "0"), "perfetto-service-state": (0, IDLE_SERVICE),
             "enabled-events": (0, "sched:sched_switch\nsched:sched_wakeup\n"),
+            "failed-event-cpu-stats": (0, "CPU_POSSIBLE\n0-1\nCPU_PRESENT\n0-1\nCPU_ONLINE\n0-1\n"),
+            "failed-event-snapshot-header": (0, "# * Snapshot is freed *\n"),
+            "failed-event-tracefs-fds": (0, "TRACEFS_FD_SCAN_STARTED\nTRACEFS_FD_SCAN_EXIT=0\n"),
             "perfetto-clients": (1, ""), "atrace-user": (0, ""), "atrace-tags": (0, "0"),
             "atrace-apps": (0, ""), "atrace-clients": (1, ""), "subbuffer-write": (0, ""),
             "subbuffer-before": (0, str(self.subbuffer)), "subbuffer-after": (0, str(self.subbuffer)),
@@ -226,6 +229,63 @@ class PreparationChecks(unittest.TestCase):
         self.assertEqual(1, sum(row["name"] == "enabled-events" for row in recorder.records))
         self.assertFalse(proof["passed"] or proof["mutationAttempted"] or proof["mutated"])
         self.assertFalse(any(">" in row["arguments"][-1] or "kill" in row["arguments"][-1] for row in recorder.records))
+
+    def test_known_stopped_bpf_event_observations_never_approve_resize(self):
+        recorder = FakeRecorder(self.directory, overrides={"events-enabled": (0, "X"),
+                                "tracing-on": (0, "0"),
+                                "enabled-events": (0, "bpf_trace:bpf_trace_printk\n")})
+        with self.assertRaisesRegex(ValueError, "eventsEnabled='X'"):
+            self.prepare(recorder)
+        proof = json.loads(self.report.read_text())
+        self.assertTrue(proof["readOnlyDiagnostics"]["allReadsCompleted"])
+        self.assertFalse(proof["readOnlyDiagnostics"]["quiescenceEstablished"])
+        self.assertFalse(proof["readOnlyDiagnostics"]["ownerEstablished"])
+        self.assertEqual(["failed-event-cpu-stats", "failed-event-snapshot-header", "failed-event-tracefs-fds"],
+                         [row["name"] for row in recorder.records[-3:]])
+        self.assertFalse(proof["passed"] or proof["mutationAttempted"] or proof["mutated"])
+        self.assertFalse(any(">" in row["arguments"][-1] or "kill" in row["arguments"][-1] for row in recorder.records))
+
+    def test_partial_quiescence_observation_preserves_original_failure(self):
+        recorder = FakeRecorder(self.directory, overrides={"events-enabled": (0, "X"),
+                                "tracing-on": (0, "0"), "enabled-events": (0, "bpf_trace:bpf_trace_printk\n"),
+                                "failed-event-snapshot-header": (1, "")})
+        with self.assertRaisesRegex(ValueError, "eventsEnabled='X'") as raised:
+            self.prepare(recorder)
+        proof = json.loads(self.report.read_text())
+        self.assertEqual(str(raised.exception), proof["error"])
+        self.assertFalse(proof["readOnlyDiagnostics"]["allReadsCompleted"])
+        self.assertIn("failed-event-snapshot-header", proof["readOnlyDiagnostics"]["errors"])
+        self.assertEqual("failed-event-tracefs-fds", recorder.records[-1]["name"])
+        self.assertFalse(proof["passed"] or proof["mutationAttempted"] or proof["mutated"])
+
+    def test_snapshot_filter_emits_only_summary_before_any_payload(self):
+        payload = ("# tracer: nop\n#\n# entries-in-buffer/entries-written: 1/1   #P:2\n"
+                   "worker-123 [000] sample: PRIVATE_TRACE_PAYLOAD\n"
+                   "# entries-in-buffer/entries-written: 999/999   #P:9\n")
+        result = subprocess.run(["sed", "-n", PREP.SNAPSHOT_HEADER_FILTER], input=payload,
+                                text=True, capture_output=True, timeout=2, check=True)
+        self.assertEqual("# entries-in-buffer/entries-written: 1/1   #P:2\n", result.stdout)
+
+    def test_failure_observations_accept_only_literal_tracefs_roots(self):
+        with self.assertRaisesRegex(ValueError, "Unallowlisted"):
+            PREP.failed_event_diagnostic_commands("/tmp/foreign")
+
+    def test_fd_observation_uses_metadata_without_reading_foreign_content(self):
+        proc = self.directory / "proc"
+        (proc / "123/fd").mkdir(parents=True)
+        (proc / "123/fdinfo").mkdir()
+        (proc / "123/fd/3").symlink_to("/sys/kernel/tracing/trace_pipe")
+        (proc / "123/fdinfo/3").write_text("flags:\t0100000\nPRIVATE_FD_CONTENT\n")
+        (proc / "123/fd/4").symlink_to("/tmp/PRIVATE_FOREIGN_PATH")
+        for _, command in PREP.failed_event_diagnostic_commands(PREP.TRACEFS_ROOTS[0]):
+            subprocess.run(["sh", "-n", "-c", command], timeout=2, check=True)
+        command = PREP.failed_event_diagnostic_commands(PREP.TRACEFS_ROOTS[0])[-1][1]
+        command = command.replace("/proc/[0-9]*/fd", str(proc) + "/[0-9]*/fd")
+        result = subprocess.run(["sh", "-c", command], capture_output=True, text=True, timeout=2, check=True)
+        self.assertIn("/sys/kernel/tracing/trace_pipe", result.stdout)
+        self.assertIn("flags:\t0100000", result.stdout)
+        self.assertIn("TRACEFS_FD_SCAN_EXIT=0", result.stdout)
+        self.assertNotIn("PRIVATE", result.stdout + result.stderr)
 
     def test_legacy_atrace_capture_is_rejected(self):
         recorder = FakeRecorder(self.directory, overrides={"atrace-user": (0, "1")})

@@ -1,0 +1,407 @@
+{
+  "schemaVersion": 1,
+  "scope": "Observed CI baseline; not full stable or physical-machine acceptance",
+  "sourceCommit": "217870599b3ab1913f68bade5bebf8eb44b192f8",
+  "runId": 44859115697,
+  "runAttempt": 1,
+  "runUrl": "https://github.com/INNVoices/waarp/actions/runs/44859115697",
+  "jobs": [
+    {
+      "id": 136708138749,
+      "name": "AWG protocol and crash (linux)",
+      "status": "completed",
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-go@v5",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check bounded AWG harness lifecycle regressions",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check sanitized AWG crash-progress evidence",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build pinned userspace AWG library harness",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check encrypted loopback lifecycle and crash recovery",
+          "conclusion": "success"
+        },
+        {
+          "name": "Retain AWG evidence",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/setup-go@v5",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 136708138886,
+      "name": "Dependency security audit",
+      "status": "completed",
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm ci --no-audit --no-fund",
+          "conclusion": "success"
+        },
+        {
+          "name": "Audit shipped JavaScript dependencies",
+          "conclusion": "success"
+        },
+        {
+          "name": "Audit complete pinned build toolchain",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 136708138958,
+      "name": "checks (windows)",
+      "status": "completed",
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Validate production task map and dependency graph",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check local APK builder with Windows PowerShell",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm ci --no-audit --no-fund",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run typecheck",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm test",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run check",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check configuration compiler performance",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run build",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install browser for UI regressions",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify production UI and recovery controls",
+          "conclusion": "success"
+        },
+        {
+          "name": "Fetch and verify pinned Windows engine",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify actual TCP and UDP selector continuity on the pinned core",
+          "conclusion": "success"
+        },
+        {
+          "name": "Validate live card slot configs with the pinned engine",
+          "conclusion": "success"
+        },
+        {
+          "name": "Validate Hysteria2 import with the pinned engine",
+          "conclusion": "success"
+        },
+        {
+          "name": "Validate AmneziaWG 3 import with the pinned engine",
+          "conclusion": "success"
+        },
+        {
+          "name": "Validate MASQUE modes with the pinned engine",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify route changes preserve the native process and unrelated TCP stream",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify 50 native TUN lifecycle cycles",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build portable Windows package",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify packaged runtime and engine checksums",
+          "conclusion": "success"
+        },
+        {
+          "name": "Retain feature previews and native evidence in the job log",
+          "conclusion": "success"
+        },
+        {
+          "name": "Retain UI evidence",
+          "conclusion": "success"
+        },
+        {
+          "name": "Retain native and performance evidence",
+          "conclusion": "success"
+        },
+        {
+          "name": "Retain portable build",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 14689192296,
+      "name": "waarp-validation-evidence",
+      "size_in_bytes": 4098,
+      "url": "https://api.github.com/repos/INNVoices/waarp/actions/artifacts/14689192296",
+      "archive_download_url": "https://api.github.com/repos/INNVoices/waarp/actions/artifacts/14689192296/zip",
+      "expired": false,
+      "created_at": "2026-11-21T03:17:05Z",
+      "expires_at": "2026-11-28T03:17:04Z",
+      "updated_at": "2026-11-21T03:17:05Z",
+      "digest": "sha256:da192293f74025c8bbaff14ec89a9694498af7eca030a4b1ca36af7aa4f3bea3",
+      "workflow_run": {
+        "id": 44859115697,
+        "repository_id": 1405345724,
+        "head_repository_id": 1405345724,
+        "head_branch": "main",
+        "head_sha": "217870599b3ab1913f68bade5bebf8eb44b192f8"
+      }
+    },
+    {
+      "id": 14689017549,
+      "name": "waarp-windows-portable",
+      "size_in_bytes": 130921991,
+      "url": "https://api.github.com/repos/INNVoices/waarp/actions/artifacts/14689017549",
+      "archive_download_url": "https://api.github.com/repos/INNVoices/waarp/actions/artifacts/14689017549/zip",
+      "expired": false,
+      "created_at": "2026-11-21T03:17:10Z",
+      "expires_at": "2026-11-28T03:17:05Z",
+      "updated_at": "2026-11-21T03:17:10Z",
+      "digest": "sha256:f0969fa394c67829d04c6b21f2bca442e02b765b20e7e9b3a5b9b4565517b2be",
+      "workflow_run": {
+        "id": 44859115697,
+        "repository_id": 1405345724,
+        "head_repository_id": 1405345724,
+        "head_branch": "main",
+        "head_sha": "217870599b3ab1913f68bade5bebf8eb44b192f8"
+      }
+    },
+    {
+      "id": 14689001520,
+      "name": "waarp-awg-evidence",
+      "size_in_bytes": 1648,
+      "url": "https://api.github.com/repos/INNVoices/waarp/actions/artifacts/14689001520",
+      "archive_download_url": "https://api.github.com/repos/INNVoices/waarp/actions/artifacts/14689001520/zip",
+      "expired": false,
+      "created_at": "2026-11-21T03:04:02Z",
+      "expires_at": "2026-11-28T03:04:02Z",
+      "updated_at": "2026-11-21T03:04:02Z",
+      "digest": "sha256:ab4a529fee9ae4c075a34451690b571a228aebcffab55ba29b651fb12386ff11",
+      "workflow_run": {
+        "id": 44859115697,
+        "repository_id": 1405345724,
+        "head_repository_id": 1405345724,
+        "head_branch": "main",
+        "head_sha": "217870599b3ab1913f68bade5bebf8eb44b192f8"
+      }
+    },
+    {
+      "id": 14688992583,
+      "name": "waarp-ui-evidence",
+      "size_in_bytes": 3487758,
+      "url": "https://api.github.com/repos/INNVoices/waarp/actions/artifacts/14688992583",
+      "archive_download_url": "https://api.github.com/repos/INNVoices/waarp/actions/artifacts/14688992583/zip",
+      "expired": false,
+      "created_at": "2026-11-21T03:17:04Z",
+      "expires_at": "2026-11-28T03:17:02Z",
+      "updated_at": "2026-11-21T03:17:04Z",
+      "digest": "sha256:fd13ef0ac35814d83363e6303df7b01efc301a5f818f2702cff85481818778b1",
+      "workflow_run": {
+        "id": 44859115697,
+        "repository_id": 1405345724,
+        "head_repository_id": 1405345724,
+        "head_branch": "main",
+        "head_sha": "217870599b3ab1913f68bade5bebf8eb44b192f8"
+      }
+    }
+  ],
+  "archiveVerification": {
+    "artifactId": 14689192296,
+    "bytes": 4098,
+    "sha256": "da192293f74025c8bbaff14ec89a9694498af7eca030a4b1ca36af7aa4f3bea3",
+    "matchesApiDigest": true,
+    "zipCrcPassed": true,
+    "files": [
+      {
+        "file": "compiler-performance.json",
+        "bytes": 1369,
+        "sha256": "3ee939f22341ad1572c57d028b2545aee0efc6fee224a9b8238c3cfc742029e5"
+      },
+      {
+        "file": "continuity-native.json",
+        "bytes": 8284,
+        "sha256": "3a6c39af065d54a49cc2dce8ae5b823f1729a3c25a675c4a45cb4f4b6e2565f4"
+      },
+      {
+        "file": "native-lifecycle.json",
+        "bytes": 18677,
+        "sha256": "2c4d7009ad446a4141e393d4be43819573e74f37ef0a6859aa7bb4d280d26408"
+      },
+      {
+        "file": "package-integrity.json",
+        "bytes": 435,
+        "sha256": "5b4b305b677dd96149d9cc2ac50ac80d3efb13b5e805f25726bc12ad1622e1b8"
+      }
+    ]
+  },
+  "observed": {
+    "package": {
+      "version": "1.0.0",
+      "commit": "217870599b3ab1913f68bade5bebf8eb44b192f8",
+      "passed": true,
+      "noTestBundlesOrReports": true,
+      "runtimeEntriesPresent": true,
+      "windowIconPresent": true,
+      "packagedEngineMatchesPin": true,
+      "asarBytes": 79509626,
+      "asarEntryCount": 5868,
+      "portableBytes": 130906922,
+      "portableSha256": "6bc77280f61b22f214353b674f71ac3773d7a4c6a694ef76bfeeb49f81378b8e",
+      "engineVersion": "1.14.2-lx.11"
+    },
+    "compilerPerformance": {
+      "p50Ms": 2.790699999999987,
+      "p95Ms": 6.894900000000007,
+      "maximumMs": 7.137699999999995,
+      "retainedHeapBytes": 40608,
+      "generatedConfigBytes": 132990,
+      "loadedEndpoints": 17
+    },
+    "lifecycle": {
+      "scope": "native-windows-adapter-lifecycle",
+      "passed": true,
+      "requestedCycles": 50,
+      "completedCycles": 50,
+      "budgetMs": 600000,
+      "engineVersion": "1.14.2-lx.11",
+      "engineGoVersion": "go1.26.8",
+      "engineSha256": "1bf6c329963fbb6e4e80079f28e2079c0a6c3a860e8bdecf9a4dfc7f5bfa6b0f",
+      "engineIntegrityVerified": true,
+      "elevated": true,
+      "noExternalProbes": true,
+      "autoRoute": false,
+      "dnsMode": "disabled"
+    },
+    "all50CyclesPreservedForeignNetworkAndRemovedOwnedAdapters": true,
+    "selectorResults": [
+      {
+        "interruptExisting": false,
+        "retainedTcp": true,
+        "retainedUdp": true,
+        "oldUdpAssociationClosed": false,
+        "newHttpExit": "B",
+        "newUdpExit": "B",
+        "selectorAckMs": 8.75
+      },
+      {
+        "interruptExisting": true,
+        "retainedTcp": false,
+        "retainedUdp": false,
+        "oldUdpAssociationClosed": true,
+        "newHttpExit": "B",
+        "newUdpExit": "B",
+        "selectorAckMs": 6.92
+      }
+    ]
+  },
+  "limits": [
+    "The portable artifact was built and checked by CI; its ZIP was not independently downloaded in this baseline review. The portable file hash comes from the verified validation archive.",
+    "Loopback selectors and no-auto-route native TUN lifecycle do not prove whole-computer or per-app WAN routing.",
+    "Actual UAC approval/refusal, retained-profile upgrade/rollback, physical sleep/network change and coexistence with another VPN were not observed in this run.",
+    "Android, retained production signing and physical-device acceptance are separate gates."
+  ]
+}

@@ -78,7 +78,7 @@ Observer запрашивает события только выбранного
 ### STK-001
 
 - **priority:** P1 — контракт перед кодом.
-- **status:** `review` — root принял ADR-STK-001 выше: собственный восстанавливаемый entry/alias первым этапом и параллельный bounded event spike на owned test app.
+- **status:** `done` — ADR-STK-001 принят и слит через [PR41](https://github.com/INNVoices/waarp/pull/41), main `217870599b3ab1913f68bade5bebf8eb44b192f8`; required CI успешен. Реализация entry и event spike — следующие отдельные задачи.
 - **Dependencies:** нет.
 - **files:** `docs/ANDROID-CHAMELEON-2026-11-18.md`, `docs/production/04-sticky-companion.md`; Android `AndroidManifest.xml`, `MainActivity.kt`, `WaarpApplication.kt` как evidence.
 - **change:** решение зафиксировано в ADR-STK-001: сначала recovery, затем optional launcher hiding; параллельно test/debug-only cross-app event spike без модификации target APK и перехвата controls. Исходный запрос остаётся самостоятельной целью.

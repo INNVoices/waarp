@@ -61,6 +61,8 @@ jobs:
         run: python3 scripts/android-emulator-prepare-test.py
       - name: Verify bounded APK installation failure diagnostics
         run: python3 scripts/android-install-test.py
+      - name: Verify bounded host AVD metadata collection
+        run: python3 scripts/android-avd-receipt-test.py
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
@@ -316,6 +318,7 @@ jobs:
           system-image-api-level: ${{ matrix.image-api }}
           target: ${{ matrix.target }}
           arch: x86_64
+          avd-name: test
           profile: pixel_6
           ram-size: ${{ matrix.ram }}
           heap-size: 512M
@@ -326,12 +329,17 @@ jobs:
           emulator-port: 5554
           emulator-options: -no-window -gpu software -noaudio -no-boot-anim -camera-back none -no-snapshot
           script: |
+            if [ "${{ matrix.api }}" = "36" ]; then python3 scripts/android-avd-receipt.py --sdk-root "$ANDROID_HOME" --avd-home "${ANDROID_AVD_HOME:-$HOME/.android/avd}" --avd-name test --port 5554 --disposable-ci-host --report out/android/device-tests/host-avd-live.json || echo "::warning::Host AVD live receipt incomplete; runtime gates still run."; fi
             adb -s emulator-5554 shell df -Pk /data
             if [ "${{ matrix.api }}" = "29" ]; then adb -s emulator-5554 shell settings --user 0 put system system_locales ru-RU && python3 scripts/android-emulator-prepare.py --serial emulator-5554 --disposable-emulator --report out/android/device-tests/emulator-preparation.json; fi
             python3 scripts/android-awg-control.py start --binary "$RUNNER_TEMP/awg-android-fixture" --report out/android/device-tests/awg-proof.json
             python3 scripts/android-install.py --with-tests --serial emulator-5554 --disposable-emulator --failure-report out/android/device-tests/install-failure.json
             bash scripts/android-emulator-locale.sh
             python3 scripts/android-instrument.py --serial emulator-5554 --disposable-emulator --expect-page-size ${{ matrix.page-size }} --output out/android/device-tests
+      - name: Preserve host AVD metadata after emulator teardown
+        if: always() && matrix.api == 36
+        run: |
+          python3 scripts/android-avd-receipt.py --sdk-root "$ANDROID_HOME" --avd-home "${ANDROID_AVD_HOME:-$HOME/.android/avd}" --avd-name test --port 5554 --disposable-ci-host --metadata-only --report out/android/device-tests/host-avd-after.json || echo "::warning::Host AVD metadata receipt incomplete; original runtime result is retained."
       - name: Stop the owned AWG peer and require its encrypted traffic proof
         if: always()
         run: python3 scripts/android-awg-control.py stop --require-passed
@@ -407,6 +415,7 @@ jobs:
           system-image-api-level: ${{ matrix.image-api }}
           target: ${{ matrix.target }}
           arch: x86_64
+          avd-name: test
           profile: pixel_6
           ram-size: ${{ matrix.ram }}
           heap-size: 512M
@@ -417,10 +426,15 @@ jobs:
           emulator-port: 5554
           emulator-options: -no-window -gpu software -noaudio -no-boot-anim -camera-back none -no-snapshot
           script: |
+            if [ "${{ matrix.api }}" = "36" ]; then python3 scripts/android-avd-receipt.py --sdk-root "$ANDROID_HOME" --avd-home "${ANDROID_AVD_HOME:-$HOME/.android/avd}" --avd-name test --port 5554 --disposable-ci-host --report out/android/release-journeys/host-avd-live.json || echo "::warning::Host AVD live receipt incomplete; runtime gates still run."; fi
             adb -s emulator-5554 shell df -Pk /data
             if [ "${{ matrix.api }}" = "29" ]; then adb -s emulator-5554 shell settings --user 0 put system system_locales ru-RU && python3 scripts/android-emulator-prepare.py --serial emulator-5554 --disposable-emulator --report out/android/release-journeys/emulator-preparation.json; fi
             python3 scripts/android-awg-control.py start --binary "$RUNNER_TEMP/awg-android-fixture" --duration 30m --report out/android/release-journeys/awg-proof.json
             python3 scripts/android-release-run.py --mode journeys --expect-page-size ${{ matrix.page-size }} --output out/android/release-journeys --duration-seconds 7200 --interval-seconds 15 --disposable-emulator
+      - name: Preserve host AVD metadata after emulator teardown
+        if: always() && matrix.api == 36
+        run: |
+          python3 scripts/android-avd-receipt.py --sdk-root "$ANDROID_HOME" --avd-home "${ANDROID_AVD_HOME:-$HOME/.android/avd}" --avd-name test --port 5554 --disposable-ci-host --metadata-only --report out/android/release-journeys/host-avd-after.json || echo "::warning::Host AVD metadata receipt incomplete; original runtime result is retained."
       - name: Stop the owned AWG peer and verify authenticated traffic
         if: always()
         run: python3 scripts/android-awg-control.py stop --require-passed
@@ -477,6 +491,7 @@ jobs:
           system-image-api-level: '36.1'
           target: google_apis_ps16k
           arch: x86_64
+          avd-name: test
           profile: pixel_6
           ram-size: 4096M
           heap-size: 512M
@@ -484,11 +499,17 @@ jobs:
           disk-size: 4096M
           disable-animations: true
           emulator-boot-timeout: 600
+          emulator-port: 5554
           emulator-options: -no-window -gpu software -noaudio -no-boot-anim -camera-back none -no-snapshot
           script: |
+            python3 scripts/android-avd-receipt.py --sdk-root "$ANDROID_HOME" --avd-home "${ANDROID_AVD_HOME:-$HOME/.android/avd}" --avd-name test --port 5554 --disposable-ci-host --report out/android/release-soak/host-avd-live.json || echo "::warning::Host AVD live receipt incomplete; runtime gates still run."
             adb -s emulator-5554 shell df -Pk /data
             python3 scripts/android-awg-control.py start --binary "$RUNNER_TEMP/awg-android-fixture" --duration 3h --report out/android/release-soak/awg-proof.json
             python3 scripts/android-release-run.py --mode soak --expect-page-size 16384 --output out/android/release-soak --duration-seconds 7200 --interval-seconds 15 --disposable-emulator
+      - name: Preserve host AVD metadata after emulator teardown
+        if: always()
+        run: |
+          python3 scripts/android-avd-receipt.py --sdk-root "$ANDROID_HOME" --avd-home "${ANDROID_AVD_HOME:-$HOME/.android/avd}" --avd-name test --port 5554 --disposable-ci-host --metadata-only --report out/android/release-soak/host-avd-after.json || echo "::warning::Host AVD metadata receipt incomplete; original runtime result is retained."
       - name: Stop the owned AWG peer and verify authenticated traffic
         if: always()
         run: python3 scripts/android-awg-control.py stop --require-passed

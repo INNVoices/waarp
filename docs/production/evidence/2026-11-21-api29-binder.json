@@ -1,0 +1,290 @@
+{
+  "task": "REL-002",
+  "checked_at": "2026-11-21T03:30:32.985479+00:00",
+  "base_commit": "217870599b3ab1913f68bade5bebf8eb44b192f8",
+  "summary": "Новый system_server обращается по Binder к уже отсутствующему старому system_server; исчезновения PID недостаточно для единственного планового запуска нового framework.",
+  "observed": [
+    "Fresh release API 29: старый PID 1877 отсутствует до start; новый PID 3598 входит в InitBeforeStartServices. Kernel на 20.854281 s указывает allocator 1877 без vma, затем на 20.856573 s транзакция caller 3598 завершается 29189/-3. В 02:56:34.278 записан DeadSystemException; далее SIGKILL и выход zygote. Heap 512m подтверждён; установка APK не начиналась.",
+    "Prior native API 29: старый PID 1911, новый PID 3729; такой же паттерн no-vma старого allocator и нового caller на 26.687659–26.696804 s. DeadSystemException в 02:41:04.198 и выход zygote в 02:41:04.236.",
+    "Fresh native API 29 на том же source/run прошёл подготовку и 26 instrumentation tests. Ошибка не универсальна для API 29 или данного APK."
+  ],
+  "inference": "Первичный код устанавливает ранний вызов display Binder как правдоподобный путь падения. Fatal log скрывает Java stack; точный сервис 96-byte транзакции по raw данным независимо не идентифицирован. Обращение нового процесса к старому Binder owner установлено корреляцией PID в kernel.",
+  "change": {
+    "files": [
+      "scripts/android-emulator-prepare.py",
+      "scripts/android-emulator-prepare-test.py"
+    ],
+    "patch_sha256": "9d26a027e7098e985b00fa3373b29921a23821902535e21888b11ff5a4a4ae9f",
+    "before_stop": "Require activity/package/display registrations visible under the confirmed root shell UID.",
+    "stop_barrier": "Wait for all framework names and old /proc PIDs to disappear AND exact service check responses to show all three registrations absent, in the existing 30 s stop phase.",
+    "before_start": "Recheck process and registration absence after heap readback; issue only the existing single planned start.",
+    "preserved": "Mutation count, deadlines, new PID retention guards, Binder transactions, heap readback and restored shell identity checks unchanged.",
+    "limits": "This does not prove removal of every framework service. Service-check registration evidence is not service-health evidence; fresh transaction/PID proof remains mandatory."
+  },
+  "validation": {
+    "command": "python3 -B scripts/android-emulator-prepare-test.py",
+    "tests_passed": 38,
+    "new_test_methods": 6,
+    "git_diff_check": "passed",
+    "emulator_runtime": "not_run",
+    "remote_push": "not_performed",
+    "ci_rerun": "not_performed"
+  },
+  "next_step": "Review/integrate the two-file patch and observe the next ordinary CI run once. Do not claim API29 runtime acceptance before that run.",
+  "artifacts": [
+    {
+      "case": "fresh_release29",
+      "run_id": 44857532546,
+      "source_commit": "35c3b2e11d0001f482dbae22abccbed4db8769bf",
+      "job_id": 136705926744,
+      "job_url": "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926744",
+      "artifact_id": 14688473312,
+      "artifact_name": "waarp-android-release-api-29-4096-runtime",
+      "artifact_api_url": "https://api.github.com/repos/INNVoices/waarp/actions/artifacts/14688473312",
+      "original_zip_sha256": "16dfb8fcf36d2d770fedb8672c46dde51fba493d89fef99b665a0ea14d6ff772",
+      "digest_matches_receipt": true,
+      "outcome": "failed_before_apk_install",
+      "old_pids": {
+        "zygote": [
+          1665
+        ],
+        "zygote64": [
+          1664
+        ],
+        "system_server": [
+          1877
+        ]
+      },
+      "new_pids": {
+        "zygote": [
+          3571
+        ],
+        "zygote64": [
+          3567
+        ],
+        "system_server": [
+          3598
+        ]
+      },
+      "preparation_error": "PreparationError: New framework PIDs changed while waiting for Binder readiness",
+      "raw_files": [
+        {
+          "path": "emulator-preparation.json",
+          "bytes": 29619,
+          "sha256": "23c231711a3e79f4461708830d02fa72f9db37f1f8887406ed91be799e0c726a"
+        },
+        {
+          "path": "emulator-preparation-diagnostics/logcat-crash.stdout.txt",
+          "bytes": 222,
+          "sha256": "8039bc0280b9f0d6d209b128ded53b4f779194fafb04950081c928fb3c8cc7bd"
+        },
+        {
+          "path": "emulator-preparation-diagnostics/logcat-recent.stdout.txt",
+          "bytes": 242675,
+          "sha256": "686c3b88c80e13134a10b9fb75539e1dc45fd1972afee4990f42708981e97fad"
+        },
+        {
+          "path": "emulator-preparation-diagnostics/kernel.stdout.txt",
+          "bytes": 118447,
+          "sha256": "1dcab4903b7823c5c3cc563c6d767d09dbce5c4083ef54c8c1231e70a0764444"
+        },
+        {
+          "path": "emulator-preparation-diagnostics/accepted-pids-stat.stderr.txt",
+          "bytes": 144,
+          "sha256": "3798204c0b9249fbd12023a1f743087ca25d36af59e73b544763e0b8c0d65263"
+        }
+      ]
+    },
+    {
+      "case": "prior_native29",
+      "run_id": 44856329155,
+      "source_commit": "fc0d549f259db23b2dc361f02b90c3bdcffb1a25",
+      "job_id": null,
+      "job_url": "https://github.com/INNVoices/waarp/actions/runs/44856329155",
+      "artifact_id": 14688515419,
+      "artifact_name": "waarp-android-api-29-4096-runtime",
+      "artifact_api_url": "https://api.github.com/repos/INNVoices/waarp/actions/artifacts/14688515419",
+      "original_zip_sha256": "7a8b48e99fb8fce7775f018bab89d0363cebabdc38da1f504485a38a05d920df",
+      "digest_matches_receipt": true,
+      "outcome": "failed_before_apk_install",
+      "old_pids": {
+        "zygote": [
+          1666
+        ],
+        "zygote64": [
+          1665
+        ],
+        "system_server": [
+          1911
+        ]
+      },
+      "new_pids": {
+        "zygote": [
+          3694
+        ],
+        "zygote64": [
+          3693
+        ],
+        "system_server": [
+          3729
+        ]
+      },
+      "preparation_error": "PreparationError: Framework PIDs changed during Binder readiness checks",
+      "raw_files": [
+        {
+          "path": "emulator-preparation.json",
+          "bytes": 29662,
+          "sha256": "684c88d704c1420916d70757d8d697d8edf6a7f04801365fc129f23664e9d1f9"
+        },
+        {
+          "path": "emulator-preparation-diagnostics/logcat-crash.stdout.txt",
+          "bytes": 222,
+          "sha256": "0f4528d86a2a710d60748e30b761bf3ceee1b5b11ac9203b01830ea2b8570f48"
+        },
+        {
+          "path": "emulator-preparation-diagnostics/logcat-recent.stdout.txt",
+          "bytes": 278272,
+          "sha256": "5c0cef230c8d84bd374bef50fdce4c917363a859b910381f5011d9e4e9ef3829"
+        },
+        {
+          "path": "emulator-preparation-diagnostics/kernel.stdout.txt",
+          "bytes": 117378,
+          "sha256": "ca73b10b1eba0fa0602d4f225bce732d18bcbfada5de88365696d2b7fef1f86c"
+        },
+        {
+          "path": "emulator-preparation-diagnostics/accepted-pids-stat.stderr.txt",
+          "bytes": 48,
+          "sha256": "4df11952c8cea562bb08f337ba2e2700809a2713e84eac2b3f21d40b70dba4d9"
+        }
+      ]
+    },
+    {
+      "case": "fresh_native29",
+      "run_id": 44857532546,
+      "source_commit": "35c3b2e11d0001f482dbae22abccbed4db8769bf",
+      "job_id": 136705926798,
+      "job_url": "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926798",
+      "artifact_id": 14688344464,
+      "artifact_name": "waarp-android-api-29-4096-runtime",
+      "artifact_api_url": "https://api.github.com/repos/INNVoices/waarp/actions/artifacts/14688344464",
+      "original_zip_sha256": "58d0866c8881822f681bd070ca77010e9d7556b3a6b3ef5c6fdb7fa50bb6b895",
+      "digest_matches_receipt": true,
+      "outcome": "26_tests_passed",
+      "old_pids": {
+        "zygote": [
+          1666
+        ],
+        "zygote64": [
+          1665
+        ],
+        "system_server": [
+          1881
+        ]
+      },
+      "new_pids": {
+        "zygote": [
+          3664
+        ],
+        "zygote64": [
+          3663
+        ],
+        "system_server": [
+          3702
+        ]
+      },
+      "preparation_error": null,
+      "raw_files": [
+        {
+          "path": "emulator-preparation.json",
+          "bytes": 29667,
+          "sha256": "03d15fd3372c2911f5208f2640367f908c6325c830c32f517597d84d07c2f142"
+        }
+      ]
+    }
+  ],
+  "primary_sources": [
+    {
+      "repository": "platform/frameworks/base",
+      "commit": "b261188ac38897a3fed052236d270b0b96c36f21",
+      "file": "services/java/com/android/server/SystemServer.java",
+      "url": "https://github.com/aosp-mirror/platform_frameworks_base/blob/b261188ac38897a3fed052236d270b0b96c36f21/services/java/com/android/server/SystemServer.java",
+      "finding": "InitBeforeStartServices loads android_servers, then creates the system context, before startBootstrapServices."
+    },
+    {
+      "repository": "platform/frameworks/base",
+      "commit": "b261188ac38897a3fed052236d270b0b96c36f21",
+      "file": "core/java/android/app/ActivityThread.java",
+      "url": "https://github.com/aosp-mirror/platform_frameworks_base/blob/b261188ac38897a3fed052236d270b0b96c36f21/core/java/android/app/ActivityThread.java",
+      "finding": "systemMain -> attach(true) -> getSystemContext -> ContextImpl.createSystemContext."
+    },
+    {
+      "repository": "platform/frameworks/base",
+      "commit": "b261188ac38897a3fed052236d270b0b96c36f21",
+      "file": "core/java/android/app/ContextImpl.java",
+      "url": "https://github.com/aosp-mirror/platform_frameworks_base/blob/b261188ac38897a3fed052236d270b0b96c36f21/core/java/android/app/ContextImpl.java",
+      "finding": "createSystemContext reads ResourcesManager display metrics."
+    },
+    {
+      "repository": "platform/frameworks/base",
+      "commit": "b261188ac38897a3fed052236d270b0b96c36f21",
+      "file": "core/java/android/app/ResourcesManager.java",
+      "url": "https://github.com/aosp-mirror/platform_frameworks_base/blob/b261188ac38897a3fed052236d270b0b96c36f21/core/java/android/app/ResourcesManager.java",
+      "finding": "getDisplayMetrics -> getAdjustedDisplay -> DisplayManagerGlobal.getInstance; null service is supported during early startup."
+    },
+    {
+      "repository": "platform/frameworks/base",
+      "commit": "b261188ac38897a3fed052236d270b0b96c36f21",
+      "file": "core/java/android/hardware/display/DisplayManagerGlobal.java",
+      "url": "https://github.com/aosp-mirror/platform_frameworks_base/blob/b261188ac38897a3fed052236d270b0b96c36f21/core/java/android/hardware/display/DisplayManagerGlobal.java",
+      "finding": "Constructor immediately calls getPreferredWideGamutColorSpaceId on display Binder and rethrows RemoteException from system server. getInstance accepts a null early-startup display handle."
+    },
+    {
+      "repository": "platform/frameworks/base",
+      "commit": "b261188ac38897a3fed052236d270b0b96c36f21",
+      "file": "core/java/android/os/RemoteException.java",
+      "url": "https://github.com/aosp-mirror/platform_frameworks_base/blob/b261188ac38897a3fed052236d270b0b96c36f21/core/java/android/os/RemoteException.java",
+      "finding": "rethrowFromSystemServer converts DeadObjectException into RuntimeException with DeadSystemException cause."
+    },
+    {
+      "repository": "platform/frameworks/native",
+      "commit": "cec7aa0a0f6af8edbcc77fb7f9626122a4a05a77",
+      "file": "cmds/servicemanager/service_manager.c",
+      "url": "https://android.googlesource.com/platform/frameworks/native/+/refs/heads/android10-mainline-a-release/cmds/servicemanager/service_manager.c",
+      "commit_url": "https://android.googlesource.com/platform/frameworks/native/+/refs/heads/android10-mainline-a-release",
+      "blob": "ec3fac538dcadb3cf09ec1b35dd891a8b5414ce2",
+      "finding": "Read branch content and resolved branch commit. svcinfo_death clears handle asynchronously on death notification; do_find_service returns zero for missing/cleared handle."
+    },
+    {
+      "repository": "platform/frameworks/native",
+      "commit": "2173449d9dccb15b87c9df5d373dc32e1dcabed6",
+      "file": "cmds/service/service.cpp",
+      "url": "https://android.googlesource.com/platform/frameworks/native/+/android10-release/cmds/service/service.cpp",
+      "commit_url": "https://android.googlesource.com/platform/frameworks/native/+/android10-release",
+      "blob": "d5dc6b741d24d1d45d90ac81b7111ce6696e6832",
+      "finding": "Read branch content and resolved branch commit. service check uses checkService and emits Service NAME: found/not found; result defaults to zero for either state. This is registration observation, not service health."
+    },
+    {
+      "repository": "platform/frameworks/base",
+      "commit": "b261188ac38897a3fed052236d270b0b96c36f21",
+      "file": "services/core/jni/com_android_server_UsbAlsaJackDetector.cpp",
+      "url": "https://github.com/aosp-mirror/platform_frameworks_base/blob/b261188ac38897a3fed052236d270b0b96c36f21/services/core/jni/com_android_server_UsbAlsaJackDetector.cpp",
+      "finding": "Error branch incorrectly negates jniRegisterNativeMethods; not evidence of an audio Binder failure."
+    },
+    {
+      "repository": "platform/frameworks/base",
+      "commit": "b261188ac38897a3fed052236d270b0b96c36f21",
+      "file": "services/core/jni/onload.cpp",
+      "url": "https://github.com/aosp-mirror/platform_frameworks_base/blob/b261188ac38897a3fed052236d270b0b96c36f21/services/core/jni/onload.cpp",
+      "finding": "JNI_OnLoad ignores return of register_android_server_UsbAlsaJackDetector and continues registration."
+    },
+    {
+      "repository": "platform/libnativehelper",
+      "commit": "99b0113fdcb2abb2c0f7043d21b9ccfaae8c78d1",
+      "file": "JNIHelp.cpp",
+      "url": "https://android.googlesource.com/platform/libnativehelper/+/99b0113fdcb2abb2c0f7043d21b9ccfaae8c78d1/JNIHelp.cpp",
+      "finding": "Primary helper API implementation returns zero after successful RegisterNatives. This separate helper revision is contract evidence, not the identified emulator image build."
+    }
+  ],
+  "source_access_limit": "Native source branch contents and branch-to-commit pages were read successfully; direct pinned native-file URLs were unavailable in web retrieval. Both branch roots resolved to the same tree 3acf4f324407858d1e3fc6ef1960b52a8fd7f929.",
+  "integration_note": "Reviewed in the coordinator worktree; 38 preparation and 10 installer regression tests passed. Runtime validation is pending this patch."
+}

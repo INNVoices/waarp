@@ -21,6 +21,33 @@ TOTAL_TIMEOUT_SECONDS = 60
 OUTPUT_LIMIT = 64 * 1024
 TRACEFS_ROOTS = ("/sys/kernel/tracing", "/sys/kernel/debug/tracing")
 REPORT_NAME = "ftrace-preparation.json"
+# Only kernel-generated summary headers are emitted. Never expose trace payload
+# or read a consuming trace_pipe / snapshot_raw file during diagnostics.
+SNAPSHOT_HEADER_FILTER = (r"/^[^#]/q;/^# entries-in-buffer\/entries-written: [0-9][0-9]*\/[0-9][0-9]*   #P:[0-9][0-9]*$/p;"
+                          r"/^# \* Snapshot is allocated \*$/p;/^# \* Snapshot is freed \*$/p;12q")
+
+
+def failed_event_diagnostic_commands(root):
+    """Observations only; /proc races and unreadable state cannot prove ownership."""
+    require(root in TRACEFS_ROOTS, "Unallowlisted diagnostic tracefs root")
+    stats = ("printf '%s\\n' CPU_POSSIBLE; cat /sys/devices/system/cpu/possible || exit; "
+             "printf '%s\\n' CPU_PRESENT; cat /sys/devices/system/cpu/present || exit; "
+             "printf '%s\\n' CPU_ONLINE; cat /sys/devices/system/cpu/online || exit; "
+             f"for f in {root}/per_cpu/cpu[0-9]*/stats; do "
+             "printf '%s\\n' \"$f\"; cat \"$f\" || exit; done")
+    snapshot = "sed -n '" + SNAPSHOT_HEADER_FILTER + "' " + root + "/snapshot"
+    # List matching FD paths, their tracefs target and access flags only. Do not
+    # read argv/cmdline, trace data, BPF maps or another process's open file.
+    readers = ("printf '%s\\n' TRACEFS_FD_SCAN_STARTED; "
+               "find /proc/[0-9]*/fd -maxdepth 1 -type l "
+               "\\( -lname '/sys/kernel/tracing/*' -o -lname '/sys/kernel/debug/tracing/*' \\) "
+               "-exec sh -c 'printf \"%s\\n\" \"$1\"; "
+               "readlink \"$1\" || printf \"%s\\n\" FD_TARGET_UNKNOWN; "
+               "sed -n \"/^flags:/p\" \"${1%/fd/*}/fdinfo/${1##*/}\" "
+               "|| printf \"%s\\n\" FD_FLAGS_UNKNOWN' sh {} \\; ; "
+               "result=$?; printf 'TRACEFS_FD_SCAN_EXIT=%s\\n' \"$result\"; exit \"$result\"")
+    return [("failed-event-cpu-stats", stats), ("failed-event-snapshot-header", snapshot),
+            ("failed-event-tracefs-fds", readers)]
 
 
 def require(value, message):
@@ -183,10 +210,25 @@ def prepare(prefix, report_path, expected_page_size, disposable_emulator, record
     except (OSError, ValueError, subprocess.SubprocessError) as failure:
         record["error"] = str(failure)[:1000]
         if record.get("failedGuard", {}).get("field") == "eventsEnabled":
-            # Preserve the rejection. One read on the same recorder shares its
-            # original deadline/output caps and cannot authorize a resize.
+            # Preserve the rejection. Diagnostic reads on the same recorder
+            # share its original deadline/output caps and never authorize resize.
             try:
-                read("enabled-events", "cat " + root + "/set_event")
+                enabled_events = read("enabled-events", "cat " + root + "/set_event")
+                state = record.get("beforeMutation", {})
+                if (enabled_events.strip() == "bpf_trace:bpf_trace_printk"
+                        and state.get("tracingOn") == "0" and state.get("currentTracer") == "nop"):
+                    diagnostics = record["readOnlyDiagnostics"] = {
+                        "purpose": "Assess whether an empty-buffer preparation experiment is possible; never authorizes mutation.",
+                        "quiescenceEstablished": False, "ownerEstablished": False,
+                        "allReadsCompleted": False, "errors": {},
+                        "limitations": "Point-in-time /proc scan is not an atomic ownership proof; missing or unreadable data stays unknown.",
+                    }
+                    for name, command in failed_event_diagnostic_commands(root):
+                        try:
+                            require(read(name, command) != "", "Missing diagnostic output: " + name)
+                        except (OSError, ValueError, subprocess.SubprocessError) as observation_failure:
+                            diagnostics["errors"][name] = str(observation_failure)[:1000]
+                    diagnostics["allReadsCompleted"] = not diagnostics["errors"]
             except (OSError, ValueError, subprocess.SubprocessError) as diagnostic_failure:
                 record["eventDiagnosticsError"] = str(diagnostic_failure)[:1000]
         raise
