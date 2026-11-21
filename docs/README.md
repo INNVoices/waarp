@@ -6,6 +6,8 @@
 
 | Area | Document |
 | --- | --- |
+| Production roadmap, 60 tasks and agent entry | [Task map and eight specification corpora](production/README.md) · [Parent tracker](https://github.com/INNVoices/waarp/issues/32) |
+| First personal route: application, Direct comparison, then domain (Russian) | [Practical preview walkthrough](guides/first-routes.md) |
 | Current Windows server picker, pagination and live checks | [Windows 0.4.1-rc.3](SERVER-SELECTION-2026-11-18.md) |
 | Android capabilities, build, signing and acceptance | [ANDROID.md](ANDROID.md) |
 | Android Chameleon / Sticky entry feasibility (concept only) | [Chameleon research, 2026-11-18](ANDROID-CHAMELEON-2026-11-18.md) |

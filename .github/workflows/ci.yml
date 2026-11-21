@@ -12,6 +12,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Validate production task map and dependency graph
+        run: |
+          python scripts/production-roadmap.py check
+          python scripts/production-roadmap-test.py
       - name: Check local APK builder with Windows PowerShell
         shell: powershell
         run: .\scripts\build.ps1 -SelfTest

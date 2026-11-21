@@ -1,0 +1,1927 @@
+{
+  "schema_version": 1,
+  "product": "Waarp",
+  "snapshot_date": "2026-11-21",
+  "baseline_commit": "63fc7930abfeac1b870e9c8e3fabc500768f419e",
+  "parent_issue": "https://github.com/INNVoices/waarp/issues/32",
+  "note": "Local navigation snapshot. Verify current GitHub status and ownership before claiming. Conditional dependencies apply only to the delivery mode described in the card.",
+  "corpora": [
+    {
+      "id": "01",
+      "title": "Production и выпуск",
+      "lane": "release",
+      "prefixes": [
+        "REL"
+      ],
+      "spec": "docs/production/01-production-release.md",
+      "issue": "https://github.com/INNVoices/waarp/issues/33"
+    },
+    {
+      "id": "02",
+      "title": "Маршрутизация и безопасность",
+      "lane": "routing-security",
+      "prefixes": [
+        "NET"
+      ],
+      "spec": "docs/production/02-routing-and-security.md",
+      "issue": "https://github.com/INNVoices/waarp/issues/34"
+    },
+    {
+      "id": "03",
+      "title": "UI/UX",
+      "lane": "ui-localization",
+      "prefixes": [
+        "UX"
+      ],
+      "spec": "docs/production/03-ui-ux.md",
+      "issue": "https://github.com/INNVoices/waarp/issues/35"
+    },
+    {
+      "id": "04",
+      "title": "Android липучка",
+      "lane": "sticky",
+      "prefixes": [
+        "STK"
+      ],
+      "spec": "docs/production/04-sticky-companion.md",
+      "issue": "https://github.com/INNVoices/waarp/issues/36"
+    },
+    {
+      "id": "05",
+      "title": "Мультиязычность",
+      "lane": "ui-localization",
+      "prefixes": [
+        "L10N"
+      ],
+      "spec": "docs/production/05-localization.md",
+      "issue": "https://github.com/INNVoices/waarp/issues/37"
+    },
+    {
+      "id": "06",
+      "title": "Сборка и зависимости",
+      "lane": "build",
+      "prefixes": [
+        "BLD"
+      ],
+      "spec": "docs/production/06-build-and-supply-chain.md",
+      "issue": "https://github.com/INNVoices/waarp/issues/38"
+    },
+    {
+      "id": "07",
+      "title": "Дистрибуция и рост",
+      "lane": "distribution-growth",
+      "prefixes": [
+        "DIST",
+        "GROW"
+      ],
+      "spec": "docs/production/07-distribution-and-growth.md",
+      "issue": "https://github.com/INNVoices/waarp/issues/39"
+    },
+    {
+      "id": "08",
+      "title": "Работа агентов",
+      "lane": "coordination",
+      "prefixes": [
+        "OPS"
+      ],
+      "spec": "docs/production/08-agent-execution.md",
+      "issue": "https://github.com/INNVoices/waarp/issues/40"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "REL-001",
+      "title": "Сохранить состояние Android при раннем отказе APK install",
+      "corpus": "01",
+      "priority": "P0",
+      "status": "done",
+      "lane": "release",
+      "platforms": [
+        "Android"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "scripts/android-install.py",
+        "scripts/android-install-test.py",
+        ".github/workflows/android.yml",
+        "docs/ANDROID.md"
+      ],
+      "scope": "opt-in `--failure-report` только при явном serial эмулятора и подтверждении disposable CI. При отказе первого/тестового APK сохранить исходное исключение; через существующий ограниченный diagnostic runner проверить debuggable QEMU и прочитать package/settings service presence, PID framework, crash/recent logcat, kernel, memory/uptime и список процессов. Загрузить отчёт с существующим runtime artifact до teardown. Успешная установка и обычный локальный запуск не собирают полные логи.",
+      "acceptance": "первая ошибка не заменяется ошибкой диагностики; install вызван один раз; повторная запись не уничтожает прежний failure bundle; команды только читают; сырой stdout/stderr имеет размер/hash/exit/timeout; unknown/missing/denied не становится success. Лимиты install 180 s, workflow и emulator resource budgets прежние; diagnostic limits берутся из существующих 12 s total / 2 s per command и stream caps. Нет root/unroot, restart, clear-log, retry или изменения tracefs.",
+      "verification": "10 новых installer tests и 32 existing preparation tests прошли локально; required Windows CI и dependency/AWG jobs PR30 успешны. Реальный API36 failure collector отработал за 0.524 s, сохранил исходный отказ, CRC ZIP и 22 raw hashes/bytes проверены. Android runtime acceptance остаётся незавершённой.",
+      "spec": "docs/production/01-production-release.md#rel-001",
+      "issue": "https://github.com/INNVoices/waarp/issues/33",
+      "evidence": [
+        "https://github.com/INNVoices/waarp/pull/30",
+        "https://github.com/INNVoices/waarp/commit/35c3b2e11d0001f482dbae22abccbed4db8769bf",
+        "https://github.com/INNVoices/waarp/actions/runs/44856329190",
+        "docs/production/evidence/2026-11-21-pr30-install.json"
+      ]
+    },
+    {
+      "id": "REL-002",
+      "title": "Разобрать нестабильность framework API 29 без обхода PID/Binder guard",
+      "corpus": "01",
+      "priority": "P0",
+      "status": "ready",
+      "lane": "release",
+      "platforms": [
+        "Android"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "scripts/android-emulator-prepare.py",
+        "scripts/android-emulator-prepare-test.py",
+        ".github/workflows/android.yml"
+      ],
+      "scope": "сопоставить accepted/new PID, `/proc` observations, `settings/package` Binder failures, boot/locale ordering и crash/kernel logs одного run. Сначала отделить завершение процесса, изменение имени/дочерние PID и потерю ADB. Менять только доказанную причину, сохраняя единственную запланированную инициализацию и исходные deadlines. Если данных не хватает — добавить одну адресную read-only запись, а не цикл «пока пройдёт».",
+      "acceptance": "документ содержит source/run/job, raw record/hash и причинное основание правки либо конкретное `BLOCKED` с недостающим свидетельством. Ошибочные/malformed/stale PID и неизвестные ошибки Binder по-прежнему не проходят. В успешной подготовке новый framework, heap и shell identity действительно подтверждены перед fixtures/install.",
+      "verification": "только относящиеся к гипотезе негативные fixtures + текущие preparation tests. Не более одного следующего обычного CI-наблюдения на законченную корректировку; не многократные rerun без изменения причины.",
+      "spec": "docs/production/01-production-release.md#rel-002",
+      "issue": "https://github.com/INNVoices/waarp/issues/33",
+      "evidence": [
+        "https://github.com/INNVoices/waarp/actions/runs/44831610512/job/136621297539"
+      ],
+      "evidence_note": "Observed infrastructure refusal; root cause unknown. Not a confirmed application defect.",
+      "inputs": [
+        "CI artifact: out/android/device-tests/emulator-preparation.json; use the exact path from the failed job receipt"
+      ]
+    },
+    {
+      "id": "REL-003",
+      "title": "Уточнить владение BPF trace event и допустимый путь подготовки 16 KiB",
+      "corpus": "01",
+      "priority": "P0",
+      "status": "ready",
+      "lane": "release",
+      "platforms": [
+        "Android"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "scripts/android-ftrace-prepare.py",
+        "scripts/android-ftrace-prepare-test.py",
+        "scripts/android-emulator-image.py",
+        "docs/ANDROID-PERFETTO-16K.md"
+      ],
+      "scope": "исследовать конкретный image/kernel и источник включённого события до любой tracefs mutation. Проверенный exact kernel revision и permalink приведены ниже. Helper lookup может асинхронно включить событие, поэтому `X` совместим с нулём Perfetto sessions. Это объяснение механизма, не атрибуция actual guest. Подготовить проверяемый вариант, сохраняющий чужое состояние; если безопасный resize при таком состоянии не доказан, оставить отказ.",
+      "acceptance": "различены факт enable, producer/helper lookup и текущий owner. Не считать `nop`, `tracing_on=0` и отсутствие perfetto PID доказательством отсутствия событий. Не выключать `bpf_trace_printk`, не разрешать произвольный `X`, не сбрасывать buffers/events. Итоговая корректировка должна иметь негативные tests активного/неизвестного owner, неизменённые 10 s/60 s/64 KiB budgets и реальные before/after records на согласованном образе.",
+      "verification": "сначала read-only source/evidence review; существующие ftrace tests для малой правки; один следующий CI для этой гипотезы. Native/TUN приёмка не подменяется успешной подготовкой tracefs.\n\nПроверенный полный kernel revision для REL-003: [`bb9513914902b52a9751ea1126ad40518a38c89f`](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/kernel/trace/bpf_trace.c#L406-L425). В нём `bpf_get_trace_printk_proto()` планирует работу, вызывающую `trace_set_clr_event(..., 1)`; [`trace_events.c`](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/kernel/trace/trace_events.c#L1287-L1296) использует верхний trace array. Даже успешная загрузка BPF-программы из одного enable не следует. Этот механизм не позволяет назначить виновным приложение Waarp, которое ещё не установлено.",
+      "spec": "docs/production/01-production-release.md#rel-003",
+      "issue": "https://github.com/INNVoices/waarp/issues/33",
+      "evidence": [
+        "https://github.com/INNVoices/waarp/actions/runs/44829589582/job/136616804337"
+      ],
+      "evidence_note": "Observed infrastructure refusal; root cause unknown. Not a confirmed application defect."
+    },
+    {
+      "id": "REL-004",
+      "title": "Получить полный exact-source Android acceptance bundle",
+      "corpus": "01",
+      "priority": "P0",
+      "status": "blocked",
+      "lane": "release",
+      "platforms": [
+        "Android"
+      ],
+      "depends_on": [
+        "REL-001",
+        "REL-002",
+        "REL-003",
+        "REL-009"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        ".github/workflows/android.yml",
+        "scripts/android-release-readiness.py",
+        "scripts/android-release-proof.py",
+        "docs/ANDROID_RELEASE_EVIDENCE.md",
+        "android/acceptance/README.md"
+      ],
+      "scope": "на одном выбранном main commit выполнить существующую полную Android acceptance. Экспортировать raw run/jobs и отдельные artifact receipts, original ZIP и точные extracted files; сверить SHA256/CRC и связность выбранной попытки. Статические отчёты привязать к трём реальным unsigned APK; runtime — к реально использованному payload, а не только versionName/code или `passed=true`.",
+      "acceptance": "все восемь ожидаемых jobs завершились success, включая **7 200 реальных секунд** soak; никакие failed/skipped/cancelled результаты не маскируются. Нет смеси partial rerun artifacts разных попыток. Original ZIP digest, owning job upload window, source HEAD, три ABI, raw instrumentation/traffic/resources/crashes/16 KiB и unsigned payload проходят существующий checker. Report сохраняет `cryptographicCiProvenanceVerified=false`: доверие к API receipts обеспечено экспортирующим источником, а не самоописанием JSON.",
+      "verification": "не запускать полный 2h pipeline для документационной правки. После адресных исправлений один полный candidate run и один offline checker replay. Если новая кандидатная сборка меняет payload, старый evidence нельзя переиспользовать как новый runtime pass. Положительный результат только отдельной API 35 исторической записи не закрывает эту задачу.",
+      "spec": "docs/production/01-production-release.md#rel-004",
+      "issue": "https://github.com/INNVoices/waarp/issues/33",
+      "evidence": [
+        "https://github.com/INNVoices/waarp/actions/runs/44831610512"
+      ]
+    },
+    {
+      "id": "REL-005",
+      "title": "Передать одобренные три APK существующей production-подписи",
+      "corpus": "01",
+      "priority": "P0",
+      "status": "blocked",
+      "lane": "release",
+      "platforms": [
+        "Android"
+      ],
+      "depends_on": [
+        "REL-004"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [
+        "Requires access to the retained production signing identity after candidate acceptance; never generate a replacement key."
+      ],
+      "work_paths": [
+        "scripts/android-sign.py",
+        "scripts/android-verify.py",
+        "android/release-signing.json",
+        "docs/ANDROID.md",
+        "docs/ANDROID_RELEASE_EVIDENCE.md"
+      ],
+      "scope": "подготовить конкретный список accepted unsigned APK/hash/payload/version/ABI. В существующей доверенной среде применить `sign-apks`; затем независимо проверить три signed APK и `--require-signed` handoff. Агент может полностью подготовить комплект и проверять возвращённые публичные результаты; доступ к retained private key требуется только для самой операции подписи.",
+      "acceptance": "сохранён production certificate; package `local.waarp.android`, nondebuggable/non-testOnly, intended version/code и ABI; каждый unsigned-source hash и ZIP payload совпадает с accepted input. В комплекте final SHA256 и signing reports. Нет `init-key`, переноса private key/password в CI, подмены pin или disposable CI certificate. Signing success сам по себе не означает runtime success.",
+      "verification": "existing static verifier + bundle checker один раз на реальных финальных файлах. Не создавать подпись «для проверки» на новом ключе. Если secure signing environment недоступна, статус `BLOCKED` с готовым reviewable input manifest, не ложный `DONE`.",
+      "spec": "docs/production/01-production-release.md#rel-005",
+      "issue": "https://github.com/INNVoices/waarp/issues/33",
+      "evidence": [
+        "https://github.com/INNVoices/waarp/issues/25"
+      ]
+    },
+    {
+      "id": "REL-006",
+      "title": "Проверить подписанную Android установку и действительную границу обновления",
+      "corpus": "01",
+      "priority": "P0",
+      "status": "blocked",
+      "lane": "release",
+      "platforms": [
+        "Android"
+      ],
+      "depends_on": [
+        "REL-005"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [
+        "Requires an authorized physical device and signed candidate for installation/update evidence."
+      ],
+      "work_paths": [
+        "docs/ANDROID.md",
+        "docs/INSTALL.md",
+        "android/acceptance"
+      ],
+      "scope": "на идентифицированном физическом ARM64 Android проверить установку именно final signed hash, VPN consent, один контролируемый encrypted traffic сценарий, OFF/ON, сохранение состояния после перезапуска и удаление/повторную установку в согласованном тестовом профиле. Зафиксировать модель/OS/ABI/page size без личных identifiers. Дополнительное ARM32 устройство — отдельная явно заявленная строка покрытия, не вывод из ARM64.",
+      "acceptance": "debug package `local.waarp.android.debug` и production `local.waarp.android` не перепутаны; их сосуществование/импорт объяснены. Исторический in-place upgrade заявляется только при наличии реального предыдущего production APK с подходящими certificate/versionCode и выполненном обновлении. При его отсутствии результат — первая production установка, без обещания протестированной миграции. Потеря/очистка данных после uninstall описана точно. Ключи и личные серверные конфигурации не попадают в record.",
+      "verification": "одна короткая install/use/exit/install sequence на согласованном устройстве; существующая эмуляторная матрица не повторяется ради этой записи. Физические handover/Doze/privacy ограничения расширяет NET-006. При отсутствии доступного устройства подготовить сценарий и сбор безопасного evidence, статус оставить `BLOCKED`.",
+      "spec": "docs/production/01-production-release.md#rel-006",
+      "issue": "https://github.com/INNVoices/waarp/issues/33",
+      "evidence": [
+        "https://github.com/INNVoices/waarp/issues/25"
+      ]
+    },
+    {
+      "id": "REL-007",
+      "title": "Зафиксировать Windows portable runtime и жизненный цикл обновления",
+      "corpus": "01",
+      "priority": "P0",
+      "status": "ready",
+      "lane": "release",
+      "platforms": [
+        "Windows"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/release-preview.yml",
+        "scripts/verify-package.mjs",
+        "docs/V1.md",
+        "docs/INSTALL.md",
+        "engine/integrity.json"
+      ],
+      "scope": "связать текущий Windows job, packaged portable hash, shipped engine/DLL/notices и реальные native/TUN evidence. Существующее покрытие отметить `ALREADY_DONE`; адресно закрыть только отсутствующую последовательность: первый запуск, отказ UAC, штатный выход, повторный запуск, замена portable EXE при остановленном приложении, чтение сохранённого профиля, осмысленный rollback. Проверять только собственные child/TUN resources; соседний VPN не трогать.",
+      "acceptance": "сохранены process/TUN ownership и профиль; упаковка соответствует конкретному commit; clean exit/оставшиеся процессы и адаптеры наблюдались на Windows, а не эмулированы Linux unit tests. Нет автоматического удаления по похожему имени и нет бесконечного restart. Portable removal не выдаётся за MSI/NSIS uninstall. Если EXE остаётся unsigned, это явно отражено в канале/инструкции; новая code-signing identity не выдумана. Ранее встречавшийся child-exit timeout считается устранённым только при подтверждённой причине и адресном результате.",
+      "verification": "сначала прочитать fresh job artifacts и existing native coverage; затем максимум один ограниченный Windows lifecycle run для непокрытого случая. Существующие iteration/time budgets не увеличивать; Linux skips записывать как `NOT_RUN`, а не pass Windows.",
+      "spec": "docs/production/01-production-release.md#rel-007",
+      "issue": "https://github.com/INNVoices/waarp/issues/33",
+      "evidence": [
+        "https://github.com/INNVoices/waarp/actions/runs/44831610520/job/136617659691"
+      ],
+      "evidence_note": "Bounded task ready for implementation/reconciliation; existing implementation must be marked ALREADY_DONE where covered."
+    },
+    {
+      "id": "REL-008",
+      "title": "Добавить явный путь публикации одобренных production-файлов",
+      "corpus": "01",
+      "priority": "P1",
+      "status": "blocked",
+      "lane": "release",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "REL-005",
+        "REL-006",
+        "REL-007",
+        "NET-001",
+        "NET-002",
+        "NET-004"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        ".github/workflows/stable.yml",
+        "release/stable.md",
+        "docs/RELEASES.md",
+        "docs/INSTALL.md",
+        "docs/ANDROID_RELEASE_EVIDENCE.md"
+      ],
+      "scope": "подготовить минимальный отдельный publication contract, потребляющий уже проверенный signed bundle без пересборки/переподписания. Явно связать tag/source, asset hashes, evidence report, платформы и поддержку обновления. Закрывать issue [#25](https://github.com/INNVoices/waarp/issues/25) по его фактическим acceptance, не только по наличию checker.",
+      "acceptance": "публикация отклоняет отсутствующий/failed/mismatched evidence; три реальные production APK не перепутаны с debug; final downloads совпадают по SHA256 с одобренными файлами; release notes не приписывают ARM runtime/API36/historical upgrade, которых не было. Открытые ограничения остаются видны. Preview ссылки действуют до появления конкретной замены. Автоматическая публикация не начинается от одного изменения документации или номера версии.",
+      "verification": "offline malformed/missing/stale-bundle cases для publication input; один reviewable draft набора files/notes. Реальное размещение выполняется только с конкретными accepted artifacts и уже предоставленной авторизацией. Каталоги оцениваются отдельно; принятие каталога не является доказательством безопасности или production acceptance.",
+      "spec": "docs/production/01-production-release.md#rel-008",
+      "issue": "https://github.com/INNVoices/waarp/issues/33",
+      "evidence": [
+        "https://github.com/INNVoices/waarp/issues/25"
+      ]
+    },
+    {
+      "id": "REL-009",
+      "title": "Разобрать graphics/framework crash API 36 до установки приложения",
+      "corpus": "01",
+      "priority": "P0",
+      "status": "ready",
+      "lane": "release",
+      "platforms": [
+        "Android"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        ".github/workflows/android.yml",
+        "docs/ANDROID.md",
+        "docs/ANDROID-PERFETTO-16K.md",
+        "docs/production/evidence/2026-11-21-pr30-install.json"
+      ],
+      "scope": "сопоставить точные emulator version, Android image revision, ABI/page size и graphics backend из job/provenance с assertion `GoldfishMapper::readFromHost` / `hasReadColorBufferDma`. Найти соответствующий AOSP/gfxstream код и допустимую конфигурацию или upstream исправление. Отделить SurfaceFlinger crash, последующий framework restart и отсутствие package/settings от независимого ftrace blocker REL-003. После source review предложить один ограниченный воспроизводимый эксперимент; менять только подтверждённую причину.",
+      "acceptance": "timeline показывает, что crash предшествовал install; гипотеза привязана к фактическим версиям и исходникам. Если нужна правка — один minimal diff и before/after одинакового сценария с сохранением PAGE_SIZE, VPN/UI tests, test count, tracing guards и прежних deadlines. Отрицательный результат остаётся failure; нельзя отключить RegionSampling, UI rendering или проверку правильной страницы только ради прохождения CI.",
+      "verification": "сначала read-only review сохранённого bundle и первичного кода. Затем не более одного адресного disposable-emulator experiment на подтверждённую гипотезу; без веера flags/retries. Production candidate требует полной REL-004 matrix независимо от локального успеха. Этот task не утверждает дефект VPN или universal emulator fix.",
+      "spec": "docs/production/01-production-release.md#rel-009",
+      "issue": "https://github.com/INNVoices/waarp/issues/33",
+      "evidence": [
+        "docs/production/evidence/2026-11-21-pr30-install.json",
+        "https://github.com/INNVoices/waarp/actions/runs/44856329155/job/136701575165"
+      ]
+    },
+    {
+      "id": "NET-001",
+      "title": "Согласовать проверяемый смысл правил и DNS на двух платформах",
+      "corpus": "02",
+      "priority": "P0",
+      "status": "ready",
+      "lane": "routing-security",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "src/main/awg.ts",
+        "src/shared/types.ts",
+        "src/shared/routing-edit.ts",
+        "test/routing-dns-priority.check.ts",
+        "test/route-switch-matrix.check.ts",
+        "android/app/src/main/java/local/waarp/android/data/RoutingCompiler.kt",
+        "android/app/src/main/java/local/waarp/android/data/MobileLiveRouting.kt"
+      ],
+      "scope": "описать максимум 12–16 канонических случаев: app против domain, overlap/order одного kind, suffix против exact/IP/CIDR, Direct/Block, отсутствующий/revoked профиль, fallback, default route, shared/system DNS, IPv6 при неподдерживающем endpoint, LAN/self bypass и disabled route. Для каждого записать expected route/DNS/block и намеренные различия платформ. Сначала сопоставить уже имеющиеся assertions; добавить consumers только там, где это действительно предотвращает рассинхронизацию.",
+      "acceptance": "оба компилятора дают ожидаемый смысл при разных JSON shapes/native versions. Не требовать byte equality несопоставимых config; не использовать только самописный evaluator как доказательство реального ядра. Противоречие классифицировано: deliberate platform difference, importer gap, real regression или unsupported. Для найденной ошибки есть минимальный воспроизводимый fixture, правка существующего owner и отрицательный случай. Зафиксирован порядок app/domain rules, а визуальное перемещение между kinds не обещает изменения этого порядка.",
+      "verification": "один запуск затронутых TS checks и targeted Android JVM classes. `sing-box check`/libbox validation — только доступный фактический binary с pin/hash, иначе `NOT_RUN`. Полная emulator-матрица не нужна для одной fixture/documentation правки. Перед production новое compile-поведение проходит адресный native сценарий NET-002.",
+      "spec": "docs/production/02-routing-and-security.md#net-001",
+      "issue": "https://github.com/INNVoices/waarp/issues/34",
+      "evidence": [],
+      "evidence_note": "Bounded task ready for implementation/reconciliation; existing implementation must be marked ALREADY_DONE where covered."
+    },
+    {
+      "id": "NET-002",
+      "title": "Закрыть недостающую native-приёмку live apply и rollback",
+      "corpus": "02",
+      "priority": "P0",
+      "status": "planned",
+      "lane": "routing-security",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "NET-001"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "src/main/engine.ts",
+        "src/main/live-routing.ts",
+        "src/main/live-outbound.ts",
+        "test/slots.check.ts",
+        "test/live-outbound-races.check.ts",
+        "test/route-lifecycle.check.ts",
+        "android/app/src/main/java/local/waarp/android/data/MobileRepository.kt",
+        "android/app/src/main/java/local/waarp/android/core/LibboxRuntime.kt",
+        "android/app/src/main/java/local/waarp/android/core/LiveRoutingFiles.kt",
+        "android/app/src/main/java/local/waarp/android/core/RoutingWitness.kt",
+        "android/app/src/main/java/local/waarp/android/core/VpnControlLane.kt",
+        "android/app/src/androidTest/java/local/waarp/android/core/VpnLifecycleInstrumentedTest.kt"
+      ],
+      "scope": "построить небольшую таблицу уже проверенных переходов: Direct→личный→другой путь, последний/неактивный route delete, перекрывающий reorder, group selection, отказ одной rule-file записи/ACK, failure persistence после native ACK и поздний OFF/revoke. Один непокрытый переход — один узкий PR. Reuse текущий per-file witness и transaction owner; не добавлять параллельную apply state machine.",
+      "acceptance": "на совместимом live apply PID/core/TUN identity сохраняются; новый контролируемый поток идёт ожидаемым путём. Соседний поток не закрывается из-за изменения другой карточки. На ошибке подтверждён rollback либо guard остаётся на затронутом наборе; UI не сообщает сохранённый выбор как applied. Failed/late DELETE не считается закрытым соединением. Правка не оживляет OFF/revoked и не перезапускает runtime для маскировки неполного ACK. Если native capability не поддерживает soft drain, это явно `UNSUPPORTED/NOT_VERIFIED`; не обещать безразрывность текущих TCP/UDP сессий по успеху selector API.",
+      "verification": "offline injection только отсутствующей стадии отказа; затем один controlled native TCP+UDP сценарий затронутой платформы с собственными fixtures, real peer counters и before/after identity. Linux assertions не считаются Windows TUN; x86 emulator не считается physical mobile handover. Текущие Android инфраструктурные блокеры решаются REL, durations/лимиты не растут ради pass.",
+      "spec": "docs/production/02-routing-and-security.md#net-002",
+      "issue": "https://github.com/INNVoices/waarp/issues/34",
+      "evidence": [],
+      "evidence_note": "Bounded task ready for implementation/reconciliation; existing implementation must be marked ALREADY_DONE where covered."
+    },
+    {
+      "id": "NET-003",
+      "title": "Разделить поддержку импорта, native config и реальный interop",
+      "corpus": "02",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "routing-security",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "NET-001"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "src/main/awg.ts",
+        "src/main/vless.ts",
+        "src/main/links.ts",
+        "src/main/openvpn.ts",
+        "src/main/techview.ts",
+        "android/app/src/main/java/local/waarp/android/data/ProfileImporter.kt",
+        "android/app/src/main/java/local/waarp/android/data/OpenVpnImporter.kt",
+        "android/app/src/main/java/local/waarp/android/data/MasqueImporter.kt",
+        "android/app/src/main/java/local/waarp/android/data/ProfileTuning.kt",
+        "README.md",
+        "README.ru.md",
+        "docs/INSTALL.md"
+      ],
+      "scope": "для каждого реально импортируемого protocol/transport указать четыре независимых уровня: import/persist round trip, compiled native field, pinned-engine config check, controlled end-to-end transport proof. Отдельно version/platform/option и дата. Начать с уже рекламируемого набора, AWG variants, VLESS transports/REALITY, HY2 hopping, OpenVPN и MASQUE только там, где они реально есть. Не писать поддержку по одному имени в generic outbound JSON.",
+      "acceptance": "`pqv` не назван работающим: desktop сохраняет `notApplied`, Android TLS importer его отклоняет. Hysteria2 диапазоны не разбираются как одиночный порт; неверные key/range/options fail predictably. Desktop AWG3 parsing не превращается в заявление Android AWG3 compatibility; наличие `header_protection_key` не подменяет серверный interop. XHTTP extra/unsupported параметры не исчезают молча. Для каждого реального сетевого pass записаны pinned engine, обезличенная server fixture, проверенные TCP/UDP/DNS свойства; public catalogue success не доказывает доверие к узлу. Без своего/разрешённого тестового сервера — `NOT_RUN`, без изобретённого pass.",
+      "verification": "существующие importer fixtures + одна негативная fixture на конкретную исправляемую опцию. Конфиг-проверка без сети отдельно от максимум одного controlled interop run для изменённого protocol path. Не проверять все публичные endpoints и не запускать несколько engines с одинаковыми активными WireGuard/AWG credentials.",
+      "spec": "docs/production/02-routing-and-security.md#net-003",
+      "issue": "https://github.com/INNVoices/waarp/issues/34",
+      "evidence": [],
+      "evidence_note": "Bounded task ready for implementation/reconciliation; existing implementation must be marked ALREADY_DONE where covered."
+    },
+    {
+      "id": "NET-004",
+      "title": "Проверить конкретные границы секретов и входов приложения",
+      "corpus": "02",
+      "priority": "P0",
+      "status": "ready",
+      "lane": "routing-security",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "src/main/store.ts",
+        "src/main/store-core.ts",
+        "src/main/private-file.ts",
+        "src/main/techview.ts",
+        "android/app/src/main/java/local/waarp/android/data/ProfileStore.kt",
+        "android/app/src/main/java/local/waarp/android/data/Models.kt",
+        "android/app/src/main/java/local/waarp/android/data/LastSessionEvidence.kt",
+        "android/app/src/main/java/local/waarp/android/MainActivity.kt",
+        "android/app/src/main/java/local/waarp/android/core/LibboxRuntime.kt",
+        "android/app/src/main/AndroidManifest.xml",
+        "android/app/src/main/res/xml/file_paths.xml",
+        "android/app/src/main/res/xml/data_extraction_rules.xml"
+      ],
+      "scope": "составить компактную карту secret classes и реальных sinks: private/pre-shared/header-protection keys, password/UUID, signed subscription URL/query, controller secret, raw config, exporter/clipboard/native crash/error/log. Прогнать синтетические уникальные canaries через обычный import/persist/UI/error/diagnostic export; явное «скопировать подключение» проверять отдельно как намеренный secret export. Проверить отсутствие plaintext fallback и сохранение исходного файла при missing key/DPAPI/atomic-write error. Проверить реальные IPC/deep-link/import entry points на validation, отсутствие автоматического ON и обхода подтверждённого пути пользователя.",
+      "acceptance": "обезличенный отчёт не содержит canary или его очевидного URL/base64 представления; личный ключ не появляется в экранном DTO/toString/log/CI artifact. Secret-bearing export остаётся явным отдельным действием. Шифрование, случайный nonce, native temp cleanup и no-backup policy не ослаблены. Ошибка расшифровки не уничтожает store. Android non-exported service/receiver и ограниченный FileProvider сохраняются; renderer/web entry не получает произвольный file/process/native command доступ. Конкретный дефект оформляется только после воспроизведения; отсутствие finding не называется полным security audit.",
+      "verification": "не читать реальные пользовательские secrets/keystore. Одна bounded synthetic fixture на реальный sink/ошибку, существующие impacted tests; для platform storage один smoke на целевой OS при доступности. Не публиковать dump секретов как тестовый артефакт. Расширять аудит на новый модуль только по обнаруженному data flow.",
+      "spec": "docs/production/02-routing-and-security.md#net-004",
+      "issue": "https://github.com/INNVoices/waarp/issues/34",
+      "evidence": [],
+      "evidence_note": "Bounded task ready for implementation/reconciliation; existing implementation must be marked ALREADY_DONE where covered."
+    },
+    {
+      "id": "NET-005",
+      "title": "Зафиксировать offline/cache/revocation и политику служебного трафика",
+      "corpus": "02",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "routing-security",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "NET-004"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "src/main/catalog.ts",
+        "src/main/catalog-endpoint.ts",
+        "src/main/service-transport.ts",
+        "src/main/proxy-http.ts",
+        "src/main/vless.ts",
+        "src/main/lists.ts",
+        "test/service-download.check.ts",
+        "test/public-service-path.check.ts",
+        "test/public-service-transport.check.ts",
+        "android/app/src/main/java/local/waarp/android/data/NetworkTools.kt",
+        "android/app/src/main/java/local/waarp/android/data/PublicCatalog.kt",
+        "android/app/src/main/java/local/waarp/android/data/PublicSourcePolicy.kt",
+        "android/app/src/main/java/local/waarp/android/data/ProfileStore.kt",
+        "android/app/src/test/java/local/waarp/android/data/NetworkOperationTest.kt",
+        "android/app/src/test/java/local/waarp/android/data/HttpCancellationTest.kt"
+      ],
+      "scope": "reuse существующие policy/cache механизмы. Сверить offline start с последним валидным state, damaged/oversized/slow/decompressed response, redirect, cancellation, revoked/subscription-missing profile, refresh после смены сети. Показать пользователю источник/возраст/ошибку без предположения «страна измерена» или «узел безопасен». Новые mirrors/signatures/автономный updater не входят в эту поставку; это будущая отдельно спроектированная Э7 с определённым издателем и ключом.",
+      "acceptance": "отказ GitHub/каталога/probe-host не стирает личные профили и последнюю валидную snapshot; partial parse не публикуется как complete list. Public catalogue allowlist/SSRF/redirect limits не расширяются на private subscription URLs. Private credentials не уходят на новый публичный маршрут; serviceVia и bypass остаются явными. Отмена/deadline не оставляют probe/core workers; устаревший ответ не возрождает revoked state. Точный duplicate effective config может объединяться, разные transport/path/SNI не теряются.",
+      "verification": "existing local socket/fake network tests с одной targeted regression на отсутствующий случай. Максимум один offline-start smoke с уже импортированным synthetic profile; не делать массовых реальных downloads. Signed mirror/update infrastructure не добавлять как побочный эффект этой задачи.",
+      "spec": "docs/production/02-routing-and-security.md#net-005",
+      "issue": "https://github.com/INNVoices/waarp/issues/34",
+      "evidence": [],
+      "evidence_note": "Bounded task ready for implementation/reconciliation; existing implementation must be marked ALREADY_DONE where covered."
+    },
+    {
+      "id": "NET-006",
+      "title": "Измерить физический handover, DNS и lifecycle без выдуманной универсальности",
+      "corpus": "02",
+      "priority": "P1",
+      "status": "blocked",
+      "lane": "routing-security",
+      "platforms": [
+        "Android",
+        "Windows optional"
+      ],
+      "depends_on": [
+        "NET-002",
+        "REL-006"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [
+        "Requires an authorized physical Android device and a controlled network handover environment."
+      ],
+      "work_paths": [
+        "android/app/src/main/java/local/waarp/android/service/WaarpVpnService.kt",
+        "android/app/src/main/java/local/waarp/android/service/VpnRecoveryWatchdog.kt",
+        "android/app/src/main/java/local/waarp/android/core/VpnController.kt"
+      ],
+      "scope": "подготовить и выполнить короткую заранее фиксированную матрицу: Wi-Fi→cellular→Wi-Fi, короткая потеря сети, same-interface address change, process death с сохранённым ON, явный OFF/revoke, screen-off/Doze. Наблюдать реальные DNS egress/traffic и временной разрыв собственного тестового потока; разделить transport recovery, UI readiness и успешный новый запрос. Не обещать отсутствие разрыва существующей TCP-сессии при смене внешнего IP.",
+      "acceptance": "record содержит device/OS/ABI/page size, candidate hash, network type, timestamps/peer counters, state/generation и ограничения наблюдения. Старый callback не включает выключенный VPN. Unknown network/telemetry не выдаётся за успешную проверку; исключения LAN/service DNS соответствуют выбранной политике, не скрываются общим словом «leak-free». 30 s alarm target и emulator recovery gate не обещают точного срока на физическом устройстве/в Doze. При неудаче сохраняется evidence и воспроизводимая задача, а не увеличение deadline до pass.",
+      "verification": "один bounded сценарий на устройство/сеть после REL-006, без многосуточного burn-in по умолчанию. Использовать собственный controlled endpoint, не записывать SSID/IP/ключи пользователя в публичный отчёт. При отсутствии доступа готовый сценарий и collector — полезный результат; сам physical acceptance остаётся `NOT_RUN`.",
+      "spec": "docs/production/02-routing-and-security.md#net-006",
+      "issue": "https://github.com/INNVoices/waarp/issues/34",
+      "evidence": []
+    },
+    {
+      "id": "UX-001",
+      "title": "Доступные имена действий списков",
+      "corpus": "03",
+      "priority": "P1",
+      "status": "done",
+      "lane": "ui-localization",
+      "platforms": [
+        "Windows"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "src/renderer/src/pages/settings.tsx",
+        "src/renderer/src/ui/kit.tsx",
+        "src/renderer/src/ui/tooltip.tsx"
+      ],
+      "scope": "добавить явные `aria-label={s('lists.refresh')}` и `aria-label={s('set.remove')}` к двум icon-only кнопкам. Использовать имеющиеся переводы; сохранить title/Tooltip, disabled и handlers. Не менять глобально семантику всех `Btn`.",
+      "acceptance": "обе кнопки находятся по роли и имени до hover/focus; доступны с клавиатуры при разрешённом действии; disabled удаление остаётся disabled; подсказка причины недоступности не исчезает. Маршрутизация и IPC-вызовы не меняются.",
+      "verification": "один адресный renderer/DOM сценарий с одним неиспользуемым и одним используемым списком, RU и EN; проверка role/name, состояния disabled и tooltip. Сценарий добавлен в существующий `test/ui.browser.mjs`, локально проверен синтаксис; runtime browser результат ожидается от CI, его прохождение здесь не заявляется. `git diff --check` выполнен. Полная Android/Windows runtime matrix не нужна для изменения двух атрибутов. Финальный результат PR31: typecheck, unit suites, browser UI, native lifecycle, package verification и общий CI успешны; PR слит как 0e2a23b17dd5e89609917beed3f5b1a2d563021b.",
+      "spec": "docs/production/03-ui-ux.md#ux-001",
+      "issue": "https://github.com/INNVoices/waarp/issues/35",
+      "evidence": [
+        "https://github.com/INNVoices/waarp/pull/31",
+        "https://github.com/INNVoices/waarp/commit/0e2a23b17dd5e89609917beed3f5b1a2d563021b",
+        "https://github.com/INNVoices/waarp/actions/runs/44856670072"
+      ]
+    },
+    {
+      "id": "UX-002",
+      "title": "Доступность интерактивных элементов и фокус",
+      "corpus": "03",
+      "priority": "P1",
+      "status": "ready",
+      "lane": "ui-localization",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "UX-001"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "src/renderer/src/App.tsx",
+        "src/renderer/src/ui/kit.tsx",
+        "src/renderer/src/ui/modal.tsx",
+        "src/renderer/src/ui/tooltip.tsx",
+        "src/renderer/src/pages/route.tsx",
+        "android/app/src/main/java/local/waarp/android/ui/UiComponents.kt",
+        "android/app/src/main/java/local/waarp/android/ui/HomeRoutes.kt",
+        "android/app/src/main/java/local/waarp/android/ui/AtlasMap.kt",
+        "test/ui.browser.mjs",
+        "android/app/src/androidTest/java/local/waarp/android/ui/MobileUiInstrumentedTest.kt"
+      ],
+      "scope": "составить опись доступных имён и ролей именно интерактивных элементов; проверить selected navigation, порядок Tab, возврат фокуса, имя формы, связь ошибки с полем и семантику карты/списка. Исправлять подтверждённые пропуски малыми PR. Декоративным иконкам не добавлять дублирующие описания.",
+      "acceptance": "четыре раздела, настройки, импорт, route picker и удаление выполняются клавиатурой; диалог не выпускает фокус и возвращает его в существующий инициатор; у выключенного действия понятна причина; Android label/role/state читаются единым осмысленным control, а не несколькими дубликатами.",
+      "verification": "не более 8 ключевых последовательностей в browser fixture; один проход Narrator и один TalkBack на заявленных средах с журналом конкретных проблем. Compose semantics tests проверяют роль/состояние, но не объявляются полной проверкой озвучивания. Первичный ориентир: [Compose semantics](https://developer.android.com/develop/ui/compose/accessibility/semantics).",
+      "spec": "docs/production/03-ui-ux.md#ux-002",
+      "issue": "https://github.com/INNVoices/waarp/issues/35",
+      "evidence": []
+    },
+    {
+      "id": "UX-003",
+      "title": "Понятные состояния и основные пользовательские сценарии",
+      "corpus": "03",
+      "priority": "P1",
+      "status": "ready",
+      "lane": "ui-localization",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "src/renderer/src/lib/master.ts",
+        "src/renderer/src/lib/actions.ts",
+        "src/renderer/src/App.tsx",
+        "src/renderer/src/pages/addtunnel.tsx",
+        "src/renderer/src/pages/route.tsx",
+        "android/app/src/main/java/local/waarp/android/ui/MobileUiState.kt",
+        "android/app/src/main/java/local/waarp/android/ui/UiComponents.kt",
+        "android/app/src/main/java/local/waarp/android/ui/HomeRoutes.kt",
+        "android/app/src/main/java/local/waarp/android/MainActivity.kt"
+      ],
+      "scope": "закрепить таблицу состояний для первого запуска, пустой библиотеки, импорта, ON/OFF, сохранения маршрута и восстановления. Сопоставить каждый видимый текст/CTA с реальным полем backend: pending, saved, applied, blocked, stale, error. Не вводить второй UI-автомат VPN.",
+      "acceptance": "у каждой операции есть понятный успешный исход, отказ и безопасный следующий шаг; ошибка записи сохраняет черновик; устаревший ответ не перетирает новый выбор; работающий туннель не выглядит отключённым только из-за скрытого окна; пользователь видит различие отсутствия измерения и нулевого значения.",
+      "verification": "6 детерминированных fixture-сценариев: initial failure/retry, invalid import, deferred mutation, failed save, stale response, recoverable runtime error. Реальный VPN-прогон требуется только при изменении mapping runtime state или control plane.",
+      "spec": "docs/production/03-ui-ux.md#ux-003",
+      "issue": "https://github.com/INNVoices/waarp/issues/35",
+      "evidence": []
+    },
+    {
+      "id": "UX-004",
+      "title": "Размер окна, DPI и восстановление геометрии",
+      "corpus": "03",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "ui-localization",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "UX-003"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "src/main/index.ts",
+        "src/renderer/src/layout.css",
+        "src/renderer/src/ui/modal.tsx",
+        "src/renderer/src/ui/tooltip.tsx",
+        "test/ui.browser.mjs"
+      ],
+      "scope": "определить поддерживаемый минимальный логический workArea и контракт масштабирования. Проверить экран при Windows DPI 100/150/200%, смене монитора и восстановлении окна; при доказанном обрезании согласовать минимальный размер окна с responsive layout и workArea. Не считать DPR browser context заменой native DPI.",
+      "acceptance": "системные кнопки, главное действие, последний control формы и сообщение ошибки доступны без вынужденного изменения системного масштаба; off-screen bounds восстанавливаются; длинный текст переносится; внутренний скролл остаётся у длинного списка, а не скрывает основное действие. Tooltip не выходит за workArea.",
+      "verification": "900 × 600 и уменьшенный согласованный viewport в renderer; один native Windows проход 100/150/200% с двумя дисплеями либо честный NOT_RUN для отсутствующего устройства. 6 screenshots максимум на изменение. Источник: [Electron screen: DIP и изменения дисплеев](https://www.electronjs.org/docs/latest/api/screen).",
+      "spec": "docs/production/03-ui-ux.md#ux-004",
+      "issue": "https://github.com/INNVoices/waarp/issues/35",
+      "evidence": []
+    },
+    {
+      "id": "UX-005",
+      "title": "Адаптивность, крупный текст и движение",
+      "corpus": "03",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "ui-localization",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "UX-003"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "android/app/src/main/java/local/waarp/android/ui/UiComponents.kt",
+        "android/app/src/main/java/local/waarp/android/ui/HomeRoutes.kt",
+        "android/app/src/main/java/local/waarp/android/ui/WaarpApp.kt",
+        "android/app/src/main/java/local/waarp/android/ui/TunnelDialogs.kt",
+        "android/app/src/androidTest/java/local/waarp/android/ui/OperationFeedbackInstrumentedTest.kt"
+      ],
+      "scope": "адресно проверить фиксированные высоты и итоговые действия с большим шрифтом, IME, длинной ошибкой и translation expansion. При воспроизводимом clipping заменить фиксированную высоту минимальной с корректным переносом, сохраняя touch target и позицию формы.",
+      "acceptance": "на 360 dp и 840 dp при fontScale 1.0/1.5/2.0 читается подпись и доступно действие; клавиатура не закрывает Save/Cancel; Back не теряет несохранённый черновик незаметно; Snackbar не перекрывает controls. Это критерии будущей проверки, не утверждение о текущем результате.",
+      "verification": "расширить существующий тест формы только затронутым случаем; один portrait/landscape или split-screen сценарий на поддерживаемом Android. Не перезапускать native VPN protocol matrix из-за изменения высоты кнопки.",
+      "spec": "docs/production/03-ui-ux.md#ux-005",
+      "issue": "https://github.com/INNVoices/waarp/issues/35",
+      "evidence": []
+    },
+    {
+      "id": "UX-006",
+      "title": "Первый успешный маршрут",
+      "corpus": "03",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "ui-localization",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "UX-003"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "src/renderer/src/pages/connections.tsx",
+        "src/renderer/src/pages/addtunnel.tsx",
+        "src/renderer/src/pages/server-picker.tsx",
+        "src/shared/strings/",
+        "android/app/src/main/java/local/waarp/android/ui/HomeRoutes.kt",
+        "android/app/src/main/java/local/waarp/android/ui/TunnelsScreen.kt",
+        "android/app/src/main/java/local/waarp/android/ui/TunnelDialogs.kt",
+        "docs/INSTALL.md"
+      ],
+      "scope": "довести первый полезный сценарий: добавить собственное подключение → выбрать область маршрутизации → явным действием открыть VPN → увидеть результат и способ отключения. Согласовать термины приложения, инструкции и ошибки. Публичный каталог — отдельный осознанный выбор, не скрытый резерв onboarding.",
+      "acceptance": "новый пользователь различает клиент и VPN-провайдера; видит требования к своему профилю; отказ системного согласия и отсутствие сети объяснены; повторный импорт/возврат не дублирует профиль; ранее успешный импорт не теряется при последующей ошибке проверки.",
+      "verification": "3 прохода на fixtures: собственный профиль, ошибочный импорт, отказ разрешения. Один реальный smoke только перед release и только с тестовым профилем без публикации секретов.",
+      "spec": "docs/production/03-ui-ux.md#ux-006",
+      "issue": "https://github.com/INNVoices/waarp/issues/35",
+      "evidence": []
+    },
+    {
+      "id": "UX-007",
+      "title": "Контекстная диагностика и безопасная обратная связь",
+      "corpus": "03",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "ui-localization",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "UX-003"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "src/renderer/src/pages/analyzer.tsx",
+        "src/renderer/src/pages/payload-check.tsx",
+        "src/renderer/src/pages/settings.tsx",
+        "src/main/index.ts",
+        "android/app/src/main/java/local/waarp/android/ui/DiagnosticsSettings.kt",
+        "android/app/src/main/java/local/waarp/android/ConnectionCheckSharing.kt",
+        "android/app/src/main/java/local/waarp/android/MainActivity.kt"
+      ],
+      "scope": "оформить диагноз как наблюдение, время и границу уверенности; рядом дать одно подходящее действие. До экспорта ясно назвать содержимое и различие с полным конфигом. Не выводить технические секреты в toast и не отправлять данные автоматически.",
+      "acceptance": "timeout не объявляется доказанной блокировкой; DNS/TCP/TLS/payload и выбранный/применённый путь различимы; незапущенная проверка видна как незапущенная; пользователь понимает, куда передаёт отчёт; отсутствие dev mode не скрывает сведения, нужные для обычного выбора пути.",
+      "verification": "4 подготовленных результата: pass, failure, not measured, stale; snapshot текста и проверка экспортируемого fixture на известные секреты. Сетевой interop не нужен при редактировании представления готового результата.",
+      "spec": "docs/production/03-ui-ux.md#ux-007",
+      "issue": "https://github.com/INNVoices/waarp/issues/35",
+      "evidence": []
+    },
+    {
+      "id": "UX-008",
+      "title": "Ограниченная регрессионная UX-приёмка",
+      "corpus": "03",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "ui-localization",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "UX-001",
+        "UX-002",
+        "UX-004",
+        "UX-005",
+        "L10N-005"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "test/ui.browser.mjs",
+        "scripts/test-ui.mjs",
+        "docs/production/03-ui-ux.md"
+      ],
+      "scope": "собрать ограниченную матрицу приёмки интерфейса с разделением browser fixture, Android Compose, native desktop и ручной screen-reader проверки. Сохранить существующие reduced-motion/forced-colors режимы и измерить контраст текста/границ после фактических цветовых изменений.",
+      "acceptance": "отчёт содержит SHA, платформу, viewport/scale, locale, выполненные сценарии, артефакты и NOT_RUN. Нет заявления «весь UI доступен» на основании единственного `dir=rtl` или чистого screenshot. Проверка относится к собранному артефакту, не только к исходникам.",
+      "verification": "обязательный компактный набор — импорт, route change, busy/error, settings, recover; RU/EN плюс один длинный LTR, один RTL и один CJK язык. Полная 19-языковая визуальная матрица запускается только для регрессии каталога/общей типографики, а не каждого CSS-изменения.",
+      "spec": "docs/production/03-ui-ux.md#ux-008",
+      "issue": "https://github.com/INNVoices/waarp/issues/35",
+      "evidence": []
+    },
+    {
+      "id": "STK-001",
+      "title": "ADR исходной Android-липучки и первого этапа",
+      "corpus": "04",
+      "priority": "P1",
+      "status": "review",
+      "lane": "sticky",
+      "platforms": [
+        "Android"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "docs/ANDROID-CHAMELEON-2026-11-18.md",
+        "docs/production/04-sticky-companion.md",
+        "android/app/src/main/AndroidManifest.xml",
+        "android/app/src/main/java/local/waarp/android/MainActivity.kt",
+        "android/app/src/main/java/local/waarp/android/WaarpApplication.kt"
+      ],
+      "scope": "решение зафиксировано в ADR-STK-001: сначала recovery, затем optional launcher hiding; параллельно test/debug-only cross-app event spike без модификации target APK и перехвата controls. Исходный запрос остаётся самостоятельной целью.",
+      "acceptance": "ADR позволяет начать STK-002/003 без повторного выбора scope владельцем; production observer закрыт gates STK-003/005/006. Документ различает fallback и cross-app trigger, сохраняет VPN-инварианты и честный отрицательный результат.",
+      "verification": "выполнена read-only сверка manifest/lifecycle и первичных источников; ADR подготовлен для ревью в roadmap PR. Перезапуск VPN не нужен и не выполнялся.",
+      "spec": "docs/production/04-sticky-companion.md#stk-001",
+      "issue": "https://github.com/INNVoices/waarp/issues/36",
+      "evidence": [
+        "https://github.com/INNVoices/waarp/issues/32"
+      ]
+    },
+    {
+      "id": "STK-002",
+      "title": "Восстанавливаемый собственный launcher entry",
+      "corpus": "04",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "sticky",
+      "platforms": [
+        "Android"
+      ],
+      "depends_on": [
+        "STK-001",
+        "UX-003"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "android/app/src/main/AndroidManifest.xml",
+        "android/app/src/main/java/local/waarp/android/MainActivity.kt",
+        "android/app/src/main/java/local/waarp/android/entry/EntryMode.kt",
+        "android/app/src/main/java/local/waarp/android/entry/EntryActivity.kt"
+      ],
+      "scope": "реализовать собственный обратимый нейтральный entry с явным recovery. Сначала вход/возврат/восстановление, затем опциональное переключение launcher alias. Нейтральный дизайн не использует чужой бренд и не обещает защищённое хранилище.",
+      "acceptance": "свежая установка, upgrade, обычный restart, забытый жест, disabled alias и запуск из системного configure path не оставляют пользователя без управления. Нормальный entry возвращается документированным действием; OFF остаётся OFF, ON остаётся тем же сеансом.",
+      "verification": "до 8 UI/alias сценариев на stock emulator API 29 и текущем поддерживаемом API, плюс один заявленный OEM launcher на реальном устройстве. Отсутствующий OEM отмечается NOT_RUN; его поддержка не рекламируется.",
+      "spec": "docs/production/04-sticky-companion.md#stk-002",
+      "issue": "https://github.com/INNVoices/waarp/issues/36",
+      "evidence": []
+    },
+    {
+      "id": "STK-003",
+      "title": "Ограниченная проверка cross-app event trigger",
+      "corpus": "04",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "sticky",
+      "platforms": [
+        "Android"
+      ],
+      "depends_on": [
+        "STK-001"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "docs/production/04-sticky-companion.md"
+      ],
+      "scope": "проверить одну click и одну long-click последовательность в принадлежащем проекту test app: наличие пригодного event, различение элемента, ограничения launch, Back/task восстановление, отзыв разрешения. Обычный target не содержит интеграции с Waarp; его APK не переписывается, действие кнопки не подавляется. Минимальная конфигурация без чтения всех окон; production observer не добавляется.",
+      "acceptance": "таблица результатов содержит API, target, тип UI, язык, event availability, способ запуска и отказ. Отрицательный результат остаётся отрицательным; нет попытки заменить его ловлей всех taps или обходом ограничений. Успех fixture не объявляет поддержку любого стороннего приложения.",
+      "verification": "максимум 2 детерминированных controls owned test app и 3 API (29/35/36), до 20 событий на случай. Проверить, что исходное действие control выполняется и нет новых VPN-команд. Сторонние пользовательские приложения не входят в этот spike; нет бесконечного monitoring или записи экранов.",
+      "spec": "docs/production/04-sticky-companion.md#stk-003",
+      "issue": "https://github.com/INNVoices/waarp/issues/36",
+      "evidence": []
+    },
+    {
+      "id": "STK-004",
+      "title": "Добровольная привязка и observer поддержанных событий",
+      "corpus": "04",
+      "priority": "P2",
+      "status": "planned",
+      "lane": "sticky",
+      "platforms": [
+        "Android"
+      ],
+      "depends_on": [
+        "STK-002",
+        "STK-003"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "android/app/src/main/java/local/waarp/android/entry/StickyDescriptor.kt",
+        "android/app/src/main/java/local/waarp/android/entry/StickyObserver.kt",
+        "android/app/src/main/java/local/waarp/android/entry/StickySettings.kt"
+      ],
+      "scope": "реализовать узкий opt-in matcher, одно выбранное приложение/правило в первой версии, preview/arm/disarm, защиту от повторного события и инвалидирование descriptor. Единственный результат совпадения — запрос показать собственный UI.",
+      "acceptance": "чужой package, password element, stale descriptor, screen lock, отключённое разрешение и неподдерживаемое событие не открывают UI и не мутируют сеть. Двойное событие не создаёт две Activity. Журнал содержит только безопасные reason codes; текст чужого UI отсутствует.",
+      "verification": "таблица положительных/отрицательных matcher fixtures, 1 instrumentation flow arm → trigger → Back → revoke. Bounded event burst из 20 событий; убедиться в одном UI-open и нулевых VPN-command calls.",
+      "spec": "docs/production/04-sticky-companion.md#stk-004",
+      "issue": "https://github.com/INNVoices/waarp/issues/36",
+      "evidence": []
+    },
+    {
+      "id": "STK-005",
+      "title": "Восстановление входа и независимость VPN",
+      "corpus": "04",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "sticky",
+      "platforms": [
+        "Android"
+      ],
+      "depends_on": [
+        "STK-002"
+      ],
+      "conditional_dependencies": [
+        "STK-004"
+      ],
+      "external_blockers": [],
+      "work_paths": [
+        "android/app/src/main/java/local/waarp/android/WaarpApplication.kt",
+        "android/app/src/main/java/local/waarp/android/core/VpnController.kt",
+        "android/app/src/main/java/local/waarp/android/service/WaarpVpnService.kt",
+        "android/app/src/main/java/local/waarp/android/MainActivity.kt"
+      ],
+      "scope": "подтвердить архитектурно и наблюдением, что presentation не управляет VPN. Entry module не получает полномочий start/stop/rebuild/apply; UI использует существующее явное управление.",
+      "acceptance": "10 открытий/возвратов, revoke и alias toggle при ON сохраняют идентичность core/TUN и текущие маршруты без дополнительного consent; при OFF не появляется VPN-сеанс. Штатный системный Always-on остаётся отдельной причиной lifecycle transition и не приписывается entry.",
+      "verification": "targeted instrumentation сначала с OFF и command spies, затем один disposable ON scenario с heartbeat/session evidence. Прерывание наблюдения или отсутствующее устройство означает NOT_RUN, не успешную непрерывность.",
+      "spec": "docs/production/04-sticky-companion.md#stk-005",
+      "issue": "https://github.com/INNVoices/waarp/issues/36",
+      "evidence": []
+    },
+    {
+      "id": "STK-006",
+      "title": "Совместимость устройств и допустимый канал поставки",
+      "corpus": "04",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "sticky",
+      "platforms": [
+        "Android"
+      ],
+      "depends_on": [
+        "STK-003"
+      ],
+      "conditional_dependencies": [
+        "STK-004"
+      ],
+      "external_blockers": [],
+      "work_paths": [
+        "docs/INSTALL.md",
+        "SECURITY.md"
+      ],
+      "scope": "определить канал распространения и задокументировать реальные permissions/data flow; включить observer только там, где завершены платформенные и channel requirements. Подготовить правдивые screens/video для review, если он требуется выбранным каналом.",
+      "acceptance": "permission выдаётся только пользователем; нет фиктивного `isAccessibilityTool`; описание совпадает с кодом и фактическими data accesses; default не наблюдает сторонние приложения. Не заявлять одобрение магазина до его фактического получения.",
+      "verification": "manifest diff, проверка disclosure до system Settings, отрицательный revoke test и ревью политики по первичным ссылкам. Не обходить restricted settings, consent или review.",
+      "spec": "docs/production/04-sticky-companion.md#stk-006",
+      "issue": "https://github.com/INNVoices/waarp/issues/36",
+      "evidence": []
+    },
+    {
+      "id": "STK-007",
+      "title": "Опциональная Windows context panel",
+      "corpus": "04",
+      "priority": "P2",
+      "status": "deferred",
+      "lane": "sticky",
+      "platforms": [
+        "Windows"
+      ],
+      "depends_on": [
+        "STK-001",
+        "UX-004"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "src/main/bridge.ts",
+        "src/shared/companion.ts",
+        "src/main/index.ts"
+      ],
+      "scope": "сначала переиспользовать существующий cooperative bridge; если нужен отдельный Windows сценарий, спроектировать принадлежащую Waarp панель рядом с выбранным внешним окном. Не встраивать WebContents в чужой процесс и не обещать запуск по произвольной кнопке без пригодного UI Automation event.",
+      "acceptance": "панель имеет собственную идентичность, не перехватывает чужие controls, не захватывает фокус самопроизвольно, скрывается при неактуальном target и корректно обрабатывает DPI/monitor change. Secure desktop/elevated target остаются вне первого scope; отсутствие доступа — объяснимый отказ. Read-only показ не вызывает `routes.ensure`.",
+      "verification": "только после отдельного выбора: 3 окна одного integrity level, 2 DPI, minimize/close/reuse handle и focus отказ. [Electron BrowserWindow](https://www.electronjs.org/docs/latest/api/browser-window) описывает свои parent/child окна и `showInactive`; [screen](https://www.electronjs.org/docs/latest/api/screen) — DIP; [SetWinEventHook](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwineventhook) — scoped out-of-context events; [SetForegroundWindow](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setforegroundwindow) — ограничения фокуса. [UI Automation security](https://learn.microsoft.com/en-us/dotnet/framework/ui-automation/ui-automation-security-overview) не даёт оснований обещать доступ к защищённому UI без специальных требований. UIAccess/UAC обходы не входят в предложение.",
+      "spec": "docs/production/04-sticky-companion.md#stk-007",
+      "issue": "https://github.com/INNVoices/waarp/issues/36",
+      "evidence": []
+    },
+    {
+      "id": "L10N-001",
+      "title": "Сообщение companion на актуальном языке",
+      "corpus": "05",
+      "priority": "P1",
+      "status": "done",
+      "lane": "ui-localization",
+      "platforms": [
+        "Windows"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "src/main/index.ts",
+        "src/main/companion-view.ts",
+        "test/companion-view.check.ts",
+        "src/shared/localization.ts"
+      ],
+      "scope": "получать companion safety message в момент отказа, а не при загрузке модуля. Сохранить тот же ключ `winInline.index.1580625feb57`, исходный смысл, условия проверки, returned DTO и IPC.",
+      "acceptance": "при RU → EN → ещё один поддерживаемый язык → RU каждый следующий отказ показывает актуальную строку; не требуется повторный import модуля. Безопасные/небезопасные пути, статус saved/applied и набор отказов остаются прежними.",
+      "verification": "новый unit-сценарий RU → EN → DE → RU без reload модуля и существующий `localization.check.ts` выполнены успешно через тот же esbuild-подход, что `scripts/test.mjs` (версия 0.25.12 из lockfile, offline cache). Значения сравниваются с существующими JSON. Review четырёх call sites: изменилось только время получения строки. Native VPN runtime не нужен и не запускался. Финальный результат PR31: typecheck, unit suites, browser UI, native lifecycle, package verification и общий CI успешны; PR слит как 0e2a23b17dd5e89609917beed3f5b1a2d563021b.",
+      "spec": "docs/production/05-localization.md#l10n-001",
+      "issue": "https://github.com/INNVoices/waarp/issues/37",
+      "evidence": [
+        "https://github.com/INNVoices/waarp/pull/31",
+        "https://github.com/INNVoices/waarp/commit/0e2a23b17dd5e89609917beed3f5b1a2d563021b",
+        "https://github.com/INNVoices/waarp/actions/runs/44856670072"
+      ]
+    },
+    {
+      "id": "L10N-002",
+      "title": "Структурные проверки каталогов переводов",
+      "corpus": "05",
+      "priority": "P1",
+      "status": "ready",
+      "lane": "ui-localization",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "scripts/check-strings.mjs",
+        "test/localization.check.ts",
+        "src/shared/strings/",
+        "android/app/src/main/assets/locales/",
+        "android/app/src/main/java/local/waarp/android/i18n/Localization.kt",
+        "android/app/src/main/res/xml/locales_config.xml"
+      ],
+      "scope": "дополнить существующий gate фактической структурой каталогов: IDs каждого UI, placeholders и их multiplicity, printf-форматы, обязательные plural categories, locale registry/manifest consistency. Обрабатывать Windows и Android как два словаря; не требовать бессмысленной идентичности их ключей. Исправить устаревшие сообщения check про `en.json`, когда base — `ru.json`.",
+      "acceptance": "удалённый использующийся ID, изменённый argN, неверный формат, недостающая plural category и отсутствующий asset обнаруживаются до сборки; легальные дополнительные CLDR forms проходят; комментарии/пример кода не создают ложные ошибки. Не переписывать baseline вверх ради зелёного CI.",
+      "verification": "6 отрицательных mutation fixtures и существующий позитивный набор. Статический gate запускается один раз; Android emulator и сеть не требуются.",
+      "spec": "docs/production/05-localization.md#l10n-002",
+      "issue": "https://github.com/INNVoices/waarp/issues/37",
+      "evidence": []
+    },
+    {
+      "id": "L10N-003",
+      "title": "Единый выбор и эффективный язык приложения",
+      "corpus": "05",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "ui-localization",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "L10N-002"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "src/shared/localization.ts",
+        "src/main/index.ts",
+        "src/renderer/src/main.tsx",
+        "src/renderer/src/pages/settings.tsx",
+        "android/app/src/main/java/local/waarp/android/i18n/Localization.kt",
+        "android/app/src/main/java/local/waarp/android/WaarpApplication.kt",
+        "android/app/src/main/java/local/waarp/android/ui/DiagnosticsSettings.kt"
+      ],
+      "scope": "определить единый effective locale и добавить явный выбор языка/«Как в системе». Windows main передаёт renderer согласованный выбор. Android переиспользует уже объявленный system picker на API 33+; для API 29–32 отдельно выбрать поддерживаемый implementation path, не заменяя автоматически всю Activity-иерархию на новую библиотеку.",
+      "acceptance": "выбор сохраняется, возвращение к system работает, региональные zh/pt fallback объяснимы; UI и native сообщения совпадают; текущая VPN-сессия и черновик не меняются. Не требовать перезапуск всего приложения только ради строки.",
+      "verification": "RU/EN/de, zh-TW, unsupported → supported preferences; 3 смены языка в открытой форме и один restart UI. На Android отдельно API 29 и 33+; непроверенная версия не получает обещание runtime switch. Первичный источник: [per-app language preferences](https://developer.android.com/guide/topics/resources/app-languages).",
+      "spec": "docs/production/05-localization.md#l10n-003",
+      "issue": "https://github.com/INNVoices/waarp/issues/37",
+      "evidence": []
+    },
+    {
+      "id": "L10N-004",
+      "title": "Устойчивый fallback при ошибке локализации",
+      "corpus": "05",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "ui-localization",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "L10N-002"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "src/shared/localization.ts",
+        "src/renderer/src/main.tsx",
+        "android/app/src/main/java/local/waarp/android/i18n/Localization.kt",
+        "android/app/src/main/java/local/waarp/android/WaarpApplication.kt"
+      ],
+      "scope": "локализовать failure boundary: missing/invalid locale asset или неверный template не останавливает запуск и не закрывает работающий VPN. Загружать и валидировать новую таблицу до её атомарной публикации; сохранять last-good/RU fallback и безопасный diagnostic code без UI payload.",
+      "acceptance": "повреждённая JSON, missing chunk, неверный arg index и отсутствующий key дают определённый fallback; partial table не становится активной; язык runtime не утверждает успешное переключение при отказе загрузки. Не маскировать остальные ошибки приложения глобальным catch.",
+      "verification": "4–6 loader/formatter unit fixtures; один renderer failed-import smoke. Production resources не портить на месте; инъекция только в тесте. Не нужен полный native lifecycle прогон, если service code не менялся.",
+      "spec": "docs/production/05-localization.md#l10n-004",
+      "issue": "https://github.com/INNVoices/waarp/issues/37",
+      "evidence": []
+    },
+    {
+      "id": "L10N-005",
+      "title": "RTL, длинный текст и bidi-изоляция",
+      "corpus": "05",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "ui-localization",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "L10N-003",
+        "UX-004",
+        "UX-005"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "src/renderer/src/layout.css",
+        "src/renderer/src/ui/tooltip.tsx",
+        "android/app/src/main/java/local/waarp/android/ui/WaarpApp.kt",
+        "android/app/src/main/java/local/waarp/android/ui/HomeRoutes.kt",
+        "android/app/src/main/java/local/waarp/android/ui/UiComponents.kt"
+      ],
+      "scope": "пройти ar/fa и длинный LTR/CJK по реальной геометрии. Использовать logical CSS там, где сторона зависит от языка; directional icons зеркалить по смыслу, а числовые графики/протоколы — нет. Изолировать домены, IP, paths и ключи от bidi UI-текста.",
+      "acceptance": "navigation, tooltip, modal, ошибки и последний action читаются и доступны; Tab/Back следуют предсказуемой последовательности; копирование URL/ключа сохраняет точные bytes; язык не меняет то, какой сервер/маршрут выбран.",
+      "verification": "по одному representative экрану import/route/settings на ar/fa, de и zh-Hant; 900 × 600 desktop и 360 dp Android, один крупный fontScale. Тест `document.dir` сохранить как smoke, но не выдавать за геометрическую приёмку.",
+      "spec": "docs/production/05-localization.md#l10n-005",
+      "issue": "https://github.com/INNVoices/waarp/issues/37",
+      "evidence": []
+    },
+    {
+      "id": "L10N-006",
+      "title": "Глоссарий и проверка критических формулировок",
+      "corpus": "05",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "ui-localization",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "L10N-002"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "docs/production/05-localization.md"
+      ],
+      "scope": "создать короткий согласованный glossary: маршрут, подключение/туннель, Auto, Direct, public endpoint, сохранено, применено, проверено, восстановление, restart. Проверить прежде всего ON/OFF, consent, destructive actions, ошибки и privacy claims; затем остальные 18 языков небольшими пакетами.",
+      "acceptance": "один смысл не получает конфликтующие переводы между платформами; placeholders не переводятся; бренд/протокол сохраняются; каждому language batch присвоены reviewer/provenance и фактический статус. Машинная или AI-подготовка не выдаётся за native human review.",
+      "verification": "30 критических строк RU/EN, затем до 30 строк на язык за один review batch. Structure checks после редактирования; screenshots только затронутых форм. Участие владельца нужно лишь при спорном продуктовом смысле, не для каждой запятой.",
+      "spec": "docs/production/05-localization.md#l10n-006",
+      "issue": "https://github.com/INNVoices/waarp/issues/37",
+      "evidence": []
+    },
+    {
+      "id": "L10N-007",
+      "title": "Форматирование чисел, времени и единиц",
+      "corpus": "05",
+      "priority": "P2",
+      "status": "planned",
+      "lane": "ui-localization",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "L10N-003"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "src/renderer/src/ui/kit.tsx",
+        "src/renderer/src/pages/settings.tsx",
+        "android/app/src/main/java/local/waarp/android/ui/UiComponents.kt",
+        "android/app/src/main/java/local/waarp/android/ui/DiagnosticsSettings.kt"
+      ],
+      "scope": "согласовать локализованные числа, единицы, время и plural с effective locale. Машинные payload/config остаются locale-independent; UI использует locale-aware formatter там, где это улучшает чтение. Не округлять unknown до измеренного нуля.",
+      "acceptance": "RU/de separator, English units, Arabic direction и plural имеют корректный вид; export/config bytes не меняются; значение 0, дробь, большой объём и unknown различимы. Термин KB/MB соответствует фактическому делителю и документированному выбору.",
+      "verification": "таблица 8 значений × 3 representative locales плюс existing plural categories; deterministic unit outputs, без сетевых измерений.",
+      "spec": "docs/production/05-localization.md#l10n-007",
+      "issue": "https://github.com/INNVoices/waarp/issues/37",
+      "evidence": []
+    },
+    {
+      "id": "L10N-008",
+      "title": "Контекст и процесс вклада переводчиков",
+      "corpus": "05",
+      "priority": "P2",
+      "status": "planned",
+      "lane": "ui-localization",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "L10N-002",
+        "L10N-006"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "docs/production/05-localization.md"
+      ],
+      "scope": "сделать процесс обновления переводов воспроизводимым: контекст для нового ID, явные renamed/deleted IDs, отдельный статус structural/visual/linguistic review, small review batches. Не генерировать все языки заново при одном изменении строки.",
+      "acceptance": "агент добавляет новый UI-текст без hardcoded literal, проверяет placeholders и сообщает untranslated/review-needed состояние; понятен владелец glossary; удаляются только доказанно неиспользуемые ключи с учётом dynamic IDs/plurals.",
+      "verification": "один учебный fixture нового ID проходит workflow и затем удаляется из deliverable; документация содержит точную команду gate и ограниченную матрицу. Дополнительная translation service/telemetry не обязательна.",
+      "spec": "docs/production/05-localization.md#l10n-008",
+      "issue": "https://github.com/INNVoices/waarp/issues/37",
+      "evidence": []
+    },
+    {
+      "id": "BLD-001",
+      "title": "Измерить состав доставляемых пакетов",
+      "corpus": "06",
+      "priority": "P1",
+      "status": "ready",
+      "lane": "build",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "scripts/verify-package.mjs",
+        "scripts/android-verify.py",
+        "package.json",
+        "android/app/build.gradle.kts",
+        "out/validation/"
+      ],
+      "scope": "расширить текущий package report: размер загрузки, распакованный размер, ASAR entries, runtime modules, renderer JS/CSS/fonts/maps, Electron locales/resources, native engine, notices; отдельно DEX/resources/assets/lib каждого release ABI. У каждого входа зафиксировать SHA, source commit, variant, ABI и tool version. Сравнивать одинаковые platform/variant, не debug с release и не архив AAR с APK.",
+      "acceptance": "один Windows package и три release APK имеют читаемый top-20 и JSON inventory; сумма групп объясняет весь payload, оставшееся отнесено в явную группу. Secrets, личные профили, tests/fixtures, screenshots и случайные workspace files отсутствуют. Недоступный артефакт отмечен `not_measured`, а не нулём.",
+      "verification": "обработать реальные CI artifacts с сохранёнными receipts/hashes; package verifier остаётся зелёным. Это read-only анализ артефактов; он не требует новой двухчасовой VPN-сессии. Разница до/после публикуется только после BLD-004.",
+      "spec": "docs/production/06-build-and-supply-chain.md#bld-001",
+      "issue": "https://github.com/INNVoices/waarp/issues/38",
+      "evidence": []
+    },
+    {
+      "id": "BLD-002",
+      "title": "Выделить необходимый Windows runtime dependency closure",
+      "corpus": "06",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "build",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "BLD-001"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "package.json",
+        "package-lock.json",
+        "electron.vite.config.ts",
+        "src/main/qr.ts",
+        "src/renderer/src/main.tsx",
+        "src/renderer/src/ui/brand.tsx",
+        "src/renderer/src/ui/atlas-canvas.tsx",
+        "scripts/verify-package.mjs"
+      ],
+      "scope": "сопоставить imports, bundled output, dynamic loading, worker URL и packaged node_modules. Проверить дублирование уже bundled React/MapLibre/icons/fonts. Сохранить main-process `jsqr`, если оно externalized. Удалять пакет/asset только с доказательством отсутствия runtime потребителя; не менять major builder ради новой опции pruning.",
+      "acceptance": "таблица `component → consumer → shipped location → keep/remove → evidence`; нет глобального запрета node_modules. Atlas worker, offline map, QR import, все заявленные scripts/fonts и notices остаются доступными из packaged `file://` приложения.",
+      "verification": "packaged smoke для QR, карты/списка, RU/EN/RTL/CJK; проверка lazy assets и imports. Runtime dependency resolution проверяется внутри пакета, а не только в dev server. Отчёт включает bytes потенциальной экономии, даже если безопасное решение — сохранить компонент.",
+      "spec": "docs/production/06-build-and-supply-chain.md#bld-002",
+      "issue": "https://github.com/INNVoices/waarp/issues/38",
+      "evidence": []
+    },
+    {
+      "id": "BLD-003",
+      "title": "Сопоставить Android native-компоненты с поддерживаемыми функциями",
+      "corpus": "06",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "build",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "BLD-001"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "android/native-source.json",
+        "android/native-patches/",
+        "android/app/build.gradle.kts",
+        "android/app/proguard-rules.pro",
+        "scripts/android-core-build.py",
+        "scripts/android-verify.py"
+      ],
+      "scope": "построить матрицу build tag/library/DEX dependency → importer → compiler → advertised support → native check/interop. Отдельно оценить большие optional protocols и Tailscale omit flags, Cronet/Naive, дубли ресурсов. Зафиксировать, нужен ли compact variant; по умолчанию сохранить один понятный продукт и текущие три ABI.",
+      "acceptance": "каждое предложение удаления называет потерянную/сохранённую возможность и размерный эффект. Нет отключения supported protocol, ABI, locale или TLS/security path под видом косметической чистки. Если variant действительно нужен, отдельно описаны package/update identity, migration, capability UI и release gates до его внедрения.",
+      "verification": "анализ recipe/pins, Gradle dependency graph и содержимого реальных APK. Любое изменение native build требует полного воспроизводимого engine build, existing native regression suite, обновления integrity только из проверенного результата и адресного protocol interop. Нельзя редактировать SHA для принятия случайного бинарника.",
+      "spec": "docs/production/06-build-and-supply-chain.md#bld-003",
+      "issue": "https://github.com/INNVoices/waarp/issues/38",
+      "evidence": []
+    },
+    {
+      "id": "BLD-004",
+      "title": "Удалить подтверждённые дубли и ненужный payload небольшими PR",
+      "corpus": "06",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "build",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "BLD-002",
+        "BLD-003"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "scripts/verify-package.mjs",
+        "scripts/android-verify.py"
+      ],
+      "scope": "реализовать по одной независимой группе исключений на PR. Windows-only slice может стартовать после BLD-002, Android-only после BLD-003; центральный registry держит общий gate до обеих инвентаризаций. Сначала dev payload/дубли assets, затем доказанные dependencies; архитектурная замена Electron/Compose не входит в эту задачу.",
+      "acceptance": "сопоставимые before/after artifacts и hash inventory, размер меньше на измеренную величину, отсутствие новых missing resources/функциональных регрессий. Если экономии нет — так и записать; PR без пользы не нужен. Current settings/profiles, все заявленные языки, источник и лицензии сохранены.",
+      "verification": "package integrity + один targeted scenario на каждый изменённый consumer. При engine/manifest/lifecycle изменениях добавить соответствующий release gate. Revert возвращает прежний payload без миграции пользовательских данных. Никакого `rm -rf` пользовательских caches/profiles для уменьшения размера поставки.",
+      "spec": "docs/production/06-build-and-supply-chain.md#bld-004",
+      "issue": "https://github.com/INNVoices/waarp/issues/38",
+      "evidence": []
+    },
+    {
+      "id": "BLD-005",
+      "title": "Связать зависимости, лицензии, advisories и воспроизводимость с candidate SHA",
+      "corpus": "06",
+      "priority": "P1",
+      "status": "ready",
+      "lane": "build",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "package-lock.json",
+        "android/native-source.json",
+        "engine/integrity.json",
+        ".github/workflows/ci.yml",
+        ".github/workflows/android.yml",
+        "THIRD_PARTY_NOTICES.md",
+        "licenses/",
+        "docs/RELEASES.md"
+      ],
+      "scope": "сверить существующие pinned tools, source recipes, native tests, lockfile и notices. Приложить machine-readable dependency inventory к candidate, разделив shipped runtime/build-only/native. Проверять актуальный advisory и точный range, не переносить старый finding из dated audit на новый lockfile без проверки. Обновления — минимальные, с причиной и changelog.",
+      "acceptance": "у компонента есть version/source/license и назначение; известная shipped vulnerability имеет исправление или явный release-policy outcome. Воспроизводимость помечается `recipe present`, `rebuilt` или `byte matched` по факту. `npm audit` не считается аудитом Go/ELF; offline bundle verifier не объявляется криптографической CI provenance.",
+      "verification": "существующие dependency security jobs + source/integrity verifiers; точечный regression после обновления. Обязательные проверки не выключать, lockfile не удалять. Подпись и production identity проходят REL-005, не генерируются заново в build-cleanup задаче.",
+      "spec": "docs/production/06-build-and-supply-chain.md#bld-005",
+      "issue": "https://github.com/INNVoices/waarp/issues/38",
+      "evidence": []
+    },
+    {
+      "id": "BLD-006",
+      "title": "Закрепить размерные бюджеты и безопасный build/cache lifecycle",
+      "corpus": "06",
+      "priority": "P2",
+      "status": "planned",
+      "lane": "build",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "BLD-001",
+        "BLD-004"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "docs/production/06-build-and-supply-chain.md"
+      ],
+      "scope": "зафиксировать baseline budgets по платформе/ABI и группам. Начальный сигнал — рост больше 5% и 5 MiB одновременно, с обязательным объяснением component diff; это предложенный порог, его уточнить по измерениям. Отдельно измерить clean/warm build time и download/cache hit. Cleanup ограничить воспроизводимым build output конкретного workspace.",
+      "acceptance": "агент видит, какой компонент вырос; уменьшение размера не скрывает пропавший обязательный файл. Cache key зависит от version/hash/toolchain, повреждённый cache отвергается. Доступна локальная clean build без удаления чужих outputs, запущенного EXE или settings. Никаких claims о build speed до измерений на одинаковом runner.",
+      "verification": "один clean и один warm build, одна intentional oversized fixture для report gate, текущие builder self-tests. Не повторять всю native matrix только ради изменения порога отчёта.",
+      "spec": "docs/production/06-build-and-supply-chain.md#bld-006",
+      "issue": "https://github.com/INNVoices/waarp/issues/38",
+      "evidence": []
+    },
+    {
+      "id": "DIST-001",
+      "title": "Единый каталог официальных сборок",
+      "corpus": "07",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "distribution-growth",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "BLD-001"
+      ],
+      "conditional_dependencies": [
+        "REL-008"
+      ],
+      "external_blockers": [],
+      "work_paths": [
+        "docs/distribution/releases.json",
+        "docs/distribution/README.md",
+        "docs/INSTALL.md",
+        "docs/RELEASES.md"
+      ],
+      "scope": "собрать небольшой валидируемый manifest с platform, channel, tag, binary version, source commit, package ID/ABI, asset name/URL, size bytes, SHA-256, signing mode и ссылкой на evidence. Значение неизвестного поля — `null` с причиной, а не догадка. Внести только публичные `draft:false` releases. Разделить Windows r6 и Android r5; не выбирать `/releases/latest` для поиска APK в смешанном репозитории. Для будущего production использовать exact accepted assets из REL, не заново собранные похожие файлы. Указать дату проверки и явную связь каждой кнопки загрузки с записью manifest. Проверка целостности по SHA не называется проверкой издателя.",
+      "acceptance": "каждый публичный download/Obtainium/Scoop/WinGet pointer соответствует записи; версия извлечённого бинарного файла и метаданные совпадают; отсутствуют draft URLs, production label на debug APK и ложное равенство `main` версии бинарника; сохранены разные лицензии и dependency notices. Переход на production меняет только подтверждённую платформу/канал и не теряет preview-историю.",
+      "verification": "JSON schema/required-field validation, release API snapshot и сверка digest/size; скачать нужный файл один раз в рабочую папку и вычислить SHA-256, если идентичный проверенный файл ещё не доступен; проверить UI-ссылки после deployment. Сохранить UTC receipt и хеш manifest. При несовпадении не обновлять public pointer.",
+      "spec": "docs/production/07-distribution-and-growth.md#dist-001",
+      "issue": "https://github.com/INNVoices/waarp/issues/39",
+      "evidence": []
+    },
+    {
+      "id": "DIST-002",
+      "title": "Scoop: Windows install/update/uninstall",
+      "corpus": "07",
+      "priority": "P2",
+      "status": "blocked",
+      "lane": "distribution-growth",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "DIST-001",
+        "REL-007"
+      ],
+      "conditional_dependencies": [
+        "REL-008"
+      ],
+      "external_blockers": [
+        "No actual Windows manifest lifecycle validation."
+      ],
+      "work_paths": [
+        "docs/distribution/waarp-preview.json",
+        "docs/distribution/waarp.json",
+        "docs/distribution/README.md"
+      ],
+      "scope": "проверить manifest текущей схемой Scoop; на disposable Windows 10/11 x64 установить его из локального файла, проверить ярлык, запуск verified EXE, запрос elevation для TUN, OFF/выход, повторный запуск. Установить, где Electron и portable wrapper фактически хранят настройки: название portable не доказывает хранение рядом с EXE. Проверить обновление и uninstall с ожидаемым сохранением пользовательских профилей; не добавлять `persist`, пока реальный путь не доказан. Использовать два реально доступных совместимых выпуска для update; если их нет, отметить этот gate как не выполненный. Для upstream-готовности добавить проверяемые `checkver`/`autoupdate`, которые выбирают Windows asset нужного канала и не захватывают APK или непроверенный preview.",
+      "acceptance": "есть Windows transcript с версиями OS/Scoop, hash EXE, местом данных, результатами install/replacement/uninstall и отсутствием уничтожения чужих файлов; evidence совпадает с конкретным manifest. Ни наличие JSON, ни успешный статический lint не называются install test. Существующий preview manifest сохраняет честный статус до этого результата.",
+      "verification": "стандартные schema/bucket checks Scoop; реальный `scoop install <local-manifest-path>` и lifecycle с синтетическими профилями без чужих секретов. Для чужого bucket сначала проверить дубликаты, открыть обоснованный issue и дождаться решения maintainer, затем узкий PR и `/verify`, как требует [официальный contribution process](https://github.com/ScoopInstaller/.github/blob/main/.github/CONTRIBUTING.md). Если внешняя интеграция даёт 403, сохранить готовый diff и остановить отправку.",
+      "spec": "docs/production/07-distribution-and-growth.md#dist-002",
+      "issue": "https://github.com/INNVoices/waarp/issues/39",
+      "evidence": []
+    },
+    {
+      "id": "DIST-003",
+      "title": "WinGet: validated multi-file package",
+      "corpus": "07",
+      "priority": "P2",
+      "status": "blocked",
+      "lane": "distribution-growth",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "DIST-001",
+        "REL-007",
+        "REL-008"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [
+        "Installer type, unattended installation and lifecycle not verified with WinGet."
+      ],
+      "work_paths": [
+        "docs/distribution/winget/"
+      ],
+      "scope": "определить по реальному EXE и текущей схеме правильный InstallerType, architecture, install scope, identifiers и unattended behavior. Не записывать самораспаковывающийся EXE как MSI/NSIS по предположению. Создать отдельные version/installer/defaultLocale YAML, schema headers и поля текущей schema version; URL строго official/version-specific, hash от exact asset. Описать elevation при запуске TUN отдельно от unattended установки. Подпись/репутация проверяются и раскрываются; unsigned сам по себе не объявляется универсальным запретом WinGet, решение зависит от действующих правил/сканирования.",
+      "acceptance": "локальная validation и unattended установка пройдены; launch, upgrade, uninstall и сохранность данных проверены; нет дублирующего PackageIdentifier/version PR; package имеет точные лицензии, homepage и release notes. Сканер или policy failure не обходится переименованием asset. Если Microsoft запросит CLA, соглашение выполняет сам contributor через официальный процесс — агент не принимает его от имени владельца.",
+      "verification": "`winget validate --manifest <folder>`; `winget install --manifest <folder>` на disposable Windows с разрешёнными LocalManifestFiles либо официальный SandboxTest; реальные exit codes/installed identity/файлы. Приложить отчёт и следовать [FirstContribution](https://github.com/microsoft/winget-pkgs/blob/master/doc/FirstContribution.md), [Policies](https://github.com/microsoft/winget-pkgs/blob/master/doc/Policies.md), [manifest reference](https://learn.microsoft.com/en-us/windows/package-manager/package/manifest). Не обещать приём после одного local pass.",
+      "spec": "docs/production/07-distribution-and-growth.md#dist-003",
+      "issue": "https://github.com/INNVoices/waarp/issues/39",
+      "evidence": []
+    },
+    {
+      "id": "DIST-004",
+      "title": "Obtainium: device proof and separate channels",
+      "corpus": "07",
+      "priority": "P1",
+      "status": "blocked",
+      "lane": "distribution-growth",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "DIST-001"
+      ],
+      "conditional_dependencies": [
+        "REL-005",
+        "REL-006",
+        "REL-008"
+      ],
+      "external_blockers": [
+        "No device import/install/update test; future production channel must retain package/certificate."
+      ],
+      "work_paths": [
+        "docs/distribution/obtainium.json",
+        "docs/distribution/obtainium-link.txt",
+        "docs/distribution/README.md",
+        "docs/INSTALL.md"
+      ],
+      "scope": "сохранить debug identity `local.waarp.android.debug`, фильтр APK/ABI, prerelease и fallback на старший релиз с подходящим Android asset; проверить, что Windows-only r6 пропускается и выбирается r5. На реальном Android с указанной версией Obtainium импортировать JSON/URI и manual fallback, проверить выбранный APK, package, signing certificate и пользовательское подтверждение установки. Для production после REL добавить отдельную конфигурацию с `local.waarp.android`, точным фильтром release APK и тем же retained certificate. Не разрешать silent package-id change и не заменять debug config production-ссылкой. Проверка update требует реальных совместимых версий, а не изменения номера в metadata.",
+      "acceptance": "сохранён device receipt для import, architecture selection, install, refresh/no-update и, когда есть соответствующий релиз, update; не происходит downgrade, выбора Windows asset, APK другой ABI или смены signing identity. Не проверенный update остаётся явно не проверенным. Инструкция содержит fallback и не обещает установку без подтверждения.",
+      "verification": "повторить сценарий на поддерживаемой ABI/Android версии, сверить package/certificate/хеш файла до установки и после; проанализировать текущую upstream семантику [Obtainium docs](https://wiki.obtainium.imranr.dev/) и [source](https://github.com/ImranR98/Obtainium). Собственный import не требует размещения в центральном каталоге. Его [APP_CRITERIA](https://github.com/ImranR98/apps.obtainium.imranr.dev/blob/main/APP_CRITERIA.md) и [CONTRIBUTING](https://github.com/ImranR98/apps.obtainium.imranr.dev/blob/main/CONTRIBUTING.md) сейчас требуют не менее 35 stars и 4 месяцев истории источника: при 0 stars и создании repo 05.10.2026 туда не подавать и не подменять GitHub источником без счётчика.",
+      "spec": "docs/production/07-distribution-and-growth.md#dist-004",
+      "issue": "https://github.com/INNVoices/waarp/issues/39",
+      "evidence": []
+    },
+    {
+      "id": "DIST-005",
+      "title": "F-Droid: source closure and eligibility",
+      "corpus": "07",
+      "priority": "P2",
+      "status": "blocked",
+      "lane": "distribution-growth",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "BLD-003",
+        "BLD-005",
+        "REL-004"
+      ],
+      "conditional_dependencies": [
+        "REL-005",
+        "REL-006"
+      ],
+      "external_blockers": [
+        "Full source closure, independent rebuild acceptance and maturity eligibility are not yet established; a pinned native recipe already exists."
+      ],
+      "work_paths": [
+        "docs/distribution/fdroid/",
+        "fastlane/"
+      ],
+      "scope": "составить замкнутый список исходников/лицензий/инструментов каждого включённого native компонента; отдельно выяснить происхождение и сборку найденной pinned `libcronet.a`. Прогнать предлагаемую сборку в совместимом с F-Droid окружении из публичных входов; не считать наличие Go source достаточным, если итог включает необъяснённый prebuilt. Проверить историю активной разработки и реальные основания исключения из обычных трёх месяцев, если такие существуют. Разобрать package ID, anti-features и модель подписи: F-Droid собственная подпись либо подтверждённые reproducible developer-signed builds имеют разные пути обновления.",
+      "acceptance": "проверяемый recipe строит функциональный APK из допустимых входов, source/license scan не имеет необъяснённых бинарных зависимостей; критерий истории выполнен либо maintainer явно принял реальное исключение; пользователю объяснено, какие каналы могут обновлять друг друга. Для подачи используется официальный request-for-packaging процесс один раз, после проверки дубликатов. Перенос ключа/пакета только ради листинга запрещён.",
+      "verification": "сохранить полный clean-build log, lock inputs/hashes, APK/package/certificate report и список остающихся вопросов. Основные [Inclusion Policy](https://f-droid.org/docs/Inclusion_Policy/) требуют FLOSS/build transparency и обычно три месяца активной разработки; [Reproducible Builds](https://f-droid.org/docs/Reproducible_Builds/) определяет отдельный путь для подписи разработчика. Дата создания repo сама по себе не доказывает ни полную историю разработки, ни наличие пользователей. До выполнения gates поддерживать официальные прямые APK/Obtainium.",
+      "spec": "docs/production/07-distribution-and-growth.md#dist-005",
+      "issue": "https://github.com/INNVoices/waarp/issues/39",
+      "evidence": []
+    },
+    {
+      "id": "DIST-006",
+      "title": "Android listing assets and Izzy eligibility",
+      "corpus": "07",
+      "priority": "P2",
+      "status": "blocked",
+      "lane": "distribution-growth",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "BLD-003",
+        "BLD-004",
+        "REL-005",
+        "REL-006",
+        "REL-008"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [
+        "Public debug APKs 151–168 MB; code provenance AI-policy and new real screenshots unresolved."
+      ],
+      "work_paths": [
+        "fastlane/metadata/android/en-US/",
+        "fastlane/metadata/android/ru-RU/",
+        "fastlane/README.md"
+      ],
+      "scope": "поддерживать описания в соответствии с реальным выпущенным APK. Для следующего подходящего релиза снять новые реальные кадры на допустимом viewport; тексты/UI на кадрах должны совпадать с locale либо явно раскрывать отличие. Не растягивать существующие evidence images ради лимита. Добавить changelog только для опубликованного versionCode. Проверить release key, отсутствие debuggable/testOnly и измеренный размер каждого APK; уменьшение размера идёт через BLD без удаления необходимых протоколов/лицензий наугад. Отдельно правдиво описать происхождение кода относительно текущей AI-policy площадки: metadata на LLM допустима, сгенерированный app code — самостоятельное препятствие, не устраняемое перефразированием README.",
+      "acceptance": "UTF-8 тексты/лимиты и image validator пройдены; все кадры имеют настоящую provenance; описание не опережает release. Для IzzyOnDroid есть доказанное соответствие либо явный итог «не подходит» с причиной. Текущие 151–168 MB debug APK не объявляются соответствующими обычным release-key/no-debug и примерно 30 MB правилам; исключение по размеру может дать только каталог. Заявка не отправляется при нерешённой несовместимости AI-policy.",
+      "verification": "пересчитать длины/PNG dimensions и хеши, сравнить package/certificate/flags/size с actual APK; проверить актуальные [Izzy inclusion rules](https://izzyondroid.org/docs/general/AppInclusionPolicy/), [Fastlane guidance](https://izzyondroid.org/docs/general/Fastlane/), [F-Droid metadata format](https://f-droid.org/docs/All_About_Descriptions_Graphics_and_Screenshots/). Пригодность source metadata не означает приём каталогом. Google Play и другие магазины с аккаунтом/договорами остаются отдельным решением владельца после готового APK, а не обязательным блокером прямой дистрибуции.",
+      "spec": "docs/production/07-distribution-and-growth.md#dist-006",
+      "issue": "https://github.com/INNVoices/waarp/issues/39",
+      "evidence": []
+    },
+    {
+      "id": "GROW-001",
+      "title": "Source-backed first-routes guide",
+      "corpus": "07",
+      "priority": "P1",
+      "status": "review",
+      "lane": "distribution-growth",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "docs/guides/first-routes.md"
+      ],
+      "scope": "написаны последовательные сценарии Windows и Android: личный профиль → одно приложение → новый запрос → явный Direct-контроль → отдельный доменный маршрут после выключения правила приложения → OFF. Подписи и приоритеты сверены с r6/r5 source. Включены различия ON/HTTP response/наблюдаемого пути, ABI/signature, общей DNS/UID на Android, ограничения публичных узлов и существующий sanitized issue intake. Указаны точные preview версии и отсутствие публичного production 1.0.0.",
+      "acceptance": "reviewer может для каждого шага найти источник; нет выдуманной кнопки, утверждения о выполненном device test или гарантии связи. Новичок понимает, что подготовить, какой результат записать, как отменить действие и где сообщить о сбое. Объяснено, почему app rule мешает отдельной проверке домена и почему загрузка страницы не доказывает весь путь.",
+      "verification": "проверить relative links/anchors и теги исходников; независимый review по guide/INSTALL/RELIABILITY/Android policy; сценарии GROW-002 дают отдельные runtime receipts. После merge проверить публичный URL и ссылку на guide. До review задача не помечается `done`, а отсутствие устройства не выдаётся за завершённую физическую проверку.",
+      "spec": "docs/production/07-distribution-and-growth.md#grow-001",
+      "issue": "https://github.com/INNVoices/waarp/issues/39",
+      "evidence": [
+        "https://github.com/INNVoices/waarp/issues/32"
+      ]
+    },
+    {
+      "id": "GROW-002",
+      "title": "Observed onboarding scenarios and guide corrections",
+      "corpus": "07",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "distribution-growth",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "GROW-001"
+      ],
+      "conditional_dependencies": [
+        "REL-006",
+        "REL-007"
+      ],
+      "external_blockers": [],
+      "work_paths": [
+        "docs/guides/first-routes.md",
+        "docs/guides/first-routes-evidence.md"
+      ],
+      "scope": "выполнить Windows и Android сценарии в чистом профиле с контролируемым тестовым сервером. Для каждой платформы включить минимум четыре случая: успешный app route с Direct-контролем; domain route после снятия app-rule; недоступный профиль; отказ/cancel нужного системного разрешения и понятное восстановление. Затем OFF/повторный запуск. Записать OS/build/ABI/source/file hash, действия, наблюдаемый этап, время первого подтверждённого запроса и точку затруднения. Исполнитель не подставляет недостающую инструкцию молча; фиксирует её как дефект guide. Реальный отказ приложения не превращать в pass повторными попытками без объяснения.",
+      "acceptance": "все сценарии имеют observed result либо честное `not_run` с причиной; ни один undocumented workaround не остаётся скрытым. Guide исправлен и повторно проверен только на затронутом сценарии. Собственные QA-прогоны не называются внешними пользователями или конверсией. Отдельное согласие добровольного тестировщика нужно только если привлекается человек; выдуманные отзывы не создаются.",
+      "verification": "сопоставить новый запрос с native route evidence и, где доступно, серверным журналом; сохранить redacted screenshots без адресов/ключей. Проверить, что экспорт не включает исходную конфигурацию. Качественная цель этого этапа — воспроизводимый результат без блокирующей неоднозначности, а не заранее придуманное число пользователей.",
+      "spec": "docs/production/07-distribution-and-growth.md#grow-002",
+      "issue": "https://github.com/INNVoices/waarp/issues/39",
+      "evidence": []
+    },
+    {
+      "id": "GROW-003",
+      "title": "GitHub About, topics and name disambiguation",
+      "corpus": "07",
+      "priority": "P1",
+      "status": "blocked",
+      "lane": "distribution-growth",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [
+        "Repository administration capability required; fields currently empty."
+      ],
+      "work_paths": [
+        "docs/production/07-distribution-and-growth.md"
+      ],
+      "scope": "предлагаемый About: `Open-source VPN and proxy routing client for Windows and Android. Per-app and domain rules with your own profiles. Public preview builds.` Website: `https://innvoices.github.io/waarp/`. Темы: `vpn`, `proxy`, `split-tunneling`, `per-app-routing`, `windows`, `android`, `electron`, `kotlin`, `open-source`. Удалить неподтверждённые темы/claims при review. В кратком описании сохранять платформы и назначение, чтобы поиск отличал клиент от Waarp MFT.",
+      "acceptance": "About/homepage/topics действительно возвращаются repository API; название, лицензия и identity не изменены; сайт открывается, поддерживает понятную загрузку и guide. Если права отсутствуют, готовый точный payload передан владельцу, а задача остаётся blocked — не «опубликовано».",
+      "verification": "read-after-write repository API, публичная страница, проверка link targets. Не выполнять повторный запрос по маршруту, который уже дал авторизационный 403, без изменения прав. [GitHub topics guidance](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/classifying-your-repository-with-topics).",
+      "spec": "docs/production/07-distribution-and-growth.md#grow-003",
+      "issue": "https://github.com/INNVoices/waarp/issues/39",
+      "evidence": []
+    },
+    {
+      "id": "GROW-004",
+      "title": "Turn reproducible feedback into fixes",
+      "corpus": "07",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "distribution-growth",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "GROW-001"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        ".github/ISSUE_TEMPLATE/routing.yml",
+        ".github/ISSUE_TEMPLATE/bug.yml",
+        "SUPPORT.md"
+      ],
+      "scope": "использовать существующий intake; добавить только реально недостающие для воспроизведения поля после проверки дубликатов: точный downloaded filename/channel, ABI, шаг guide, expected/actual, другой VPN, observed/not_run. Сохранить предупреждение не прикладывать ключи/подписки/private endpoints и private security channel. Разбирать сообщения по установке, профилю, разрешениям, маршруту и непонятному объяснению; связывать каждый исправляемый дефект с задачей и повторной проверкой.",
+      "acceptance": "отчёт можно воспроизвести без секретного файла пользователя либо явно указать недостающее несекретное наблюдение; закрытый issue содержит результат проверки, а не обещание. Ответы другим людям отправляются только в рамках предоставленного разрешения на коммуникацию; автоматический triage не обещает SLA, которое никто не обеспечивает.",
+      "verification": "прогнать шаблон на собственном реальном success/failure receipt; убедиться, что mandatory fields не заставляют раскрывать секреты или делать опасные действия. В первых полученных отчётах считать долю воспроизводимых только с реальными numerator/denominator; пока отчётов нет — `not measured`.",
+      "spec": "docs/production/07-distribution-and-growth.md#grow-004",
+      "issue": "https://github.com/INNVoices/waarp/issues/39",
+      "evidence": []
+    },
+    {
+      "id": "GROW-005",
+      "title": "Maintain submitted-intake receipts",
+      "corpus": "07",
+      "priority": "P2",
+      "status": "ready",
+      "lane": "distribution-growth",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "docs/production/07-distribution-and-growth.md"
+      ],
+      "scope": "один раз после появления нового выпуска Android/Kotlin Weekly проверить фактическое включение; прочитать ответ в lgg issue12 и опубликованную карточку OpenSourceDex. Записывать отдельно submitted, awaiting_review, published, declined, blocked_access и failed_validation. К статусу published нужен прямой URL с реальным присутствием Waarp. Follow-up только на конкретный вопрос или при предусмотренном редакцией процессе; старый выпуск, тишина и отсутствие в поиске не равны отказу.",
+      "acceptance": "нет повторной nomination, пустого bump, повторного 403/502 или повторной It’s FOSS формы без требуемого поля. Подтверждённые публикации имеют URL/дату и точный текст/краткую выжимку; обещанный или заявленный охват редакции не приписан проекту. Оповещение об изменённых страницах IndexNow отправляется только после реального deploy и не считается индексацией.",
+      "verification": "прямой read первичного issue/страницы/выпуска; сравнить с исходным receipt. При доступном только search excerpt явно записать предел проверки. Сохранять дату, а не строить бесконечный polling в текущем сеансе.",
+      "spec": "docs/production/07-distribution-and-growth.md#grow-005",
+      "issue": "https://github.com/INNVoices/waarp/issues/39",
+      "evidence": []
+    },
+    {
+      "id": "GROW-006",
+      "title": "One eligible targeted launch after readiness",
+      "corpus": "07",
+      "priority": "P2",
+      "status": "blocked",
+      "lane": "distribution-growth",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "GROW-001",
+        "GROW-002",
+        "GROW-004",
+        "GROW-007",
+        "DIST-001"
+      ],
+      "conditional_dependencies": [
+        "REL-008"
+      ],
+      "external_blockers": [
+        "No new verified accessible external intake in this pass; production launch needs REL-008. Preview launch must be explicitly scoped and eligible."
+      ],
+      "work_paths": [
+        "docs/production/07-distribution-and-growth.md"
+      ],
+      "scope": "выбрать одну площадку, где разрешены формат, автоматизация и self-promotion, есть нужный доступ и отсутствует текущая заявка. Написать материал вокруг выполненного сценария первого маршрута и его фактической приёмки. Явно указать связь автора с проектом, поддерживаемую платформу и ограничения. В качестве следующего технического материала использовать собственное доказанное решение реальной проблемы, например различие app/domain routing и общей DNS на Android; не переносить диагностическую гипотезу в claim об исправлении. Для HN/других личных форматов владелец пишет свой текст, агент даёт factual packet в рамках правил площадки.",
+      "acceptance": "до отправки сохранены правила и один готовый reviewable материал; после — действительный receipt/URL либо точная ошибка. Нет mass posting, чужих рекомендаций от имени пользователя, искусственных stars или engagement. Если доступного канала нет, результат этапа — опубликованный полезный guide и следующая воспроизводимая задача по feedback, а не очередной список непроходимых сайтов.",
+      "verification": "check eligibility/duplicate/source immediately before action; одна разрешённая отправка; прочитать фактический результат. Затем разбирать ответы через GROW-004. Не называть публикацию успешной установкой или обещать внешнюю модерацию.",
+      "spec": "docs/production/07-distribution-and-growth.md#grow-006",
+      "issue": "https://github.com/INNVoices/waarp/issues/39",
+      "evidence": []
+    },
+    {
+      "id": "GROW-007",
+      "title": "Timestamped measurement without false attribution",
+      "corpus": "07",
+      "priority": "P1",
+      "status": "ready",
+      "lane": "distribution-growth",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "docs/production/07-distribution-and-growth.md"
+      ],
+      "scope": "снять baseline и сопоставимый последующий срез: repo stars/forks, каждый public asset `download_count`, реальные опубликованные упоминания, входящие воспроизводимые reports. При наличии push access сохранить GitHub Traffic views/clones/referrers/popular paths, указав UTC window и источник. GitHub хранит эти traffic показатели за последние 14 дней, поэтому запланированная отдельно повторяемая выгрузка должна укладываться в это окно; отсутствие доступа означает unavailable, не ноль. Campaign-tagged links полезны только если принимающая система реально учитывает метки; сами UTM-параметры не создают аналитики.",
+      "acceptance": "каждое число имеет дату, единицу, определение, источник и ограничения. Asset downloads не называются installs/unique users и могут включать собственные/CI запросы; разница после поста не считается причинно доказанным эффектом. Счётчики разных окон и платформ не складываются в «охват». Conversion вычисляется только при наблюдаемом связанном знаменателе и числителе; иначе приводятся отдельные величины. Содержимое запросов, endpoints и профили пользователей не собираются.",
+      "verification": "сверить исходный API response/Traffic export и вычисленную дельту; помечать внутренние QA downloads, где они известны, не пытаться угадывать остальные. Источники: [GitHub Traffic](https://docs.github.com/en/repositories/viewing-activity-and-data-for-your-repository/viewing-traffic-to-a-repository), [Traffic REST API](https://docs.github.com/en/rest/metrics/traffic), [release assets API](https://docs.github.com/en/rest/releases/assets). Первый review после адресной публикации отвечает на три вопроса: пришёл ли наблюдаемый интерес, смогли ли реальные тестировщики выполнить guide, какие подтверждённые сбои нужно исправить прежде следующей публикации.",
+      "spec": "docs/production/07-distribution-and-growth.md#grow-007",
+      "issue": "https://github.com/INNVoices/waarp/issues/39",
+      "evidence": []
+    },
+    {
+      "id": "OPS-001",
+      "title": "Опубликовать единую карту корпусов и исполняемый registry",
+      "corpus": "08",
+      "priority": "P0",
+      "status": "review",
+      "lane": "coordination",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "ROADMAP.md",
+        "AGENTS.md",
+        "docs/production/",
+        "scripts/production-roadmap.py"
+      ],
+      "scope": "связать концепцию, старые Э/WN задачи и новый backlog; дать выбор ready tasks, валидатор ID/dependencies/spec links и GitHub issues по корпусам. Не копировать правила других проектов.",
+      "acceptance": "все задачи имеют ID, конкретный outcome, acceptance и место в одном корпусе; нет cycles/dangling refs. Одна entry page ведёт агента к следующему действию. Старое sticky ТЗ сохранено. Неуспешная production acceptance явно видна.",
+      "verification": "`python3 scripts/production-roadmap.py check`, `ready`, выбор `show`; ручной review crosswalk и ссылок. Обычный PR с required CI; документация не становится stable release claim.",
+      "spec": "docs/production/08-agent-execution.md#ops-001",
+      "issue": "https://github.com/INNVoices/waarp/issues/40",
+      "evidence": [
+        "https://github.com/INNVoices/waarp/issues/32"
+      ]
+    },
+    {
+      "id": "OPS-002",
+      "title": "Поддерживать task/evidence ledger при интеграции каждой волны",
+      "corpus": "08",
+      "priority": "P1",
+      "status": "planned",
+      "lane": "coordination",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "OPS-001"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "docs/production/tasks.json"
+      ],
+      "scope": "после merge обновить статус и ссылку, пересчитать readiness, снять ownership, выбрать следующую задачу. Записать новый blocker и точный вариант его проверки. Не переписывать историю неуспешных CI.",
+      "acceptance": "отсутствуют claims о выполнении без evidence; каждый `review` ведёт к реальному PR; `blocked` содержит причину/next step; ready tasks не ждут уже закрытого dependency. Завершённая automation без recorded runs не считается исполненной.",
+      "verification": "validator + свежая read-only сверка затронутых GitHub objects; проверять все run attempts при утверждении о конкретном candidate. Один follow-up в issue вместо серии дублирующих комментариев.",
+      "spec": "docs/production/08-agent-execution.md#ops-002",
+      "issue": "https://github.com/INNVoices/waarp/issues/40",
+      "evidence": []
+    },
+    {
+      "id": "OPS-003",
+      "title": "Провести пересмотр после первого принятого production candidate",
+      "corpus": "08",
+      "priority": "P2",
+      "status": "planned",
+      "lane": "coordination",
+      "platforms": [
+        "Windows",
+        "Android"
+      ],
+      "depends_on": [
+        "REL-008",
+        "OPS-002"
+      ],
+      "conditional_dependencies": [],
+      "external_blockers": [],
+      "work_paths": [
+        "docs/production/08-agent-execution.md"
+      ],
+      "scope": "сверить реальные установки, сохранность обновления, crash reports, support friction и добровольные отзывы с целями продукта. Удалить дубли backlog, переоценить P1/P2, выбрать следующий ограниченный релиз. Не добавлять скрытую telemetry ради метрик.",
+      "acceptance": "решения опираются на проверяемые факты; downloads не считаются уникальными активными пользователями, stars не считаются доказанным ростом установок. У новой волны есть критерии входа/выхода и доступные исполнителям задачи.",
+      "verification": "review release/support/evidence snapshots и обновлённая карта без циклов. Изменение планов не требует полного CI runtime до появления code diff.",
+      "spec": "docs/production/08-agent-execution.md#ops-003",
+      "issue": "https://github.com/INNVoices/waarp/issues/40",
+      "evidence": []
+    }
+  ]
+}

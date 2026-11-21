@@ -1,5 +1,7 @@
 # Install Waarp
 
+After installation, follow the [first-route walkthrough in Russian](guides/first-routes.md): one personal profile, one application, a Direct comparison and then a separate domain rule. It matches the public Windows r6 / Android r5 previews and explains what each check does and does not prove.
+
 Choose a published build for your device. You do not need Node.js, a compiler or a GitHub account to download it.
 
 ## Downloads
