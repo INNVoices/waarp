@@ -49,6 +49,8 @@ jobs:
         run: python3 -m py_compile scripts/android-*.py
       - name: Verify Android release evidence and artifact bindings
         run: python3 scripts/android-release-readiness-test.py
+      - name: Verify APK size accounting and replayable reports
+        run: python3 scripts/android-package-inventory-test.py
       - name: Verify instrumentation failure evidence and shared result parsing
         run: python3 scripts/android-instrument-test.py
       - name: Verify current and archived native crash evidence handling
