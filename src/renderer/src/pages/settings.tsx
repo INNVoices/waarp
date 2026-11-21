@@ -173,9 +173,9 @@ function ListsPanel({ snap, patch, toast }: { snap: Snapshot; patch: SettingsPat
               <p className={l.error ? 'warn' : 'm'}>{l.count ? s('lists.count', { n: l.count, t: l.updatedAt ? new Date(l.updatedAt).toLocaleString() : '—' }) : s('lists.never')}{l.error ? ' · ' + s('lists.err.' + l.error) : ''}</p>
             </div>
             <Toggle on={l.enabled} disabled={!!busy} onChange={v => void act(l.id, () => api.listToggle(l.id, v), 'lists.err.save')} label={l.name} />
-            <Btn kind="ghost" disabled={!!busy} title={s('lists.refresh')} onClick={() => void act(l.id, () => api.listRefresh(l.id), 'lists.err.fetch')}><span className={busy === l.id ? 'spin' : ''}><Icon n="refresh" /></span></Btn>
+            <Btn kind="ghost" disabled={!!busy} aria-label={s('lists.refresh')} title={s('lists.refresh')} onClick={() => void act(l.id, () => api.listRefresh(l.id), 'lists.err.fetch')}><span className={busy === l.id ? 'spin' : ''}><Icon n="refresh" /></span></Btn>
             {!used(l.id) && l.enabled && l.count > 0 && <Btn kind="ghost" disabled={!!busy} onClick={() => card(l.id, l.name)}><Icon n="plus" />{s('lists.card')}</Btn>}
-            <Btn kind="danger" disabled={!!busy || used(l.id)} title={used(l.id) ? s('lists.err.used') : s('set.remove')} onClick={() => void act(l.id, () => api.listRemove(l.id), 'lists.err.save')}><Icon n="trash" /></Btn>
+            <Btn kind="danger" disabled={!!busy || used(l.id)} aria-label={s('set.remove')} title={used(l.id) ? s('lists.err.used') : s('set.remove')} onClick={() => void act(l.id, () => api.listRemove(l.id), 'lists.err.save')}><Icon n="trash" /></Btn>
           </div>
         ))}
       </div>

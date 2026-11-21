@@ -48,7 +48,11 @@ function fixture(options) {
     state.status = { ...state.status, phase: 'on', open: true, health: { a: 'ok' },
       routes: { 'custom:example.com': { desired: 'a', effective: 'a', state: 'ok' } } }
   }
-  const snapshot = () => structuredClone({ admin: !options.adminPending, profiles: state.profiles, settings: state.settings, status: state.status, notices: [] })
+  if (options.domainLists) {
+    state.lists = ['unused', 'used'].map(id => ({ id, name: `List ${id}`, url: `https://${id}.example.invalid/list`, enabled: true, count: 1 }))
+    state.settings.routes.push({ id: 'list:used', kind: 'list', name: 'Used list route', list: 'used', via: 'direct', on: true })
+  }
+  const snapshot = () => structuredClone({ admin: !options.adminPending, profiles: state.profiles, settings: state.settings, status: state.status, notices: [], ...(state.lists ? { lists: state.lists } : {}) })
   const push = () => emit('snapshot', snapshot())
   const catalog = { busy: false, total: 1, readyCount: 1, planned: 1, checked: 1, updatedAt: Date.now(), sources: [], alive: [{ id: 'pub-fixture', name: 'DE Example', host: '198.51.100.1', port: 443, country: 'DE', proto: 'Trojan', status: 'ready', ping: 42, checkedAt: Date.now() }] }
   if (options.staleCatalog) {
@@ -416,6 +420,29 @@ async function rendererStability() {
 }
 
 try {
+  await check('domain list icon actions have localized accessible names before hover', async () => {
+    for (const locale of ['ru-RU', 'en-US']) {
+      const labels = locale === 'ru-RU' ? strings : JSON.parse(readFileSync(new URL('../src/shared/strings/locales/en.json', import.meta.url), 'utf8'))
+      const page = await pageFor({ domainLists: true }, locale)
+      await ready(page)
+      await page.getByRole('button', { name: labels['nav.settings'], exact: true }).click()
+      const unused = page.locator('.opt.static').filter({ has: page.getByText('List unused', { exact: true }) })
+      const used = page.locator('.opt.static').filter({ has: page.getByText('List used', { exact: true }) })
+      const refresh = unused.getByRole('button', { name: labels['lists.refresh'], exact: true })
+      const remove = unused.getByRole('button', { name: labels['set.remove'], exact: true })
+      assert.equal(await refresh.count(), 1)
+      assert.equal(await remove.isEnabled(), true)
+      assert.equal(await used.getByRole('button', { name: labels['set.remove'], exact: true }).isDisabled(), true)
+      await refresh.focus()
+      await page.keyboard.press('Shift+Tab')
+      await page.keyboard.press('Tab')
+      assert.equal(await refresh.evaluate(el => el === document.activeElement), true)
+      await page.getByRole('tooltip').waitFor()
+      assert.equal(await page.getByRole('tooltip').textContent(), labels['lists.refresh'])
+      assert.equal(await refresh.getAttribute('aria-label'), labels['lists.refresh'])
+      await page.context().close()
+    }
+  })
   await check('translated navigation follows system locale, regional fallback and RTL', async () => {
     for (const [requested, expected] of [['en-US', 'en'], ['zh-TW', 'zh-Hant'], ['ar-EG', 'ar'], ['fa-IR', 'fa']]) {
       const page = await pageFor({}, requested)
