@@ -234,10 +234,35 @@ All `/proc/TGID/task/TID/fd` tables are covered, including threads that unshared
 their file table. `KCMP_FILES` deduplicates only proven-equal tables, and equality
 is checked again during both later task inventories. A denied/unavailable
 comparison causes a full scan of that TID; it does not omit it. Process/thread
-inventories and start times must agree across three observations; descriptor
-numbers, device/inode/type/access flags agree across two complete passes. Every
-unknown, disappearance, access error or changed identity refuses the scan.
-There is no metadata retry and no signal to another process.
+inventories and start times must agree across three observations. Descriptor
+observation has two complete passes. In schema 2, only positively classified
+non-tracefs differences can be reconciled; every observed tracefs descriptor's
+number, device/inode/type/access flags and owning table must remain identical.
+An unreadable, unclassified or disappearing-before-metadata descriptor still
+refuses the scan. There is no signal to another process.
+
+For each table in each pass, the observer enumerates list A, reads complete
+metadata for every A entry, then enumerates list B. If the lists differ, it
+performs exactly one reconciliation: fresh complete metadata for **all** B
+entries, then final list C. C must equal B; another numeric inventory change
+refuses without a third sample, retry or delay. The two classified samples are
+compared as follows: a removed entry must have been non-tracefs; an added entry
+must now be non-tracefs; a replacement or changed flags requires both samples
+to be non-tracefs. A reused FD number never inherits its former classification.
+The same comparison applies between the two passes. Newly added markers,
+readers, controls and any change to the observed tracefs projection refuse.
+The exact kernel's [proc FD enumeration](https://github.com/aosp-mirror/kernel_common/blob/bb9513914902b52a9751ea1126ad40518a38c89f/fs/proc/fd.c)
+walks a live file table, so unrelated Android file activity does not by itself
+establish a tracefs consumer.
+
+The retained schema records separate final descriptor counts and metadata-read
+counts for each pass, the number of reconciliations, and added/removed/replaced
+**comparison differences**, separated into within-pass and between-pass
+comparisons. These are not counts of unique operating-system mutations and do
+not claim a stable whole FD inventory. Final descriptor counts retain the
+262,144 limit per pass; at most one extra complete sample per table bounds
+metadata reads to twice that limit. The existing 9-second observer, 10-second
+command and 60-second total limits remain unchanged.
 
 `fstatat` follows the proc descriptor reference for metadata without opening
 its target. Classification uses the tracefs superblock device and the exact
@@ -251,9 +276,22 @@ and [mountinfo's path filtering](https://github.com/aosp-mirror/kernel_common/bl
 
 This is a bounded observation of forbidden tracefs **descriptors**, not an
 atomic ownership proof or an assertion that no mmap can outlive `close(fd)`.
+Equal B/C lists cover numeric entries at those observations; a same-number
+replacement after the last metadata sample can occur before another sample,
+as with the earlier two-pass observer. The protocol does not attest all
+intervening or future table states. No old non-tracefs identity is used to
+classify a newly read entry.
 The exact resize implementation rejects mapped CPU buffers with `EBUSY` before
 deleting pages. That kernel refusal is preserved; no second write is attempted.
 The BPF producer's identity remains explicitly unknown.
+
+The first actual observer execution on
+[PR45 head daf9b741, release API36](https://github.com/INNVoices/waarp/actions/runs/44869936437/job/136743968972)
+refused because a table's end numeric list differed during the first pass. Its last checked
+FD was not evidence identifying which entry changed or whether it was
+non-tracefs. That failure remains a failure: no GLOBAL barrier, buffer resize
+or accepted release trace was reached. Schema 2 requires fresh classified
+evidence before allowing its narrower non-tracefs reconciliation.
 
 ### Complete prior writers, then check empty counters and preserve controls
 

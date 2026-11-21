@@ -192,9 +192,10 @@
         "docs/ANDROID-PERFETTO-16K.md",
         "https://github.com/INNVoices/waarp/actions/runs/44857532546/job/136705926778",
         "https://github.com/INNVoices/waarp/pull/45",
-        "docs/production/evidence/2026-11-21-pr45-runtime-followup.json"
+        "docs/production/evidence/2026-11-21-pr45-runtime-followup.json",
+        "docs/production/evidence/2026-11-21-pr45-descriptor-refusal.json"
       ],
-      "evidence_note": "Strict empty-buffer путь и 104 адресных host tests готовы. Реальная сборка observer закреплённым NDK прошла в PR45 run 44867528265. Guest observer ещё не выполнялся: release API36 остановился до него на единственном adb root с transport closed; сохраняется отдельное исправление bounded reconnect. Полная матрица и 7200 s soak ещё не приняты."
+      "evidence_note": "В PR45 head daf9 реальный root/image/NDK/observer выполнен; observer отказал до записи из-за изменения списка FD. Новый bounded reconciliation разрешает только положительно классифицированные non-tracefs изменения при неизменной tracefs projection, сохраняет остальные guards и бюджеты. 99 адресных host tests и реальная локальная сборка тем же NDK прошли; независимое ревью завершено. Actual guest resize/trace и 7200 s soak для нового кандидата ещё ожидаются."
     },
     {
       "id": "REL-004",
@@ -228,7 +229,8 @@
       "issue": "https://github.com/INNVoices/waarp/issues/33",
       "evidence": [
         "https://github.com/INNVoices/waarp/actions/runs/44831610512",
-        "docs/production/evidence/2026-11-21-pr45-runtime-followup.json"
+        "docs/production/evidence/2026-11-21-pr45-runtime-followup.json",
+        "docs/production/evidence/2026-11-21-pr45-descriptor-refusal.json"
       ]
     },
     {

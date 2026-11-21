@@ -98,11 +98,12 @@ def parse_observer(raw):
     require(isinstance(raw, str) and 0 < len(raw.encode()) < OUTPUT_LIMIT, "Missing bounded observer result")
     value = json.loads(raw, object_pairs_hook=unique_object)
     require(isinstance(value, dict) and type(value.get("schemaVersion")) is int
-            and value["schemaVersion"] == 1 and value.get("passed") is True,
+            and value["schemaVersion"] == 2 and value.get("passed") is True,
             "Native descriptor observation was incomplete or refused")
     exact = {"uid": 0, "selinuxEnforcing": True, "selinuxContext": "u:r:su:s0",
              "pidNamespacesCompiledOut": True, "procVisibilityVerified": True, "passes": 2,
-             "stableTaskInventories": 3, "unknownDescriptors": 0, "forbiddenTracefsDescriptors": 0,
+             "stableTaskInventories": 3, "stableTracefsProjection": True,
+             "unknownDescriptors": 0, "forbiddenTracefsDescriptors": 0,
              "cpuPossible": "0-1", "cpuPresent": "0-1", "cpuOnline": "0-1",
              "deadlineNs": 9000000000, "tracefsWritten": False,
              "foreignDescriptorsOpened": False, "tracePayloadRead": False}
@@ -110,14 +111,33 @@ def parse_observer(raw):
             "Native observer contract changed or lacks complete visibility")
     require(type(value.get("procHidepid")) is int and value["procHidepid"] in (0, 1, 2), "Unknown proc hidepid")
     integer_names = ("procGid", "processes", "threads", "uniqueTables", "sharedThreads", "kcmpDeniedFullScans",
-                     "descriptorsPerPass", "markerWriters", "elapsedNs")
+                     "descriptorReconciliations", "markerWriters", "elapsedNs")
     require(all(type(value.get(name)) is int and value[name] >= 0 for name in integer_names),
             "Invalid observer counters")
     require(1 < value["processes"] <= 1024 and value["processes"] <= value["uniqueTables"] <= value["threads"] <= 8192
             and value["uniqueTables"] + value["sharedThreads"] == value["threads"]
             and value["kcmpDeniedFullScans"] <= value["uniqueTables"]
-            and value["markerWriters"] <= value["descriptorsPerPass"] <= 262144
+            and value["descriptorReconciliations"] <= 2 * value["uniqueTables"]
             and 0 < value["elapsedNs"] < value["deadlineNs"], "Incomplete or unbounded descriptor inventory")
+    counts, reads = value.get("descriptorCounts"), value.get("descriptorMetadataReads")
+    require(isinstance(counts, list) and isinstance(reads, list) and len(counts) == len(reads) == 2
+            and all(type(count) is int and value["markerWriters"] <= count <= 262144 for count in counts)
+            and all(type(read) is int and count <= read <= 524288 for count, read in zip(counts, reads)),
+            "Missing or unbounded per-pass descriptor observations")
+    differences = value.get("nonTraceComparisonDifferences")
+    require(isinstance(differences, dict) and set(differences) == {"withinPass", "betweenPass"}
+            and all(isinstance(item, dict) and set(item) == {"added", "removed", "replaced"}
+                    and all(type(count) is int and 0 <= count <= sum(reads) for count in item.values())
+                    for item in differences.values()), "Unverified non-tracefs comparison differences")
+    within, between = differences["withinPass"], differences["betweenPass"]
+    require(counts[1] - counts[0] == between["added"] - between["removed"]
+            and between["removed"] + between["replaced"] <= counts[0] - value["markerWriters"]
+            and between["added"] + between["replaced"] <= counts[1] - value["markerWriters"]
+            and within["removed"] + within["replaced"] <= sum(reads) - sum(counts)
+            and within["added"] + within["replaced"] <= sum(counts) - 2 * value["markerWriters"]
+            and ((value["descriptorReconciliations"] == 0 and not any(within.values()) and counts == reads)
+                 or (0 < value["descriptorReconciliations"] <= within["added"] + within["removed"])),
+            "Descriptor comparison counts disagree with the bounded observation protocol")
     barrier = value.get("membarrier")
     require(isinstance(barrier, dict) and set(barrier) == {"query", "command", "flags", "result", "calls"}
             and all(type(item) is int for item in barrier.values()) and barrier["query"] >= 0
@@ -128,7 +148,9 @@ def parse_observer(raw):
             "Missing post-barrier CPU stats")
     for raw_stats in value["cpuStatsAfterBarrier"]:
         parse_stats(raw_stats)
-    require(set(value) == {"schemaVersion", "passed", *exact, *integer_names, "procHidepid", "membarrier", "cpuStatsAfterBarrier"},
+    require(set(value) == {"schemaVersion", "passed", *exact, *integer_names, "procHidepid", "membarrier",
+                          "cpuStatsAfterBarrier", "descriptorCounts", "descriptorMetadataReads",
+                          "nonTraceComparisonDifferences"},
             "Unexpected native observer fields")
     return value
 

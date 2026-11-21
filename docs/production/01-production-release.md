@@ -101,7 +101,7 @@ Graphics hypothesis и независимый ftrace blocker требуют фа
 **Title:** Уточнить владение BPF trace event и допустимый путь подготовки 16 KiB
 
 - **Priority:** P0.
-- **Status:** `in_progress`: Strict empty-buffer путь и 104 адресных host tests готовы. Реальная сборка observer закреплённым NDK прошла в PR45 run 44867528265. Guest observer ещё не выполнялся: release API36 остановился до него на единственном adb root с transport closed; сохраняется отдельное исправление bounded reconnect. Полная матрица и 7200 s soak ещё не приняты.
+- **Status:** `in_progress`: В PR45 head daf9 реальный root/image/NDK/observer выполнен; observer отказал до записи из-за изменения списка FD. Новый bounded reconciliation разрешает только положительно классифицированные non-tracefs изменения при неизменной tracefs projection, сохраняет остальные guards и бюджеты. 99 адресных host tests и реальная локальная сборка тем же NDK прошли; независимое ревью завершено. Actual guest resize/trace и 7200 s soak для нового кандидата ещё ожидаются.
 - **Dependencies:** нет.
 - **Files:** `scripts/android-ftrace-prepare.py`, его `-test.py`, `scripts/android-emulator-image.py`, `docs/ANDROID-PERFETTO-16K.md`; raw `ftrace-preparation` artifact.
 - **Change:** исследовать конкретный image/kernel и источник включённого события до любой tracefs mutation. Проверенный exact kernel revision и permalink приведены ниже. Helper lookup может асинхронно включить событие, поэтому `X` совместим с нулём Perfetto sessions. Это объяснение механизма, не атрибуция actual guest. Подготовить проверяемый вариант, сохраняющий чужое состояние; если безопасный resize при таком состоянии не доказан, оставить отказ.
@@ -115,7 +115,7 @@ Graphics hypothesis и независимый ftrace blocker требуют фа
 **Title:** Получить полный exact-source Android acceptance bundle
 
 - **Priority:** P0.
-- **Status:** `blocked`: текущий main не прошёл матрицу; checker уже реализован. PR45 head `56f403c` дал 5 success / 2 failure / 1 skipped: отдельные отказы root transport и UI/IME сохранены в [runtime ledger](evidence/2026-11-21-pr45-runtime-followup.json); этот частичный результат не является приёмкой.
+- **Status:** `blocked`: текущий main не прошёл матрицу; checker уже реализован. PR45 head `daf9b74` дал 6 success / 1 failure / 1 skipped: native29/35/36 и optimized29/35 прошли; исправленный group UI сценарий подтверждён. Observer API36 отказал до tracefs mutation на изменившемся FD inventory; [новое evidence](evidence/2026-11-21-pr45-descriptor-refusal.json) сохраняет этот отказ и пределы вывода. Soak ещё не принят.
 - **Dependencies:** REL-001, REL-002, REL-003, REL-009.
 - **Files:** `.github/workflows/android.yml`, `scripts/android-release-readiness.py`, `scripts/android-release-proof.py`, `docs/ANDROID_RELEASE_EVIDENCE.md`, `android/acceptance/README.md`. Не переписывать checker без конкретного воспроизводимого mismatch.
 - **Change:** на одном выбранном main commit выполнить существующую полную Android acceptance. Экспортировать raw run/jobs и отдельные artifact receipts, original ZIP и точные extracted files; сверить SHA256/CRC и связность выбранной попытки. Статические отчёты привязать к трём реальным unsigned APK; runtime — к реально использованному payload, а не только versionName/code или `passed=true`.

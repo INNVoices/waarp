@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "checkedAtUtc": "2026-11-21T05:34:26.088450+00:00",
+  "repository": "INNVoices/waarp",
+  "pullRequest": 45,
+  "headSha": "daf9b7410529e322597c230565f399067283697b",
+  "testedMergeCheckout": "9c54ff0cf9c8c7ee7b715dc34a2ab87d91e3b32f",
+  "androidRunId": 44869936437,
+  "generalRunId": 44869936486,
+  "runAttempt": 1,
+  "fullAndroidAcceptance": false,
+  "androidJobSummary": {
+    "success": 6,
+    "failure": 1,
+    "skipped": 1,
+    "soak": "SKIPPED"
+  },
+  "nativeApi35": {
+    "jobId": 136743968908,
+    "tests": 26,
+    "passed": 26,
+    "failed": 0,
+    "skipped": 0,
+    "wallSeconds": 280.3,
+    "groupScenario": "groupMemberOrderAndExplicitDeletionReassignmentPersistThroughTheRealUi",
+    "groupScenarioStatusCode": 0,
+    "proof": "Existing raw instrumentation parser agrees with result.json. The actual screenshot shows the saved ordered group UI Beta then UI Alpha.",
+    "artifact": {
+      "id": 14693828577,
+      "name": "waarp-android-api-35-4096-runtime",
+      "bytes": 1925842,
+      "sha256": "25bef37f71300078de6ce2dab6cc30af12254de63a9d772d02be0694d2f97e10",
+      "rawIndividualApiReceiptSha256": "afc69dcbae3f5c1177506eea1c50fb9b02d61701147ffc89d096c04ba25cc55b",
+      "digestMatched": true,
+      "crcPassed": true
+    }
+  },
+  "optimizedApi36": {
+    "jobId": 136743968972,
+    "artifact": {
+      "id": 14693728207,
+      "name": "waarp-android-release-api-36-16384-runtime",
+      "bytes": 52827,
+      "sha256": "12695aaafb393be717f3b8ea11367fdc9a183be4815e6cfb5cf3c149ea1472a2",
+      "rawIndividualApiReceiptSha256": "f743a187659513ee86cd0b29841024813f0e840b4aed217b1283594468fceb03",
+      "digestMatched": true,
+      "crcPassed": true
+    },
+    "root": {
+      "passed": true,
+      "requests": 1,
+      "observerUid": 0,
+      "elapsedSeconds": 1.7468924610000158,
+      "identityMatched": true,
+      "rootTransportClosed": false,
+      "continuousBootVerified": false,
+      "limitation": "Normal acknowledgement in this run; the recognized-closed continuation branch was not reproduced on a live device."
+    },
+    "imageAndObserverBuild": "Existing image and build validators passed independently: exact image/kernel/IKCONFIG, current C source, pinned NDK, retained 22920-byte ELF and guest hash.",
+    "observer": {
+      "status": "REFUSED",
+      "reason": "descriptor_inventory_changed",
+      "stage": "descriptor_pass_one",
+      "pid": 789,
+      "tid": 789,
+      "lastProcessedFd": 662,
+      "offendingFdKnown": false,
+      "processNameKnown": false,
+      "elapsedSeconds": 0.6283,
+      "interpretation": "End numeric FD inventory differs from the initial inventory after reading the initial descriptors. The report does not identify the added or removed descriptor. This does not establish that the change was harmless."
+    },
+    "preparation": {
+      "tracingOn": "0",
+      "currentTracer": "nop",
+      "eventsEnabled": "X",
+      "soleEnabledEvent": "bpf_trace:bpf_trace_printk",
+      "subBufferKiB": 4,
+      "mutationAttempted": false,
+      "mutated": false,
+      "ownedObserverCleanupPassed": true,
+      "globalBarrierReached": false,
+      "postBarrierZeroStatsReached": false,
+      "actualTraceReached": false
+    },
+    "independentReview": "84 raw stdout/stderr hashes, every extracted byte, exact failed 27-command plan and original ZIP/API bindings checked; failure remains correctly rejected by the full preparation validator."
+  },
+  "additionalSuccessJobs": [
+    {
+      "id": 136741969358,
+      "name": "Build, unit, lint and APK integrity"
+    },
+    {
+      "id": 136743968943,
+      "name": "Native API 29 / 4096 B"
+    },
+    {
+      "id": 136743968990,
+      "name": "Native API 36 / 16384 B"
+    },
+    {
+      "id": 136743969050,
+      "name": "Optimized release API 29 / 4096 B"
+    },
+    {
+      "id": 136743968962,
+      "name": "Optimized release API 35 / 4096 B"
+    }
+  ],
+  "windows": {
+    "jobId": 136741969463,
+    "status": "SUCCESS",
+    "nativeTunCycles": 50,
+    "portableLifecycle": "SUCCESS",
+    "scope": "Workflow steps checked; standalone EXE/validation archives not downloaded again for this PR head. Final main evidence remains separate."
+  },
+  "nextVerification": "Review a bounded descriptor-reconciliation protocol. Only positively classified non-tracefs differences may be reconciled; unknown, denied, metadata disappearance, tracefs projection, task identity or control changes must still refuse. No retries of this unchanged CI head.",
+  "evidenceTrust": "Original trusted CI ZIP/API bytes plus source-bound validators; not cryptographic CI attestation or full release acceptance.",
+  "localValidationForReplacementProtocol": {
+    "scope": "Separate local candidate validation; this does not change the failed historical head outcome above.",
+    "localCommit": "14ed8affcc5c267f4b5f4ac8b53cd9de7421cfaa",
+    "observerSourceSha256": "2e12ef1260a26674bdab9f4a7cd6966e326678562209e2a232827215573916c0",
+    "nativeHostTests": 25,
+    "emptyBufferHostTests": 20,
+    "existingFtraceHostTests": 54,
+    "independentNegativeAndPositiveProbes": 5,
+    "review": "LGTM",
+    "actualPinnedNdkCompile": "PASS",
+    "ndkVersion": "28.2.13676358",
+    "ndkArchiveSha256": "dfb20d396df28ca02a8c708314b814a4d961dc9074f9a161932746f815aa552f",
+    "ndkOfficialArchiveSha1Matched": "a7b54a5de87fecd125a17d54f73c446199e72a64",
+    "binaryBytes": 24360,
+    "binarySha256": "4ac88f221c228e38d2e2ea0268680de61c069446708a32b58eaa97b7972ec7ba",
+    "elf16KiBValidated": true,
+    "actualGuestRuntime": "NOT_RUN"
+  }
+}

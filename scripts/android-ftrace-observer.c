@@ -2,7 +2,9 @@
  * It never opens a foreign descriptor's target, reads trace payload, writes
  * tracefs, signals another process, changes credentials or stops BPF. A single
  * GLOBAL membarrier supplies the reviewed kernel's RCU grace period. Every
- * incomplete/racing/denied observation is a refusal, not an omitted owner.
+ * incomplete/unknown/denied observation is a refusal, not an omitted owner.
+ * One bounded reconciliation may classify non-tracefs descriptor changes;
+ * these samples are not an atomic snapshot of another process's file table.
  */
 #define _GNU_SOURCE
 #include <dirent.h>
@@ -39,11 +41,13 @@ typedef struct { int number; uint64_t dev, ino; unsigned mode; uint64_t flags; }
 typedef struct { int pid, directory; } Process;
 typedef struct { int pid, tid; uint64_t start; size_t process, table; } Task;
 typedef struct { size_t representative; Descriptor *fds; size_t count; } Table;
+typedef struct { size_t added, removed, replaced; } Differences;
 typedef struct {
     Process processes[MAX_PROCESSES]; size_t process_count;
     Task tasks[MAX_TASKS]; size_t task_count;
     Table tables[MAX_TASKS]; size_t table_count;
-    size_t descriptors, markers, shared, kcmp_denied;
+    size_t descriptors[2], metadata_reads[2], markers, shared, kcmp_denied, reconciliations;
+    Differences within_pass, between_pass;
 } Inventory;
 
 static uint64_t started_ns;
@@ -62,7 +66,7 @@ static uint64_t monotonic_ns(void) {
 static _Noreturn void refuse(const char *reason) {
     /* Only source literals and numeric metadata; no path/argv/event payload. */
     int error = errno;
-    printf("{\"schemaVersion\":1,\"passed\":false,\"reason\":\"%s\","
+    printf("{\"schemaVersion\":2,\"passed\":false,\"reason\":\"%s\","
            "\"stage\":\"%s\",\"errno\":%d,\"pid\":%d,\"tid\":%d,\"fd\":%d}\n",
            reason, failure_stage, error, failure_pid, failure_tid, failure_fd);
     exit(1);
@@ -270,6 +274,50 @@ static bool descriptor_equal(Descriptor a, Descriptor b) {
            && a.mode == b.mode && a.flags == b.flags;
 }
 
+/* Each side contains fresh, successfully classified descriptor identities.
+ * A numeric FD never carries its former classification into a new sample. */
+static void compare_samples(const Descriptor *before, size_t before_count,
+                            const Descriptor *after, size_t after_count, Differences *differences) {
+    size_t old = 0, current = 0;
+    while (old < before_count || current < after_count) {
+        bounded();
+        if (current == after_count || (old < before_count && before[old].number < after[current].number)) {
+            failure_fd = before[old].number;
+            must(before[old].dev != trace_dev, "tracefs_projection_changed");
+            differences->removed++; old++;
+        } else if (old == before_count || after[current].number < before[old].number) {
+            failure_fd = after[current].number;
+            must(after[current].dev != trace_dev, "tracefs_projection_changed");
+            differences->added++; current++;
+        } else {
+            failure_fd = after[current].number;
+            if (!descriptor_equal(before[old], after[current])) {
+                must(before[old].dev != trace_dev && after[current].dev != trace_dev,
+                     "tracefs_projection_changed");
+                differences->replaced++;
+            }
+            old++; current++;
+        }
+    }
+}
+
+static bool same_numbers(Numbers a, Numbers b) {
+    return a.n == b.n && !memcmp(a.v, b.v, a.n * sizeof(int));
+}
+
+static Descriptor *sample_metadata(Inventory *inventory, int fds, int directory,
+                                   Numbers numbers, size_t pass) {
+    must(inventory->metadata_reads[pass] + numbers.n <= 2 * MAX_TOTAL_FDS,
+         "descriptor_metadata_limit");
+    Descriptor *sample = calloc(numbers.n ? numbers.n : 1, sizeof(Descriptor));
+    must(sample != NULL, "allocation");
+    for (size_t n = 0; n < numbers.n; ++n) {
+        sample[n] = descriptor_metadata(fds, directory, numbers.v[n]);
+        inventory->metadata_reads[pass]++;
+    }
+    return sample;
+}
+
 static void scan_table(Inventory *inventory, size_t index, bool second) {
     Table *table = &inventory->tables[index];
     Task *task = &inventory->tasks[table->representative];
@@ -281,26 +329,33 @@ static void scan_table(Inventory *inventory, size_t index, bool second) {
     must(directory >= 0, "task_directory");
     int fds = openat(directory, "fd", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
     must(fds >= 0, "descriptor_directory");
-    Numbers numbers = numeric_entries(fds, ".", MAX_FDS);
-    if (!second) {
-        must(inventory->descriptors + numbers.n <= MAX_TOTAL_FDS, "descriptor_total_limit");
-        inventory->descriptors += numbers.n;
-        table->fds = calloc(numbers.n ? numbers.n : 1, sizeof(Descriptor));
-        must(table->fds != NULL, "allocation");
-        table->count = numbers.n;
-    } else must(numbers.n == table->count, "descriptor_inventory_changed");
-    for (size_t n = 0; n < numbers.n; ++n) {
-        Descriptor item = descriptor_metadata(fds, directory, numbers.v[n]);
-        if (second) must(descriptor_equal(item, table->fds[n]), "descriptor_inventory_changed");
-        else {
-            table->fds[n] = item;
-            if (item.dev == trace_dev) inventory->markers++;
-        }
+    size_t pass = second ? 1 : 0;
+    Numbers first = numeric_entries(fds, ".", MAX_FDS);
+    Descriptor *sample = sample_metadata(inventory, fds, directory, first, pass);
+    size_t count = first.n;
+    Numbers next = numeric_entries(fds, ".", MAX_FDS);
+    if (!same_numbers(first, next)) {
+        /* Exactly one fresh complete sample of B after A -> metadata(A) -> B.
+         * Every missing/denied metadata read still refuses. The final numeric
+         * inventory C must equal B; no third sample, retry or quieting delay. */
+        inventory->reconciliations++;
+        Descriptor *reconciled = sample_metadata(inventory, fds, directory, next, pass);
+        Numbers final = numeric_entries(fds, ".", MAX_FDS);
+        must(same_numbers(next, final), "descriptor_reconciliation_changed");
+        compare_samples(sample, count, reconciled, next.n, &inventory->within_pass);
+        free(final.v); free(sample);
+        sample = reconciled; count = next.n;
     }
-    Numbers end = numeric_entries(fds, ".", MAX_FDS);
-    must(end.n == numbers.n && !memcmp(end.v, numbers.v, numbers.n * sizeof(int)),
-         "descriptor_inventory_changed");
-    free(end.v); free(numbers.v);
+    free(next.v); free(first.v);
+    must(inventory->descriptors[pass] + count <= MAX_TOTAL_FDS, "descriptor_total_limit");
+    inventory->descriptors[pass] += count;
+    if (second) {
+        compare_samples(table->fds, table->count, sample, count, &inventory->between_pass);
+        free(sample);
+    } else {
+        table->fds = sample; table->count = count;
+        for (size_t n = 0; n < count; ++n) if (sample[n].dev == trace_dev) inventory->markers++;
+    }
     must(close(fds) == 0 && close(directory) == 0, "task_directory_close");
     must(task_start(process_directory, task->tid) == task->start, "task_identity_changed");
 }
@@ -463,18 +518,28 @@ int main(int argc, char **argv) {
     }
     stopped_bpf_controls(trace_directory);
     bounded();
-    printf("{\"schemaVersion\":1,\"passed\":true,\"uid\":0,\"selinuxEnforcing\":true,"
+    printf("{\"schemaVersion\":2,\"passed\":true,\"uid\":0,\"selinuxEnforcing\":true,"
            "\"selinuxContext\":\"u:r:su:s0\",\"pidNamespacesCompiledOut\":true,"
            "\"procHidepid\":%u,\"procGid\":%u,\"procVisibilityVerified\":true,"
            "\"processes\":%zu,\"threads\":%zu,\"uniqueTables\":%zu,"
            "\"sharedThreads\":%zu,\"kcmpDeniedFullScans\":%zu,"
-           "\"descriptorsPerPass\":%zu,\"markerWriters\":%zu,\"passes\":2,"
+           "\"descriptorCounts\":[%zu,%zu],\"descriptorMetadataReads\":[%zu,%zu],"
+           "\"descriptorReconciliations\":%zu,\"markerWriters\":%zu,\"passes\":2,"
+           "\"stableTracefsProjection\":true,"
+           "\"nonTraceComparisonDifferences\":{"
+           "\"withinPass\":{\"added\":%zu,\"removed\":%zu,\"replaced\":%zu},"
+           "\"betweenPass\":{\"added\":%zu,\"removed\":%zu,\"replaced\":%zu}},"
            "\"stableTaskInventories\":3,\"unknownDescriptors\":0,\"forbiddenTracefsDescriptors\":0,"
            "\"membarrier\":{\"query\":%ld,\"command\":1,\"flags\":0,\"result\":0,\"calls\":1},"
            "\"cpuPossible\":\"0-1\",\"cpuPresent\":\"0-1\",\"cpuOnline\":\"0-1\","
            "\"cpuStatsAfterBarrier\":[",
            hidepid, proc_gid, inventory->process_count, inventory->task_count, inventory->table_count,
-           inventory->shared, inventory->kcmp_denied, inventory->descriptors, inventory->markers, query);
+           inventory->shared, inventory->kcmp_denied,
+           inventory->descriptors[0], inventory->descriptors[1],
+           inventory->metadata_reads[0], inventory->metadata_reads[1],
+           inventory->reconciliations, inventory->markers,
+           inventory->within_pass.added, inventory->within_pass.removed, inventory->within_pass.replaced,
+           inventory->between_pass.added, inventory->between_pass.removed, inventory->between_pass.replaced, query);
     json_string(stats[0]); putchar(','); json_string(stats[1]);
     printf("],\"elapsedNs\":%" PRIu64 ",\"deadlineNs\":%" PRIu64 ","
            "\"tracefsWritten\":false,\"foreignDescriptorsOpened\":false,\"tracePayloadRead\":false}\n",
