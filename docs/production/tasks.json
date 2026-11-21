@@ -196,9 +196,10 @@
         "https://github.com/INNVoices/waarp/pull/45",
         "docs/production/evidence/2026-11-21-pr45-runtime-followup.json",
         "docs/production/evidence/2026-11-21-pr45-descriptor-refusal.json",
-        "docs/production/evidence/2026-11-21-pr45-task-and-dns-refusals.json"
+        "docs/production/evidence/2026-11-21-pr45-task-and-dns-refusals.json",
+        "docs/production/evidence/2026-11-21-pr45-http-framing-and-metadata.json"
       ],
-      "evidence_note": "PR45 head b654: root/image/NDK и первый FD pass выполнены; observer отказал в middle thread inventory. Combined predicate не позволяет отличить изменение TID membership от starttime. Mutation/GLOBAL/trace не достигнуты. Следующий ограниченный protocol сохраняет все известные identities и допускает только положительно доказанные shared-table additions; отдельный preflight ускоряет обратную связь. Native API36 отдельно дал DNS timeout второго OFF/ON; общая matrix 5 success / 2 failure / 1 skipped, soak не принят."
+      "evidence_note": "PR45 head abce: original tracefs guards отказали на descriptor_stat/ENOENT и в отдельном preflight, и в optimized API36; текущая FD identity неизвестна, GLOBAL/resize/trace не достигнуты. Изучается kernel task_file iterator для удерживаемой file reference; все tracefs candidates сохранят прежний proc/stat/full-flags guard. Это design research, ещё не actual guest acceptance. Native matrix отдельно выявила HTTP chunk-framing ошибку новой диагностики; адресный Content-Length fix готов к проверке."
     },
     {
       "id": "REL-004",
@@ -234,7 +235,8 @@
         "https://github.com/INNVoices/waarp/actions/runs/44831610512",
         "docs/production/evidence/2026-11-21-pr45-runtime-followup.json",
         "docs/production/evidence/2026-11-21-pr45-descriptor-refusal.json",
-        "docs/production/evidence/2026-11-21-pr45-task-and-dns-refusals.json"
+        "docs/production/evidence/2026-11-21-pr45-task-and-dns-refusals.json",
+        "docs/production/evidence/2026-11-21-pr45-http-framing-and-metadata.json"
       ]
     },
     {

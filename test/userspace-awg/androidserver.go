@@ -134,6 +134,24 @@ func (p *androidPeer) proof() androidProof {
 	return result
 }
 
+func (p *androidPeer) serveProof(w http.ResponseWriter, _ *http.Request) {
+	// The fixed test client reads a connection-close body directly. Once the
+	// optional trace exceeds net/http's small-response buffer, an implicit
+	// length would become chunked framing rather than JSON at that boundary.
+	payload, err := json.Marshal(p.proof())
+	if err != nil || len(payload) > 32*1024 {
+		http.Error(w, "proof_encoding_or_size", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+	if written, writeErr := w.Write(payload); writeErr != nil || written != len(payload) {
+		// Headers may already be committed. Abort the HTTP exchange instead of
+		// presenting a truncated diagnostic body as a completed response.
+		panic(http.ErrAbortHandler)
+	}
+}
+
 func (p *androidPeer) register(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method", http.StatusMethodNotAllowed)
@@ -356,10 +374,7 @@ func executeAndroidServerFor(port int, reportPath string, duration time.Duration
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("/register", p.register)
-	mux.HandleFunc("/proof", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(p.proof())
-	})
+	mux.HandleFunc("/proof", p.serveProof)
 	listener, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		return errors.New("control_listen")

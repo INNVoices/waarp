@@ -2,17 +2,64 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/sagernet/wireguard-go/conn"
 )
+
+func TestAndroidProofHTTPHasExactLengthForLargeTrace(t *testing.T) {
+	peer := &androidPeer{bind: &udpBind{}}
+	peer.stopped.Store(true) // This test does not construct or claim a live device.
+	peer.trace.enable()
+	for i := 0; i < androidTraceLimit; i++ {
+		peer.trace.dns("inner-dns-write-ok", uint16(i), 56)
+	}
+	server := httptest.NewServer(http.HandlerFunc(peer.serveProof))
+	defer server.Close()
+	client, err := net.DialTimeout("tcp", strings.TrimPrefix(server.URL, "http://"), 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	client.SetDeadline(time.Now().Add(2 * time.Second))
+	if _, err = io.WriteString(client, "GET /proof HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(io.LimitReader(client, 64*1024+1))
+	if err != nil || len(raw) > 64*1024 {
+		t.Fatal("raw HTTP response did not complete inside its byte/time bound")
+	}
+	parts := bytes.SplitN(raw, []byte("\r\n\r\n"), 2)
+	if len(parts) != 2 || len(parts[1]) <= 2048 || bytes.Contains(bytes.ToLower(parts[0]), []byte("transfer-encoding:")) {
+		t.Fatal("large proof did not retain an unchunked JSON body")
+	}
+	response, err := http.ReadResponse(bufio.NewReader(bytes.NewReader(raw)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK || response.ContentLength != int64(len(parts[1])) {
+		t.Fatal("declared content length does not match exact UTF-8 body bytes")
+	}
+	var proof androidProof
+	// Intentionally decode the original wire body, without an HTTP dechunker:
+	// this is the boundary used by Android's existing fixtureJson helper.
+	if json.Unmarshal(parts[1], &proof) != nil || proof.Diagnostics == nil || len(proof.Diagnostics.Events) != androidTraceLimit || proof.Passed {
+		t.Fatal("raw Android-style JSON decode lost the trace or invented a pass")
+	}
+}
 
 func tracePacket() []byte {
 	packet := make([]byte, 96)

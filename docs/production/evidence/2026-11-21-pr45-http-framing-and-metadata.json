@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 1,
+  "checkedAtUtc": "2026-11-21T06:51:50.368667+00:00",
+  "repository": "INNVoices/waarp",
+  "pullRequest": 45,
+  "headSha": "abce5c372d573e91b2d55d93461a3e89dfac778c",
+  "testedMergeCheckout": "9a6603b36b8099a11b58ca74e62007d8a1090060",
+  "androidRunId": 44875422019,
+  "generalRunId": 44875421992,
+  "preflightRunId": 44875422108,
+  "runAttempt": 1,
+  "fullAndroidAcceptance": false,
+  "androidJobSummary": {
+    "success": 3,
+    "failure": 4,
+    "skipped": 1,
+    "soak": "SKIPPED"
+  },
+  "generalCi": {
+    "success": 3,
+    "windowsJobId": 136758952891,
+    "nativeTun50Cycles": "SUCCESS",
+    "packagedExeLifecycle": "SUCCESS",
+    "archiveScope": "Job steps verified; successful PR Windows ZIP not downloaded again."
+  },
+  "preflight": {
+    "jobId": 136758952930,
+    "artifact": {
+      "id": 14694939381,
+      "name": "waarp-android-tracefs-preflight-api-36-16384",
+      "bytes": 83157,
+      "sha256": "a3260348b4c8b8d8a363c9057a6d16cb4e5e19c28750a78804f1191494308377",
+      "rawIndividualApiReceiptSha256": "e8218f436350c0980b80cbd88bb70506ac59a40b85fc021273fd1d1d2cd69c37",
+      "digestMatched": true,
+      "crcPassed": true,
+      "sourceMatched": true
+    },
+    "observerRefusal": {
+      "schemaVersion": 3,
+      "passed": false,
+      "reason": "descriptor_stat",
+      "stage": "descriptor_pass_one",
+      "errno": 2,
+      "pid": 665,
+      "tid": 665,
+      "fd": 177
+    },
+    "observerSeconds": 0.422936792,
+    "actualPath": "Stopped tracing, sole BPF event X, actual schema3 observer; not the clean events=0 path.",
+    "mutationAttempted": false,
+    "globalBarrierReached": false
+  },
+  "optimizedApi36": {
+    "jobId": 136761225141,
+    "artifact": {
+      "id": 14695972824,
+      "name": "waarp-android-release-api-36-16384-runtime",
+      "bytes": 56504,
+      "sha256": "7be78cc5222a6334e72e8e4b0f0f46a5572e89518710d5ce2c4b0954a06a896b",
+      "rawIndividualApiReceiptSha256": "002c3cb690dd64b4ad37977c023c8403ea84f6fc70737185ad58f536999ecd2b",
+      "digestMatched": true,
+      "crcPassed": true,
+      "sourceMatched": true
+    },
+    "root": {
+      "passed": true,
+      "requests": 1,
+      "transportClosed": false,
+      "uid": 0,
+      "elapsedSeconds": 4.041685401999985,
+      "observedIdentityUnchanged": true,
+      "continuousBootVerified": false,
+      "rawHashesAndBoundsReplayed": true
+    },
+    "imageAndBuildReplay": "PASS; exact source and pinned NDK observer identity",
+    "observerRefusal": {
+      "schemaVersion": 3,
+      "passed": false,
+      "reason": "descriptor_stat",
+      "stage": "descriptor_pass_one",
+      "errno": 2,
+      "pid": 776,
+      "tid": 776,
+      "fd": 601
+    },
+    "observerSeconds": 0.878205775,
+    "interpretation": "First fstatat for the FD in the current sample failed ENOENT. Stage does not distinguish M(A)/M(B); earlier classification and reconciliation count are unknown. Exact proc_fd_link permits ENOENT on task absence or FD-file absence, neither harmlessness nor non-tracefs identity follows. Unknown current metadata remained a refusal.",
+    "mutationAttempted": false,
+    "globalBarrierReached": false,
+    "apkInstallationReached": false,
+    "acceptedTraces": false
+  },
+  "nativeApi36": {
+    "jobId": 136761225138,
+    "artifact": {
+      "id": 14695814855,
+      "name": "waarp-android-api-36-16384-runtime",
+      "bytes": 2011722,
+      "sha256": "fa0a43b53dfe9893b7370af11defab9e8b010e264489cd40642642a42690b7db",
+      "rawIndividualApiReceiptSha256": "c9a8c25764a81229e456836d82a1484f612640ffbfac5cd2095272c6f2e9a13e",
+      "digestMatched": true,
+      "crcPassed": true,
+      "sourceMatched": true
+    },
+    "tests": {
+      "passed": 25,
+      "failed": 1,
+      "skipped": 0,
+      "wallSeconds": 313.092997238
+    },
+    "primaryFailure": "fixtureJson parsed HTTP chunk-length text as JSON after the first successful DNS probe. Local raw-wire reproduction establishes chunked transfer when proof diagnostics exceeds 2 KiB.",
+    "cycle0": {
+      "probeCode": 204,
+      "backendGenerationBefore": null,
+      "backendGenerationOn": 3,
+      "backendGenerationAfterProbe": 3,
+      "readyInterfaceIndex": 19,
+      "socketInterfaceIndex": 19,
+      "networkHandle": 441492361229,
+      "lostCallbacks": 0,
+      "protectedDnsSuccess": true
+    },
+    "cycle1": "NOT_RUN: HTTP diagnostic parsing aborted cycle0 before planned OFF/restart.",
+    "peer": {
+      "encryptedDnsReplies": 1,
+      "finalPassed": false,
+      "trace": "NOT_RETAINED: afterProof JSON decode failed before trace could be put into Android record; canonical disk proof deliberately has counters only."
+    }
+  },
+  "nativeApi29And35": "Each25/26 with the same new diagnostic HTTP chunk-framing failure; all original test assertions retained.",
+  "localHttpFix": {
+    "commit": "96bef7f7a0cc5e8a71b79061c5002acae90cd1b0",
+    "review": "LGTM by coordinator, two test-owned paths only",
+    "testsPassed": 5,
+    "testsFailed": 0,
+    "goVersion": "go1.26.11",
+    "actualBefore": "Large opt-in proof uses Transfer-Encoding: chunked, body begins1410; existing direct JSON decoder fails.",
+    "actualAfter": "Content-Length5135 and exactly5135 UTF-8 body bytes; direct JSON decode succeeds,32 events retained, payload canary absent.",
+    "canonicalProof": "Unchanged20-key disk schema passes existing Python read_proof after actual owned fixture stop.",
+    "scope": "One bounded marshal,32KiB cap, exact Content-Length; HTTP500 on encode/size error, abort failed/short write. No product, DNS retry, timeout or assertion changes.",
+    "actualAndroidRuntime": "PENDING"
+  },
+  "unresolved": [
+    "The earlier b654 second-cycle UDP timeout has not been rechecked because this run never reached cycle1.",
+    "Current unknown-descriptor ENOENT remains a refusal; historical missing FD metadata is not classified as harmless.",
+    "Full exact-source main8-job acceptance including7200s soak is still required."
+  ],
+  "sourceResearch": {
+    "advertisedPerfettoServiceAndProducer": "Perfetto v51.2 (N/A); installed ELF source commit not established.",
+    "separateTracefsInstance": "Reference v51.2 rejects atrace_categories/apps on secondary instances; removing those changes the existing capture contract.",
+    "readerUpgrade": "No source-confirmed read-size override or ready-made59.1 pin for4KiB sub-buffers with16KiB userspace.",
+    "nextDesign": "Review kernel task_file iterator for referenced-file metadata. Every tracefs candidate must retain the old full proc/stat/flags projection check; no unknown metadata allowance."
+  },
+  "evidenceTrust": "Original CI ZIP and raw API receipt digest/source/CRC consistency plus source-bound replay. Not cryptographic CI attestation or release acceptance."
+}
