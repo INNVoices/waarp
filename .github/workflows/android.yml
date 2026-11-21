@@ -63,6 +63,8 @@ jobs:
         run: python3 scripts/android-install-test.py
       - name: Verify bounded host AVD metadata collection
         run: python3 scripts/android-avd-receipt-test.py
+      - name: Verify conditional SDK 20 AVD creation and identity guards
+        run: python3 scripts/android-avd-create-pinned-test.py
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
@@ -309,6 +311,15 @@ jobs:
           else:
               raise SystemExit('The local HTTP fixture did not become ready.')
           PY
+      - name: Create the API 36.1 AVD with explicit SDK tools 20.0
+        if: matrix.api == 36
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'cmdline-tools;20.0'
+          "$ANDROID_HOME/cmdline-tools/20.0/bin/sdkmanager" --install 'system-images;android-36.1;google_apis_ps16k;x86_64' --channel=0
+          python3 scripts/android-avd-create-pinned.py \
+            --sdk-root "$ANDROID_HOME" --avd-home "$HOME/.android/avd" \
+            --observed-host-receipt docs/production/evidence/2026-11-21-pr42-api36-host.json \
+            --disposable-ci-host --report out/android/device-tests/avd-create.json
       - name: Prepare the pinned emulator action without boot key injection
         run: python3 scripts/android-emulator-action-prepare.py --report out/android/device-tests/emulator-action-provenance.json
       - name: Exercise actual native engine, VPN TUN, routes and UI on an emulator
@@ -319,6 +330,7 @@ jobs:
           target: ${{ matrix.target }}
           arch: x86_64
           avd-name: test
+          force-avd-creation: ${{ matrix.api != 36 }}
           profile: pixel_6
           ram-size: ${{ matrix.ram }}
           heap-size: 512M
@@ -406,6 +418,15 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - name: Create the API 36.1 AVD with explicit SDK tools 20.0
+        if: matrix.api == 36
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'cmdline-tools;20.0'
+          "$ANDROID_HOME/cmdline-tools/20.0/bin/sdkmanager" --install 'system-images;android-36.1;google_apis_ps16k;x86_64' --channel=0
+          python3 scripts/android-avd-create-pinned.py \
+            --sdk-root "$ANDROID_HOME" --avd-home "$HOME/.android/avd" \
+            --observed-host-receipt docs/production/evidence/2026-11-21-pr42-api36-host.json \
+            --disposable-ci-host --report out/android/release-journeys/avd-create.json
       - name: Prepare the pinned emulator action without boot key injection
         run: python3 scripts/android-emulator-action-prepare.py --report out/android/release-journeys/emulator-action-provenance.json
       - name: Exercise optimized release journeys with real encrypted traffic
@@ -416,6 +437,7 @@ jobs:
           target: ${{ matrix.target }}
           arch: x86_64
           avd-name: test
+          force-avd-creation: ${{ matrix.api != 36 }}
           profile: pixel_6
           ram-size: ${{ matrix.ram }}
           heap-size: 512M
@@ -482,6 +504,14 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - name: Create the API 36.1 AVD with explicit SDK tools 20.0
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'cmdline-tools;20.0'
+          "$ANDROID_HOME/cmdline-tools/20.0/bin/sdkmanager" --install 'system-images;android-36.1;google_apis_ps16k;x86_64' --channel=0
+          python3 scripts/android-avd-create-pinned.py \
+            --sdk-root "$ANDROID_HOME" --avd-home "$HOME/.android/avd" \
+            --observed-host-receipt docs/production/evidence/2026-11-21-pr42-api36-host.json \
+            --disposable-ci-host --report out/android/release-soak/avd-create.json
       - name: Prepare the pinned emulator action without boot key injection
         run: python3 scripts/android-emulator-action-prepare.py --report out/android/release-soak/emulator-action-provenance.json
       - name: Exercise optimized release soak with real encrypted traffic
@@ -492,6 +522,7 @@ jobs:
           target: google_apis_ps16k
           arch: x86_64
           avd-name: test
+          force-avd-creation: false
           profile: pixel_6
           ram-size: 4096M
           heap-size: 512M
