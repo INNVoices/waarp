@@ -109,6 +109,92 @@ def has_signing_block(path: Path, archive: zipfile.ZipFile) -> bool:
         return stream.read(16) == b"APK Sig Block 42"
 
 
+def apk_inventory(path: Path) -> dict:
+    """Account for every ZIP entry and every remaining byte without extraction.
+
+    ZIP compressed payload plus container overhead is the download size.
+    Uncompressed payload is a separate view, not Android installed/disk usage.
+    """
+    if not path.is_file():
+        return {"schemaVersion": 1, "status": "not_measured", "artifact": path.name,
+                "archiveBytes": None, "uncompressedBytes": None, "reason": "APK input is unavailable."}
+    groups = {name: {"name": name, "entries": 0, "compressedBytes": 0, "uncompressedBytes": 0}
+              for name in ("dex", "resources", "assets", "native_libraries", "notices", "metadata", "remainder")}
+    files = []
+    with zipfile.ZipFile(path) as archive:
+        for entry in archive.infolist():
+            name = entry.filename
+            if re.fullmatch(r"classes(?:\d+)?\.dex", name):
+                group = "dex"
+            elif name.startswith("assets/licenses/"):
+                group = "notices"
+            elif name.startswith("lib/"):
+                group = "native_libraries"
+            elif name == "resources.arsc" or name.startswith("res/"):
+                group = "resources"
+            elif name.startswith("assets/"):
+                group = "assets"
+            elif name == "AndroidManifest.xml" or name.startswith("META-INF/"):
+                group = "metadata"
+            else:
+                group = "remainder"
+            record = {"path": name, "compressedBytes": entry.compress_size, "uncompressedBytes": entry.file_size,
+                      "compressionMethod": entry.compress_type, "group": group}
+            files.append(record)
+            groups[group]["entries"] += 1
+            groups[group]["compressedBytes"] += entry.compress_size
+            groups[group]["uncompressedBytes"] += entry.file_size
+    compressed = sum(group["compressedBytes"] for group in groups.values())
+    uncompressed = sum(group["uncompressedBytes"] for group in groups.values())
+    archive_bytes = path.stat().st_size
+    require(compressed <= archive_bytes, "APK compressed entries exceed the physical archive size.")
+    return {"schemaVersion": 1, "status": "measured", "artifact": path.name,
+            "archiveBytes": archive_bytes, "compressedPayloadBytes": compressed, "uncompressedBytes": uncompressed,
+            "containerOverheadBytes": archive_bytes - compressed,
+            "accounting": "compressedPayloadBytes + containerOverheadBytes = archiveBytes. Container overhead includes ZIP headers, alignment, signing block and archive metadata. Uncompressed entry bytes are a separate view, not installed Android disk usage.",
+            "groups": list(groups.values()), "entries": files,
+            "top20ByUncompressedBytes": sorted(files, key=lambda item: (-item["uncompressedBytes"], item["path"]))[:20]}
+
+
+def format_apk_inventory(inventory: dict) -> str:
+    if inventory["status"] != "measured":
+        return f"APK inventory: {inventory['status']} ({inventory['artifact']})"
+    lines = [f"APK inventory {inventory['artifact']} (bytes): download={inventory['archiveBytes']}; "
+             f"uncompressed entries={inventory['uncompressedBytes']}; container overhead={inventory['containerOverheadBytes']}"]
+    for group in inventory["groups"]:
+        lines.append(f"  {group['name']}: compressed={group['compressedBytes']}; uncompressed={group['uncompressedBytes']}; entries={group['entries']}")
+    lines.append(f"  Top {len(inventory['top20ByUncompressedBytes'])} entries by uncompressed bytes:")
+    for entry in inventory["top20ByUncompressedBytes"]:
+        lines.append(f"    {entry['uncompressedBytes']}\tcompressed={entry['compressedBytes']}\t{entry['path']}")
+    return "\n".join(lines)
+
+
+def build_tool_metadata(name: str) -> dict:
+    """Read the actual resolved tool's SDK version, without running more tools."""
+    executable = Path(tool(name)).resolve()
+    properties = executable.parent / "source.properties"
+    revision = None
+    if properties.is_file():
+        match = re.search(r"^Pkg\.Revision\s*=\s*(\S+)\s*$", properties.read_text(), re.M)
+        if match:
+            revision = match.group(1)
+    return {"executable": executable.name, "sdkBuildToolsVersion": revision,
+            "versionStatus": "recorded" if revision else "not_recorded"}
+
+
+def inventory_report(validation: dict) -> dict:
+    # Keep verifier-environment observations out of verify()'s replayable
+    # artifact report. Release readiness compares that report exactly on another
+    # machine, excluding only its existing timestamp and signing fields.
+    return {"schemaVersion": 1,
+            **{name: validation[name] for name in ("artifact", "sha256", "bytes", "variant", "applicationId", "versionName", "versionCode", "abi")},
+            "sourceCommit": os.environ.get("GITHUB_SHA"),
+            "sourceCommitBasis": "GITHUB_SHA of the verifier/build job; requires the matching build receipt" if os.environ.get("GITHUB_SHA") else "not_recorded",
+            "tools": {"python": sys.version.split()[0],
+                      **{name: build_tool_metadata(name) for name in ("aapt", "zipalign", "apksigner")}},
+            "inventory": validation["inventory"]}
+
+
 def verify(path: Path, expected: str) -> dict:
     pin = json.loads((ROOT / "android/app/src/main/res/raw/engine_integrity.json").read_text())
     source_build = pin.get("sourceBuild")
@@ -212,6 +298,7 @@ def verify(path: Path, expected: str) -> dict:
         "engineVersion": pin["version"], "engineSourceCommit": pin["sourceCommit"],
         "engineAarSha256": pin["sha256"], "engineSourceBuild": source_build,
         "zipalign16k": True, "nativeLibraries": native,
+        "inventory": apk_inventory(path),
         "scope": "Static APK packaging and signature checks; runtime VPN tests are reported separately.",
     }
 
@@ -227,7 +314,9 @@ def main() -> int:
         if options.report:
             options.report.parent.mkdir(parents=True, exist_ok=True)
             options.report.write_text(json.dumps(report, indent=2) + "\n")
+            options.report.with_suffix(".inventory.json").write_text(json.dumps(inventory_report(report), indent=2) + "\n")
         print(f"PASS {report['artifact']}: {report['abi']}, {report['variant']}, native integrity + ZIP/ELF 16 KB; signed={report['signed']}.")
+        print(format_apk_inventory(report["inventory"]))
         return 0
     except (ValueError, OSError, zipfile.BadZipFile, struct.error, subprocess.TimeoutExpired) as error:
         print(f"FAIL {options.apk.name}: {error}", file=sys.stderr)
