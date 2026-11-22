@@ -1,6 +1,8 @@
 # 06. Состав сборки, размер и проверяемая цепочка поставки
 
-**Baseline:** `63fc7930abfeac1b870e9c8e3fabc500768f419e`, аудит 2026-11-21. Цель — убрать доказанно лишнее из доставляемого приложения, сохранив протоколы, языки, офлайн-работу, лицензии и воспроизводимость. Размер репозитория, загружаемого архива, распакованного приложения и runtime-памяти измеряется отдельно.
+**Исторический baseline:** `63fc7930abfeac1b870e9c8e3fabc500768f419e`, аудит 2026-11-21. Цель — убрать доказанно лишнее из доставляемого приложения, сохранив протоколы, языки, офлайн-работу, лицензии и воспроизводимость. Размер репозитория, загружаемого архива, распакованного приложения и runtime-памяти измеряется отдельно.
+
+**База продолжения:** `b3498c2bceab4c38c922bded7e6fc518f30833e7` после [PR #51](https://github.com/INNVoices/waarp/pull/51). Исторические CI/измерения ниже сохраняют свой source; новый preview учитывается в [release record](../RELEASES.md#published-preview-2026-11-22-r2).
 
 ## Что уже есть
 
@@ -19,11 +21,13 @@
 
 Внешние первичные источники проверены 2026-11-21: [electron-builder v26 contents](https://www.electron.build/v26/docs/contents/) описывает добавление production dependencies к пользовательским file patterns; использовать документацию установленной major-версии. [Android APK Analyzer](https://developer.android.com/studio/debug/apk-analyzer) различает состав и размеры APK и сравнивает артефакты. [Android size guide](https://developer.android.com/topic/performance/reduce-apk-size) рассматривает resources, native packaging и code shrinking. Эти материалы определяют метод проверки, а не доказанный результат Waarp.
 
-## Продолжение 21 ноября: измеренный пакет и ограниченная чистка
+## Интеграция 22 ноября: измеренный пакет и ограниченная чистка
 
-[PR #47](https://github.com/INNVoices/waarp/pull/47), head `4ec8a9ecd2fe7b4ebbcc4718db7fa9e12ed8334e`, добавляет Windows inventory и ограничивает поставку simple-icons сборочным этапом. [PR #48](https://github.com/INNVoices/waarp/pull/48), head `53b02066a08d1d19f373c09aa29868f26be05a1a`, добавляет APK inventory. Оба результата пока в review; измерение старого пакета не подменяет новый CI или runtime acceptance.
+[PR #47](https://github.com/INNVoices/waarp/pull/47), head `4ec8a9ecd2fe7b4ebbcc4718db7fa9e12ed8334e`, добавляет Windows inventory и ограничивает поставку simple-icons сборочным этапом. [PR #48](https://github.com/INNVoices/waarp/pull/48), head `53b02066a08d1d19f373c09aa29868f26be05a1a`, добавляет APK inventory. Оба результата приняты: Windows merge [`210a219030a1bd4021f711cd25dff497e8efcd7c`](https://github.com/INNVoices/waarp/commit/210a219030a1bd4021f711cd25dff497e8efcd7c), Android merge [`4c384a8c21a7b0ec955ae48b316df6aa486b8f61`](https://github.com/INNVoices/waarp/commit/4c384a8c21a7b0ec955ae48b316df6aa486b8f61). Измерение старого пакета не подменяет новый CI или runtime acceptance.
 
-Общий required CI обоих PR успешен: [Windows/package PR #47 — 44940260860](https://github.com/INNVoices/waarp/actions/runs/44940260860) и [Android inventory PR #48 — 44940333205](https://github.com/INNVoices/waarp/actions/runs/44940333205), по 3 success jobs. Merge ожидает подтверждения владельца. Полный Android run учитывается отдельно ниже.
+Общий required CI обоих PR успешен: [Windows/package PR #47 — 44940260860](https://github.com/INNVoices/waarp/actions/runs/44940260860) и [Android inventory PR #48 — 44940333205](https://github.com/INNVoices/waarp/actions/runs/44940333205), по 3 success jobs. Интегрированный main `653e4de189b224f540ef335bd32fd193efbd8c37` прошёл [общий CI 44948724283](https://github.com/INNVoices/waarp/actions/runs/44948724283). Полный Android run учитывается отдельно ниже. Состав нового preview 1.0.0 и его hashes приведены в отдельном [release record](../RELEASES.md#published-preview-2026-11-22-r2); исторические измерения ec71/PR47 здесь сохранены.
+
+Published r2 на source `b3498c2bceab4c38c922bded7e6fc518f30833e7` имеет собственный [проверенный record](../RELEASES.md#published-preview-2026-11-22-r2): Windows EXE **127 991 914 B**, ASAR **62 643 715 B**; public EXE и все остальные 11 assets скачаны целиком, bytes/SHA-256 совпали. Его три Android debug APK не сравниваются по размеру с прежними unsigned release APK. Это фактическая доставка inventory и Windows slice, без заявления о завершении Android cleanup или всего BLD-002/004.
 
 ### Фактический baseline BLD-001
 
@@ -40,7 +44,7 @@
 
 Windows full package verifier выполнен локально на сохранённых исходных EXE/unpacked bytes; local `GITHUB_SHA` не задавался, поэтому новый report не придумывает source attestation. Local inventory tools: Node 24.22.3, ASAR 3.4.1, Python 3.12.14. APK baseline здесь проверен по ZIP и полным SHA против прежних reports; новый local SDK verifier не запускался. [Evidence и ограничения](evidence/2026-11-21-build-continuation-review.json) отличают эти измерения от ранее выполненных CI/static gates.
 
-Отдельный новый [PR #48 build job 136955906954](https://github.com/INNVoices/waarp/actions/runs/44940333222/job/136955906954) успешен: actual SDK verification шести application APK, focused inventory fixtures, JVM/route и native smoke прошли на PR merge `ba9497f9d6eda44a0489e97d96928e5922c07b20`. В [artifact 14721936201](evidence/2026-11-21-android-inventory-pr48.json) обнаружены все 6 static reports и 6 inventory sidecars среди 107 ZIP members; проверены их identity, group sums и CRC выбранных JSON. Прочитаны 100 561 bytes в 42 ranges; весь ZIP digest и новые APK hashes локально не пересчитаны. CI-reported SHA256 трёх unsigned release APK совпадают с ec71 baseline. CI context — Python 3.12.3 / SDK build-tools 35.0.0; он отделён от прежних локальных инструментов. Полная Android runtime matrix и soak этим build job не закрываются; merge ожидает подтверждения владельца.
+Отдельный новый [PR #48 build job 136955906954](https://github.com/INNVoices/waarp/actions/runs/44940333222/job/136955906954) успешен: actual SDK verification шести application APK, focused inventory fixtures, JVM/route и native smoke прошли на PR merge `ba9497f9d6eda44a0489e97d96928e5922c07b20`. В [artifact 14721936201](evidence/2026-11-21-android-inventory-pr48.json) обнаружены все 6 static reports и 6 inventory sidecars среди 107 ZIP members; проверены их identity, group sums и CRC выбранных JSON. Прочитаны 100 561 bytes в 42 ranges; весь ZIP digest и новые APK hashes локально не пересчитаны. CI-reported SHA256 трёх unsigned release APK совпадают с ec71 baseline. CI context — Python 3.12.3 / SDK build-tools 35.0.0; он отделён от прежних локальных инструментов. Полная Android runtime matrix и soak этим build job не закрываются; inventory implementation уже слит через PR #48.
 
 В том же run API 36 [job 136958307750](https://github.com/INNVoices/waarp/actions/runs/44940333222/job/136958307750) отказал на прежнем main guard `eventsEnabled=X` / `bpf_trace_printk`, до mutation и APK install. Failed archive полностью проверен по SHA256 и 66 raw stream hashes. Это отдельный baseline отказ, не failure нового inventory: неизменённые legacy static fields и APK hashes совпали, а приложение ещё не было установлено. Advanced PR #45 observer не включён в PR #48; его `missing_positive_shared_member` не переносится на этот run.
 
@@ -107,7 +111,7 @@ Android run завершился с **6 success, 1 failure, 1 skipped**: native 
 
 Original validation ZIP **14721747440**, 34 172 bytes, проверен локально по API SHA256, CRC и неизменённой extraction. Новый EXE локально не скачивался: его **127 991 914 bytes** и SHA `2d2337cc9e77727a96730b8f49ebde3da450e2b167984677db5fac58ededb57e` измерены CI и связаны с тремя actual lifecycle запусками; ASAR SHA совпал во всех трёх. Полный [receipt](evidence/2026-11-21-windows-cleanup-pr47.json) сохраняет источник и границы сравнения.
 
-Проверен только Windows simple-icons slice. BLD-004 в целом остаётся in_progress, а merge PR #47 ожидает подтверждения владельца. Остальные Windows module groups, широкий QR/map/language smoke и Android native/ABI/locale/protocol cleanup не объявлены завершёнными. UAC, different-version upgrade/rollback, standard-user ACLs, физические sleep/network/other VPN остаются NOT_RUN.
+Проверен только Windows simple-icons slice. BLD-004 в целом остаётся in_progress после merge PR #47. Остальные Windows module groups, широкий QR/map/language smoke и Android native/ABI/locale/protocol cleanup не объявлены завершёнными. UAC, different-version upgrade/rollback, standard-user ACLs, физические sleep/network/other VPN остаются NOT_RUN.
 
 ## Карточки задач
 
@@ -115,7 +119,7 @@ Original validation ZIP **14721747440**, 34 172 bytes, проверен лока
 
 - **title:** Измерить состав доставляемых пакетов.
 - **priority:** P1.
-- **status:** `review` — PR #47 (head 4ec8a9e) и PR #48 (head 53b0206) прошли общий required CI; merge ожидает подтверждения владельца. Измерены ec71 baseline 1 Windows + 3 unsigned APK и новый Windows candidate. PR #48 build/SDK verification шести APK и шесть inventory sidecars проверены по selected JSON CRC, identity и group sums; весь новый APK ZIP digest и APK hashes локально не пересчитаны. Windows validation ZIP проверен целиком, новые EXE bytes измерены CI и связаны с actual lifecycle receipt. Strict Android replay сохранён; его полный runtime run имеет baseline guard failure и skipped soak.
+- **status:** `done` — Windows inventory PR #47 слит как 210a219030a1bd4021f711cd25dff497e8efcd7c, Android inventory PR #48 — 4c384a8c21a7b0ec955ae48b316df6aa486b8f61. Оба required CI и общий CI main653 успешны. Измерены ec71 baseline 1 Windows + 3 unsigned APK и PR47 Windows candidate. PR48 build/SDK verification шести APK и шесть inventory sidecars проверены по selected JSON CRC, identity и group sums; весь APK ZIP digest и APK hashes локально не пересчитывались. Windows validation ZIP проверен целиком, EXE bytes измерены CI и связаны с actual lifecycle receipt. Strict Android replay сохранён; исторический полный PR48 runtime run имеет baseline guard failure и skipped soak.
 - **Dependencies:** нет.
 - **files:** `scripts/verify-package.mjs`, `scripts/package-inventory.mjs`, его `.d.mts`, `test/package-inventory.check.ts`, `scripts/android-verify.py`, `scripts/android-package-inventory-test.py`; packaging configuration — `package.json`, `android/app/build.gradle.kts`, создаваемый отчёт — `out/validation/`.
 - **change:** расширить текущий package report: размер загрузки, распакованный размер, ASAR entries, runtime modules, renderer JS/CSS/fonts/maps, Electron locales/resources, native engine, notices; отдельно DEX/resources/assets/lib каждого release ABI. У каждого входа зафиксировать SHA, source commit, variant, ABI и tool version. Сравнивать одинаковые platform/variant, не debug с release и не архив AAR с APK.
@@ -137,7 +141,7 @@ Original validation ZIP **14721747440**, 34 172 bytes, проверен лока
 
 - **title:** Сопоставить Android native-компоненты с поддерживаемыми функциями.
 - **priority:** P1.
-- **status:** `planned`.
+- **status:** `ready` — BLD-001 принят; Android component review можно выполнять независимо от Windows cleanup.
 - **Dependencies:** BLD-001.
 - **files:** `android/native-source.json`, `android/native-patches/`, `android/app/build.gradle.kts`, `android/app/proguard-rules.pro`, `scripts/android-core-build.py`, `scripts/android-verify.py`.
 - **change:** построить матрицу build tag/library/DEX dependency → importer → compiler → advertised support → native check/interop. Отдельно оценить большие optional protocols и Tailscale omit flags, Cronet/Naive, дубли ресурсов. Зафиксировать, нужен ли compact variant; по умолчанию сохранить один понятный продукт и текущие три ABI.
@@ -148,7 +152,7 @@ Original validation ZIP **14721747440**, 34 172 bytes, проверен лока
 
 - **title:** Удалить подтверждённые дубли и ненужный payload небольшими PR.
 - **priority:** P1.
-- **status:** `in_progress` — Windows simple-icons slice PR #47 проверен, merge ожидает подтверждения владельца. ASAR: 79 509 626 → 62 643 715 B; portable EXE: 130 906 923 → 127 991 914 B, экономия 2 915 009 B (2.226780%) по CI. Validation ZIP проверен локально; новый EXE локально не скачивался. Все девять SVG и три portable запуска прошли, license сохранена; отдельные local builds дали 96 byte-identical outputs. Весь BLD-004 остаётся in_progress: широкая Windows closure и Android cleanup не завершены.
+- **status:** `in_progress` — Windows simple-icons slice принят в PR #47, merge 210a219030a1bd4021f711cd25dff497e8efcd7c. Исторический before/after PR47: ASAR 79 509 626 → 62 643 715 B; portable EXE 130 906 923 → 127 991 914 B, экономия 2 915 009 B (2.226780%) по CI. Validation ZIP проверен локально; тот EXE локально не скачивался. Все девять SVG и три portable запуска прошли, license сохранена; отдельные local builds дали 96 byte-identical outputs. Весь BLD-004 остаётся in_progress: широкая Windows closure и Android cleanup не завершены. Размеры нового preview не подменяют эту историческую пару.
 - **Dependencies:** BLD-002, BLD-003.
 - **files:** только установленные BLD-002/003 packaging/resource/dependency paths; `scripts/verify-package.mjs`, `scripts/android-verify.py`.
 - **change:** реализовать по одной независимой группе исключений на PR. Windows-only slice может стартовать после BLD-002, Android-only после BLD-003; центральный registry держит общий gate до обеих инвентаризаций. Сначала dev payload/дубли assets, затем доказанные dependencies; архитектурная замена Electron/Compose не входит в эту задачу.
@@ -179,4 +183,4 @@ Original validation ZIP **14721747440**, 34 172 bytes, проверен лока
 
 ## Порядок работы
 
-BLD-001 и read-only часть BLD-005 можно выполнять параллельно с REL/UX. BLD-002 и BLD-003 исследуют разные платформы; общие manifests и release workflow имеют одного владельца на PR. Чистка считается законченной по реальному пакету и сохранённому поведению. Удаление исторического ТЗ, evidence или исходных notices из Git не считается улучшением доставляемой сборки.
+BLD-001 принят. Read-only часть BLD-005 можно выполнять параллельно с REL/UX. BLD-002 и BLD-003 исследуют разные платформы; общие manifests и release workflow имеют одного владельца на PR. Чистка считается законченной по реальному пакету и сохранённому поведению. Удаление исторического ТЗ, evidence или исходных notices из Git не считается улучшением доставляемой сборки.

@@ -83,21 +83,21 @@
         <h1 id="hero-title">Свой маршрут для каждого приложения</h1>
         <p class="lead">Направьте браузер через личный VPN, задайте отдельный маршрут для сайта и оставьте остальной трафик на прямом соединении. Waarp помогает управлять подключениями из одного интерфейса.</p>
         <div class="downloads">
-          <a class="download" href="https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r6/Waarp-0.4.1-rc.5-portable.exe">
-            <span><strong>Скачать для Windows</strong><small>Windows 10/11 · x64 · 0.4.1-rc.5</small></span><span class="arrow" aria-hidden="true">↓</span>
+          <a class="download" href="https://github.com/INNVoices/waarp/releases/download/preview-2026-11-22-r2/Waarp-1.0.0-portable.exe">
+            <span><strong>Скачать для Windows</strong><small>Windows 10/11 · x64 · 1.0.0</small></span><span class="arrow" aria-hidden="true">↓</span>
           </a>
-          <a class="download secondary" href="https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-arm64-v8a-debug.apk">
-            <span><strong>Скачать APK для Android</strong><small>Android 10+ · ARM64 · 0.5.0-rc.5</small></span><span class="arrow" aria-hidden="true">↓</span>
+          <a class="download secondary" href="https://github.com/INNVoices/waarp/releases/download/preview-2026-11-22-r2/waarp-android-1.0.0-arm64-v8a-debug.apk">
+            <span><strong>Скачать APK для Android</strong><small>Android 10+ · ARM64 · 1.0.0</small></span><span class="arrow" aria-hidden="true">↓</span>
           </a>
         </div>
-        <p class="release-note">Это preview-сборки для тестирования: Windows r6 — EXE без цифровой подписи; Android r5 — debug APK. Исходный код в main развивается отдельно от этих выпусков.</p>
+        <p class="release-note">Preview 1.0.0 для Windows и Android: Windows EXE без цифровой подписи, Android APK с debug-подписью. Проверки и ограничения относятся к точному исходному коду этого выпуска.</p>
         <p class="download-help"><a href="https://github.com/INNVoices/waarp/blob/main/docs/INSTALL.md">Установка, другие архитектуры и проверка SHA-256 <span aria-hidden="true">→</span></a></p>
       </section>
       <figure class="gallery">
         <a href="screenshots/preview-r6/desktop-public-real-1240.png">
           <img class="desktop-shot" src="screenshots/preview-r6/desktop-public-real-1240.png" width="1240" height="900" alt="Waarp для Windows: каталог подключений, карта регионов и результаты проверок" fetchpriority="high">
         </a>
-        <figcaption>Настоящий Windows-клиент, preview r6. Доступность узлов зависит от сети и времени проверки. <a href="https://github.com/INNVoices/waarp/blob/main/docs/screenshots/preview-r6/README.md">Источник снимка и результаты проверки</a>.</figcaption>
+        <figcaption>Исторический снимок Windows-клиента, preview r6. Доступность узлов зависит от сети и времени проверки. <a href="https://github.com/INNVoices/waarp/blob/main/docs/screenshots/preview-r6/README.md">Источник снимка и результаты проверки</a>.</figcaption>
       </figure>
       <section class="section" aria-labelledby="features-title">
         <h2 id="features-title">Выбирайте подключение под задачу</h2>
@@ -115,16 +115,16 @@
           <p class="eyebrow">Нативный клиент Android</p>
           <h2 id="android-title">Подключения под рукой</h2>
           <p>Импорт профилей, маршруты выбранных приложений, список и карта подключений — в нативном интерфейсе Kotlin. Просмотр карты сам по себе не включает VPN и не меняет маршрут.</p>
-          <p>APK из preview r5 подписан отладочным ключом и устанавливается отдельно от production-приложения. Перед установкой выберите сборку для архитектуры устройства.</p>
+          <p>APK preview 1.0.0 подписан отладочным ключом и устанавливается отдельно от production-приложения. Сертификат отличается от r5: обновление поверх него невозможно. Для первой установки выберите устройство без r5; прежнюю установку и данные сохраните. Выберите APK для архитектуры устройства.</p>
           <div class="text-links">
             <a href="https://github.com/INNVoices/waarp/blob/main/docs/INSTALL.md">Установка Android <span aria-hidden="true">→</span></a>
-            <a href="https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r5">Что входит в r5</a>
+            <a href="https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-22-r2">Что входит в preview 1.0.0</a>
           </div>
           <p class="release-note" id="obtainium">Для установленного Obtainium: <a href="obtainium://app/%7B%22id%22%3A%22local.waarp.android.debug%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FINNVoices%2Fwaarp%22%2C%22author%22%3A%22INNVoices%22%2C%22name%22%3A%22Waarp%20(Android%20preview)%22%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3Atrue%2C%5C%22includeDrafts%5C%22%3Afalse%2C%5C%22fallbackToOlderReleases%5C%22%3Atrue%2C%5C%22sortMethodChoice%5C%22%3A%5C%22date%5C%22%2C%5C%22verifyLatestTag%5C%22%3Afalse%2C%5C%22apkFilterRegEx%5C%22%3A%5C%22%5Ewaarp-android-.%2B-(arm64-v8a%7Carmeabi-v7a%7Cx86_64)-debug%5C%5C%5C%5C.apk%24%5C%22%2C%5C%22invertAPKFilter%5C%22%3Afalse%2C%5C%22autoApkFilterByArch%5C%22%3Atrue%2C%5C%22includeZips%5C%22%3Afalse%2C%5C%22includeTarballs%5C%22%3Afalse%2C%5C%22trackOnly%5C%22%3Afalse%7D%22%2C%22allowIdChange%22%3Afalse%7D">импортируйте Android preview</a>, подтвердите импорт и затем установку. <a href="https://github.com/INNVoices/waarp/blob/main/docs/INSTALL.md#obtainium">Как настроить</a>.</p>
         </div>
         <figure class="phone-figure">
           <a href="screenshots/preview-r5/android-atlas-normal.png"><img class="phone-shot" src="screenshots/preview-r5/android-atlas-normal.png" width="1080" height="2400" alt="Waarp для Android: список туннелей и карта в нативном интерфейсе" loading="lazy" decoding="async"></a>
-          <figcaption>Android preview r5: реальный интерфейс в эмуляторе, тестовые профили. <a href="https://github.com/INNVoices/waarp/blob/main/docs/screenshots/preview-r5/README.md">Условия съёмки</a>.</figcaption>
+          <figcaption>Исторический Android preview r5: реальный интерфейс в эмуляторе, тестовые профили. <a href="https://github.com/INNVoices/waarp/blob/main/docs/screenshots/preview-r5/README.md">Условия съёмки</a>.</figcaption>
         </figure>
       </div>
     </section>

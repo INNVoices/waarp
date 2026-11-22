@@ -2,7 +2,7 @@
 
 `metadata/android/en-US/` and `metadata/android/ru-RU/` contain the Android listing in the standard Fastlane layout. Each locale has `title.txt`, `short_description.txt`, `full_description.txt`, `images/icon.png` and two files in `images/phoneScreenshots/`. The project name remains **Waarp**.
 
-This is source metadata for distribution preparation. It does not publish an app or establish acceptance by F-Droid, IzzyOnDroid or Google Play. The currently published Android build is the debug-signed [r5 preview](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r5), version `0.5.0-rc.5`, package `local.waarp.android.debug`. The source version `1.0.0` has no public production APK. See the [installation guide](../docs/INSTALL.md) and [release record](../docs/RELEASES.md).
+This is source metadata for distribution preparation. It does not publish an app or establish acceptance by F-Droid, IzzyOnDroid or Google Play. The currently published Android build is the debug-signed [1.0.0 preview](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-22-r2), actual APK version `1.0.0-debug`, version code `7`, package `local.waarp.android.debug`. All three APK certificates differ from the corresponding r5 APKs, so this preview cannot update r5 in place. It is suitable for a fresh installation on a device without r5; keep an existing r5 installation and its data. No production-signed APK is part of this release. See the [installation guide](../docs/INSTALL.md) and [release record](../docs/RELEASES.md#published-preview-2026-11-22-r2).
 
 ## Original assets
 

@@ -1,5 +1,5 @@
 {
-    "version": "0.4.1-rc.5",
+    "version": "1.0.0",
     "description": "Per-app and domain routing client for Windows (preview).",
     "homepage": "https://innvoices.github.io/waarp/",
     "license": {
@@ -13,13 +13,13 @@
     ],
     "architecture": {
         "64bit": {
-            "url": "https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r6/Waarp-0.4.1-rc.5-portable.exe",
-            "hash": "3cdd81a22ddb48d655714351a2ed581b608b680140f51c8b657fb994a6bf1317"
+            "url": "https://github.com/INNVoices/waarp/releases/download/preview-2026-11-22-r2/Waarp-1.0.0-portable.exe",
+            "hash": "7bf6d41fec29da36ba8a23544a0653607d8b1a1a611bfe8eb43df0163f7b92c9"
         }
     },
     "shortcuts": [
         [
-            "Waarp-0.4.1-rc.5-portable.exe",
+            "Waarp-1.0.0-portable.exe",
             "Waarp Preview"
         ]
     ]

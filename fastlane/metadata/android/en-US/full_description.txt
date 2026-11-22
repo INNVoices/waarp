@@ -4,7 +4,7 @@ Use connection profiles from a server you control or a provider you trust. Organ
 
 An optional public-node catalog contains endpoints run by third parties. Their availability depends on the endpoint and your network. Android asks for the system VPN permission before Waarp starts a tunnel.
 
-The current public Android download is the 0.5.0-rc.5 preview. It is debug-signed and installs as local.waarp.android.debug, separately from the production package local.waarp.android. Updates must keep the same package and signing identity. The 1.0.0 source version does not represent a published production APK.
+The current public Android download is the 1.0.0 preview (APK version 1.0.0-debug, version code 7). It is debug-signed and installs as local.waarp.android.debug, separately from the production package local.waarp.android. The signing certificate differs from r5 for all three ABIs, so this preview cannot update r5 in place. Use a device without r5 for a fresh installation; keep an existing r5 installation and its data. This is not a production-signed APK.
 
 The screenshots show the native Android preview in Russian, using sample profiles. They were captured on an emulator with the VPN off.
 

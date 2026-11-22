@@ -11,16 +11,16 @@ Waarp is an open-source VPN and proxy routing client for Windows and Android. Ro
 
 | Platform | Download | Verify |
 | --- | --- | --- |
-| Windows 10/11 x64 | **[Download portable EXE](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r6/Waarp-0.4.1-rc.5-portable.exe)** · 0.4.1-rc.5, unsigned | [SHA-256 list](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r6/SHA256SUMS-windows.txt) · [r6 release](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r6) |
-| Android 10+ · ARM64 | **[Download APK](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-arm64-v8a-debug.apk)** · 0.5.0-rc.5, debug-signed | [SHA-256 list](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/SHA256SUMS-android-debug.txt) · [r5 release](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r5) |
+| Windows 10/11 x64 | **[Download portable EXE](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-22-r2/Waarp-1.0.0-portable.exe)** · 1.0.0, unsigned | [SHA-256 list](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-22-r2/SHA256SUMS-windows.txt) · [Release notes](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-22-r2) |
+| Android 10+ · ARM64 | **[Download APK](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-22-r2/waarp-android-1.0.0-arm64-v8a-debug.apk)** · 1.0.0, debug-signed | [SHA-256 list](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-22-r2/SHA256SUMS-android-debug.txt) · [Release notes](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-22-r2) |
 
-Other Android architectures: **[ARM32](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-armeabi-v7a-debug.apk)** · **[x86_64](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-x86_64-debug.apk)**. ARM64 is the usual choice for current phones.
+Other Android architectures: **[ARM32](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-22-r2/waarp-android-1.0.0-armeabi-v7a-debug.apk)** · **[x86_64](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-22-r2/waarp-android-1.0.0-x86_64-debug.apk)**. ARM64 is the usual choice for current phones.
 
 For Android downloads through Obtainium, see the [import and update instructions](docs/INSTALL.md#obtainium).
 
-These are public **preview** builds. The source on `main` is version **1.0.0**; a public 1.0.0 binary release has not been published. The downloads above retain their original versions and do not include all later source changes. [Release status and evidence](docs/RELEASES.md).
+These **1.0.0 preview** builds come from one exact source commit in [preview-2026-11-22-r2](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-22-r2). Windows is unsigned; Android APKs are debug-signed. They are prereleases with the checks and limitations recorded in [release status and evidence](docs/RELEASES.md#published-preview-2026-11-22-r2). Later changes on `main` do not change these files.
 
-Follow the **[installation and first-route guide](docs/INSTALL.md)** and compare your download with the checksum list from the same release. Windows needs elevation to start the tunnel. Android asks for the system VPN permission; its debug APKs install separately as `local.waarp.android.debug` and cannot update a production installation. Production updates require the original signing identity.
+Follow the **[installation and first-route guide](docs/INSTALL.md)** and compare your download with the checksum list from the same release. Windows needs elevation to start the tunnel. Android asks for the system VPN permission; its debug APKs install separately as `local.waarp.android.debug` and cannot update a production installation. Production updates require the original signing identity. The three Android APKs use a different certificate from the older r5 debug preview and cannot update it in place. They are for a fresh installation on a device without r5; existing r5 users should keep their installation and data. [Certificate comparison](docs/RELEASES.md#android-r5-update-compatibility).
 
 ## What you can route
 
@@ -31,7 +31,7 @@ Both clients support saved profiles, groups and an optional catalog of third-par
 | Assign routes to processes, services and domains. Inspect the active path, traffic counters and connection diagnostics. | Set per-app and domain rules, import profiles and change routes from the native Kotlin client. |
 | [Desktop routing](docs/SERVER-SELECTION-2026-11-18.md) · [Diagnostics and maps](docs/CONNECTION-TOOLS.md) | [Android guide](docs/ANDROID.md) · [Build and signing](docs/ANDROID.md#build-and-install) |
 
-[![Windows server catalog in the published r6 preview](docs/screenshots/preview-r6/desktop-public-real-1240.png)](docs/screenshots/preview-r6/README.md)
+[![Windows server catalog in the historical r6 preview](docs/screenshots/preview-r6/desktop-public-real-1240.png)](docs/screenshots/preview-r6/README.md)
 
 Public nodes belong to third parties; availability depends on the node and your network. The Windows client checks its engine at startup and protects stored secrets with DPAPI; Android uses Android Keystore. Waarp has no independent Windows firewall kill switch: if its engine exits, Windows may resume its normal network route. [Reliability](docs/RELIABILITY.md) · [Public node sources](docs/SOURCES.md) · [Security reports](SECURITY.md).
 
@@ -47,7 +47,7 @@ Use Node.js 22. Android also needs JDK 17 and Python 3. Its native engine is in 
 
 ## Interface languages in the 1.0.0 source
 
-Both clients follow the system language preferences and fall back to Russian. Android 13 and later also support per-app language selection in system settings. The current source includes Russian, English, German, French, Spanish, Brazilian Portuguese, Simplified and Traditional Chinese, Japanese, Korean, Ukrainian, Italian, Polish, Turkish, Arabic, Hindi, Indonesian, Vietnamese and Persian. This list describes `main`, not the earlier preview binaries linked above.
+Both clients follow the system language preferences and fall back to Russian. Android 13 and later also support per-app language selection in system settings. The current source includes Russian, English, German, French, Spanish, Brazilian Portuguese, Simplified and Traditional Chinese, Japanese, Korean, Ukrainian, Italian, Polish, Turkish, Arabic, Hindi, Indonesian, Vietnamese and Persian. These locale resources are included in the 1.0.0 preview; structural checks do not establish complete linguistic or visual review of every language.
 
 ## Project
 
