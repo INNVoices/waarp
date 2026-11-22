@@ -157,10 +157,12 @@ class VpnLifecycleInstrumentedTest {
             // Go -> JNI -> Kotlin -> Go error propagation, not mocked callbacks.
             val reload = runCatching { client.serviceReload() }.exceptionOrNull()
             assertNotNull("The native command socket must reject unapproved reload", reload)
-            assertTrue(reload!!.message.orEmpty().contains("подтверждения"))
+            assertTrue("Unexpected native reload refusal: ${reload?.message}",
+                reload!!.message.orEmpty().contains("подтверждения"))
             val stop = runCatching { client.serviceClose() }.exceptionOrNull()
             assertNotNull("The native command socket must reject implicit OFF", stop)
-            assertTrue(stop!!.message.orEmpty().contains("главным переключателем"))
+            assertTrue("Unexpected native stop refusal: ${stop?.message}",
+                stop!!.message.orEmpty().contains("главным переключателем"))
             assertEquals(RuntimePhase.ON, controller.status.value.phase)
             assertEquals(generation, controller.sessionGeneration())
             assertTrue(RuntimeState.backend.get() === backend)

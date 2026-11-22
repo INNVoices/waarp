@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "tag": "preview-2026-11-22",
+  "tag": "preview-2026-11-22-r2",
   "date": "2026-11-22",
   "channel": "prerelease",
   "windows": {
@@ -21,7 +21,7 @@
     "productionSigned": false
   },
   "notes": "Current 1.0.0 source preview for Windows x64 and all three Android ABIs, with exact-source package checks, portable lifecycle, public-network acceptance and Android route/UI gates. Production acceptance and signing remain separate.",
-  "revision": 16,
+  "revision": 17,
   "platforms": [
     "windows",
     "android"
