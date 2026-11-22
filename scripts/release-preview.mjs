@@ -18,7 +18,7 @@ const tag = process.env.INPUT_TAG || intent.tag
 assert.match(tag, /^preview-\d{4}-\d{2}-\d{2}(?:-[a-z0-9]+)*$/)
 const binaries = [`Waarp-${windows}-portable.exe`, ...(includeAndroid ? intent.android.abis.map(abi => `waarp-android-${android}-${abi}-debug.apk`) : [])]
 const checksums = ['SHA256SUMS-windows.txt', ...(includeAndroid ? ['SHA256SUMS-android-debug.txt'] : [])]
-const required = [...binaries, ...checksums, 'sing-box-lx-1.14.2-lx.11-src.tar.gz', 'package-integrity-windows.json', 'public-catalog-windows.json', ...(includeAndroid ? ['android-artifacts.json'] : [])]
+const required = [...binaries, ...checksums, 'sing-box-lx-1.14.2-lx.11-src.tar.gz', 'package-integrity-windows.json', 'package-inventory.txt', 'portable-lifecycle.json', 'public-catalog-windows.json', ...(includeAndroid ? ['android-artifacts.json'] : [])]
 if (process.argv[2] === 'validate') {
   console.log(JSON.stringify({ tag, windows, android, platforms, required }, null, 2))
   process.exit(0)
@@ -88,7 +88,7 @@ if (process.argv[2] === 'prepare') {
   assert(!assets.some(asset => /unsigned\.apk$/i.test(asset.name)), 'Unsigned APKs are not installable')
   const temporary = mkdtempSync(join(tmpdir(), 'waarp-release-check-'))
   try {
-    gh('release', 'download', tag, '--dir', temporary, '--pattern', 'SHA256SUMS-*.txt', '--pattern', 'package-integrity-windows.json', '--pattern', 'public-catalog-windows.json', ...(includeAndroid ? ['--pattern', 'android-artifacts.json'] : []))
+    gh('release', 'download', tag, '--dir', temporary, '--pattern', 'SHA256SUMS-*.txt', '--pattern', 'package-integrity-windows.json', '--pattern', 'portable-lifecycle.json', '--pattern', 'public-catalog-windows.json', ...(includeAndroid ? ['--pattern', 'android-artifacts.json'] : []))
     const covered = new Set()
     for (const name of checksums) {
       for (const line of readFileSync(join(temporary, name), 'utf8').trim().split(/\r?\n/)) {
@@ -105,6 +105,15 @@ if (process.argv[2] === 'prepare') {
     assert.equal(evidence.passed, true); assert.equal(evidence.commit, sha); assert.equal(evidence.version, windows)
     assert.equal(evidence.windowIconPresent, true)
     assert.equal(assets.find(asset => asset.name === binaries[0]).digest, `sha256:${evidence.portableSha256}`)
+    const portableEvidence = JSON.parse(readFileSync(join(temporary, 'portable-lifecycle.json'), 'utf8'))
+    assert.equal(portableEvidence.passed, true); assert.equal(portableEvidence.sourceCommit, sha)
+    assert.equal(portableEvidence.candidate.version, windows)
+    assert.equal(portableEvidence.candidate.portableSha256, evidence.portableSha256)
+    assert.match(portableEvidence.candidate.asarSha256, /^[a-f0-9]{64}$/)
+    assert.equal(portableEvidence.candidate.asarSha256, evidence.inventory.asar.sha256)
+    assert.equal(portableEvidence.candidate.packageVerificationBound, true)
+    assert.equal(portableEvidence.plannedLaunches, 3); assert.equal(portableEvidence.launches.length, 3)
+    assert(portableEvidence.launches.every(launch => launch.status === 'PASS'))
     const publicEvidence = JSON.parse(readFileSync(join(temporary, 'public-catalog-windows.json'), 'utf8'))
     assert.equal(publicEvidence.passed, true); assert.equal(publicEvidence.sourceCommit, sha); assert.equal(publicEvidence.version, windows)
     assert.equal(publicEvidence.realPackagedApplication, true); assert.equal(publicEvidence.fixtureResponses, false)

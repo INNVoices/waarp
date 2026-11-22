@@ -11,7 +11,6 @@ assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted', 'Requires a dispos
 assert.equal(process.env.WAARP_DESKTOP_ACCEPTANCE, '1', 'Real public-network acceptance requires explicit opt-in')
 const output = resolve('out/desktop-acceptance')
 mkdirSync(output, { recursive: true })
-const strings = JSON.parse(readFileSync('src/shared/strings/ru.json', 'utf8'))
 const metadata = JSON.parse(readFileSync('package.json', 'utf8'))
 const report = { schemaVersion: 1, sourceCommit: process.env.GITHUB_SHA, version: metadata.version,
   network: 'GitHub-hosted Windows runner', realPackagedApplication: true, fixtureResponses: false, passed: false, errors: [] }
@@ -56,6 +55,10 @@ try {
   page.setDefaultTimeout(20000)
   page.on('pageerror', error => report.errors.push(error.message))
   await page.locator('.shell').waitFor()
+  const locale = await page.locator('html').getAttribute('lang')
+  assert(/^(ru|en|de|fr|es|pt-BR|zh-Hans|zh-Hant|ja|ko|uk|it|pl|tr|ar|hi|id|vi|fa)$/.test(locale), 'Known UI locale is required')
+  const strings = JSON.parse(readFileSync(locale === 'ru' ? 'src/shared/strings/ru.json' : `src/shared/strings/locales/${locale}.json`, 'utf8'))
+  report.locale = locale
   report.icon = await desktop.evaluate(({ app, nativeImage, BrowserWindow }) => {
     const icon = nativeImage.createFromPath(app.getAppPath() + '/build/icon.png')
     const window = BrowserWindow.getAllWindows()[0]

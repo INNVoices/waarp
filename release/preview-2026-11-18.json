@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "tag": "preview-2026-11-18-r6",
-  "date": "2026-11-18",
+  "tag": "preview-2026-11-22",
+  "date": "2026-11-22",
   "channel": "prerelease",
   "windows": {
-    "version": "0.4.1-rc.5",
+    "version": "1.0.0",
     "architecture": "x64",
     "artifact": "portable-exe",
     "signing": "unsigned"
   },
   "android": {
-    "version": "0.5.0-rc.5",
+    "version": "1.0.0",
     "minSdk": 29,
     "abis": [
       "arm64-v8a",
@@ -20,9 +20,10 @@
     "artifact": "installable-debug-apks-only",
     "productionSigned": false
   },
-  "notes": "Desktop correction: automatic public checks, actual packaged Windows acceptance, useful diagnostics, taller map and bundled taskbar icon. Android remains at r5.",
-  "revision": 15,
+  "notes": "Current 1.0.0 source preview for Windows x64 and all three Android ABIs, with exact-source package checks, portable lifecycle, public-network acceptance and Android route/UI gates. Production acceptance and signing remain separate.",
+  "revision": 16,
   "platforms": [
-    "windows"
+    "windows",
+    "android"
   ]
 }

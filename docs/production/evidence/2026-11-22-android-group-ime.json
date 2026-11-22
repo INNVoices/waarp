@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-11-22T17:37:31.018Z",
+  "scope": "Focused Android group UI test input completion; no production acceptance claim.",
+  "baseCommit": "653e4de189b224f540ef335bd32fd193efbd8c37",
+  "currentFailure": {
+    "sourceCommit": "4c384a8c21a7b0ec955ae48b316df6aa486b8f61",
+    "runId": 44948711864,
+    "runAttempt": 1,
+    "event": "push",
+    "runConclusion": "failure",
+    "jobId": 136981662672,
+    "jobConclusion": "failure",
+    "jobUrl": "https://github.com/INNVoices/waarp/actions/runs/44948711864/job/136981662672",
+    "failedStep": 31,
+    "failedTest": "groupMemberOrderAndExplicitDeletionReassignmentPersistThroughTheRealUi",
+    "assertion": "UI Beta checkbox is not displayed",
+    "jvm": {
+      "total": 204,
+      "passed": 204,
+      "failed": 0,
+      "skipped": 0
+    },
+    "api35Route": {
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "elapsedSeconds": 49
+    },
+    "api35Gallery": {
+      "total": 4,
+      "passed": 3,
+      "failed": 1,
+      "skipped": 0,
+      "elapsedSeconds": 85.5
+    },
+    "downstreamNativeAndOptimizedJobs": "skipped",
+    "soak7200Seconds": "skipped",
+    "installableApkUpload": "skipped"
+  },
+  "retainedEvidence": {
+    "buildArtifact": {
+      "id": 14724921282,
+      "name": "waarp-android-build-reports",
+      "bytes": 93550016,
+      "sha256": "b625e46e846d0404dfebe27669020130558245461d6bfd481ac7aa4b3a993e76",
+      "apiDigestMatched": true,
+      "zipCrcVerified": true,
+      "zipMembers": 123
+    },
+    "failureCaptureSource": "Retained job log markers; the build artifact does not contain the UI gallery captures.",
+    "screenshot": {
+      "marker": "WAARP_ANDROID_FAILURE_PREVIEW failure-group-reassignment.png",
+      "decodedBytes": 158758,
+      "sha256": "fdc591efafa98d921607792f7992c32cfc297a7b03ee3502aa0a36fa9d06e483"
+    },
+    "semantics": {
+      "marker": "WAARP_ANDROID_FAILURE_TEXT failure-group-reassignment-semantics.txt",
+      "extractedBytes": 21890,
+      "sha256": "fc4db0bcef412774ec5c2f0d5ccf8af0cc4fc8a161871fc47afc44cd76b611cb"
+    },
+    "windows": {
+      "marker": "WAARP_ANDROID_FAILURE_TEXT failure-group-reassignment-windows.json",
+      "extractedBytes": 2222,
+      "sha256": "6a90ea732b7e1071ece63902fe1cfcd09fff7aaaebd8151ade948e07cb038fc2"
+    },
+    "textExtraction": "Text between retained markers, with GitHub timestamp prefixes removed and LF line endings."
+  },
+  "observations": {
+    "syntheticFixturesOnly": true,
+    "foregroundPackage": "local.waarp.android.debug",
+    "focusedDialogImeVisible": true,
+    "inputMethodBoundsPixels": [
+      0,
+      1517,
+      1080,
+      2400
+    ],
+    "formViewportBottomPixels": 1265,
+    "candidateListBoundsPixels": [
+      53,
+      1484,
+      1027,
+      1778
+    ],
+    "betaCheckboxBoundsPixels": [
+      53,
+      1631,
+      1027,
+      1778
+    ],
+    "alphaSelected": true,
+    "betaSelected": false,
+    "screenshot": "Group name still focused, keyboard visible, one selected member; candidate rows below the visible form."
+  },
+  "historicalPass": {
+    "sourceHead": "ec71e72d908b29d872d7ca63ae85498e51673270",
+    "runId": 44882755131,
+    "runAttempt": 1,
+    "jobId": 136781433425,
+    "jobConclusion": "success",
+    "jobUrl": "https://github.com/INNVoices/waarp/actions/runs/44882755131/job/136781433425",
+    "jvm": {
+      "total": 204,
+      "passed": 204,
+      "failed": 0,
+      "skipped": 0
+    },
+    "api35Route": {
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "elapsedSeconds": 62.3
+    },
+    "api35Gallery": {
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "elapsedSeconds": 118.8
+    },
+    "fullRunConclusion": "failure",
+    "fullRunLimit": "Optimized API 36 failed at trace preparation; the 7200-second soak was skipped. This build-job success is not full Android acceptance."
+  },
+  "correction": {
+    "originCommit": "daf9b7410529e322597c230565f399067283697b",
+    "file": "android/app/src/androidTest/java/local/waarp/android/ui/MobileUiInstrumentedTest.kt",
+    "change": "Call the existing dismissKeyboard helper immediately after entering the group name, before selecting members changes the outer viewport.",
+    "reason": "The failed journey proceeds with the group-name IME visible. Selecting the first member changes the form layout while the candidate list is clipped. Finish text editing and confirm the real dialog IME is hidden before either nested list scrolls.",
+    "helperContract": "Use the node's focused decor, Espresso closeSoftKeyboard and observed WindowInsetsCompat.Type.ime() == false within the existing deadline.",
+    "assertionsUnchanged": true,
+    "helperAndBudgetsUnchanged": true,
+    "productionCodeChanged": false,
+    "rootAndTracefsChangesImported": false,
+    "matchesHistoricalTestFileByteForByte": true,
+    "testFileSha256": "d822e96d4214e6a41b65695dbb0c0a14b9119d4ef3468017b22c0c33b7dc2e7e"
+  },
+  "localVerification": {
+    "instrumentationEvidenceHostTests": {
+      "command": "python3 scripts/android-instrument-test.py",
+      "passed": 10,
+      "failed": 0
+    },
+    "historicalFileEquality": "passed",
+    "diffWhitespace": "passed",
+    "androidRuntime": "NOT_RUN locally; fresh PR CI and the exact-source preview workflow must run.",
+    "jvmImeFixtures": "NOT_RUN locally; javac is unavailable. Existing helper unchanged."
+  },
+  "limits": [
+    "Historical success is separate evidence, not a pass for this new candidate.",
+    "Full Android matrix, 7200-second soak, physical-device follow-up and retained production signing remain separate release gates.",
+    "An installable debug preview uses a separate package identity and is not a production-signed update."
+  ]
+}
