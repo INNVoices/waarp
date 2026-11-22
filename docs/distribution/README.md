@@ -8,7 +8,7 @@ This directory contains optional installation helpers for the published Waarp pr
 | --- | --- | --- |
 | [obtainium.json](obtainium.json) | Importable Android preview configuration; top-level `apps` array | JSON structure, current GitHub release selection and all three ABI filenames checked against Obtainium v1.7.4 source |
 | [obtainium-link.txt](obtainium-link.txt) | The same entry encoded as an `obtainium://app/` link for the project website | Decodes to the exact entry in `obtainium.json` |
-| [waarp-preview.json](waarp-preview.json) | Pinned Scoop manifest candidate for Windows r6 | JSON, official asset URL and GitHub asset digest checked; Windows install/update/uninstall not run |
+| [waarp-preview.json](waarp-preview.json) | Pinned Scoop manifest candidate for Windows 1.0.0 preview | JSON and official asset URL checked; full EXE download matched GitHub SHA-256; Scoop install/update/uninstall not run |
 
 These checks do not establish an on-device Obtainium installation or a tested Scoop package. Neither file claims inclusion in an external app catalog or official Scoop bucket.
 
@@ -29,7 +29,9 @@ The non-default release settings have specific purposes:
 - `autoApkFilterByArch: true` delegates ABI choice to Obtainium using the Android device's supported ABI list.
 - ZIP/tarball inclusion and tracking-only mode are disabled.
 
-At the check on **20 November 2026**, the newest public release was Windows-only `preview-2026-11-18-r6`. It had no matching APK. The next matching release was `preview-2026-11-18-r5`, with exactly one file for each of `arm64-v8a`, `armeabi-v7a` and `x86_64`.
+On **2026-11-22 at 18:55:24 UTC**, applying the unchanged release/date/filename filters to live GitHub metadata selected **`preview-2026-11-22-r2`**, with exactly one debug APK for each of `arm64-v8a`, `armeabi-v7a` and `x86_64`. The unpublished `preview-2026-11-22` draft was excluded. The configuration and ABI/package identity are unchanged. The new APK certificates differ from r5 for every ABI, so Obtainium can select the download but cannot install it as an in-place r5 update. [Certificate evidence and instructions](../RELEASES.md#android-r5-update-compatibility).
+
+Historically, at the check on **20 November 2026**, the newest public release was Windows-only `preview-2026-11-18-r6`. It had no matching APK. The next matching release was `preview-2026-11-18-r5`, with exactly one file for each of `arm64-v8a`, `armeabi-v7a` and `x86_64`.
 
 This was verified by applying the source's release exclusion, date ordering and filename-selection conditions to the live GitHub release metadata. It was not a Flutter runtime or Android device test. Importing still requires the user's confirmation, and installation uses Android's normal installation approval.
 
@@ -67,7 +69,7 @@ GitHub Markdown may not retain a custom-protocol link. The README should link to
 
 ## Scoop manifest candidate
 
-`waarp-preview.json` pins the public Windows r6 portable EXE and its SHA-256. It has no automatic update rule: later binaries should be reviewed and tested before changing this candidate. The manifest does not move user configuration or claim portable data persistence.
+`waarp-preview.json` pins the public Windows 1.0.0 portable EXE from `preview-2026-11-22-r2` and its independently measured SHA-256. It has no automatic update rule: later binaries should be reviewed and tested before changing this candidate. The manifest does not move user configuration or claim portable data persistence.
 
 The `Apache-2.0` field describes the Windows application source. The bundled engine and dependencies retain their own notices; see [third-party notices](../../THIRD_PARTY_NOTICES.md).
 
@@ -83,12 +85,9 @@ For an external Scoop bucket submission, follow the [current contribution proces
 
 ## Download evidence
 
-The installation guide and manifest use version-specific URLs and the `digest` fields from these public release API responses:
+The installation guide and manifest use version-specific URLs and the `digest` fields from the [1.0.0 preview release API response](https://api.github.com/repos/INNVoices/waarp/releases/tags/preview-2026-11-22-r2). The [release record](../RELEASES.md#published-preview-2026-11-22-r2) binds the publication to its source, checks and exact assets.
 
-- [Windows r6 metadata](https://api.github.com/repos/INNVoices/waarp/releases/tags/preview-2026-11-18-r6)
-- [Android r5 metadata](https://api.github.com/repos/INNVoices/waarp/releases/tags/preview-2026-11-18-r5)
-
-The hashes identify the existing published assets. They do not represent a new build, signature or independent security audit.
+All 12 public assets were downloaded anonymously in full on 22 November 2026 at 18:51:59 UTC; measured sizes/SHA-256 matched GitHub metadata, and both checksum manifests matched all four binaries. This verifies the published bytes. It does not replace publisher signing, a security audit or a Scoop/Obtainium device test.
 
 ## Search discovery
 

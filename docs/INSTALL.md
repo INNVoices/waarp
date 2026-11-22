@@ -1,25 +1,25 @@
 # Install Waarp
 
-After installation, follow the [first-route walkthrough in Russian](guides/first-routes.md): one personal profile, one application, a Direct comparison and then a separate domain rule. It matches the public Windows r6 / Android r5 previews and explains what each check does and does not prove.
+After installation, follow the [first-route walkthrough in Russian](guides/first-routes.md): one personal profile, one application, a Direct comparison and then a separate domain rule. It explains the preview installation and route checks, with historical UI references identified separately.
 
 Choose a published build for your device. You do not need Node.js, a compiler or a GitHub account to download it.
 
 ## Downloads
 
-**Published preview builds, checked 20 November 2026:** Windows `0.4.1-rc.5` (r6) and Android `0.5.0-rc.5` (r5). These are prereleases. The `1.0.0` source version in the checkout does not change the version of an already published binary.
+**Published preview builds, verified 2026-11-22 18:51:59 UTC:** Windows `1.0.0` and Android `1.0.0-debug`, version code `7`, from `preview-2026-11-22-r2`. These are prereleases from one exact source commit; the production Android package is not part of this download set.
 
 | Device | Download | Build |
 | --- | --- | --- |
-| Windows 10/11, x64 | [Windows portable EXE](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r6/Waarp-0.4.1-rc.5-portable.exe) | r6; unsigned |
-| Android 10+, ARM64 | [Android ARM64 APK](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-arm64-v8a-debug.apk) | r5; debug-signed |
-| Android 10+, 32-bit ARM | [Android ARM32 APK](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-armeabi-v7a-debug.apk) | r5; debug-signed |
-| Android 10+, x86_64 | [Android x86_64 APK](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/waarp-android-0.5.0-rc.5-x86_64-debug.apk) | r5; debug-signed |
+| Windows 10/11, x64 | [Windows portable EXE](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-22-r2/Waarp-1.0.0-portable.exe) | 1.0.0 preview; unsigned |
+| Android 10+, ARM64 | [Android ARM64 APK](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-22-r2/waarp-android-1.0.0-arm64-v8a-debug.apk) | 1.0.0 preview; debug-signed |
+| Android 10+, 32-bit ARM | [Android ARM32 APK](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-22-r2/waarp-android-1.0.0-armeabi-v7a-debug.apk) | 1.0.0 preview; debug-signed |
+| Android 10+, x86_64 | [Android x86_64 APK](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-22-r2/waarp-android-1.0.0-x86_64-debug.apk) | 1.0.0 preview; debug-signed |
 
 Choose ARM64 for most current Android phones. Use ARM32 or x86_64 only if it matches your device. All three Android downloads contain the app; they are alternatives, not split APKs that must be installed together.
 
-[Windows release notes](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r6) · [Android release notes](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-18-r5) · [All releases](https://github.com/INNVoices/waarp/releases) · [Build from source](../README.md#build-the-100-source-on-a-windows-pc)
+[Windows release notes](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-22-r2) · [Android release notes](https://github.com/INNVoices/waarp/releases/tag/preview-2026-11-22-r2) · [All releases](https://github.com/INNVoices/waarp/releases) · [Build from source](../README.md#build-the-100-source-on-a-windows-pc)
 
-The Windows-only r6 release contains no Android APK. Use the Android links above or the Obtainium configuration below instead of choosing the newest release solely by its position in the list.
+This release contains both Windows and Android downloads. If a future release contains only one platform, use the explicit download links above or Obtainium’s matching-APK fallback rather than choosing solely by list position.
 
 ## Windows: first run
 
@@ -33,6 +33,10 @@ The optional public-node catalog contains third-party endpoints. A successful ch
 
 If another VPN already owns the full system route, stop or reconfigure it before starting Waarp. Follow a startup error's specific guidance. See [connection tools](CONNECTION-TOOLS.md) and [network lifecycle behavior](RELIABILITY.md).
 
+### Updating Windows
+
+Windows preview updates are manual. Turn the tunnel off and close Waarp normally before replacing the EXE with a verified newer download. Keep the existing app data and saved profiles. The [release record](RELEASES.md#published-preview-2026-11-22-r2) states which install, restart and upgrade scenarios were actually checked; a same-candidate restart is not evidence of a cross-version upgrade.
+
 ## Android: first run
 
 1. Download the APK matching your device and [check its SHA-256](#verify-a-download).
@@ -45,7 +49,7 @@ These APKs install as **`local.waarp.android.debug`**. They are a separate previ
 
 ### Updating and signatures
 
-Update an existing installation only with a build using the same package identity and signing certificate. The debug preview cannot update a production-signed installation. A locally built debug APK may also use a different debug certificate from the published one.
+Update an existing installation only with a build using the same package identity and signing certificate. The debug preview cannot update a production-signed installation. A locally built debug APK may also use a different debug certificate from the published one. The certificates of all three published 1.0.0 APKs differ from the corresponding r5 APKs, and neither set includes a signing-key rotation lineage. **This release cannot update r5 in place.** It supports a fresh installation on a device without r5; a data-preserving migration from r5 has not been tested. [Measured certificate comparison](RELEASES.md#android-r5-update-compatibility).
 
 If Android reports a signature conflict, keep the existing installation and its data while checking the source of the old and new APKs. Do not replace a production signing key or uninstall an app solely to force the update. See the [Android signing instructions](ANDROID.md#build-and-install).
 
@@ -60,7 +64,7 @@ If Android reports a signature conflict, keep the existing installation and its 
 3. In Obtainium's **Import/Export** screen, import that JSON file and confirm the Waarp entry.
 4. Refresh the entry, then review and install the APK selected for your device. Importing the configuration does not silently install Waarp or grant VPN permission.
 
-The configuration tracks the **debug preview package**. It includes prereleases, skips releases without a matching Android APK, and enables Obtainium's architecture filter. With the public releases checked above, it skips Windows r6 and selects Android r5. It does not switch an installation to the production package.
+The configuration tracks the **debug preview package**. It includes prereleases, skips releases without a matching Android APK, and enables Obtainium’s architecture filter. Release selection checked for this publication: **`preview-2026-11-22-r2`, with one debug APK for each of ARM64, ARM32 and x86_64**. It does not switch an installation to the production package or bypass Android’s certificate check: downloading the new APK through Obtainium does not make it compatible with an installed r5.
 
 A direct import link is also available on the [project page](https://innvoices.github.io/waarp/#obtainium). If a browser does not open Obtainium, use the file import or manual setup below.
 
@@ -99,21 +103,21 @@ The settings and file-import format were checked against Obtainium **v1.7.4** so
 
 ## Verify a download
 
-The following values are the SHA-256 asset digests reported by GitHub for the linked releases, checked on 20 November 2026. They identify these exact preview files.
+All four binaries below were downloaded anonymously in full. Their measured sizes and SHA-256 matched GitHub asset metadata and the release checksum manifests on **2026-11-22 18:51:59 UTC**. They identify these exact preview files; the [release record](RELEASES.md#published-preview-2026-11-22-r2) describes the scope of independent verification.
 
 | File | SHA-256 |
 | --- | --- |
-| `Waarp-0.4.1-rc.5-portable.exe` | `3cdd81a22ddb48d655714351a2ed581b608b680140f51c8b657fb994a6bf1317` |
-| `waarp-android-0.5.0-rc.5-arm64-v8a-debug.apk` | `f8584c314e72c2510974abcd2b977a82532d8717203970d974255318877c0a93` |
-| `waarp-android-0.5.0-rc.5-armeabi-v7a-debug.apk` | `ca5ef46b87c2e5f53b329018a0280763256ec07d57501cc05d556535ab97f981` |
-| `waarp-android-0.5.0-rc.5-x86_64-debug.apk` | `1907d4242bf01543327a30926ac4c375a662ab871284d52e5381c1d8431dff31` |
+| `Waarp-1.0.0-portable.exe` | `7bf6d41fec29da36ba8a23544a0653607d8b1a1a611bfe8eb43df0163f7b92c9` |
+| `waarp-android-1.0.0-arm64-v8a-debug.apk` | `b935b8c65c78789c36bfd20e10ba91cb112f83be85b2507991713e7af0680196` |
+| `waarp-android-1.0.0-armeabi-v7a-debug.apk` | `6e4f2119efd1a86dacd8e2b90a2eb3638efd434b359caf98410c84a99a0ae677` |
+| `waarp-android-1.0.0-x86_64-debug.apk` | `6b88cd976e26547501d3d6da3217d7f8ef5a5b76a85a5ce5e7d5f3278a138178` |
 
-Checksum files: [Windows r6](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r6/SHA256SUMS-windows.txt) · [Android r5](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-18-r5/SHA256SUMS-android-debug.txt).
+Checksum files: [Windows](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-22-r2/SHA256SUMS-windows.txt) · [Android](https://github.com/INNVoices/waarp/releases/download/preview-2026-11-22-r2/SHA256SUMS-android-debug.txt).
 
 On Windows, open PowerShell in the download folder and run:
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\Waarp-0.4.1-rc.5-portable.exe
+Get-FileHash -Algorithm SHA256 .\Waarp-1.0.0-portable.exe
 ```
 
 Replace the filename to check an APK. On Linux, use `sha256sum <filename>`; on macOS, use `shasum -a 256 <filename>`. Compare the complete result with the appropriate value above. A match checks file integrity; it is not an independent security audit.
@@ -124,4 +128,4 @@ Use [Support](../SUPPORT.md) for a reproducible issue report. Include the platfo
 
 ### Коротко по-русски
 
-Скачай файл для своей системы из таблицы: **Windows r6 / Android r5**. Это предварительные сборки: Windows EXE пока без цифровой подписи, Android APK подписаны debug-ключом и устанавливаются отдельно от production-приложения. Перед запуском сравни SHA-256. Для включения туннеля Windows потребует права администратора, Android — системное разрешение VPN. В Obtainium включи prereleases и поиск подходящего APK в более ранних релизах: последний Windows-релиз не содержит Android. Готовый JSON и ручные настройки находятся [выше](#obtainium).
+Скачай файл для своей системы из таблицы: **preview 1.0.0 для Windows и Android**. Windows EXE без цифровой подписи; Android APK имеют debug-подпись и устанавливаются отдельно от production-приложения. Перед запуском сравни SHA-256. Для включения туннеля Windows потребует права администратора, Android — системное разрешение VPN. Новые APK подписаны другим сертификатом и не обновляют Android r5 поверх существующей установки. Для первой установки нужно устройство без r5; прежнее приложение и данные сохрани. Для Obtainium готовый JSON и ручные настройки находятся [выше](#obtainium).
