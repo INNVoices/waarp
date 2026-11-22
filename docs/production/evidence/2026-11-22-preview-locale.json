@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "observedDateUtc": "2026-11-22",
+  "scope": "Failed first Windows + Android preview; factual failure review and locale-precondition correction, not release acceptance.",
+  "source": {
+    "tag": "preview-2026-11-22",
+    "commit": "9c14237bcd7efa9a84f13af5d578146dfe26cf7c",
+    "androidCheckoutCommit": "9c14237bcd7efa9a84f13af5d578146dfe26cf7c",
+    "checkoutEvidence": "Android job git log -1 --format=%H at 2026-11-22T18:01:47.7362368Z printed this exact commit.",
+    "runId": 45052558924,
+    "runAttempt": 1,
+    "runStatus": "completed",
+    "runConclusion": "failure",
+    "runUrl": "https://github.com/INNVoices/waarp/actions/runs/45052558924"
+  },
+  "android": {
+    "jobId": 137301088737,
+    "jobConclusion": "failure",
+    "jobUrl": "https://github.com/INNVoices/waarp/actions/runs/45052558924/job/137301088737",
+    "logApiUrl": "https://api.github.com/repos/INNVoices/waarp/actions/jobs/137301088737/logs",
+    "apkBuildAndStaticValidation": "PASS",
+    "jvm": {
+      "total": 204,
+      "passed": 204,
+      "failed": 0,
+      "skipped": 0
+    },
+    "routeSmoke": {
+      "apiLevel": 35,
+      "total": 5,
+      "passed": 4,
+      "failed": 1,
+      "skipped": 0,
+      "failedTest": "nativeLifecycleCommandsCannotReplaceMasterOwnership",
+      "failureType": "java.lang.AssertionError",
+      "assertionLine": 160,
+      "failedCondition": "reload!!.message.orEmpty().contains(\"подтверждения\")",
+      "precedingOnAssertionLine150": "PASS",
+      "precedingReloadExceptionNonNullAssertionLine159": "PASS",
+      "actualReloadExceptionMessage": "UNKNOWN; not retained by the bare assertTrue or the caught exception.",
+      "actualDeviceOrAppLocale": "UNKNOWN; no locale readback retained for this failed preview.",
+      "serviceCloseCallAndAssertionsLines161To167": "NOT_RUN",
+      "explicitControllerStopAndAssertionsLines170To172": "NOT_RUN",
+      "cleanupBoundary": "The disconnect in finally is separate from those unreached assertions.",
+      "ownershipInterpretation": "The non-null reload exception is observed; this failure does not show that reload was accepted or establish a new ownership race.",
+      "sourceUrl": "https://github.com/INNVoices/waarp/blob/9c14237bcd7efa9a84f13af5d578146dfe26cf7c/android/app/src/androidTest/java/local/waarp/android/core/VpnLifecycleInstrumentedTest.kt#L147-L173"
+    },
+    "gallery": "NOT_RUN; the preceding route-smoke command failed.",
+    "galleryRetentionStep": "The always-run retention step succeeded, but no gallery run or screenshots are evidenced.",
+    "debugApkUpload": "SKIPPED",
+    "androidReleaseAssetsUploaded": false
+  },
+  "windows": {
+    "nativeRoutePreflightJobId": 137300697987,
+    "nativeRoutePreflightConclusion": "success",
+    "jobId": 137301088902,
+    "jobConclusion": "success",
+    "jobUrl": "https://github.com/INNVoices/waarp/actions/runs/45052558924/job/137301088902",
+    "releaseId": 454640288,
+    "releaseApiUrl": "https://api.github.com/repos/INNVoices/waarp/releases/454640288",
+    "releaseTargetCommit": "9c14237bcd7efa9a84f13af5d578146dfe26cf7c",
+    "releaseDraft": true,
+    "releasePrerelease": true,
+    "releasePublishedAt": null,
+    "draftAssetCount": 7,
+    "draftAssetNames": [
+      "package-integrity-windows.json",
+      "package-inventory.txt",
+      "portable-lifecycle.json",
+      "public-catalog-windows.json",
+      "SHA256SUMS-windows.txt",
+      "sing-box-lx-1.14.2-lx.11-src.tar.gz",
+      "Waarp-1.0.0-portable.exe"
+    ],
+    "evidenceBoundary": "Asset existence and metadata were read from the GitHub release API; these observations do not claim publication or a local re-download of the payloads."
+  },
+  "sourceFinding": {
+    "classification": "CONFIRMED workflow precondition mismatch",
+    "ordinaryAndroidCi": "Calls scripts/android-emulator-locale.sh after installing the app/tests and before route-smoke.",
+    "ordinaryAndroidCiUrl": "https://github.com/INNVoices/waarp/blob/9c14237bcd7efa9a84f13af5d578146dfe26cf7c/.github/workflows/android.yml",
+    "preview": "Installs app/tests and invokes route-smoke then gallery without calling the existing locale helper.",
+    "previewWorkflowUrl": "https://github.com/INNVoices/waarp/blob/9c14237bcd7efa9a84f13af5d578146dfe26cf7c/.github/workflows/release-preview.yml",
+    "testContract": "The unchanged lifecycle assertions require Russian substrings in localized serviceReload and serviceClose errors.",
+    "handlerUrl": "https://github.com/INNVoices/waarp/blob/9c14237bcd7efa9a84f13af5d578146dfe26cf7c/android/app/src/main/java/local/waarp/android/core/LibboxBackend.kt#L425-L426",
+    "reloadLocalizationKey": "LibboxBackend.a0e31b961f1b",
+    "englishAssetMessage": "Restarting the VPN requires confirmation in Waarp",
+    "englishAssetUrl": "https://github.com/INNVoices/waarp/blob/9c14237bcd7efa9a84f13af5d578146dfe26cf7c/android/app/src/main/assets/locales/en.json",
+    "hypothesis": {
+      "classification": "INFERENCE, not an observed exception string or locale",
+      "explanation": "Omitting the locale precondition can select an error message without the Russian substring required by line 160. This explains the observed assertion boundary and supports restoring the existing precondition; the actual message and locale from the failed run remain unknown.",
+      "newOwnershipRaceEvidence": false
+    }
+  },
+  "scopedCorrection": {
+    "action": "Call the existing scripts/android-emulator-locale.sh after install and before the unchanged route/gallery commands in preview.",
+    "helperUrl": "https://github.com/INNVoices/waarp/blob/9c14237bcd7efa9a84f13af5d578146dfe26cf7c/scripts/android-emulator-locale.sh",
+    "api35Contract": [
+      "Targets emulator-5554 and requires ro.kernel.qemu=1.",
+      "Sets ru-RU for local.waarp.android.debug, user 0, using cmd locale set-app-locales.",
+      "Requires cmd locale get-app-locales readback to contain ru-RU."
+    ],
+    "scope": "Existing disposable-emulator per-app locale preparation; no production code, assertion-condition, timeout, or signing-identity change is implied.",
+    "correctedSourceRuntimeValidation": "PENDING",
+    "unchangedRerunRequested": false
+  },
+  "publication": {
+    "publishJobId": 137304370885,
+    "publishJobConclusion": "skipped",
+    "previewPublished": false,
+    "sourceBinding": "The draft and its Windows assets remain bound to source 9c14237bcd7efa9a84f13af5d578146dfe26cf7c.",
+    "nextSourceRequiresFreshTag": true
+  },
+  "retention": {
+    "workflowActionsArtifactCount": 0,
+    "availableEvidence": "GitHub job logs, always-printed JVM/APK/route result JSON, workflow jobs API and draft release API.",
+    "unavailableEvidence": [
+      "Actual caught reload exception text",
+      "Actual app/device locale readback",
+      "Gallery screenshots from this preview"
+    ],
+    "separateRunBoundary": "Successful focused PR checks and ordinary main CI are separate evidence; neither changes this preview's failed Android gate."
+  }
+}
